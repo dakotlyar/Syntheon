@@ -244,12 +244,22 @@ def get_recommendations() -> List[RuntimeRecommendation]:
         ))
 
     # --- NPU ---
-    if npu and not ort_ok:
+    # onnxruntime is recommended regardless of whether has_npu() found a
+    # dedicated NPU: the NPU benchmark picks the best available execution
+    # provider and falls back to plain CPU inference when there's no NPU,
+    # so it's still useful (and still needed for the test to run at all)
+    # on the vast majority of machines that don't have one.
+    if not ort_ok:
+        reason = (
+            'NPU / AI accelerator detected — enables full-speed AI inference benchmark'
+            if npu else
+            'Enables the AI inference benchmark (runs via CPU — no dedicated NPU detected on this machine)'
+        )
         recs.append(RuntimeRecommendation(
             label='onnxruntime',
             pip_name='onnxruntime',
             import_name='onnxruntime',
-            reason='NPU / AI accelerator detected — enables AI inference benchmark',
+            reason=reason,
             category='npu',
         ))
 

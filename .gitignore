@@ -22,3 +22,6 @@ appimagetool-x86_64.AppImage
 # Benchmark run output
 /tiamat
 
+# Runtime-installed optional packages (cupy/pyopencl/onnxruntime)
+/synbench_plugins/
+
