@@ -280,6 +280,15 @@ def _bench_opencl_ctypes(duration: float) -> Tuple[float, str]:
     elif sys.platform == 'darwin':
         _cl = ctypes.CDLL('/System/Library/Frameworks/OpenCL.framework/OpenCL')
     else:
+        # Mesa's RustiCL OpenCL implementation registers zero platforms
+        # (not one platform with zero devices) unless RUSTICL_ENABLE names
+        # the Gallium driver — this is why plenty of Mesa systems with a
+        # perfectly good iGPU/APU report "No OpenCL platforms found" out of
+        # the box (e.g. handheld gaming images like Bazzite/SteamOS).
+        # Harmless everywhere else: proprietary AMD/NVIDIA/Intel OpenCL
+        # runtimes ignore this variable entirely.
+        os.environ.setdefault('RUSTICL_ENABLE', 'radeonsi:iris')
+
         # ctypes.util.find_library('OpenCL') relies on ldconfig.
         # On systems where the ICD loader (ocl-icd) is installed but not yet
         # cached by ldconfig, or where the .so lives outside the default paths
@@ -305,7 +314,8 @@ def _bench_opencl_ctypes(duration: float) -> Tuple[float, str]:
                 'libOpenCL not found.\n'
                 'For AMD GPU with Mesa, install: ocl-icd opencl-rusticl-mesa\n'
                 '  Arch/CachyOS: sudo pacman -S ocl-icd opencl-rusticl-mesa\n'
-                '  Ubuntu/Debian: sudo apt install ocl-icd-libopencl1 mesa-opencl-icd'
+                '  Ubuntu/Debian: sudo apt install ocl-icd-libopencl1 mesa-opencl-icd\n'
+                '  Fedora Atomic/Bazzite/SteamOS: rpm-ostree install mesa-libOpenCL (reboot after)'
             )
         _cl = ctypes.CDLL(_lib)
 
@@ -344,7 +354,15 @@ def _bench_opencl_ctypes(duration: float) -> Tuple[float, str]:
     # ---- Find first OpenCL GPU device --------------------------------
     n_plat = u32(0)
     if _cl.clGetPlatformIDs(0, None, ctypes.byref(n_plat)) != CL_SUCCESS or not n_plat.value:
-        raise RuntimeError('No OpenCL platforms found')
+        raise RuntimeError(
+            'No OpenCL platforms found.\n'
+            "Mesa's RustiCL registers zero platforms unless RUSTICL_ENABLE names your "
+            'GPU driver (already set to "radeonsi:iris" by SynBench) — if this still '
+            'fails, the RustiCL ICD itself is likely missing from this OS image.\n'
+            '  Fedora Atomic/Bazzite/SteamOS: rpm-ostree install mesa-libOpenCL (reboot after)\n'
+            '  Arch/CachyOS: sudo pacman -S ocl-icd opencl-rusticl-mesa\n'
+            '  Ubuntu/Debian: sudo apt install ocl-icd-libopencl1 mesa-opencl-icd'
+        )
     plats = (vp * n_plat.value)()
     _cl.clGetPlatformIDs(n_plat.value, plats, None)
 

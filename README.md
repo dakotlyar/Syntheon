@@ -58,9 +58,11 @@ Optional packages improve GPU and NPU benchmark scores.  Use **Tools → Install
 > sudo pacman -S ocl-icd opencl-rusticl-mesa
 > # Ubuntu / Debian
 > sudo apt install ocl-icd-libopencl1 mesa-opencl-icd
+> # Fedora Atomic / Bazzite / SteamOS (reboot after)
+> rpm-ostree install mesa-libOpenCL
 > ```
 >
-> `opencl-rusticl-mesa` (Rusticl) is preferred over the older `opencl-mesa` (Clover) — it has better OpenCL 3.0 compliance and fewer driver bugs.
+> `opencl-rusticl-mesa` (Rusticl) is preferred over the older `opencl-mesa` (Clover) — it has better OpenCL 3.0 compliance and fewer driver bugs. Rusticl also registers *zero* OpenCL platforms unless the `RUSTICL_ENABLE` environment variable names your GPU driver — SynBench sets this itself (`radeonsi:iris`) before probing, so no manual `export` is needed once the package above is installed.
 
 ### Build requirements
 
