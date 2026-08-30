@@ -89,7 +89,7 @@ exe_gui = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon='assets/synbench.ico',  # Uncomment and provide .ico to set app icon
+    icon='assets/synbench.ico',
 )
 
 # ---- CLI executable (console window for --cli output) ----
@@ -110,6 +110,7 @@ exe_cli = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='assets/synbench.ico',
 )
 
 # ---- Collect into one output folder ----

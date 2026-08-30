@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f2740"/>
+      <stop offset="1" stop-color="#0a3d2e"/>
+    </linearGradient>
+    <radialGradient id="hubGrad" cx="0.35" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c3d4de"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="16" y="16" width="992" height="992" rx="210" fill="url(#bg)"/>
+
+  <path d="M 306.94,765.06 A 290,290 0 0 1 306.94,354.94" stroke="#3ddc84" stroke-width="100" fill="none" stroke-linecap="butt"/><path d="M 306.94,354.94 A 290,290 0 0 1 717.06,354.94" stroke="#ffc93d" stroke-width="100" fill="none" stroke-linecap="butt"/><path d="M 717.06,354.94 A 290,290 0 0 1 717.06,765.06" stroke="#ff3d3d" stroke-width="100" fill="none" stroke-linecap="butt"/>
+  <polygon points="741.44,659.29 527.89,523.29 496.11,596.71" fill="#f5fafd"/>
+
+  <circle cx="512" cy="560" r="62" fill="url(#hubGrad)"/>
+</svg>
