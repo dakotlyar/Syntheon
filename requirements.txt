@@ -1,0 +1,14 @@
+# Runtime dependencies (bundled into the standalone build by PyInstaller)
+numpy>=1.24.0
+psutil>=5.9.0
+PySide6>=6.5.0
+
+# Optional runtime — install for GPU/NPU acceleration:
+#   NVIDIA/AMD GPU:  pip install cupy-cuda12x   (CUDA 12.x)
+#                    pip install cupy-rocm-5-0   (AMD ROCm)
+#   Any GPU (OpenCL): pip install pyopencl
+#   NPU/AI inference: pip install onnxruntime    (CPU / OpenVINO / QNN)
+#                     pip install onnxruntime-gpu (CUDA/TensorRT/ROCm)
+
+# Build dependency (not bundled, only needed to create the standalone binary):
+#   pip install pyinstaller>=6.0.0

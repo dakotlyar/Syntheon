@@ -1,0 +1,23 @@
+# Build artifacts
+/build/
+/dist/
+/SynBench.AppDir/
+*.AppImage
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Build environments
+/.build_python/
+/.build_venv/
+.venv/
+venv/
+
+# Tooling
+appimagetool-x86_64.AppImage
+
+# Benchmark run output
+/tiamat
+
