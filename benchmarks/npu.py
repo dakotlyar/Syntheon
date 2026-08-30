@@ -13,7 +13,6 @@ If onnxruntime is not installed the test reports as unavailable.
 """
 
 import io
-import struct
 import time
 from typing import Callable, List, Optional, Tuple
 
@@ -29,19 +28,17 @@ _DURATION   = 5.0
 
 # ---------------------------------------------------------------------------
 # Minimal ONNX graph builder (no onnx package required)
-# Builds: input(1,64) → MatMul(W1 256×64) → Relu → MatMul(W2 64×256) → output(1,64)
+# Builds: input(1,64) → MatMul(W1 64×256) → Relu → MatMul(W2 256×64) → output(1,64)
 # ---------------------------------------------------------------------------
 
 def _f32_tensor(name: str, dims: List[int], data: bytes) -> bytes:
     """Encode a float32 ONNX TensorProto."""
-    import numpy as np
 
     # ONNX TensorProto fields (field numbers from onnx.proto3):
-    #  1: float_data (repeated float)  — we use raw_data instead
-    #  3: data_type (INT32: 1=float)
-    #  4: dims (INT64)
-    #  9: name (STRING)
-    # 12: raw_data (BYTES)
+    #  1: dims (repeated int64, packed)
+    #  2: data_type (INT32: 1=float)
+    #  8: name (STRING)
+    #  9: raw_data (BYTES)
 
     def _varint(v: int) -> bytes:
         out = []
@@ -53,17 +50,15 @@ def _f32_tensor(name: str, dims: List[int], data: bytes) -> bytes:
 
     def _field(number: int, wire: int, payload: bytes) -> bytes:
         tag = _varint((number << 3) | wire)
-        return tag + _varint(len(payload)) + payload
+        if wire == 2:
+            return tag + _varint(len(payload)) + payload
+        return tag + payload  # varint (wire 0): no length prefix
 
-    def _int64_le(v: int) -> bytes:
-        return struct.pack("<q", v)
-
-    # data_type = 1 (FLOAT)
-    proto = _field(3, 0, _varint(1))
-    for d in dims:
-        proto += _field(4, 2, _int64_le(d))
-    proto += _field(9, 2, name.encode())
-    proto += _field(12, 2, data)
+    dims_payload = b"".join(_varint(d) for d in dims)
+    proto  = _field(1, 2, dims_payload)   # dims (packed varint)
+    proto += _field(2, 0, _varint(1))     # data_type = FLOAT
+    proto += _field(8, 2, name.encode())  # name
+    proto += _field(9, 2, data)           # raw_data
     return proto
 
 
@@ -72,8 +67,8 @@ def _build_onnx_mlp() -> bytes:
     import numpy as np
 
     rng = np.random.default_rng(42)
-    W1 = rng.standard_normal((256, 64)).astype(np.float32)
-    W2 = rng.standard_normal((64, 256)).astype(np.float32)
+    W1 = rng.standard_normal((64, 256)).astype(np.float32)
+    W2 = rng.standard_normal((256, 64)).astype(np.float32)
 
     def _varint(v: int) -> bytes:
         out = []
@@ -85,7 +80,9 @@ def _build_onnx_mlp() -> bytes:
 
     def _field(number: int, wire: int, payload: bytes) -> bytes:
         tag = _varint((number << 3) | wire)
-        return tag + _varint(len(payload)) + payload
+        if wire == 2:
+            return tag + _varint(len(payload)) + payload
+        return tag + payload  # varint (wire 0): no length prefix
 
     def _string(s: str) -> bytes:
         return s.encode()
@@ -120,29 +117,22 @@ def _build_onnx_mlp() -> bytes:
         vi += _field(2, 2, _type_proto_tensor(elem_type, dims))
         return vi
 
-    nodes = (
-        _node("MatMul",  ["input", "W1"], ["h"],   "mm1")
-        + _node("Relu",  ["h"],           ["hr"],  "relu")
-        + _node("MatMul",["hr", "W2"],    ["out"], "mm2")
-    )
-
     # ---- Initializers ----
     init_w1 = _f32_tensor("W1", list(W1.shape), W1.tobytes())
     init_w2 = _f32_tensor("W2", list(W2.shape), W2.tobytes())
 
     # ---- GraphProto ----
-    graph = b""
-    for node_bytes in [
-        _field(1, 2, _node("MatMul",  ["input", "W1"], ["h"],   "mm1")),
-        _field(1, 2, _node("Relu",    ["h"],           ["hr"],  "relu")),
-        _field(1, 2, _node("MatMul",  ["hr", "W2"],    ["out"], "mm2")),
-    ]:
-        graph += node_bytes
-    graph += _field(2, 2, _value_info("input", 1, [1, 64]))
-    graph += _field(3, 2, _value_info("out",   1, [1, 64]))
-    graph += _field(4, 2, init_w1)
-    graph += _field(4, 2, init_w2)
-    graph += _field(5, 2, _string("synbench_graph"))
+    graph = (
+        _field(1, 2, _node("MatMul", ["input", "W1"], ["h"],   "mm1"))
+        + _field(1, 2, _node("Relu",  ["h"],           ["hr"],  "relu"))
+        + _field(1, 2, _node("MatMul", ["hr", "W2"],   ["out"], "mm2"))
+    )
+    # GraphProto fields (onnx.proto3): name=2, initializer=5, input=11, output=12
+    graph += _field(2, 2, _string("synbench_graph"))
+    graph += _field(5, 2, init_w1)
+    graph += _field(5, 2, init_w2)
+    graph += _field(11, 2, _value_info("input", 1, [1, 64]))
+    graph += _field(12, 2, _value_info("out",   1, [1, 64]))
 
     # ---- ModelProto ----
     # ir_version=7 (field 1), opset_import domain="" version=13 (field 8), graph (field 7)
