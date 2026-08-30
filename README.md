@@ -11,20 +11,30 @@ Available as a self-contained GUI application (AppImage on Linux, `.exe` on Wind
 | Test     | What it measures                                                               | Reference score          |
 |----------|--------------------------------------------------------------------------------|--------------------------|
 | **CPU**  | Integer throughput, FP throughput, multi-core scaling (Python multiprocessing) | Ryzen 5 5600 ≈ 1 000 pts |
-| **GPU**  | FP32 matrix multiply (GEMM) via the best available backend                     | RTX 3060 ≈ 300 pts       |
+| **GPU**  | FP32 GEMM compute + 2D textured fill-rate + 3D shaded/lit triangle throughput   | RTX 3060 ≈ 300 pts       |
 | **NPU**  | AI inference throughput (ONNX Runtime, best available execution provider)      | Dedicated NPU ≈ 200 pts  |
 | **RAM**  | Sequential and random memory bandwidth                                         | High-end DDR5 ≈ 200 pts  |
 | **Disk** | Sequential + random 4 K read/write (256 MB test file, fsync'd)                 | PCIe 4 NVMe ≈ 200 pts    |
 
-### GPU backend priority
+### GPU: compute + rendering
 
-SynBench tries GPU backends in order, using the first one that succeeds:
+The GPU score blends three independent measurements, weighted 60/20/20 of the 300-point reference:
+
+1. **Compute (60%)** — FP32 matrix multiply (GEMM), GFLOPS
+2. **2D rendering (20%)** — textured full-viewport quad fill-rate, Mpixels/sec
+3. **3D rendering (20%)** — a shaded, textured, lit wavy-grid mesh, triangles/sec
+
+Compute and rendering use entirely separate subsystems and fail independently — a machine can score on one even if the other is unavailable (e.g. no CUDA/OpenCL runtime, or no display for OpenGL), and only shows "No GPU or OpenCL/OpenGL drivers found" if *both* fail.
+
+**Compute backend priority** — SynBench tries these in order, using the first one that succeeds:
 
 1. **CuPy** (CUDA or ROCm) — best scores, requires optional package
 2. **CUDA via cuBLAS ctypes** — near-CuPy scores, requires CUDA toolkit (`libcublas`), no Python package needed
 3. **PyOpenCL** — requires optional package
 4. **OpenCL via ctypes** — works on any GPU with OpenCL drivers, no packages needed
 5. **N/A** — reported when no GPU or drivers are detected
+
+**2D/3D rendering** uses an offscreen Qt/OpenGL context (`QOffscreenSurface` + `QOpenGLContext`). PySide6 is already a hard dependency for the GUI, so this needs no extra packages, and it runs identically from `--cli` or the GUI, on a real GPU or a software rasterizer.
 
 The log panel shows exactly which backend was tried and why each fallback occurred.
 
@@ -195,7 +205,7 @@ On first launch, if optional runtime packages are recommended for the detected h
 ```json
 {
   "cpu":  { "score": 987,  "available": true,  "summary": "Int 8.21 Mops/s  FP 3.94 Mops/s  MC 38.1 Mops/s (12T)" },
-  "gpu":  { "score": 283,  "available": true,  "summary": "11340.2 GFLOPS  [CUDA (cuBLAS) – NVIDIA GeForce RTX 3060]" },
+  "gpu":  { "score": 289,  "available": true,  "summary": "11340 GFLOPS, 29800 Mpx/s, 640,000,000 tris/s  [CUDA (cuBLAS) – NVIDIA GeForce RTX 3060]" },
   "npu":  { "score": 0,    "available": false, "summary": "onnxruntime not installed" },
   "ram":  { "score": 142,  "available": true,  "summary": "…" },
   "disk": { "score": 178,  "available": true,  "summary": "…" },
@@ -231,7 +241,7 @@ CPU scores are uncapped and linear — high-core-count CPUs will keep exceeding 
 synbench.py          Entry point (GUI + CLI)
 benchmarks/
   cpu.py             CPU benchmark (multiprocessing)
-  gpu.py             GPU benchmark (cupy / cuBLAS / OpenCL)
+  gpu.py             GPU benchmark (cupy / cuBLAS / OpenCL compute + Qt/OpenGL 2D/3D rendering)
   npu.py             NPU benchmark (ONNX Runtime)
   ram.py             RAM bandwidth benchmark
   disk.py            Disk I/O benchmark

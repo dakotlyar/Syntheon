@@ -39,6 +39,7 @@ a = Analysis(
         'PySide6.QtWidgets',
         'PySide6.QtCore',
         'PySide6.QtGui',
+        'PySide6.QtOpenGL',   # offscreen 2D/3D rendering benchmark (benchmarks/gpu.py)
         # multiprocessing internals (needed for CPU benchmark worker pool)
         'multiprocessing.pool',
         'multiprocessing.queues',
