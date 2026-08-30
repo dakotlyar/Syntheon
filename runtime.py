@@ -141,20 +141,39 @@ def has_opencl() -> bool:
     return sys.platform == 'darwin'
 
 
-def has_npu() -> bool:
-    """Return True when an NPU / AI accelerator appears to be present."""
+def detect_npu_vendor() -> Optional[str]:
+    """Return 'qualcomm' | 'intel' | 'amd' | 'apple' when an NPU / AI
+    accelerator appears to be present, else None.
+
+    The vendor matters, not just presence: the NPU benchmark only ever
+    targets a genuine NPU-specific ONNX Runtime execution provider for
+    that vendor — it deliberately does not fall back to CPU or GPU
+    inference, so knowing *which* NPU is here decides which provider
+    (and which onnxruntime package) applies. See NPU_PROVIDER_INFO.
+    """
     if sys.platform.startswith('linux'):
-        # Kernel accel device nodes (Intel NPU, AMD XDNA, …)
+        # Kernel accel device nodes (Intel NPU, AMD XDNA, …) — inspect the
+        # driver serving each node before falling back to module names.
         accel_dir = '/dev/accel'
         if os.path.isdir(accel_dir) and os.listdir(accel_dir):
-            return True
-        # Loaded driver modules
+            for name in os.listdir(accel_dir):
+                driver = os.path.realpath(f'/sys/class/accel/{name}/device/driver') or ''
+                if 'intel_vpu' in driver:
+                    return 'intel'
+                if 'amdxdna' in driver:
+                    return 'amd'
+
         try:
             modules = open('/proc/modules').read()
-            npu_drivers = ('intel_vpu', 'amdxdna', 'qcom_q6v5')
-            return any(d in modules for d in npu_drivers)
         except OSError:
-            return False
+            modules = ''
+        if 'intel_vpu' in modules:
+            return 'intel'
+        if 'amdxdna' in modules:
+            return 'amd'
+        if 'qcom_q6v5' in modules:
+            return 'qualcomm'
+        return None
 
     if sys.platform == 'win32':
         out = _run(
@@ -164,14 +183,62 @@ def has_npu() -> bool:
             'Select-Object -ExpandProperty FriendlyName',
             timeout=8,
         )
-        return bool(out and out.strip())
+        if not out or not out.strip():
+            return None
+        text = out.lower()
+        if 'qualcomm' in text or 'hexagon' in text or 'snapdragon' in text:
+            return 'qualcomm'
+        if 'intel' in text:
+            return 'intel'
+        if 'amd' in text or 'ryzen' in text or 'xdna' in text:
+            return 'amd'
+        return None
 
     if sys.platform == 'darwin':
         # Apple Neural Engine is present on all Apple Silicon Macs
         r = _run('sysctl', '-n', 'hw.optional.arm64')
-        return r is not None and r.strip() == '1'
+        return 'apple' if (r is not None and r.strip() == '1') else None
 
-    return False
+    return None
+
+
+def has_npu() -> bool:
+    """Return True when an NPU / AI accelerator appears to be present."""
+    return detect_npu_vendor() is not None
+
+
+# ---------------------------------------------------------------------------
+# NPU vendor -> ONNX Runtime provider mapping
+# ---------------------------------------------------------------------------
+# Only vendors with a genuine, pip-installable, NPU-exclusive execution
+# provider are listed here. A vendor detected but absent from this dict
+# (e.g. 'amd' — Ryzen AI's Vitis-AI EP needs a separate manual SDK install,
+# not a plain pip package) is reported as "NPU detected, unsupported" by
+# the benchmark rather than silently substituting CPU/GPU inference.
+NPU_PROVIDER_INFO = {
+    'qualcomm': {
+        'pip_name': 'onnxruntime-qnn',
+        'provider': 'QNNExecutionProvider',
+        'provider_options': {
+            'backend_path': 'QnnHtp.dll' if sys.platform == 'win32' else 'libQnnHtp.so',
+        },
+        'label': 'Qualcomm Hexagon NPU (QNN)',
+    },
+    'intel': {
+        'pip_name': 'onnxruntime-openvino',
+        'provider': 'OpenVINOExecutionProvider',
+        'provider_options': {'device_type': 'NPU'},
+        'label': 'Intel AI Boost NPU (OpenVINO)',
+    },
+    'apple': {
+        # The standard macOS onnxruntime wheel already bundles CoreML —
+        # no separate package needed.
+        'pip_name': 'onnxruntime',
+        'provider': 'CoreMLExecutionProvider',
+        'provider_options': {'MLComputeUnits': 'CPUAndNeuralEngine'},
+        'label': 'Apple Neural Engine (CoreML)',
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +259,7 @@ def _importable(module_name: str) -> bool:
 class RuntimeRecommendation:
     """One optional package that could improve a benchmark on this machine."""
 
-    __slots__ = ('label', 'pip_name', 'import_name', 'reason', 'category')
+    __slots__ = ('label', 'pip_name', 'import_name', 'reason', 'category', 'required_provider')
 
     def __init__(
         self,
@@ -201,15 +268,28 @@ class RuntimeRecommendation:
         import_name: str,
         reason: str,
         category: str,  # 'gpu' or 'npu'
+        required_provider: Optional[str] = None,
     ):
         self.label       = label
         self.pip_name    = pip_name
         self.import_name = import_name
         self.reason      = reason
         self.category    = category
+        # For NPU recommendations: the module being importable isn't enough
+        # to call it "installed" — a CPU-only onnxruntime import succeeds
+        # too. Also require this specific execution provider to be present.
+        self.required_provider = required_provider
 
     def is_installed(self) -> bool:
-        return _importable(self.import_name)
+        if not _importable(self.import_name):
+            return False
+        if self.required_provider:
+            try:
+                import onnxruntime as ort
+                return self.required_provider in ort.get_available_providers()
+            except Exception:
+                return False
+        return True
 
 
 def get_recommendations() -> List[RuntimeRecommendation]:
@@ -218,12 +298,11 @@ def get_recommendations() -> List[RuntimeRecommendation]:
 
     cupy_ok   = _importable('cupy')
     opencl_ok = _importable('pyopencl')
-    ort_ok    = _importable('onnxruntime')
 
     nvidia = has_nvidia_gpu()
     amd    = has_amd_rocm()
     opencl = has_opencl()
-    npu    = has_npu()
+    npu_vendor = detect_npu_vendor()
 
     # --- GPU ---
     if nvidia and not cupy_ok:
@@ -244,24 +323,23 @@ def get_recommendations() -> List[RuntimeRecommendation]:
         ))
 
     # --- NPU ---
-    # onnxruntime is recommended regardless of whether has_npu() found a
-    # dedicated NPU: the NPU benchmark picks the best available execution
-    # provider and falls back to plain CPU inference when there's no NPU,
-    # so it's still useful (and still needed for the test to run at all)
-    # on the vast majority of machines that don't have one.
-    if not ort_ok:
-        reason = (
-            'NPU / AI accelerator detected — enables full-speed AI inference benchmark'
-            if npu else
-            'Enables the AI inference benchmark (runs via CPU — no dedicated NPU detected on this machine)'
-        )
-        recs.append(RuntimeRecommendation(
-            label='onnxruntime',
-            pip_name='onnxruntime',
+    # The NPU benchmark only ever targets a genuine NPU-specific execution
+    # provider for the detected vendor — never CPU or GPU inference — so a
+    # recommendation only makes sense when NPU_PROVIDER_INFO actually has
+    # an entry for this vendor (e.g. 'amd' currently doesn't: Ryzen AI's
+    # Vitis-AI EP needs a separate manual SDK, not a plain pip package).
+    info = NPU_PROVIDER_INFO.get(npu_vendor) if npu_vendor else None
+    if info:
+        rec = RuntimeRecommendation(
+            label=info['pip_name'],
+            pip_name=info['pip_name'],
             import_name='onnxruntime',
-            reason=reason,
+            reason=f'{info["label"]} detected — enables the NPU-targeted AI inference benchmark',
             category='npu',
-        ))
+            required_provider=info['provider'],
+        )
+        if not rec.is_installed():
+            recs.append(rec)
 
     return recs
 
@@ -341,6 +419,26 @@ def install_package(
         if progress_cb:
             progress_cb(msg)
         return False, msg
+
+    # onnxruntime's variants (onnxruntime / onnxruntime-gpu / -openvino /
+    # -qnn / -directml, …) are different pip distributions that all install
+    # the same top-level 'onnxruntime' package — pip's --target mode won't
+    # remove a previous variant's files when swapping to a different one,
+    # which can leave a broken mix of two builds' files. Clear any existing
+    # onnxruntime install first so a variant switch is always a clean swap.
+    if pip_name.startswith('onnxruntime'):
+        import glob
+        import shutil as _shutil
+        for path in glob.glob(os.path.join(PLUGINS_DIR, 'onnxruntime*')):
+            if progress_cb:
+                progress_cb(f'Removing previous install: {path}')
+            if os.path.isdir(path):
+                _shutil.rmtree(path, ignore_errors=True)
+            else:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
     full_cmd = cmd + ['install', '--target', PLUGINS_DIR, pip_name]
     if progress_cb:
