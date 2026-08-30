@@ -240,6 +240,15 @@ NPU_PROVIDER_INFO = {
     },
 }
 
+# Vendors with real NPU hardware but no entry in NPU_PROVIDER_INFO above —
+# mapped to their own manual setup docs so the benchmark's "unsupported"
+# error message points somewhere useful. Not auto-installable: AMD's
+# Ryzen AI Software is a full installer wizard (with its own NPU driver
+# preflight check), not a pip package.
+NPU_UNSUPPORTED_VENDOR_DOCS = {
+    'amd': 'https://ryzenai.docs.amd.com/en/latest/inst.html',
+}
+
 
 # ---------------------------------------------------------------------------
 # Package availability

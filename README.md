@@ -48,7 +48,7 @@ Targets a genuine, vendor-specific NPU execution provider via ONNX Runtime — *
 | Intel (AI Boost)    | OpenVINO (NPU device)| `onnxruntime-openvino` |
 | Apple (Neural Engine)| CoreML (ANE-biased) | `onnxruntime` (bundled on macOS) |
 
-AMD NPUs (Ryzen AI / XDNA) are detected but not yet supported — Vitis-AI requires a separate manual SDK install, not a plain `pip install` — so the test reports "AMD NPU detected — unsupported" (score 0) rather than guessing.
+AMD NPUs (Ryzen AI / XDNA) are detected but not yet supported — Vitis-AI requires a separate manual SDK install, not a plain `pip install` — so the test reports "AMD NPU detected — unsupported" (score 0) rather than guessing, with a link to [AMD's Ryzen AI Software installation docs](https://ryzenai.docs.amd.com/en/latest/inst.html) for manual setup.
 
 ---
 

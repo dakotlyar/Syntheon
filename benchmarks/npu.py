@@ -162,7 +162,7 @@ class NPUBenchmark:
     def run(self) -> BenchmarkResult:
         self.cb("Starting NPU / AI inference benchmark …")
 
-        from runtime import detect_npu_vendor, NPU_PROVIDER_INFO
+        from runtime import detect_npu_vendor, NPU_PROVIDER_INFO, NPU_UNSUPPORTED_VENDOR_DOCS
 
         vendor = detect_npu_vendor()
         if vendor is None:
@@ -176,17 +176,22 @@ class NPUBenchmark:
 
         info = NPU_PROVIDER_INFO.get(vendor)
         if info is None:
-            self.cb(f"{vendor.title()} NPU detected, but no supported inference path is available.")
+            vendor_name = {'amd': 'AMD'}.get(vendor, vendor.title())
+            self.cb(f"{vendor_name} NPU detected, but no supported inference path is available.")
+            docs_url = NPU_UNSUPPORTED_VENDOR_DOCS.get(vendor)
+            error = (
+                f"{vendor_name} NPU inference needs a vendor SDK SynBench doesn't "
+                "support yet. This test never substitutes CPU or GPU inference for a "
+                "missing NPU path, so it reports unavailable instead."
+            )
+            if docs_url:
+                error += f"\nManual setup: {docs_url}"
             return BenchmarkResult(
                 name="npu",
                 score=0,
                 available=False,
-                summary=f"{vendor.title()} NPU detected — unsupported",
-                error=(
-                    f"{vendor.title()} NPU inference needs a vendor SDK SynBench doesn't "
-                    "support yet. This test never substitutes CPU or GPU inference for a "
-                    "missing NPU path, so it reports unavailable instead."
-                ),
+                summary=f"{vendor_name} NPU detected — unsupported",
+                error=error,
             )
 
         try:
