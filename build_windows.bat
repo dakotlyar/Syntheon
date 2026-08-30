@@ -121,7 +121,7 @@ echo.
 REM ========================================================
 REM  Step 4 – Build with PyInstaller
 REM ========================================================
-echo  [4/4] Building SynBench...
+echo  [4/6] Building SynBench...
 echo.
 
 if exist dist\SynBench (
@@ -145,7 +145,7 @@ REM  no system Python at all). Uses the official embeddable
 REM  package, same version/arch as the build Python so any
 REM  compiled wheels it installs match the frozen app's ABI.
 REM ========================================================
-echo  [5/5] Bundling portable Python (for optional GPU/NPU plugin installs)...
+echo  [5/6] Bundling portable Python (for optional GPU/NPU plugin installs)...
 
 set EMBED_DIR=dist\SynBench\python-embed
 set EMBED_ZIP=%TEMP%\python-%PY_VERSION%-embed-%PY_ARCH%.zip
@@ -185,6 +185,36 @@ del "%GETPIP%" >nul 2>&1
 echo  Sidecar Python bundled at %EMBED_DIR%
 echo.
 
+REM ========================================================
+REM  Step 6 – Build the installer (Inno Setup), if available.
+REM  Optional: not everyone doing a local build has Inno Setup
+REM  installed, so this is skipped (not fatal) when missing.
+REM ========================================================
+echo  [6/6] Building installer...
+
+set ISCC=
+if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe
+if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe
+where ISCC.exe >nul 2>&1 && for /f "delims=" %%I in ('where ISCC.exe') do set ISCC=%%I
+
+if not defined SYNBENCH_VERSION set SYNBENCH_VERSION=0.0.0-local
+
+if defined ISCC (
+    "%ISCC%" installer.iss /DMyAppVersion=%SYNBENCH_VERSION%
+    if errorlevel 1 (
+        echo.
+        echo  WARNING: Installer build failed. See output above.
+        echo  dist\SynBench\ is still usable as a portable folder.
+    ) else (
+        echo  Installer built: installer_output\SynBench-Setup.exe
+    )
+) else (
+    echo  Inno Setup not found — skipping installer build.
+    echo  Install it from https://jrsoftware.org/isdl.php and re-run
+    echo  this script to also produce installer_output\SynBench-Setup.exe.
+)
+echo.
+
 echo.
 echo  ============================================
 echo   Build complete!
@@ -198,8 +228,11 @@ echo        SynBench-CLI.exe --cli
 echo        SynBench-CLI.exe --cli --tests cpu ram disk --json
 echo        SynBench-CLI.exe --cli --tests disk --disk-dir D:\
 echo.
-echo   Zip dist\SynBench\ and share it — no Python installation
-echo   is required on the end-user machine.
+echo   installer_output\SynBench-Setup.exe
+echo     ^> Self-extracting installer with an uninstaller (if built above)
+echo.
+echo   Or zip dist\SynBench\ and share it as a portable folder —
+echo   no Python installation is required on the end-user machine.
 echo  ============================================
 echo.
 pause

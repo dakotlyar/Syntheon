@@ -52,11 +52,21 @@ jobs:
           Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile get-pip.py
           & "$embedDir\python.exe" get-pip.py --no-warn-script-location
 
-      - name: Upload Windows build
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($env:GITHUB_REF_TYPE -ne 'tag') { $version = '0.0.0-dev' }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss "/DMyAppVersion=$version"
+
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: SynBench-Windows
-          path: dist\SynBench
+          name: SynBench-Windows-Installer
+          path: installer_output\SynBench-Setup.exe
           if-no-files-found: error
 
   release:
@@ -75,13 +85,13 @@ jobs:
       - name: Package artifacts
         run: |
           cd artifacts
-          zip -r SynBench-Windows.zip SynBench-Windows/
           mv SynBench-Linux/SynBench-x86_64.AppImage .
+          mv SynBench-Windows-Installer/SynBench-Setup.exe .
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/SynBench-x86_64.AppImage
-            artifacts/SynBench-Windows.zip
+            artifacts/SynBench-Setup.exe
           generate_release_notes: true

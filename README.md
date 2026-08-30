@@ -2,7 +2,7 @@
 
 A synthetic system benchmark for CPU, GPU, NPU, RAM, and Disk.  Produces a composite score calibrated against a Ryzen 5 5600 reference system, similar in methodology to Novabench.
 
-Available as a self-contained GUI application (AppImage on Linux, `.exe` on Windows) and as a headless CLI tool for scripting and automation.
+Available as a self-contained GUI application (AppImage on Linux, an installer with an uninstaller on Windows) and as a headless CLI tool for scripting and automation.
 
 ---
 
@@ -80,6 +80,7 @@ Optional packages improve GPU and NPU benchmark scores.  Use **Tools → Install
 |---------------------|----------------------------------------------|----------------------------------------------|
 | Internet connection | For downloading Python + appimagetool        | For downloading Python installer             |
 | curl                | Yes                                          | No (PowerShell used)                         |
+| [Inno Setup](https://jrsoftware.org/isdl.php) | N/A                        | Optional — only needed to build `SynBench-Setup.exe`; the portable `dist\SynBench\` folder still builds without it |
 | Everything else     | Downloaded automatically by the build script | Downloaded automatically by the build script |
 
 ---
@@ -116,7 +117,7 @@ Subsequent builds reuse the cached Python and appimagetool downloads.
 > APPIMAGE_EXTRACT_AND_RUN=1 ./SynBench-x86_64.AppImage
 > ```
 
-### Windows — Portable folder
+### Windows — Installer
 
 ```
 build_windows.bat
@@ -127,8 +128,12 @@ The script:
 1. Looks for Python in `PATH` or a known install location; downloads and silently installs it if missing (no admin required)
 2. Installs PyInstaller, numpy, psutil, PySide6 via pip
 3. Runs PyInstaller to produce `dist\SynBench\`
+4. Bundles a sidecar Python (`dist\SynBench\python-embed\`) for the in-app GPU/NPU plugin installer
+5. If [Inno Setup](https://jrsoftware.org/isdl.php) is installed, compiles `installer_output\SynBench-Setup.exe` from `installer.iss` — a single self-extracting installer that registers an uninstaller in "Apps & Features", with optional Start Menu / Desktop shortcuts
 
-**Output:** `dist\SynBench\` — zip this folder and distribute it.  No installation required on the end-user machine.
+Set `SYNBENCH_VERSION` before running to stamp a specific version (e.g. `set SYNBENCH_VERSION=1.2.3`); defaults to `0.0.0-local`. CI passes the real version from the git tag.
+
+**Output:** `installer_output\SynBench-Setup.exe` (requires admin to run — installs per-machine to Program Files). If Inno Setup isn't installed, this step is skipped and `dist\SynBench\` is still usable as a portable folder — zip it and distribute directly, no installation required on the end-user machine.
 
 ### Running from source
 
@@ -249,8 +254,9 @@ gui/
   app.py             PySide6 GUI application
 runtime.py           Optional runtime detection and installer
 synbench.spec        PyInstaller build spec
+installer.iss        Inno Setup script (Windows installer)
 build_linux.sh       Linux AppImage build script
-build_windows.bat    Windows portable build script
+build_windows.bat    Windows build script (portable folder + installer)
 run.sh               Development launcher (uses uv)
 ```
 
@@ -262,7 +268,7 @@ run.sh               Development launcher (uses uv)
 |----------------|---------------------------------------------------|-----------------------------------------------|
 | Linux x86_64   | SSE4.2 (Intel Nehalem ~2008, AMD Bulldozer ~2011) | AppImage; FUSE2 required at runtime           |
 | Linux aarch64  | ARMv8-A                                           | AppImage                                      |
-| Windows x86_64 | Windows 10 64-bit                                 | Portable folder; no installer                 |
+| Windows x86_64 | Windows 10 64-bit                                 | Installer requires admin (installs to Program Files) |
 | macOS          | macOS 12 Monterey                                 | Build from source; not officially distributed |
 
 The GPU benchmark works on any GPU with OpenCL drivers (NVIDIA, AMD, Intel) without additional packages.  CUDA-accelerated benchmarking requires the CUDA toolkit (`libcublas`).

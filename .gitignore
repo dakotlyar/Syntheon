@@ -2,6 +2,7 @@
 /build/
 /dist/
 /SynBench.AppDir/
+/installer_output/
 *.AppImage
 
 # Python
