@@ -195,7 +195,7 @@ On first launch, if optional runtime packages are recommended for the detected h
 ```json
 {
   "cpu":  { "score": 987,  "available": true,  "summary": "Int 8.21 Mops/s  FP 3.94 Mops/s  MC 38.1 Mops/s (12T)" },
-  "gpu":  { "score": 284,  "available": true,  "summary": "11340.2 GFLOPS  [CUDA (cuBLAS) – NVIDIA GeForce RTX 3060]" },
+  "gpu":  { "score": 283,  "available": true,  "summary": "11340.2 GFLOPS  [CUDA (cuBLAS) – NVIDIA GeForce RTX 3060]" },
   "npu":  { "score": 0,    "available": false, "summary": "onnxruntime not installed" },
   "ram":  { "score": 142,  "available": true,  "summary": "…" },
   "disk": { "score": 178,  "available": true,  "summary": "…" },
@@ -207,16 +207,21 @@ On first launch, if optional runtime packages are recommended for the detected h
 
 ## Scoring reference
 
-| Score  | CPU                        | GPU                    |
-|--------|----------------------------|------------------------|
-| ~250   | Intel Core i5-8400         | GTX 1060               |
-| ~500   | Ryzen 5 3600               | RTX 2060               |
-| ~1000  | Ryzen 5 5600 *(reference)* | —                      |
-| ~300   | —                          | RTX 3060 *(reference)* |
-| ~600   | Ryzen 9 5900X              | RTX 3080               |
-| ~1500+ | Threadripper / Xeon        | RTX 4090               |
+| Score  | CPU                        | GPU                       |
+|--------|----------------------------|---------------------------|
+| ~50    | —                          | Typical laptop iGPU       |
+| ~250   | Intel Core i5-8400         | —                         |
+| ~190   | —                          | GTX 1060                  |
+| ~215   | —                          | RTX 2060                  |
+| ~500   | Ryzen 5 3600               | —                         |
+| ~1000  | Ryzen 5 5600 *(reference)* | —                         |
+| ~300   | —                          | RTX 3060 *(reference)*    |
+| ~460   | —                          | RTX 3080                  |
+| ~600   | Ryzen 9 5900X              | —                         |
+| ~1500+ | Threadripper / Xeon        | —                         |
+| ~765   | —                          | RTX 4090                  |
 
-Scores are uncapped — high-core-count CPUs and high-end GPUs will exceed the reference values.  The overall score is the sum of all available sub-scores.
+CPU scores are uncapped and linear — high-core-count CPUs will keep exceeding the reference values proportionally. GPU scores are uncapped but follow a square-root curve against GFLOPS, so a weak iGPU still registers a visible score instead of rounding to near-zero, while flagship discrete GPUs no longer dominate the composite score as heavily. The overall score is the sum of all available sub-scores.
 
 ---
 

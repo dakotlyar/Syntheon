@@ -30,12 +30,21 @@ from . import BenchmarkResult
 # ---------------------------------------------------------------------------
 # Calibration
 # ---------------------------------------------------------------------------
-# score = gflops / _GPU_GFLOPS_REF * _GPU_BASE   (no hard cap)
-#   GTX 1060  ~5 000 GFLOPS → ~118 pts
-#   RTX 3060  ~12 700 GFLOPS → 300 pts   (reference)
-#   RTX 4090  ~82 600 GFLOPS → ~1 953 pts
+# score = _GPU_BASE * (gflops / _GPU_GFLOPS_REF) ** _GPU_CURVE   (no hard cap)
+#
+# A square-root curve (_GPU_CURVE = 0.5) keeps the score uncapped for
+# enthusiast hardware while compressing the huge GFLOPS spread between a
+# weak laptop iGPU and a flagship discrete GPU into a much narrower score
+# spread — a linear mapping made low-end iGPUs (a few hundred GFLOPS on the
+# unoptimized tiled OpenCL kernel) round down to single-digit or zero
+# scores, while a 4090 ran off to ~1 950 points and dominated the composite.
+#   Laptop iGPU ~300 GFLOPS  → ~46 pts   (was ~7 pts, linear)
+#   GTX 1060    ~5 000 GFLOPS → ~188 pts  (was ~118 pts, linear)
+#   RTX 3060    ~12 700 GFLOPS → 300 pts  (reference, unchanged)
+#   RTX 4090    ~82 600 GFLOPS → ~765 pts (was ~1 953 pts, linear)
 _GPU_GFLOPS_REF = 12_700.0
 _GPU_BASE       = 300
+_GPU_CURVE      = 0.5
 _TEST_DURATION  = 5.0
 
 
@@ -537,7 +546,7 @@ class GPUBenchmark:
                 error="Install GPU drivers or: pip install cupy-cuda12x / pyopencl",
             )
 
-        score = int(gflops / _GPU_GFLOPS_REF * _GPU_BASE)
+        score = int(_GPU_BASE * (gflops / _GPU_GFLOPS_REF) ** _GPU_CURVE)
         summary = f"{gflops:.1f} GFLOPS  [{backend}]"
         self.cb(f"GPU done — score {score}")
 
