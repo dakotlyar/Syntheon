@@ -260,6 +260,24 @@ def get_recommendations() -> List[RuntimeRecommendation]:
 # Installer
 # ---------------------------------------------------------------------------
 
+def _bundled_pip_cmd() -> Optional[List[str]]:
+    """Return a command for the sidecar Python shipped in 'python-embed/'
+    next to the executable, if the build included one.
+
+    Frozen builds don't have a real interpreter behind sys.executable, so
+    this sidecar is what lets plugin installs work on a freshly-imaged
+    machine with no system Python at all.
+    """
+    base = os.path.dirname(sys.executable)
+    if sys.platform == 'win32':
+        candidate = os.path.join(base, 'python-embed', 'python.exe')
+        return [candidate, '-m', 'pip'] if os.path.isfile(candidate) else None
+
+    import glob
+    matches = sorted(glob.glob(os.path.join(base, 'python-embed', 'bin', 'python3*')))
+    return [matches[0], '-m', 'pip'] if matches else None
+
+
 def _find_pip_cmd() -> Optional[List[str]]:
     """Return a command list that invokes pip, or None if none found."""
     import shutil
@@ -268,7 +286,11 @@ def _find_pip_cmd() -> Optional[List[str]]:
     if not getattr(sys, 'frozen', False):
         return [sys.executable, '-m', 'pip']
 
-    # Frozen exe: locate a system Python that has pip.
+    bundled = _bundled_pip_cmd()
+    if bundled:
+        return bundled
+
+    # No sidecar shipped (or it's missing) — fall back to a system Python.
     for name in ('python3', 'python'):
         py = shutil.which(name)
         if not py:

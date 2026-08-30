@@ -138,6 +138,53 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM ========================================================
+REM  Step 5 – Bundle a sidecar Python (for the in-app GPU/NPU
+REM  plugin installer to run 'pip install' on a machine with
+REM  no system Python at all). Uses the official embeddable
+REM  package, same version/arch as the build Python so any
+REM  compiled wheels it installs match the frozen app's ABI.
+REM ========================================================
+echo  [5/5] Bundling portable Python (for optional GPU/NPU plugin installs)...
+
+set EMBED_DIR=dist\SynBench\python-embed
+set EMBED_ZIP=%TEMP%\python-%PY_VERSION%-embed-%PY_ARCH%.zip
+set EMBED_URL=https://www.python.org/ftp/python/%PY_VERSION%/python-%PY_VERSION%-embed-%PY_ARCH%.zip
+set GETPIP=%TEMP%\get-pip.py
+
+if exist "%EMBED_DIR%" rmdir /s /q "%EMBED_DIR%"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$ProgressPreference='SilentlyContinue';" ^
+    "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;" ^
+    "Invoke-WebRequest -Uri '%EMBED_URL%' -OutFile '%EMBED_ZIP%' -UseBasicParsing"
+if not exist "%EMBED_ZIP%" (
+    echo.
+    echo  ERROR: Embeddable Python download failed. Check your internet connection.
+    pause
+    exit /b 1
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "Expand-Archive -Path '%EMBED_ZIP%' -DestinationPath '%EMBED_DIR%' -Force"
+del "%EMBED_ZIP%" >nul 2>&1
+
+REM The embeddable package ships with 'import site' commented out in its
+REM ._pth file, which disables site-packages (and pip) entirely — re-enable it.
+for %%F in ("%EMBED_DIR%\python*._pth") do (
+    powershell -NoProfile -Command ^
+        "(Get-Content '%%F') -replace '^#import site', 'import site' | Set-Content '%%F'"
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$ProgressPreference='SilentlyContinue';" ^
+    "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile '%GETPIP%' -UseBasicParsing"
+"%EMBED_DIR%\python.exe" "%GETPIP%" --no-warn-script-location --quiet
+del "%GETPIP%" >nul 2>&1
+
+echo  Sidecar Python bundled at %EMBED_DIR%
+echo.
+
 echo.
 echo  ============================================
 echo   Build complete!

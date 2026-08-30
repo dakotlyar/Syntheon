@@ -64,6 +64,12 @@ PYTHON="${PYTHON_DIR}/bin/python3.10"
 echo " Python: $("$PYTHON" --version)"
 echo
 
+# Bootstrap pip into the portable interpreter itself (not just the build
+# venv below) so a trimmed copy of it can be shipped as a runtime sidecar —
+# see step 4. python-build-standalone's install_only builds carry the
+# stdlib's vendored ensurepip wheels, so this works fully offline.
+"$PYTHON" -m ensurepip --upgrade --quiet 2>/dev/null || true
+
 # ============================================================
 # 2.  Isolated build venv — no system Python, no PEP 668
 # ============================================================
@@ -175,6 +181,21 @@ pathlib.Path('SynBench.AppDir/synbench.png').write_bytes(
     solid_png(256, 35, 134, 54))
 PYEOF
 fi
+
+# Runtime sidecar Python — lets the in-app GPU/NPU plugin installer run
+# 'pip install' on a freshly-imaged machine that has no system Python at
+# all. runtime.py looks for it at <exe_dir>/python-embed/bin/python3*.
+echo " Bundling sidecar Python for runtime plugin installs..."
+cp -r "$PYTHON_DIR" "$APPDIR/python-embed"
+rm -rf \
+    "$APPDIR/python-embed/lib/python3.10/test" \
+    "$APPDIR/python-embed/lib/python3.10/idlelib" \
+    "$APPDIR/python-embed/lib/python3.10/tkinter" \
+    "$APPDIR/python-embed/lib/python3.10/turtledemo" \
+    "$APPDIR/python-embed/share" \
+    "$APPDIR/python-embed/include"
+find "$APPDIR/python-embed" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+find "$APPDIR/python-embed" -name '*.a' -delete
 
 echo " AppDir ready."
 echo

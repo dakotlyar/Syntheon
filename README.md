@@ -40,7 +40,7 @@ Uses ONNX Runtime and automatically selects the best available execution provide
 
 The AppImage and Windows `.exe` are fully self-contained — **no Python or other software required** on the target machine.
 
-Optional packages improve GPU and NPU benchmark scores.  Install them with `pip` and they will be picked up from `~/.synbench/plugins/` on the next run:
+Optional packages improve GPU and NPU benchmark scores.  Use **Tools → Install Optional Runtimes** in the GUI (or accept the setup dialog on first launch) to install them with one click — the release package bundles its own sidecar Python (`python-embed/` next to the executable) purely so this installer works even on a freshly-imaged machine with no Python of its own. You can also install them manually with an existing `pip`; either way they're picked up from the `synbench_plugins/` folder next to the executable (or `~/.synbench/plugins/` if that's not writable) on the next run:
 
 | Hardware               | Package       | Command                     |
 |------------------------|---------------|-----------------------------|
