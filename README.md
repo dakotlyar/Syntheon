@@ -12,7 +12,7 @@ Available as a self-contained GUI application (AppImage on Linux, an installer w
 |----------|--------------------------------------------------------------------------------|--------------------------|
 | **CPU**  | Integer throughput, FP throughput, multi-core scaling (Python multiprocessing) | Ryzen 5 5600 ≈ 1 000 pts |
 | **GPU**  | FP32 GEMM compute + 2D textured fill-rate + 3D shaded/lit triangle throughput   | RTX 3060 ≈ 300 pts       |
-| **NPU**  | AI inference throughput on a vendor-specific NPU provider (0 without one — no CPU/GPU fallback) | Dedicated NPU ≈ 200 pts  |
+| **NPU**  | AI inference throughput — vendor NPU provider preferred, CPU fallback otherwise (separate 0-200 / 0-50 score ranges) | Dedicated NPU ≈ 200 pts  |
 | **RAM**  | Sequential and random memory bandwidth                                         | High-end DDR5 ≈ 200 pts  |
 | **Disk** | Sequential + random 4 K read/write (256 MB test file, fsync'd)                 | PCIe 4 NVMe ≈ 200 pts    |
 
@@ -40,7 +40,7 @@ The log panel shows exactly which backend was tried and why each fallback occurr
 
 ### NPU backend
 
-Targets a genuine, vendor-specific NPU execution provider via ONNX Runtime — **by design, this test never falls back to CPU or GPU inference.** If no NPU is detected, the vendor has no supported provider, or the provider isn't actually available, the score is 0 rather than substituting a CPU/GPU result that would misrepresent what was measured.
+Prefers a genuine, vendor-specific NPU execution provider via ONNX Runtime, and falls back to plain CPU inference when there's no NPU, the vendor has no supported provider, or the provider isn't installed yet. GPU execution providers (CUDA/ROCm/DirectML/TensorRT) are deliberately never used here — only real NPU or CPU.
 
 | NPU vendor         | Execution provider  | Package               |
 |---------------------|----------------------|------------------------|
@@ -48,7 +48,9 @@ Targets a genuine, vendor-specific NPU execution provider via ONNX Runtime — *
 | Intel (AI Boost)    | OpenVINO (NPU device)| `onnxruntime-openvino` |
 | Apple (Neural Engine)| CoreML (ANE-biased) | `onnxruntime` (bundled on macOS) |
 
-AMD NPUs (Ryzen AI / XDNA) are detected but not yet supported — Vitis-AI requires a separate manual SDK install, not a plain `pip install` — so the test reports "AMD NPU detected — unsupported" (score 0) rather than guessing, with a link to [AMD's Ryzen AI Software installation docs](https://ryzenai.docs.amd.com/en/latest/inst.html) for manual setup.
+**Scoring is deliberately split across two non-overlapping ranges** so a CPU-fallback result can never be mistaken for real NPU-class performance: NPU-accelerated runs score 0-200, CPU fallback is hard-capped at 0-50 regardless of raw throughput. This tiny synthetic model is cheap enough that a fast CPU's raw inference call-rate alone doesn't reliably signal "weak" vs "strong" against a real accelerator's dispatch/transfer overhead, so the score range itself carries that distinction — the summary label always says which path actually ran (e.g. `[CPU fallback]`).
+
+AMD NPUs (Ryzen AI / XDNA) are detected but not yet supported — Vitis-AI requires a separate manual SDK install, not a plain `pip install` — so the test falls back to CPU inference and logs a link to [AMD's Ryzen AI Software installation docs](https://ryzenai.docs.amd.com/en/latest/inst.html) for manual NPU setup, rather than guessing at an automated install.
 
 ---
 
@@ -58,7 +60,7 @@ AMD NPUs (Ryzen AI / XDNA) are detected but not yet supported — Vitis-AI requi
 
 The AppImage and Windows `.exe` are fully self-contained — **no Python or other software required** on the target machine.
 
-Optional packages improve GPU benchmark scores, and are required for the NPU benchmark to run at all on a supported NPU vendor (it's 0 either way without one).  Use **Tools → Install Optional Runtimes** in the GUI (or accept the setup dialog on first launch) to install them with one click — the release package bundles its own sidecar Python (`python-embed/` next to the executable) purely so this installer works even on a freshly-imaged machine with no Python of its own. You can also install them manually with an existing `pip`; either way they're picked up from the `synbench_plugins/` folder next to the executable (or `~/.synbench/plugins/` if that's not writable) on the next run:
+Optional packages improve GPU benchmark scores, and let the NPU benchmark run on a real NPU instead of its CPU fallback (see [NPU backend](#npu-backend) above).  Use **Tools → Install Optional Runtimes** in the GUI (or accept the setup dialog on first launch) to install them with one click — the release package bundles its own sidecar Python (`python-embed/` next to the executable) purely so this installer works even on a freshly-imaged machine with no Python of its own. You can also install them manually with an existing `pip`; either way they're picked up from the `synbench_plugins/` folder next to the executable (or `~/.synbench/plugins/` if that's not writable) on the next run:
 
 | Hardware               | Package       | Command                     |
 |------------------------|---------------|-----------------------------|
@@ -221,10 +223,10 @@ On first launch, if optional runtime packages are recommended for the detected h
 {
   "cpu":  { "score": 987,  "available": true,  "summary": "Int 8.21 Mops/s  FP 3.94 Mops/s  MC 38.1 Mops/s (12T)" },
   "gpu":  { "score": 289,  "available": true,  "summary": "11340 GFLOPS, 29800 Mpx/s, 640,000,000 tris/s  [CUDA (cuBLAS) – NVIDIA GeForce RTX 3060]" },
-  "npu":  { "score": 0,    "available": false, "summary": "No NPU detected" },
+  "npu":  { "score": 45,   "available": true,  "summary": "290000 inferences/s  [CPU fallback]" },
   "ram":  { "score": 142,  "available": true,  "summary": "…" },
   "disk": { "score": 178,  "available": true,  "summary": "…" },
-  "overall_score": 1591
+  "overall_score": 1641
 }
 ```
 

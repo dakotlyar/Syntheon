@@ -1,15 +1,23 @@
 """
 NPU / AI inference benchmark.
 
-Runs a small MLP through ONNX Runtime on a genuine, vendor-specific NPU
-execution provider — see runtime.detect_npu_vendor() and
-runtime.NPU_PROVIDER_INFO. By design this never falls back to CPU or GPU
-inference: no detected NPU, an unsupported vendor, or a missing/unavailable
-provider all report score 0 rather than substituting a CPU/GPU result that
-would misrepresent what was actually measured.
+Prefers a genuine, vendor-specific NPU execution provider — see
+runtime.detect_npu_vendor() and runtime.NPU_PROVIDER_INFO — and falls back
+to plain CPU inference when there's no NPU, an unsupported vendor, or the
+NPU provider isn't installed. GPU execution providers (CUDA/ROCm/DirectML/
+TensorRT) are deliberately never used here — only real NPU or CPU.
+
+The two paths score on separate, non-overlapping scales (NPU: 0-200, CPU
+fallback: 0-50) so a CPU-fallback result can never be mistaken for real
+NPU-class performance — this tiny synthetic model is so cheap that plain
+CPU inference call-rate alone doesn't reliably signal "weak" vs "strong"
+against a real accelerator's dispatch/transfer overhead, so the score
+scale itself carries that distinction instead. The summary label always
+says which path actually ran.
 
 Scoring reference:
   - Dedicated NPU (e.g. Ryzen AI / Intel NPU) at ~50 TOPS ≈ 200 points
+  - CPU fallback is capped at 50 points regardless of raw throughput
 """
 
 import time
@@ -20,9 +28,13 @@ from . import BenchmarkResult
 # ---------------------------------------------------------------------------
 # Calibration
 # ---------------------------------------------------------------------------
-_INF_REF    = 5_000   # inferences/sec on reference GPU/NPU
-_MAX_SCORE  = 200
-_DURATION   = 5.0
+_INF_REF_NPU   = 5_000     # inferences/sec on a reference NPU (~50 TOPS)
+_MAX_SCORE_NPU = 200
+
+_INF_REF_CPU   = 100_000   # inferences/sec on a fast reference CPU
+_MAX_SCORE_CPU = 50        # hard ceiling — always well below the NPU range
+
+_DURATION = 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -147,90 +159,86 @@ def _build_onnx_mlp() -> bytes:
 # ---------------------------------------------------------------------------
 # Benchmark class
 # ---------------------------------------------------------------------------
-#
-# By design, this test only ever runs inference on a genuine NPU-specific
-# ONNX Runtime execution provider for the detected vendor (see
-# runtime.NPU_PROVIDER_INFO) — never CPU or GPU. If there's no NPU, or the
-# NPU's vendor has no supported provider, or the provider isn't actually
-# available, the test reports score 0 rather than substituting a CPU/GPU
-# result that would misrepresent what was measured.
 
 class NPUBenchmark:
     def __init__(self, callback: Optional[Callable[[str], None]] = None):
         self.cb = callback or (lambda msg: None)
 
-    def run(self) -> BenchmarkResult:
-        self.cb("Starting NPU / AI inference benchmark …")
+    def _resolve_provider(self):
+        """Decide which execution provider to run on.
 
+        Returns (provider, provider_options, label, is_npu) on success, or
+        (None, None, None, None) when there's no usable path at all (no
+        onnxruntime installed anywhere — not even for CPU).
+        """
         from runtime import detect_npu_vendor, NPU_PROVIDER_INFO, NPU_UNSUPPORTED_VENDOR_DOCS
 
         vendor = detect_npu_vendor()
-        if vendor is None:
-            self.cb("No NPU detected – skipped.")
-            return BenchmarkResult(
-                name="npu",
-                score=0,
-                available=False,
-                summary="No NPU detected",
-            )
+        info = NPU_PROVIDER_INFO.get(vendor) if vendor else None
 
-        info = NPU_PROVIDER_INFO.get(vendor)
-        if info is None:
+        if info is not None:
+            try:
+                import onnxruntime as ort  # type: ignore
+                if info['provider'] in ort.get_available_providers():
+                    self.cb(f"Using provider: {info['provider']} ({info['label']})")
+                    return info['provider'], info['provider_options'], info['label'], True
+                self.cb(
+                    f"{info['label']} detected, but {info['provider']} isn't installed "
+                    f"(pip install {info['pip_name']}) — falling back to CPU."
+                )
+            except ImportError:
+                self.cb(
+                    f"{info['label']} detected, but onnxruntime isn't installed "
+                    f"(pip install {info['pip_name']}) — falling back to CPU."
+                )
+        elif vendor is not None:
             vendor_name = {'amd': 'AMD'}.get(vendor, vendor.title())
-            self.cb(f"{vendor_name} NPU detected, but no supported inference path is available.")
             docs_url = NPU_UNSUPPORTED_VENDOR_DOCS.get(vendor)
-            error = (
-                f"{vendor_name} NPU inference needs a vendor SDK SynBench doesn't "
-                "support yet. This test never substitutes CPU or GPU inference for a "
-                "missing NPU path, so it reports unavailable instead."
-            )
+            msg = f"{vendor_name} NPU detected, but no supported inference path is available — falling back to CPU."
             if docs_url:
-                error += f"\nManual setup: {docs_url}"
+                msg += f" Manual setup: {docs_url}"
+            self.cb(msg)
+        else:
+            self.cb("No NPU detected — falling back to CPU inference.")
+
+        try:
+            import onnxruntime as ort  # type: ignore
+            if 'CPUExecutionProvider' in ort.get_available_providers():
+                self.cb("Using provider: CPUExecutionProvider (CPU fallback)")
+                return 'CPUExecutionProvider', {}, 'CPU', False
+        except ImportError:
+            pass
+
+        return None, None, None, None
+
+    def run(self) -> BenchmarkResult:
+        self.cb("Starting NPU / AI inference benchmark …")
+
+        provider, provider_options, label, is_npu = self._resolve_provider()
+        if provider is None:
+            self.cb("onnxruntime not installed – NPU test skipped.")
             return BenchmarkResult(
                 name="npu",
                 score=0,
                 available=False,
-                summary=f"{vendor_name} NPU detected — unsupported",
-                error=error,
+                summary="onnxruntime not installed",
+                error="Install onnxruntime: pip install onnxruntime",
             )
 
         try:
             import onnxruntime as ort  # type: ignore
-        except ImportError:
-            self.cb(f"{info['label']} detected, but onnxruntime is not installed.")
-            return BenchmarkResult(
-                name="npu",
-                score=0,
-                available=False,
-                summary=f"{info['label']} detected — onnxruntime not installed",
-                error=f"Install {info['pip_name']}: pip install {info['pip_name']}",
-            )
-
-        available_providers = ort.get_available_providers()
-        if info['provider'] not in available_providers:
-            self.cb(f"{info['label']} detected, but {info['provider']} isn't available.")
-            return BenchmarkResult(
-                name="npu",
-                score=0,
-                available=False,
-                summary=f"{info['label']} detected — {info['provider']} unavailable",
-                error=f"Install {info['pip_name']}: pip install {info['pip_name']}",
-            )
-
-        try:
             import numpy as np
 
             self.cb("Building ONNX model …")
             model_bytes = _build_onnx_mlp()
 
-            self.cb(f"Using provider: {info['provider']} ({info['label']})")
             sess_opts = ort.SessionOptions()
             sess_opts.inter_op_num_threads = 1
             sess_opts.intra_op_num_threads = 4
             sess = ort.InferenceSession(
                 model_bytes, sess_opts,
-                providers=[info['provider']],
-                provider_options=[info['provider_options']],
+                providers=[provider],
+                provider_options=[provider_options],
             )
 
             inp_name = sess.get_inputs()[0].name
@@ -251,9 +259,12 @@ class NPUBenchmark:
             elapsed = time.perf_counter() - start
             inf_per_sec = count / elapsed
 
-            score = min(_MAX_SCORE, int(inf_per_sec / _INF_REF * _MAX_SCORE))
-
-            summary = f"{inf_per_sec:.0f} inferences/s  [{info['label']}]"
+            if is_npu:
+                score = min(_MAX_SCORE_NPU, int(inf_per_sec / _INF_REF_NPU * _MAX_SCORE_NPU))
+                summary = f"{inf_per_sec:.0f} inferences/s  [{label}]"
+            else:
+                score = min(_MAX_SCORE_CPU, int(inf_per_sec / _INF_REF_CPU * _MAX_SCORE_CPU))
+                summary = f"{inf_per_sec:.0f} inferences/s  [{label} fallback]"
             self.cb(f"NPU done — score {score}")
 
             return BenchmarkResult(
@@ -261,8 +272,8 @@ class NPUBenchmark:
                 score=score,
                 metrics={
                     "inferences_per_sec": inf_per_sec,
-                    "provider":           info['provider'],
-                    "vendor":             vendor,
+                    "provider":           provider,
+                    "npu_accelerated":    is_npu,
                 },
                 summary=summary,
             )

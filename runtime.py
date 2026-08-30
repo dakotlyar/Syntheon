@@ -332,11 +332,12 @@ def get_recommendations() -> List[RuntimeRecommendation]:
         ))
 
     # --- NPU ---
-    # The NPU benchmark only ever targets a genuine NPU-specific execution
-    # provider for the detected vendor — never CPU or GPU inference — so a
-    # recommendation only makes sense when NPU_PROVIDER_INFO actually has
-    # an entry for this vendor (e.g. 'amd' currently doesn't: Ryzen AI's
-    # Vitis-AI EP needs a separate manual SDK, not a plain pip package).
+    # Prefer a genuine NPU-specific execution provider for the detected
+    # vendor when one is supported (NPU_PROVIDER_INFO). Otherwise — no NPU,
+    # or a vendor without a supported provider (e.g. 'amd': Ryzen AI's
+    # Vitis-AI EP needs a separate manual SDK, not a plain pip package) —
+    # the benchmark falls back to CPU inference, so recommend plain
+    # onnxruntime instead so that fallback actually has something to run.
     info = NPU_PROVIDER_INFO.get(npu_vendor) if npu_vendor else None
     if info:
         rec = RuntimeRecommendation(
@@ -349,6 +350,14 @@ def get_recommendations() -> List[RuntimeRecommendation]:
         )
         if not rec.is_installed():
             recs.append(rec)
+    elif not _importable('onnxruntime'):
+        recs.append(RuntimeRecommendation(
+            label='onnxruntime',
+            pip_name='onnxruntime',
+            import_name='onnxruntime',
+            reason='Enables the AI inference benchmark (CPU fallback — no supported NPU on this machine)',
+            category='npu',
+        ))
 
     return recs
 
