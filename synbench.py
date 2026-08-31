@@ -104,6 +104,55 @@ def _cli_install_runtimes() -> int:
     return 0
 
 
+def _maybe_prompt_runtime_setup() -> None:
+    """Interactive CLI counterpart to the GUI's first-launch runtime setup
+    dialog (see gui.app.BenchmarkApp._check_runtimes / RuntimeSetupDialog).
+
+    Detects GPU/NPU hardware and offers to install the matching optional
+    packages before benchmarks run. Skipped when the user previously chose
+    "don't ask again" (a preference shared with the GUI dialog) or when
+    stdin isn't a TTY, so scripted/automated invocations never block on
+    a prompt.
+    """
+    from runtime import (
+        get_recommendations, install_package,
+        runtime_setup_skipped, set_runtime_setup_skipped,
+    )
+
+    if runtime_setup_skipped() or not sys.stdin.isatty():
+        return
+
+    recs = [r for r in get_recommendations() if not r.is_installed()]
+    if not recs:
+        return
+
+    print("  Optional runtime packages could improve these benchmarks:")
+    print()
+    for rec in recs:
+        print(f"    [{rec.category.upper()}] {rec.pip_name} — {rec.reason}")
+    print()
+
+    try:
+        choice = input("  Install them now? [Y/n, or 'never' to stop asking] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+
+    if choice == "never":
+        set_runtime_setup_skipped(True)
+        print("  OK — won't ask again. Run with --install-runtimes any time to install manually.")
+        print()
+        return
+
+    if choice in ("", "y", "yes"):
+        print()
+        for rec in recs:
+            print(f"  Installing {rec.pip_name} …")
+            ok, msg = install_package(rec.pip_name, lambda line: print(f"    {line}"))
+            print(f"  {'OK' if ok else 'FAILED'}: {msg}")
+            print()
+
+
 def _run_cli(args: argparse.Namespace) -> int:
     import json
     from benchmarks import run_all_benchmarks, compute_overall_score
@@ -121,6 +170,7 @@ def _run_cli(args: argparse.Namespace) -> int:
         print("  ║       SynBench – System Benchmark        ║")
         print("  ╚══════════════════════════════════════════╝")
         print()
+        _maybe_prompt_runtime_setup()
         print(f"  Running: {', '.join(labels[t] for t in tests)}")
         print()
 

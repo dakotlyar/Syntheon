@@ -51,15 +51,20 @@ PLUGINS_DIR: str = _resolve_plugins_dir()
 
 
 def setup_path() -> None:
-    """Append the plugins directory to sys.path (idempotent).
+    """Prepend the plugins directory to sys.path (idempotent).
 
-    Appending (not prepending) ensures that packages already bundled inside
-    the PyInstaller AppImage are always found first.  The plugins dir only
-    supplies packages that are absent from the bundle (cupy, pyopencl,
-    onnxruntime) so it never needs priority over bundled packages.
+    Must take priority over the rest of sys.path, not just be appended to
+    it: cupy / pyopencl / onnxruntime (and its vendor variants, which all
+    install the same top-level 'onnxruntime' package) are never bundled by
+    PyInstaller, so there's nothing upstream to protect — but a user's own
+    environment may already have a plain, CPU-only 'onnxruntime' importable
+    from regular site-packages. Regular (non-namespace) packages resolve to
+    the first sys.path match, so appending would let that shadow whichever
+    vendor variant was just installed into PLUGINS_DIR, permanently.
     """
-    if PLUGINS_DIR not in sys.path:
-        sys.path.append(PLUGINS_DIR)
+    if PLUGINS_DIR in sys.path:
+        sys.path.remove(PLUGINS_DIR)
+    sys.path.insert(0, PLUGINS_DIR)
 
 
 # ---------------------------------------------------------------------------
@@ -478,5 +483,27 @@ def install_package(
 
     if proc.returncode == 0:
         setup_path()
+        _evict_cached_module(pip_name)
         return True, f'Installed {pip_name} into {PLUGINS_DIR}'
     return False, f'pip exited with code {proc.returncode}'
+
+
+def _evict_cached_module(pip_name: str) -> None:
+    """Drop any already-imported copy of *pip_name*'s top-level module.
+
+    A prior hardware check (RuntimeRecommendation.is_installed()) may have
+    already imported a stale version of this module — e.g. a plain,
+    CPU-only 'onnxruntime' found on sys.path before this install ran — and
+    Python's import system reuses whatever is cached in sys.modules
+    regardless of sys.path changes. Without evicting it, the freshly
+    installed vendor variant would be invisible until the process restarts.
+    """
+    if pip_name.startswith('onnxruntime'):
+        top = 'onnxruntime'
+    elif pip_name.startswith('cupy'):
+        top = 'cupy'
+    else:
+        top = pip_name
+
+    for key in [k for k in sys.modules if k == top or k.startswith(top + '.')]:
+        del sys.modules[key]
