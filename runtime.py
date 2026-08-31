@@ -28,11 +28,37 @@ from typing import Callable, List, Optional, Tuple
 # ---------------------------------------------------------------------------
 
 def _resolve_plugins_dir() -> str:
-    """Return a writable directory for side-car package installs."""
+    """Return a stable, writable directory for side-car package installs.
+
+    Packages installed here (cupy, pyopencl, onnxruntime variants) must be
+    found again on every future run, so the location must not depend on
+    anything that can vary between runs of the same install:
+
+    - A Windows install lives under Program Files by default. Whether that's
+      writable depends on whether *this particular* launch happens to be
+      elevated — a user running "as Administrator" once (e.g. to work
+      around a permission error) would silently install into a different
+      folder than every normal, non-elevated launch reads from afterward.
+    - A Linux AppImage's own directory is a FUSE mount point that's unique
+      per launch and torn down when the process exits — nothing installed
+      "next to the executable" would even be at the same path next time,
+      let alone still there.
+
+    So frozen builds always use a fixed per-user directory — no probing,
+    nothing that depends on this run's privilege level or mount point. Only
+    when running from source (a real, stable project checkout) do we place
+    it next to the entry-point script, matching developer expectations.
+    """
     if getattr(sys, 'frozen', False):
-        base = os.path.dirname(sys.executable)
-    else:
-        base = os.path.dirname(os.path.abspath(__file__))
+        if sys.platform == 'win32':
+            base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
+            candidate = os.path.join(base, 'SynBench', 'plugins')
+        else:
+            candidate = os.path.join(os.path.expanduser('~'), '.synbench', 'plugins')
+        os.makedirs(candidate, exist_ok=True)
+        return candidate
+
+    base = os.path.dirname(os.path.abspath(__file__))
     candidate = os.path.join(base, 'synbench_plugins')
     try:
         os.makedirs(candidate, exist_ok=True)
