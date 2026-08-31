@@ -3,9 +3,10 @@ Runtime dependency installer for SynBench.
 
 Detects GPU and NPU hardware present on the system and, when the
 corresponding Python packages are not yet importable, offers to install
-them into a side-car 'synbench_plugins/' directory placed next to the
-executable.  The plugins directory is prepended to sys.path so that
-installed packages are found by subsequent imports.
+them into a side-car plugins directory, scoped per interpreter version so
+installs from different Pythons (e.g. a source run vs. the packaged app's
+bundled interpreter) never collide.  The plugins directory is prepended to
+sys.path so that installed packages are found by subsequent imports.
 
 Public API
 ----------
@@ -26,6 +27,21 @@ from typing import Callable, List, Optional, Tuple
 # ---------------------------------------------------------------------------
 # Plugins directory
 # ---------------------------------------------------------------------------
+
+# Packages installed into the plugins dir must never be shared between two
+# different Python interpreters: a compiled extension built for one CPython
+# ABI (e.g. numpy's _multiarray_umath.cpython-314-*.so) is simply not
+# loadable under another (cpython-310). This can genuinely happen on one
+# machine — running from source uses whatever system Python is on PATH,
+# while the packaged app uses its own bundled interpreter — and pip's
+# `--target` install mode does not safely reconcile that: it can leave one
+# version's compiled .so files on disk while overwriting only the shared
+# .py files with another version's, producing a broken hybrid install that
+# crashes with a confusing "module not found" error at import time. Tagging
+# the directory by interpreter version keeps every interpreter's installs
+# fully isolated, so this can't happen no matter which Pythons get used.
+_ABI_TAG = f"cp{sys.version_info.major}{sys.version_info.minor}"
+
 
 def _resolve_plugins_dir() -> str:
     """Return a stable, writable directory for side-car package installs.
@@ -48,18 +64,21 @@ def _resolve_plugins_dir() -> str:
     nothing that depends on this run's privilege level or mount point. Only
     when running from source (a real, stable project checkout) do we place
     it next to the entry-point script, matching developer expectations.
+
+    Either way, the directory is further scoped by interpreter version
+    (_ABI_TAG) so installs made by different Pythons can never collide.
     """
     if getattr(sys, 'frozen', False):
         if sys.platform == 'win32':
             base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
-            candidate = os.path.join(base, 'SynBench', 'plugins')
+            candidate = os.path.join(base, 'SynBench', 'plugins', _ABI_TAG)
         else:
-            candidate = os.path.join(os.path.expanduser('~'), '.synbench', 'plugins')
+            candidate = os.path.join(os.path.expanduser('~'), '.synbench', 'plugins', _ABI_TAG)
         os.makedirs(candidate, exist_ok=True)
         return candidate
 
     base = os.path.dirname(os.path.abspath(__file__))
-    candidate = os.path.join(base, 'synbench_plugins')
+    candidate = os.path.join(base, 'synbench_plugins', _ABI_TAG)
     try:
         os.makedirs(candidate, exist_ok=True)
         probe = os.path.join(candidate, '.write_probe')
@@ -68,7 +87,7 @@ def _resolve_plugins_dir() -> str:
         return candidate
     except OSError:
         pass
-    fallback = os.path.join(os.path.expanduser('~'), '.synbench', 'plugins')
+    fallback = os.path.join(os.path.expanduser('~'), '.synbench', 'plugins', _ABI_TAG)
     os.makedirs(fallback, exist_ok=True)
     return fallback
 
