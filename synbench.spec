@@ -50,6 +50,18 @@ a = Analysis(
         'ctypes.util',
         'hashlib',
         'json',
+        # Not used by SynBench itself, but PyInstaller's frozen bootloader
+        # runs with sys.flags.no_site set and doesn't bundle this module by
+        # default, so it's simply absent. Some optional side-car packages
+        # installed at runtime (e.g. cupy's cuda_pathfinder dependency, to
+        # search site-packages directories for CUDA libraries) import it
+        # directly — invisible to PyInstaller's static analysis since that
+        # package doesn't exist at build time. no_site still applies, so
+        # bundling it doesn't trigger the .pth-file / sys.path init that
+        # 'site' normally runs on interpreter startup — this just makes the
+        # module importable on demand.
+        'site',
+        'graphlib',  # also pulled in transitively by cupy/numpy at import time
         'tempfile',
     ],
     hookspath=[],
