@@ -12,6 +12,10 @@ function(synbench_add_unit_test name)
 endfunction()
 
 add_subdirectory(unit)
+
+# Every tracked path must be checkout-able on Windows.
+add_test(NAME windows_safe_paths
+    COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckWindowsPaths.cmake")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_subdirectory(helper)
 endif()

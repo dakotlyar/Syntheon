@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "sysinfo/linux/sysfs_readers.h"
 
+#include "fixture_tree.h"
+
+#include <QFile>
+#include <QTemporaryDir>
 #include <QTest>
 
 using namespace sb;
 using namespace sb::sysinfo::linux_sysfs;
 
 namespace {
-const QString kKnowhere = QStringLiteral(SB_FIXTURES "/linux/knowhere");
-const QString kArm = QStringLiteral(SB_FIXTURES "/linux/arm64-biglittle");
-const QString kIntel = QStringLiteral(SB_FIXTURES "/linux/intel-hybrid");
+// Materialised (decoded) copies of the fixture trees; see fixture_tree.h.
+QTemporaryDir *g_trees = nullptr;
+QString kKnowhere, kArm, kIntel;
 } // namespace
 
 // The Linux tree readers over fixture trees (real: Knowhere; synthetic: an
@@ -20,6 +24,50 @@ class TestSysinfoLinux : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase()
+    {
+        g_trees = new QTemporaryDir;
+        for (const char *name : {"knowhere", "arm64-biglittle", "intel-hybrid"}) {
+            QVERIFY(sb::testing::materializeFixture(QStringLiteral(SB_FIXTURES "/linux/") + QLatin1StringView(name),
+                                                    g_trees->filePath(QLatin1StringView(name))));
+        }
+        kKnowhere = g_trees->filePath(QStringLiteral("knowhere"));
+        kArm = g_trees->filePath(QStringLiteral("arm64-biglittle"));
+        kIntel = g_trees->filePath(QStringLiteral("intel-hybrid"));
+        // The real sysfs names came back.
+        QVERIFY(QFileInfo(kKnowhere + QStringLiteral("/sys/dev/block/259:7")).isSymLink());
+        QVERIFY(QFileInfo::exists(kKnowhere + QStringLiteral("/sys/class/power_supply/ucsi-source-psy-USBC000:001/online")));
+    }
+
+    void cleanupTestCase() { delete g_trees; }
+
+    void decodeNames()
+    {
+        QCOMPARE(sb::testing::decodeFixtureName(QStringLiteral("ucsi-source-psy-USBC000%3A001")),
+                 QStringLiteral("ucsi-source-psy-USBC000:001"));
+        QCOMPARE(sb::testing::decodeFixturePath(QStringLiteral("../pci0000%3A00/100%25")),
+                 QStringLiteral("../pci0000:00/100%"));
+    }
+
+    // The USB-C (ucsi) supplies have scope=Device: they must never count as
+    // the machine's AC power, even when online.
+    void ucsiSupplyExcludedFromAc()
+    {
+        QTemporaryDir copy;
+        QVERIFY(sb::testing::materializeFixture(QStringLiteral(SB_FIXTURES "/linux/knowhere"), copy.path()));
+        const QString ps = copy.path() + QStringLiteral("/sys/class/power_supply/");
+        const auto write = [](const QString &file, const QByteArray &value) {
+            QFile f(file);
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            f.write(value);
+        };
+        write(ps + QStringLiteral("ADP0/online"), "0\n");
+        write(ps + QStringLiteral("ucsi-source-psy-USBC000:001/online"), "1\n");
+        QCOMPARE(readBattery(copy.path()).acOnline, false);
+        write(ps + QStringLiteral("ADP0/online"), "1\n");
+        QCOMPARE(readBattery(copy.path()).acOnline, true);
+    }
+
     void knowhereMachine()
     {
         const MachineInfo m = readMachine(kKnowhere);

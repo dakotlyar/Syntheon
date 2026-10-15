@@ -6,15 +6,23 @@
 #
 #   tests/fixtures/capture-linux.sh tests/fixtures/linux/<machine>
 #
+# Paths are committed with % : * ? " < > | escaped as %XX (in names and in
+# symlink targets), because a Windows checkout can't hold them;
+# tests/unit/fixture_tree.h decodes them back.
+#
 # Runs as a normal user (no root). Only an explicit allowlist is copied, and
 # nothing identifying: no serial numbers, UUIDs, MAC addresses, asset tags or
 # battery manufacturer/model strings (P23). The SMBIOS tables are root-only
 # and full of serials, so they're never captured here.
 set -euo pipefail
 
-out=${1:?usage: capture-linux.sh <output dir>}
-mkdir -p "$out"
-out=$(cd "$out" && pwd)
+final=${1:?usage: capture-linux.sh <output dir>}
+mkdir -p "$final"
+final=$(cd "$final" && pwd)
+# Capture into a scratch tree with the real names, then copy it into the
+# output with Windows-invalid characters escaped (see encode_tree below).
+out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
 
 copy() {  # copy <absolute path>, if readable, into the tree
     local src=$1
@@ -88,4 +96,34 @@ for majmin in $(lsblk -rno MAJ:MIN,TYPE | awk '$2=="disk"||$2=="part"{print $1}'
     [[ -f $real/partition ]] && disk=$(dirname "$real")
     for f in device/model queue/rotational; do copy "$disk/$f"; done
 done
-echo "captured into $out"
+enc() {  # escape the characters Windows forbids in path components
+    local s=$1 r="" c i
+    for ((i = 0; i < ${#s}; i++)); do
+        c=${s:i:1}
+        case $c in
+            '%' | ':' | '*' | '?' | '"' | '<' | '>' | '|') r+=$(printf '%%%02X' "'$c") ;;
+            *) r+=$c ;;
+        esac
+    done
+    printf '%s' "$r"
+}
+
+encode_tree() {  # encode_tree <src> <dst>
+    local src=$1 dst=$2 rel encoded
+    (cd "$src" && find . -mindepth 1 \( -type d -o -type f -o -type l \) -print) | sort | while IFS= read -r rel; do
+        rel=${rel#./}
+        encoded=$(enc "$rel")
+        if [[ -L $src/$rel ]]; then
+            mkdir -p "$(dirname "$dst/$encoded")"
+            ln -sfn "$(enc "$(readlink "$src/$rel")")" "$dst/$encoded"
+        elif [[ -d $src/$rel ]]; then
+            mkdir -p "$dst/$encoded"
+        else
+            mkdir -p "$(dirname "$dst/$encoded")"
+            cp "$src/$rel" "$dst/$encoded"
+        fi
+    done
+}
+
+encode_tree "$out" "$final"
+echo "captured into $final"
