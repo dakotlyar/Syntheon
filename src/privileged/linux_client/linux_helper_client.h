@@ -61,7 +61,19 @@ public:
         Command primary;
         std::optional<Command> fallback;
     };
-    static Launch defaultLaunch(const QString &appImage, const QString &appDir);
+    // What the launch decision looks at. AP5-R2-1: $APPIMAGE alone is never
+    // trusted; the AppImage branch needs the running binary to really be
+    // inside the mounted image ($APPDIR).
+    struct Environment {
+        QString appImage;             // $APPIMAGE
+        QString appDir;               // $APPDIR (the runtime's mount point)
+        QString applicationFilePath;  // QCoreApplication::applicationFilePath()
+        QStringList pkexecDirs = defaultPkexecDirs();
+        static Environment current();
+    };
+    static QStringList defaultPkexecDirs();  // fixed system dirs, never $PATH
+    // nullopt (with `error`) if pkexec or the helper can't be found.
+    static std::optional<Launch> defaultLaunch(const Environment &env, QString *error = nullptr);
     // "<display version> <build id>", what the helper reports in HELLO.
     static QString thisBuildId();
 

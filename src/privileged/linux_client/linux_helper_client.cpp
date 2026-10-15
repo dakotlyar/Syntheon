@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QDir>
+#include <QFileInfo>
 #include <QEventLoop>
 #include <QLoggingCategory>
 #include <QThread>
@@ -25,15 +26,65 @@ struct LinuxHelperClient::Pending {
     PrivError error;
 };
 
-LinuxHelperClient::Launch LinuxHelperClient::defaultLaunch(const QString &appImage, const QString &appDir)
+QStringList LinuxHelperClient::defaultPkexecDirs()
 {
-    const QString pkexec = QStringLiteral("pkexec");
-    if (!appImage.isEmpty()) {
-        return {{pkexec, {appImage, QStringLiteral("--synbench-helper")}},
-                Command{pkexec, {appImage, QStringLiteral("--appimage-extract-and-run"), QStringLiteral("--synbench-helper")}}};
+    return {QStringLiteral("/usr/bin"), QStringLiteral("/bin"), QStringLiteral("/usr/sbin"), QStringLiteral("/sbin")};
+}
+
+LinuxHelperClient::Environment LinuxHelperClient::Environment::current()
+{
+    Environment e;
+    e.appImage = qEnvironmentVariable("APPIMAGE");
+    e.appDir = qEnvironmentVariable("APPDIR");
+    e.applicationFilePath = QCoreApplication::applicationFilePath();
+    return e;
+}
+
+std::optional<LinuxHelperClient::Launch> LinuxHelperClient::defaultLaunch(const Environment &env, QString *error)
+{
+    // pkexec from a fixed system directory only, never through $PATH.
+    QString pkexec;
+    for (const QString &dir : env.pkexecDirs) {
+        const QFileInfo fi(QDir(dir).filePath(QStringLiteral("pkexec")));
+        if (fi.isFile() && fi.isExecutable()) {
+            pkexec = fi.absoluteFilePath();
+            break;
+        }
     }
-    // pkexec needs an absolute path.
-    return {{pkexec, {QDir(appDir).absoluteFilePath(QStringLiteral("synbench-helper"))}}, std::nullopt};
+    if (pkexec.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("pkexec (polkit) isn't installed.");
+        return std::nullopt;
+    }
+
+    const QString binary = QFileInfo(env.applicationFilePath).canonicalFilePath();
+
+    // AppImage: only if this binary really runs from inside the mounted image.
+    // Root then re-executes the AppImage file itself (root normally can't enter
+    // the user's FUSE mount).
+    if (!env.appImage.isEmpty() && !env.appDir.isEmpty()) {
+        const QString appDir = QFileInfo(env.appDir).canonicalFilePath();
+        const QFileInfo image(env.appImage);
+        if (!appDir.isEmpty() && !binary.isEmpty() && binary.startsWith(appDir + QLatin1Char('/'))
+            && image.isAbsolute() && image.isFile() && image.isExecutable()) {
+            const QString imagePath = image.canonicalFilePath();
+            // (b) The fallback is a second pkexec, so a second polkit prompt:
+            // accepted, as it only happens when the first re-exec failed.
+            return Launch{{pkexec, {imagePath, QStringLiteral("--synbench-helper")}},
+                          Command{pkexec, {imagePath, QStringLiteral("--appimage-extract-and-run"),
+                                           QStringLiteral("--synbench-helper")}}};
+        }
+    }
+
+    // Dev build / no AppImage: the helper next to the app binary, canonical.
+    const QString helper =
+        QFileInfo(QFileInfo(binary).dir().filePath(QStringLiteral("synbench-helper"))).canonicalFilePath();
+    if (helper.isEmpty() || !QFileInfo(helper).isExecutable()) {
+        if (error)
+            *error = QStringLiteral("The privileged helper (synbench-helper) is missing next to SynBench.");
+        return std::nullopt;
+    }
+    return Launch{{pkexec, {helper}}, std::nullopt};
 }
 
 QString LinuxHelperClient::thisBuildId()
@@ -97,7 +148,17 @@ bool LinuxHelperClient::isAvailable() const
 
 void LinuxHelperClient::start()
 {
-    start(defaultLaunch(qEnvironmentVariable("APPIMAGE"), QCoreApplication::applicationDirPath()));
+    QString error;
+    const auto launchSpec = defaultLaunch(Environment::current(), &error);
+    if (!launchSpec) {
+        {
+            QMutexLocker lock(&m_mutex);
+            m_failure = Failure::None;
+        }
+        fail(Failure::LaunchFailed, error);
+        return;
+    }
+    start(*launchSpec);
 }
 
 void LinuxHelperClient::start(const Launch &launchSpec)

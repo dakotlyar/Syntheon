@@ -3,7 +3,9 @@
 #include "privileged/linux_client/linux_helper_client.h"
 #include "sysinfo/collector.h"
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -86,20 +88,90 @@ private slots:
         h.write(reinterpret_cast<const char *>(b.data()), qint64(b.size()));
     }
 
+    // AP5-R2-1: the launch decision trusts nothing from the environment
+    // that it can't check.
     void launchCommands()
     {
-        const auto app = LinuxHelperClient::defaultLaunch(QStringLiteral("/home/u/SynBench.AppImage"), QStringLiteral("/x"));
-        QCOMPARE(app.primary.program, QStringLiteral("pkexec"));
-        QCOMPARE(app.primary.arguments,
-                 (QStringList{QStringLiteral("/home/u/SynBench.AppImage"), QStringLiteral("--synbench-helper")}));
-        QVERIFY(app.fallback);
-        QCOMPARE(app.fallback->arguments,
-                 (QStringList{QStringLiteral("/home/u/SynBench.AppImage"), QStringLiteral("--appimage-extract-and-run"),
-                              QStringLiteral("--synbench-helper")}));
-        const auto dev = LinuxHelperClient::defaultLaunch({}, QStringLiteral("/opt/build/bin"));
-        QCOMPARE(dev.primary.arguments, QStringList{QStringLiteral("/opt/build/bin/synbench-helper")});
-        QVERIFY(!dev.fallback);
+        QTemporaryDir t;
+        const auto exe = [&](const QString &rel) {
+            const QString p = t.filePath(rel);
+            QDir().mkpath(QFileInfo(p).path());
+            QFile f(p);
+            if (f.open(QIODevice::WriteOnly))
+                f.write("#!/bin/sh\n");
+            f.close();
+            QFile::setPermissions(p, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+            return QFileInfo(p).canonicalFilePath();
+        };
+        const QString pkexec = exe(QStringLiteral("sys/bin/pkexec"));
+        const QString pathPkexec = exe(QStringLiteral("evil/pkexec"));  // a $PATH entry: never used
+        Q_UNUSED(pathPkexec)
+        const QString app = exe(QStringLiteral("build/bin/SynBench"));
+        const QString helper = exe(QStringLiteral("build/bin/synbench-helper"));
+        const QString image = exe(QStringLiteral("SynBench-x86_64.AppImage"));
+        const QString mountedApp = exe(QStringLiteral("mount_abc/usr/bin/SynBench"));
+        exe(QStringLiteral("mount_abc/usr/bin/synbench-helper"));
+
+        LinuxHelperClient::Environment dev;
+        dev.applicationFilePath = app;
+        dev.pkexecDirs = {t.filePath(QStringLiteral("nope")), t.filePath(QStringLiteral("sys/bin"))};
+        auto l = LinuxHelperClient::defaultLaunch(dev);
+        QVERIFY(l);
+        QCOMPARE(l->primary.program, pkexec);  // absolute, from the fixed dirs
+        QCOMPARE(l->primary.arguments, QStringList{helper});
+        QVERIFY(!l->fallback);
+
+        // A real AppImage: the binary runs from inside $APPDIR.
+        LinuxHelperClient::Environment appImage = dev;
+        appImage.applicationFilePath = mountedApp;
+        appImage.appDir = t.filePath(QStringLiteral("mount_abc"));
+        appImage.appImage = image;
+        l = LinuxHelperClient::defaultLaunch(appImage);
+        QVERIFY(l);
+        QCOMPARE(l->primary.arguments, (QStringList{image, QStringLiteral("--synbench-helper")}));
+        QVERIFY(l->fallback);
+        QCOMPARE(l->fallback->program, pkexec);
+        QCOMPARE(l->fallback->arguments,
+                 (QStringList{image, QStringLiteral("--appimage-extract-and-run"), QStringLiteral("--synbench-helper")}));
+
+        // A stray or forged $APPIMAGE is ignored: binary not inside $APPDIR,
+        // no $APPDIR, or a relative/non-executable image.
+        LinuxHelperClient::Environment stray = appImage;
+        stray.applicationFilePath = app;
+        QCOMPARE(LinuxHelperClient::defaultLaunch(stray)->primary.arguments, QStringList{helper});
+        LinuxHelperClient::Environment noDir = appImage;
+        noDir.appDir.clear();
+        noDir.applicationFilePath = app;
+        QCOMPARE(LinuxHelperClient::defaultLaunch(noDir)->primary.arguments, QStringList{helper});
+        LinuxHelperClient::Environment relative = appImage;
+        relative.appImage = QStringLiteral("SynBench-x86_64.AppImage");
+        QVERIFY(LinuxHelperClient::defaultLaunch(relative)->primary.arguments.value(0) != relative.appImage);
+        LinuxHelperClient::Environment notExec = appImage;
+        notExec.appImage = t.filePath(QStringLiteral("plain-file"));
+        QFile pf(notExec.appImage);
+        QVERIFY(pf.open(QIODevice::WriteOnly));
+        pf.close();
+        QVERIFY(!LinuxHelperClient::defaultLaunch(notExec)->fallback);
+
+        // No pkexec in the fixed dirs: an error, $PATH is never searched.
+        LinuxHelperClient::Environment noPkexec = dev;
+        noPkexec.pkexecDirs = {t.filePath(QStringLiteral("nope"))};
+        QString error;
+        QVERIFY(!LinuxHelperClient::defaultLaunch(noPkexec, &error));
+        QVERIFY(error.contains(QLatin1StringView("pkexec")));
+
+        // The helper path is canonical (a symlinked app dir resolves).
+        QVERIFY(QFile::link(t.filePath(QStringLiteral("build")), t.filePath(QStringLiteral("linkdir"))));
+        LinuxHelperClient::Environment linked = dev;
+        linked.applicationFilePath = t.filePath(QStringLiteral("linkdir/bin/SynBench"));
+        QCOMPARE(LinuxHelperClient::defaultLaunch(linked)->primary.arguments, QStringList{helper});
+
+        // Helper missing: an error, not a bogus path.
+        QFile::remove(helper);
+        QVERIFY(!LinuxHelperClient::defaultLaunch(dev, &error));
+
         QVERIFY(LinuxHelperClient::thisBuildId().contains(QLatin1StringView("linux-x64")));
+        QCOMPARE(LinuxHelperClient::defaultPkexecDirs().first(), QStringLiteral("/usr/bin"));
     }
 
     void smbiosEndToEnd()
