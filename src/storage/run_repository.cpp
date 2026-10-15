@@ -7,6 +7,7 @@
 #include <QSqlQuery>
 #include <QtEndian>
 
+#include <cmath>
 #include <cstring>
 
 namespace sb {
@@ -41,6 +42,12 @@ QString toJson(const QJsonObject &obj)
 QJsonObject parseObject(const QString &s)
 {
     return QJsonDocument::fromJson(s.toUtf8()).object();
+}
+
+// For NOT NULL text columns: a null QString would bind as SQL NULL.
+QString notNull(const QString &s)
+{
+    return s.isNull() ? QStringLiteral("") : s;
 }
 
 // Stored text is null for empty, so optional text columns read back as "".
@@ -111,9 +118,9 @@ std::optional<qint64> RunRepository::insertRun(const RunRecord &r)
     q.addBindValue(toKey(r.status));
     q.addBindValue(formatTime(r.startedAt));
     q.addBindValue(nullableText(formatTime(r.finishedAt)));
-    q.addBindValue(r.appVersion);
-    q.addBindValue(r.appBuild);
-    q.addBindValue(r.system.machineLabel);
+    q.addBindValue(notNull(r.appVersion));
+    q.addBindValue(notNull(r.appBuild));
+    q.addBindValue(notNull(r.system.machineLabel));
     q.addBindValue(nullableReal(r.overall));
     q.addBindValue(toJson(r.system.toJson()));
     if (!q.exec()) {
@@ -131,7 +138,7 @@ bool RunRepository::insertTestResultRows(qint64 runId, int position, const TestR
         "status_reason, score, options_json, started_at, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
     q.addBindValue(runId);
     q.addBindValue(position);
-    q.addBindValue(t.testId);
+    q.addBindValue(notNull(t.testId));
     q.addBindValue(t.testVersion);
     q.addBindValue(t.formulaVersion);
     q.addBindValue(toKey(t.status));
@@ -150,7 +157,7 @@ bool RunRepository::insertTestResultRows(qint64 runId, int position, const TestR
         "INSERT INTO sub_results (test_result_id, sub_id, status, status_reason, score) VALUES (?, ?, ?, ?, ?)"));
     for (const SubResult &s : t.subResults) {
         sub.addBindValue(resultId);
-        sub.addBindValue(s.id);
+        sub.addBindValue(notNull(s.id));
         sub.addBindValue(toKey(s.status));
         sub.addBindValue(nullableText(s.reason.isEmpty() ? QString() : s.reason));
         sub.addBindValue(nullableReal(s.score));
@@ -166,11 +173,17 @@ bool RunRepository::insertTestResultRows(qint64 runId, int position, const TestR
         const Metric &m = t.metrics[i];
         met.addBindValue(resultId);
         met.addBindValue(nullableText(m.subTestId.isEmpty() ? QString() : m.subTestId));
-        met.addBindValue(m.key);
-        met.addBindValue(m.label);
-        if (m.isNumeric()) {
+        met.addBindValue(notNull(m.key));
+        met.addBindValue(notNull(m.label));
+        if (m.isNumeric() && std::isfinite(std::get<double>(m.value))) {
             met.addBindValue(std::get<double>(m.value));
             met.addBindValue(QVariant(QMetaType::fromType<QString>()));
+        } else if (m.isNumeric()) {
+            // F3: SQLite stores NaN as NULL, which would break the CHECK and
+            // roll back the whole test row. Keep the value as text instead.
+            const double v = std::get<double>(m.value);
+            met.addBindValue(QVariant(QMetaType::fromType<double>()));
+            met.addBindValue(std::isnan(v) ? QStringLiteral("nan") : v > 0 ? QStringLiteral("inf") : QStringLiteral("-inf"));
         } else {
             met.addBindValue(QVariant(QMetaType::fromType<double>()));
             // A text value is never NULL (the CHECK needs exactly one value).
@@ -190,8 +203,8 @@ bool RunRepository::insertTestResultRows(qint64 runId, int position, const TestR
         "INSERT INTO series (test_result_id, key, label, x_label, x_unit, y_unit, points) VALUES (?, ?, ?, ?, ?, ?, ?)"));
     for (const Series &s : t.series) {
         ser.addBindValue(resultId);
-        ser.addBindValue(s.key);
-        ser.addBindValue(s.label);
+        ser.addBindValue(notNull(s.key));
+        ser.addBindValue(notNull(s.label));
         ser.addBindValue(nullableText(s.xLabel.isEmpty() ? QString() : s.xLabel));
         ser.addBindValue(nullableText(s.xUnit.isEmpty() ? QString() : s.xUnit));
         ser.addBindValue(nullableText(s.yUnit.isEmpty() ? QString() : s.yUnit));
@@ -394,7 +407,7 @@ bool RunRepository::appendLog(qint64 runId, const QVector<LogLine> &lines)
         q.addBindValue(formatTime(l.timestamp));
         q.addBindValue(toKey(l.level));
         q.addBindValue(nullableText(l.testId.isEmpty() ? QString() : l.testId));
-        q.addBindValue(l.message);
+        q.addBindValue(notNull(l.message));
         if (!q.exec()) {
             const QString err = q.lastError().text();
             m_db.rollback();

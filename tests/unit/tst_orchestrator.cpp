@@ -630,6 +630,48 @@ private slots:
         QCOMPARE(run.overall, std::optional<double>(50));
     }
 
+    // F3: a NaN/infinite metric turns the result into an Error, unscored.
+    void nonFiniteMetricIsError()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("synbench.db"));
+        QVERIFY(Database::migrate(db).ok());
+        SqliteRunSink sqlite(db);
+        Fixture f;
+        f[QStringLiteral("cpu")]->runner = [](RunContext &, const OptionValues &) {
+            TestResult r = okResult(100);
+            r.metrics.append({QStringLiteral("lat"), {}, QStringLiteral("Latency"), qQNaN(), QStringLiteral("ns"),
+                              Direction::LowerIsBetter, false});
+            return r;
+        };
+        f[QStringLiteral("ram")]->runner = [](RunContext &, const OptionValues &) {
+            TestResult r = okResult(200);
+            r.metrics.append({QStringLiteral("bw"), {}, QString(), qInf(), QStringLiteral("GB/s"),
+                              Direction::HigherIsBetter, false});
+            return r;
+        };
+        Orchestrator o(f.registry, sqlite, f.inhibitor, fastConfig());
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        const auto r = o.start(plan({QStringLiteral("cpu"), QStringLiteral("ram"), QStringLiteral("gpu")}), meta());
+        QVERIFY(r.ok);
+        QVERIFY(waitFinished(finished));
+        const RunRecord run = finishedRun(finished);
+        QCOMPARE(statuses(run), (QStringList{QStringLiteral("cpu=error"), QStringLiteral("ram=error"),
+                                             QStringLiteral("gpu=ok")}));
+        QCOMPARE(run.tests[0].statusReason, QStringLiteral("produced an invalid value for Latency"));
+        QCOMPARE(run.tests[1].statusReason, QStringLiteral("produced an invalid value for bw"));
+        QVERIFY(!run.tests[0].score);
+        QVERIFY(!run.tests[1].score);
+        QCOMPARE(run.overall, std::optional<double>(300));
+
+        // Both rows were stored (not rolled back by the metrics CHECK).
+        Database::ScopedConnection c(db, QStringLiteral("check"));
+        const auto stored = RunRepository(c.db()).load(r.runId);
+        QVERIFY(stored);
+        QCOMPARE(stored->tests.size(), 3);
+        QCOMPARE(stored->tests[0].status, Status::Error);
+    }
+
     void subScoresAndScorerFailure()
     {
         Fixture f;

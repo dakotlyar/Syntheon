@@ -293,6 +293,33 @@ private slots:
         QVERIFY(!repo.finishRun(*id + 100, RunStatus::Completed, done, std::nullopt));
     }
 
+    // F3: the repository never lets a non-finite value roll back a test row.
+    void nonFiniteMetricsStoredAsText()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        QVERIFY(Database::migrate(path).ok());
+        Database::ScopedConnection c(path, QStringLiteral("t"));
+        RunRepository repo(c.db());
+        RunRecord r = sampleRun();
+        r.tests.resize(1);
+        r.tests[0].metrics = {
+            {QStringLiteral("a"), {}, QStringLiteral("A"), qQNaN(), {}, Direction::Neutral, false},
+            {QStringLiteral("b"), {}, QStringLiteral("B"), qInf(), {}, Direction::Neutral, false},
+            {QStringLiteral("c"), {}, QStringLiteral("C"), -qInf(), {}, Direction::Neutral, false},
+            {QStringLiteral("d"), {}, QString(), 1.5, {}, Direction::Neutral, false},  // null label
+        };
+        QVERIFY2(repo.saveRun(r), qPrintable(repo.lastError()));
+        const auto loaded = repo.load(r.uuid);
+        QVERIFY(loaded);
+        const auto &m = loaded->tests[0].metrics;
+        QCOMPARE(m.size(), 4);
+        QCOMPARE(std::get<QString>(m[0].value), QStringLiteral("nan"));
+        QCOMPARE(std::get<QString>(m[1].value), QStringLiteral("inf"));
+        QCOMPARE(std::get<QString>(m[2].value), QStringLiteral("-inf"));
+        QCOMPARE(std::get<double>(m[3].value), 1.5);
+    }
+
     void runLog()
     {
         QTemporaryDir dir;

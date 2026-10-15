@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <exception>
 #include <memory>
 
@@ -286,6 +287,17 @@ void finishResult(Shared &s, const Shared::Entry &e, Shared::Cancel cancel, cons
         r.statusReason = QStringLiteral("Exceeded its time limit of %1 s").arg(e.test->timeLimit(e.options).count());
     } else if (cancel == Shared::Cancel::Stopped && r.status == Status::Cancelled && r.statusReason.isEmpty()) {
         r.statusReason = QStringLiteral("Stopped");
+    }
+
+    // F3 (Dave): a NaN or infinite measurement makes the whole result an
+    // Error with no score, before it's scored or stored.
+    for (const Metric &m : std::as_const(r.metrics)) {
+        if (m.isNumeric() && !std::isfinite(std::get<double>(m.value))) {
+            r.status = Status::Error;
+            r.statusReason =
+                QStringLiteral("produced an invalid value for %1").arg(m.label.isEmpty() ? m.key : m.label);
+            break;
+        }
     }
 
     r.score.reset();
