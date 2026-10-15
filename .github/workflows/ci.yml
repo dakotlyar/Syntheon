@@ -22,7 +22,7 @@ jobs:
   linux-x64:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install build dependencies
         run: |
@@ -53,8 +53,10 @@ jobs:
   windows-x64:
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
+      # ilammy/msvc-dev-cmd has no Node 24 release yet (v1.13.0 runs on
+      # Node 20), so this step still triggers the Node 20 deprecation notice.
       - name: Set up MSVC (x64)
         uses: ilammy/msvc-dev-cmd@v1
         with:
