@@ -50,6 +50,11 @@ jobs:
       - name: Unit tests
         run: ctest --preset linux-x64-release
 
+      # The live system snapshot on this runner, printed for review (ctest
+      # hides test output on success).
+      - name: System snapshot
+        run: ctest --preset linux-x64-release -R tst_sysinfo_live -V
+
   windows-x64:
     runs-on: windows-2022
     steps:
@@ -80,3 +85,8 @@ jobs:
 
       - name: Unit tests
         run: ctest --preset windows-x64-release
+
+      # The live system snapshot on this runner, printed for review (ctest
+      # hides test output on success).
+      - name: System snapshot
+        run: ctest --preset windows-x64-release -R tst_sysinfo_live -V
