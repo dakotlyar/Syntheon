@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/orchestrator.h"
 
+#include "core/fs_util.h"
 #include "core/itest.h"
 #include "core/power_inhibitor.h"
 #include "core/registry.h"
@@ -219,9 +220,7 @@ public:
     {
         if (!m_scratch.isEmpty())
             return m_scratch;
-        const QString root = m_s.config.scratchRoot.isEmpty() ? QDir::tempPath() : m_s.config.scratchRoot;
-        const QString path = QDir(root).filePath(
-            QStringLiteral("synbench-%1/%2").arg(m_s.header.uuid.toString(QUuid::WithoutBraces), m_testId));
+        const QString path = QDir(scratchRoot()).filePath(fs::scratchRunFolderName(m_s.header.uuid) + QLatin1Char('/') + m_testId);
         if (!QDir().mkpath(path)) {
             m_s.log(LogLevel::Error, m_testId, QStringLiteral("Couldn't create the scratch folder %1").arg(path));
             return {};
@@ -237,15 +236,30 @@ public:
         return m_s.config.privileged ? *m_s.config.privileged : unavailableOps();
     }
 
+    QString scratchRoot() const
+    {
+        return m_s.config.scratchRoot.isEmpty() ? QDir::tempPath() : m_s.config.scratchRoot;
+    }
+
     // After run() returns: delete the scratch folder and its registration.
+    // AP5-R2-2: the test may have replaced the folder with a link; only the
+    // exact <root>/synbench-<uuid>/<test> folder is deleted, and never by
+    // following a link.
     void cleanup()
     {
         if (m_scratch.isEmpty())
             return;
-        if (!QDir(m_scratch).removeRecursively())
+        if (!fs::isSafeScratchPath(m_scratch, scratchRoot(), m_s.header.uuid)) {
+            m_s.log(LogLevel::Warning, m_testId,
+                    QStringLiteral("The scratch folder %1 was replaced by something else; not deleting it").arg(m_scratch));
+            QFile::remove(m_scratch);  // if it's a link: the link only
+        } else if (!fs::removeTreeNoFollow(m_scratch)) {
             m_s.log(LogLevel::Warning, m_testId, QStringLiteral("Couldn't delete the scratch folder %1").arg(m_scratch));
+        }
         m_s.sinkCall([&](QString &e) { return m_s.sink.removeScratchPath(m_s.header.uuid, m_scratch, &e); });
-        QDir().rmdir(QFileInfo(m_scratch).path());  // the run's folder, once empty
+        const QFileInfo runFolder(QFileInfo(m_scratch).path());
+        if (!runFolder.isSymbolicLink() && !runFolder.isJunction())
+            QDir().rmdir(runFolder.filePath());  // the run's folder, once empty
     }
 
 private:

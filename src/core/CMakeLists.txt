@@ -15,6 +15,7 @@ qt_add_library(synbench_core STATIC
     power_inhibitor.h
     orchestrator.h orchestrator.cpp
     result_rules.h result_rules.cpp
+    fs_util.h fs_util.cpp
 )
 
 # P21: core links QtCore only, so a headless Phase 9 CLI can reuse it.

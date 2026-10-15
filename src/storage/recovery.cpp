@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "storage/recovery.h"
 
+#include "core/fs_util.h"
 #include "core/itest.h"
 #include "core/registry.h"
 #include "core/result_rules.h"
@@ -121,19 +122,16 @@ void recoverRun(RunRepository &repo, const Registry &registry, const QUuid &uuid
     report.notices.append(notice);
 }
 
-void cleanScratch(RunRepository &repo, RecoveryReport &report)
+void cleanScratch(RunRepository &repo, const QString &scratchRoot, RecoveryReport &report)
 {
     for (const RunRepository::ScratchPath &s : repo.scratchPathsOfFinishedRuns()) {
         const QFileInfo info(s.path);
-        const QString runFolder = QStringLiteral("synbench-%1").arg(s.runUuid.toString(QUuid::WithoutBraces));
-        // Only ever delete inside the run's own folder (<root>/synbench-<uuid>/<test>):
-        // the database is a file, and a damaged or edited one must not be
-        // able to point this at anything else.
-        const bool safe = info.isAbsolute() && info.dir().dirName() == runFolder && !info.fileName().isEmpty()
-                          && info.fileName() != QLatin1StringView("..") && info.fileName() != QLatin1StringView(".");
-        if (!safe) {
+        if (!fs::isSafeScratchPath(s.path, scratchRoot, s.runUuid)) {
+            // The database is a file: a damaged or edited one, or a test that
+            // swapped its folder for a link, must not be able to point this
+            // at anything else.
             report.errors.append(QStringLiteral("Ignored an unexpected scratch path: %1").arg(s.path));
-        } else if (info.exists() && !QDir(s.path).removeRecursively()) {
+        } else if (!fs::removeTreeNoFollow(s.path)) {
             report.errors.append(QStringLiteral("Couldn't delete the scratch folder %1").arg(s.path));
             continue;  // keep the row; try again next start
         } else {
@@ -147,13 +145,13 @@ void cleanScratch(RunRepository &repo, RecoveryReport &report)
 
 } // namespace
 
-RecoveryReport recoverRuns(QSqlDatabase db, const Registry &registry)
+RecoveryReport recoverRuns(QSqlDatabase db, const Registry &registry, const QString &scratchRoot)
 {
     RecoveryReport report;
     RunRepository repo(db);
     for (const QUuid &uuid : repo.runsWithStatus(RunStatus::Running))
         recoverRun(repo, registry, uuid, report);
-    cleanScratch(repo, report);
+    cleanScratch(repo, scratchRoot.isEmpty() ? QDir::tempPath() : scratchRoot, report);
     return report;
 }
 

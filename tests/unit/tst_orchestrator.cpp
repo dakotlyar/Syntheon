@@ -914,6 +914,35 @@ private slots:
         QCOMPARE(QCborValue::fromCbor(sink.checkpoints[1]).toMap().value(QStringLiteral("charge")).toInteger(), 98);
     }
 
+    // AP5-R2-2: a test that swaps its scratch folder for a link to somewhere
+    // else must not get that somewhere deleted at cleanup.
+    void scratchSwappedForLinkIsNotFollowed()
+    {
+        QTemporaryDir scratchRoot, victim;
+        QFile keep(QDir(victim.path()).filePath(QStringLiteral("keep.txt")));
+        QVERIFY(keep.open(QIODevice::WriteOnly));
+        keep.write("precious");
+        keep.close();
+        Fixture f;
+        QString scratch;
+        f[QStringLiteral("cpu")]->runner = [&](RunContext &ctx, const OptionValues &) {
+            scratch = ctx.scratchDir();
+            QDir(scratch).removeRecursively();
+            QFile::link(victim.path(), scratch);
+            return okResult(1);
+        };
+        RecordingSink sink(f.events);
+        auto config = fastConfig();
+        config.scratchRoot = scratchRoot.path();
+        Orchestrator o(f.registry, sink, f.inhibitor, config);
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        QVERIFY(o.start(plan({QStringLiteral("cpu")}), meta()).ok);
+        QVERIFY(waitFinished(finished));
+        QVERIFY(QFile::exists(keep.fileName()));
+        QVERIFY(!QFileInfo(scratch).isSymLink());  // the link itself is gone
+        QVERIFY(f.events.names().contains(QStringLiteral("removeScratch")));
+    }
+
     void checkpointsReachSqlite()
     {
         QTemporaryDir dir;

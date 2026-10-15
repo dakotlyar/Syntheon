@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "core/fs_util.h"
 #include "core/orchestrator.h"
 #include "core/power_inhibitor.h"
 #include "core/registry.h"
@@ -316,7 +317,7 @@ private slots:
         // "Next start": release the stuck thread first so it isn't using the folder.
         release = true;
         QTRY_VERIFY(returned.load());
-        const RecoveryReport report = recoverRuns(f.db(), f.registry);
+        const RecoveryReport report = recoverRuns(f.db(), f.registry, scratchRoot.path());
         QVERIFY2(report.errors.isEmpty(), qPrintable(report.errors.join(u'\n')));
         QCOMPARE(report.scratchPathsRemoved, 1);
         QVERIFY(!QFileInfo::exists(scratch));
@@ -336,9 +337,61 @@ private slots:
         QVERIFY(QDir().mkpath(path));
         RunRepository repo = f.repo();
         QVERIFY(repo.addScratchPath(*repo.runId(seeded.uuid), path));
-        const RecoveryReport report = recoverRuns(f.db(), f.registry);
+        const RecoveryReport report = recoverRuns(f.db(), f.registry, root.path());
         QCOMPARE(report.scratchPathsRemoved, 1);
         QVERIFY(!QFileInfo::exists(path));
+    }
+
+    // AP5-R2-2: a registered scratch path that is (or contains) a link must
+    // never take the link's target with it.
+    void scratchSymlinksNeverFollowed()
+    {
+        Fixture f;
+        QTemporaryDir root, victimDir;
+        const auto touch = [](const QString &p) {
+            QFile file(p);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write("precious");
+        };
+        touch(QDir(victimDir.path()).filePath(QStringLiteral("keep.txt")));
+
+        RunRecord done;
+        done.uuid = QUuid::createUuid();
+        done.status = RunStatus::Interrupted;
+        done.startedAt = QDateTime::currentDateTimeUtc();
+        RunRepository repo = f.repo();
+        const auto id = repo.saveRun(done);
+        const QString runFolder = QDir(root.path()).filePath(fs::scratchRunFolderName(done.uuid));
+        QVERIFY(QDir().mkpath(runFolder));
+
+        // 1. The scratch path itself is a link to the victim.
+        const QString topLink = QDir(runFolder).filePath(QStringLiteral("cpu"));
+        QVERIFY(QFile::link(victimDir.path(), topLink));
+        QVERIFY(repo.addScratchPath(*id, topLink));
+        // 2. A real scratch folder containing a link to the victim.
+        const QString real = QDir(runFolder).filePath(QStringLiteral("ram"));
+        QVERIFY(QDir().mkpath(real));
+        touch(QDir(real).filePath(QStringLiteral("junk.bin")));
+        QVERIFY(QFile::link(victimDir.path(), QDir(real).filePath(QStringLiteral("inner-link"))));
+        QVERIFY(repo.addScratchPath(*id, real));
+        // 3. The run folder replaced by a link (path shape still matches).
+        RunRecord other;
+        other.uuid = QUuid::createUuid();
+        other.status = RunStatus::Interrupted;
+        other.startedAt = QDateTime::currentDateTimeUtc();
+        const auto otherId = repo.saveRun(other);
+        const QString linkedRun = QDir(root.path()).filePath(fs::scratchRunFolderName(other.uuid));
+        QVERIFY(QFile::link(victimDir.path(), linkedRun));
+        QVERIFY(repo.addScratchPath(*otherId, QDir(linkedRun).filePath(QStringLiteral("keep.txt"))));
+
+        const RecoveryReport report = recoverRuns(f.db(), f.registry, root.path());
+        QCOMPARE(report.scratchPathsRemoved, 1);  // only the real folder
+        QCOMPARE(report.errors.size(), 2);
+        QVERIFY(QFile::exists(QDir(victimDir.path()).filePath(QStringLiteral("keep.txt"))));
+        QVERIFY(!QFileInfo::exists(real));
+        QSqlQuery q(f.db());
+        QVERIFY(q.exec(QStringLiteral("SELECT COUNT(*) FROM scratch_paths")) && q.next());
+        QCOMPARE(q.value(0).toInt(), 0);
     }
 
     void scratchOutsideRunFolderIsNeverDeleted()
