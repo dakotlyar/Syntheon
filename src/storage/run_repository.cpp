@@ -487,6 +487,50 @@ bool RunRepository::removeScratchPath(qint64 runId, const QString &path)
     return true;
 }
 
+bool RunRepository::finalizeRun(qint64 runId, const QVector<std::pair<int, TestResult>> &results,
+                                const QVector<LogLine> &log, RunStatus status, const QDateTime &finishedAt,
+                                std::optional<double> overall)
+{
+    if (!m_db.transaction())
+        return fail(QStringLiteral("begin"), m_db.lastError().text());
+    const auto rollback = [this] {
+        m_db.rollback();
+        return false;
+    };
+    for (const auto &[position, result] : results) {
+        if (!insertTestResultRows(runId, position, result))
+            return rollback();
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("INSERT INTO run_log (run_id, ts, level, test_id, message) VALUES (?, ?, ?, ?, ?)"));
+    for (const LogLine &l : log) {
+        q.addBindValue(runId);
+        q.addBindValue(formatTime(l.timestamp));
+        q.addBindValue(toKey(l.level));
+        q.addBindValue(nullableText(l.testId.isEmpty() ? QString() : l.testId));
+        q.addBindValue(notNull(l.message));
+        if (!q.exec()) {
+            fail(QStringLiteral("append log"), q.lastError().text());
+            return rollback();
+        }
+    }
+    QSqlQuery u(m_db);
+    u.prepare(QStringLiteral("UPDATE runs SET status = ?, finished_at = ?, overall_score = ? WHERE id = ?"));
+    u.addBindValue(toKey(status));
+    u.addBindValue(nullableText(formatTime(finishedAt)));
+    u.addBindValue(nullableReal(overall));
+    u.addBindValue(runId);
+    if (!u.exec() || u.numRowsAffected() != 1) {
+        fail(QStringLiteral("finish run"), u.lastError().text());
+        return rollback();
+    }
+    if (!m_db.commit()) {
+        fail(QStringLiteral("commit recovery"), m_db.lastError().text());
+        return rollback();
+    }
+    return true;
+}
+
 QVector<QUuid> RunRepository::runsWithStatus(RunStatus status)
 {
     QVector<QUuid> out;

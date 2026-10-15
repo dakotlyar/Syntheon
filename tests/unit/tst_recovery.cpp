@@ -220,6 +220,78 @@ private slots:
         QVERIFY(run.finishedAt.isValid());
     }
 
+    // AP5-R2-3: a recovery cut short must leave the run untouched, and the
+    // retry must end exactly where a single clean pass ends.
+    void recoveryCutShortThenRetried()
+    {
+        const auto goodResult = [](RecoveryContext &) {
+            TestResult r;
+            r.status = Status::Ok;
+            r.durationMs = 1234;
+            r.metrics = {{QStringLiteral("value"), {}, QStringLiteral("Runtime"), 300.0, QStringLiteral("min"),
+                          Direction::HigherIsBetter, true}};
+            return r;
+        };
+        const auto seedAndCheckpoint = [](Fixture &f) {
+            const RunRecord seeded = f.seed({placeholder(QStringLiteral("battery")), placeholder(QStringLiteral("cpu"))},
+                                            RunKind::Exclusive);
+            RunRepository repo = f.repo();
+            const qint64 id = *repo.runId(seeded.uuid);
+            repo.addCheckpoint(id, QStringLiteral("battery"), 0, QCborValue(QCborMap{{QStringLiteral("c"), 1}}).toCbor());
+            repo.appendLog(id, {{QDateTime(QDate(2030, 1, 1), QTime(12, 0), QTimeZone::UTC), LogLevel::Info, {},
+                                 QStringLiteral("last sign of life")}});
+            return seeded;
+        };
+
+        // Single clean pass.
+        Fixture clean;
+        const RunRecord cleanSeed = seedAndCheckpoint(clean);
+        clean.fakes[QStringLiteral("battery")]->recoverer = goodResult;
+        const RecoveryReport cleanReport = recoverRuns(clean.db(), clean.registry);
+        QVERIFY(cleanReport.errors.isEmpty());
+
+        // Cut short: the battery result can't be stored (duplicate metric
+        // key), standing in for a crash after the first write.
+        Fixture f;
+        const RunRecord seeded = seedAndCheckpoint(f);
+        f.fakes[QStringLiteral("battery")]->recoverer = [&](RecoveryContext &c) {
+            TestResult r = goodResult(c);
+            r.metrics.append(r.metrics.first());
+            return r;
+        };
+        RecoveryReport first = recoverRuns(f.db(), f.registry);
+        QCOMPARE(first.errors.size(), 1);
+        QVERIFY(first.notices.isEmpty());
+        RunRecord afterFailure = *f.repo().load(seeded.uuid);
+        QCOMPARE(afterFailure.status, RunStatus::Running);  // nothing changed
+        QCOMPARE(statuses(afterFailure), (QStringList{QStringLiteral("battery=not_run"), QStringLiteral("cpu=not_run")}));
+        QCOMPARE(f.repo().loadLog(*f.repo().runId(seeded.uuid)).size(), 1);
+
+        f.fakes[QStringLiteral("battery")]->recoverer = goodResult;
+        const RecoveryReport retry = recoverRuns(f.db(), f.registry);
+        QVERIFY(retry.errors.isEmpty());
+
+        const RunRecord a = *clean.repo().load(cleanSeed.uuid);
+        const RunRecord b = *f.repo().load(seeded.uuid);
+        QCOMPARE(b.status, RunStatus::Recovered);
+        QCOMPARE(b.status, a.status);
+        QCOMPARE(statuses(b), statuses(a));
+        QCOMPARE(b.tests[0].score, a.tests[0].score);
+        QCOMPARE(b.overall, a.overall);
+        QCOMPARE(b.finishedAt, a.finishedAt);
+        QCOMPARE(b.finishedAt, QDateTime(QDate(2030, 1, 1), QTime(12, 0), QTimeZone::UTC));
+        const auto messages = [](const QVector<LogLine> &lines) {
+            QStringList out;
+            for (const LogLine &l : lines)
+                out.append(l.message);
+            return out;
+        };
+        QCOMPARE(messages(f.repo().loadLog(*f.repo().runId(seeded.uuid))),
+                 messages(clean.repo().loadLog(*clean.repo().runId(cleanSeed.uuid))));
+        QCOMPARE(retry.notices.first().status, cleanReport.notices.first().status);
+        QCOMPARE(retry.notices.first().recoveredTestIds, QStringList{QStringLiteral("battery")});
+    }
+
     void recoverDefaultMeansInterrupted()
     {
         Fixture f;

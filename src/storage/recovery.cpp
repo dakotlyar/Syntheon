@@ -50,14 +50,20 @@ void recoverRun(RunRepository &repo, const Registry &registry, const QUuid &uuid
         return;
     }
 
-    RecoveryNotice notice;
-    notice.runId = uuid;
-    notice.startedAt = run->startedAt;
+    // AP5-R2-3: the last sign of life is read before anything is written,
+    // and every write for this run happens in one transaction at the end, so
+    // a recovery cut short (crash, power loss) leaves the run 'running' and
+    // untouched, and the next start produces the same final state.
+    QDateTime finished = repo.lastActivity(*runId);
+    if (!finished.isValid())
+        finished = run->startedAt;
+
     QVector<LogLine> log;
     const auto note = [&](LogLevel level, const QString &testId, const QString &message) {
         log.append({QDateTime::currentDateTimeUtc(), level, testId, message});
     };
 
+    QVector<std::pair<int, TestResult>> replaced;
     for (int i = 0; i < run->tests.size(); ++i) {
         const TestResult &stored = run->tests[i];
         if (!unfinished(stored))
@@ -82,25 +88,33 @@ void recoverRun(RunRepository &repo, const Registry &registry, const QUuid &uuid
             r.formulaVersion = test->info().formulaVersion;
             r.options = stored.options;
             applyResultRules(*test, r, [&](const QString &m) { note(LogLevel::Error, stored.testId, m); });
-            if (r.status != Status::Interrupted) {
-                notice.recoveredTestIds.append(stored.testId);
-                notice.recoveredDurationMs = std::max(notice.recoveredDurationMs, r.durationMs);
+            if (r.status != Status::Interrupted)
                 note(LogLevel::Info, stored.testId,
                      QStringLiteral("Recovered at startup from %1 checkpoints").arg(checkpoints.size()));
-            }
         } else {
             r = stored;
             r.status = Status::Interrupted;
             r.statusReason = kClosedReason;
             r.score.reset();
         }
-        if (!repo.insertTestResult(*runId, i, r)) {
-            report.errors.append(repo.lastError());
-            return;  // the run stays 'running'; recovery retries next start
-        }
+        replaced.append({i, r});
         run->tests[i] = r;
     }
 
+    // "Recovered" comes from the final rows, not from what this pass did:
+    // a recoverable test holding a real result (anything but NotRun /
+    // Interrupted) makes the run recovered.
+    RecoveryNotice notice;
+    notice.runId = uuid;
+    notice.startedAt = run->startedAt;
+    for (const TestResult &t : std::as_const(run->tests)) {
+        const ITest *test = registry.find(t.testId);
+        if (test && test->info().recovery == RecoveryMode::FromCheckpoints && t.status != Status::NotRun
+            && t.status != Status::Interrupted) {
+            notice.recoveredTestIds.append(t.testId);
+            notice.recoveredDurationMs = std::max(notice.recoveredDurationMs, t.durationMs);
+        }
+    }
     notice.status = notice.recoveredTestIds.isEmpty() ? RunStatus::Interrupted : RunStatus::Recovered;
     note(notice.status == RunStatus::Recovered ? LogLevel::Info : LogLevel::Warning, {},
          notice.status == RunStatus::Recovered ? QStringLiteral("Run recovered at startup")
@@ -109,14 +123,9 @@ void recoverRun(RunRepository &repo, const Registry &registry, const QUuid &uuid
         const ITest *t = registry.find(id);
         return t && t->info().countsTowardOverall;
     });
-    QDateTime finished = repo.lastActivity(*runId);
-    if (!finished.isValid())
-        finished = run->startedAt;
 
-    if (!repo.appendLog(*runId, log))
-        report.errors.append(repo.lastError());
-    if (!repo.finishRun(*runId, notice.status, finished, overall)) {
-        report.errors.append(repo.lastError());
+    if (!repo.finalizeRun(*runId, replaced, log, notice.status, finished, overall)) {
+        report.errors.append(repo.lastError());  // still 'running': retried next start
         return;
     }
     report.notices.append(notice);

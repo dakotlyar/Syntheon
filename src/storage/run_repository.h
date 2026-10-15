@@ -47,6 +47,10 @@ public:
     // Recovery (§3): runs left in a status, a test's checkpoints in seq order,
     // the run's last sign of life (latest checkpoint or log line).
     QVector<QUuid> runsWithStatus(RunStatus status);
+    // AP5-R2-3: replaced test rows, log lines and the final run status in ONE
+    // transaction, so a recovery cut short leaves the run exactly as it was.
+    bool finalizeRun(qint64 runId, const QVector<std::pair<int, TestResult>> &results, const QVector<LogLine> &log,
+                     RunStatus status, const QDateTime &finishedAt, std::optional<double> overall);
     QVector<QByteArray> loadCheckpoints(qint64 runId, const QString &testId);
     QDateTime lastActivity(qint64 runId);
 
