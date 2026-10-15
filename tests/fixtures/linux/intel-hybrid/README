@@ -1,0 +1,2 @@
+Synthetic fixture (hand-written, not captured): an Intel hybrid CPU with one
+P-core (2 threads) and two E-cores, as exposed by the cpu_core/cpu_atom PMUs.

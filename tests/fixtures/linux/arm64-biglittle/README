@@ -1,0 +1,3 @@
+Synthetic fixture (hand-written from the documented sysfs/procfs formats, not
+captured from a machine): an ARM64 big.LITTLE SoC, 4x Cortex-A55 + 3x Cortex-A78
++ 1x Cortex-X1, charge-based battery, USB charger, device-tree model, no DMI.
