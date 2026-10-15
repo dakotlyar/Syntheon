@@ -39,8 +39,10 @@ private:
 
 // The test's only window to the outside world while it runs (§2.7). The
 // contract is process-agnostic (D2): a separate runner process can implement it
-// later without plugin changes. All members are safe to call from the test's
-// own helper threads.
+// later without plugin changes. progress(), log(), cancelled() and the
+// sub-test calls are safe from the test's own helper threads; checkpoint() and
+// scratchDir() write to the database and must be called from the thread that
+// called run().
 class RunContext
 {
 public:
