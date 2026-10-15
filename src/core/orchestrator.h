@@ -19,6 +19,7 @@
 namespace sb {
 
 class PowerInhibitor;
+class PrivilegedOps;
 class Registry;
 class RunSink;
 
@@ -75,6 +76,10 @@ public:
         std::chrono::milliseconds logFlushInterval{500};
         std::chrono::milliseconds progressInterval{100};  // ~10 Hz to the UI
         QString scratchRoot;                              // default: QDir::tempPath()
+        // Handed to tests via RunContext/ProbeContext::privileged(). Must
+        // outlive the orchestrator; null = every privileged call fails with
+        // Unavailable.
+        PrivilegedOps *privileged = nullptr;
     };
 
     struct StartResult {

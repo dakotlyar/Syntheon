@@ -327,6 +327,48 @@ private slots:
         QCOMPARE(c.l3, qint64(64) << 20);
     }
 
+    // Task 9/10: SMBIOS through PrivilegedOps, from either platform's shape.
+    void smbiosThroughPrivilegedOps()
+    {
+        struct FakeOps : PrivilegedOps {
+            std::optional<SmbiosTables> result;
+            bool isAvailable() const override { return true; }
+            std::optional<SmbiosTables> readSmbios(PrivError *error) override
+            {
+                if (!result && error)
+                    *error = {PrivError::Code::NotPermitted, QStringLiteral("EACCES")};
+                return result;
+            }
+        } ops;
+
+        SystemInfo info;
+        PrivError error;
+        QVERIFY(!applyPrivilegedSmbios(info, ops, &error));
+        QCOMPARE(error.code, PrivError::Code::NotPermitted);
+        QVERIFY(!info.memory.modulesKnown);
+
+        // Linux shape: entry point + table.
+        ops.result = SmbiosTables{QByteArray("_SM3_\x00\x18\x03\x06", 9), 0, 0, SmbiosBuilder::sample()};
+        QVERIFY(applyPrivilegedSmbios(info, ops, &error));
+        QCOMPARE(info.memory.modules.size(), 2);
+
+        // Windows shape: version + table, no entry point.
+        SystemInfo win;
+        ops.result = SmbiosTables{{}, 3, 6, SmbiosBuilder::sample()};
+        QVERIFY(applyPrivilegedSmbios(win, ops));
+        QCOMPARE(win.memory.modules.size(), 2);
+
+        // An unrecognisable entry point is refused, not guessed.
+        ops.result = SmbiosTables{QByteArray("junk"), 0, 0, SmbiosBuilder::sample()};
+        QVERIFY(!applyPrivilegedSmbios(win, ops, &error));
+        QCOMPARE(error.code, PrivError::Code::Protocol);
+
+        UnavailablePrivilegedOps none;
+        QVERIFY(!none.isAvailable());
+        QVERIFY(!applyPrivilegedSmbios(win, none, &error));
+        QCOMPARE(error.code, PrivError::Code::Unavailable);
+    }
+
     void snapshotShape()
     {
         SystemInfo info;

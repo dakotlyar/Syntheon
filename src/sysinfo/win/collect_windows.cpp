@@ -22,6 +22,7 @@
 
 #include "sysinfo/collector.h"
 
+#include "privileged/win_inproc/windows_inprocess_ops.h"
 #include "sysinfo/common/vulkan_probe.h"
 #include "sysinfo/common/x86_cpu.h"
 #include "sysinfo/parsers/smbios.h"
@@ -76,20 +77,6 @@ QString computerName()
     if (!GetComputerNameExW(ComputerNamePhysicalDnsHostname, buf, &size))
         return {};
     return QString::fromWCharArray(buf, int(size));
-}
-
-// --- SMBIOS (no driver needed on Windows) ------------------------------------
-
-std::optional<SmbiosInfo> readSmbios()
-{
-    const DWORD rsmb = (DWORD('R') << 24) | (DWORD('S') << 16) | (DWORD('M') << 8) | DWORD('B');
-    const UINT size = GetSystemFirmwareTable(rsmb, 0, nullptr, 0);
-    if (size == 0)
-        return std::nullopt;
-    QByteArray raw(int(size), Qt::Uninitialized);
-    if (GetSystemFirmwareTable(rsmb, 0, raw.data(), size) != size)
-        return std::nullopt;
-    return parseWindowsRawSmbios(raw);
 }
 
 // --- CPU ---------------------------------------------------------------------
@@ -526,8 +513,8 @@ SystemInfo collectSystemInfo()
     mem.dwLength = sizeof mem;
     if (GlobalMemoryStatusEx(&mem))
         info.memory.totalBytes = qint64(mem.ullTotalPhys);
-    if (const auto smbios = readSmbios())
-        applySmbios(info, *smbios);  // also fills maker/model/BIOS
+    WindowsInProcessOps ops;  // GetSystemFirmwareTable('RSMB'): no driver needed
+    applyPrivilegedSmbios(info, ops);  // modules; also fills maker/model/BIOS
 
     readGpus(info);
     const VulkanInfo vk = probeVulkan();

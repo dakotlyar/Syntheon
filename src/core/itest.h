@@ -15,12 +15,13 @@
 namespace sb {
 
 // What a test sees during discovery (probe/options/preconditions), on a pool
-// thread. privileged() joins with the PrivilegedOps interface in task 9.
+// thread.
 class ProbeContext
 {
 public:
     virtual ~ProbeContext() = default;
     virtual const SystemSnapshot &system() const = 0;
+    virtual PrivilegedOps &privileged() const = 0;
 };
 
 class RunContext;
@@ -66,6 +67,8 @@ public:
     virtual QString scratchDir() = 0;
     // The snapshot taken at run start.
     virtual const SystemSnapshot &system() const = 0;
+    // Typed root-only operations (§6); fail with PrivError, never hang.
+    virtual PrivilegedOps &privileged() = 0;
 };
 
 // Given to ITest::recover() at startup for a run left in 'running' (task 6).

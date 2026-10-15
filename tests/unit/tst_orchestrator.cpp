@@ -1005,6 +1005,44 @@ private slots:
         QVERIFY(!QFile::exists(path));
     }
 
+    // Task 9: tests reach PrivilegedOps through their contexts.
+    void privilegedOpsReachTests()
+    {
+        struct CountingOps : UnavailablePrivilegedOps {
+            int calls = 0;
+            std::optional<SmbiosTables> readSmbios(PrivError *e) override
+            {
+                ++calls;
+                return UnavailablePrivilegedOps::readSmbios(e);
+            }
+        } ops;
+        Fixture f;
+        PrivError::Code seen = PrivError::Code::Unsupported;
+        f[QStringLiteral("cpu")]->runner = [&](RunContext &ctx, const OptionValues &) {
+            PrivError e;
+            ctx.privileged().readSmbios(&e);
+            seen = e.code;
+            return okResult(1);
+        };
+        RecordingSink sink(f.events);
+        auto config = fastConfig();
+        config.privileged = &ops;
+        Orchestrator o(f.registry, sink, f.inhibitor, config);
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        QVERIFY(o.start(plan({QStringLiteral("cpu")}), meta()).ok);
+        QVERIFY(waitFinished(finished));
+        QCOMPARE(ops.calls, 1);
+        QCOMPARE(seen, PrivError::Code::Unavailable);
+
+        // Without one configured, calls fail cleanly instead of crashing.
+        Orchestrator bare(f.registry, sink, f.inhibitor, fastConfig());
+        QSignalSpy bareFinished(&bare, &Orchestrator::runFinished);
+        seen = PrivError::Code::Unsupported;
+        QVERIFY(bare.start(plan({QStringLiteral("cpu")}), meta()).ok);
+        QVERIFY(waitFinished(bareFinished));
+        QCOMPARE(seen, PrivError::Code::Unavailable);
+    }
+
     void destroyWhileRunningStopsCleanly()
     {
         Fixture f;

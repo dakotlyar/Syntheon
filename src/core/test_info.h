@@ -2,6 +2,7 @@
 #pragma once
 
 #include "core/enums.h"
+#include "privileged/privileged_ops.h"
 
 #include <QList>
 #include <QMap>
@@ -32,8 +33,7 @@ struct TestInfo {
     RecoveryMode recovery = RecoveryMode::None;
     bool countsTowardOverall = true;
     QList<SubTestInfo> subTests;
-    // privilegedOps (QList<PrivOp>) joins this struct with the PrivilegedOps
-    // interface in task 9.
+    QList<PrivOp> privilegedOps;  // declared up front for availability + review
 };
 
 struct Hint {

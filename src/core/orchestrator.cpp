@@ -28,14 +28,22 @@ namespace {
 
 const QString kDidNotRespond = QStringLiteral("Did not respond, restart SynBench");
 
+UnavailablePrivilegedOps &unavailableOps()
+{
+    static UnavailablePrivilegedOps ops;
+    return ops;
+}
+
 class SnapshotProbeContext : public ProbeContext
 {
 public:
-    explicit SnapshotProbeContext(const SystemSnapshot &s) : m_system(s) {}
+    SnapshotProbeContext(const SystemSnapshot &s, PrivilegedOps *ops) : m_system(s), m_ops(ops) {}
     const SystemSnapshot &system() const override { return m_system; }
+    PrivilegedOps &privileged() const override { return m_ops ? *m_ops : unavailableOps(); }
 
 private:
     const SystemSnapshot &m_system;
+    PrivilegedOps *m_ops;
 };
 
 } // namespace
@@ -224,6 +232,10 @@ public:
     }
 
     const SystemSnapshot &system() const override { return m_s.header.system; }
+    PrivilegedOps &privileged() override
+    {
+        return m_s.config.privileged ? *m_s.config.privileged : unavailableOps();
+    }
 
     // After run() returns: delete the scratch folder and its registration.
     void cleanup()
@@ -523,7 +535,7 @@ Orchestrator::StartResult Orchestrator::start(const Plan &plan, const RunMeta &m
                 result.errors.append(QStringLiteral("%1 always runs on its own.").arg(e.test->info().name));
         }
     }
-    const SnapshotProbeContext probe(meta.system);
+    const SnapshotProbeContext probe(meta.system, m_config.privileged);
     for (const auto &e : entries) {
         for (const ValidationError &v : e.test->validate(e.options).errors)
             result.errors.append(QStringLiteral("%1: %2").arg(e.test->info().name, v.message));

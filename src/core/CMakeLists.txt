@@ -18,7 +18,9 @@ qt_add_library(synbench_core STATIC
 )
 
 # P21: core links QtCore only, so a headless Phase 9 CLI can reuse it.
-target_link_libraries(synbench_core PUBLIC Qt6::Core)
+# synbench_privileged is QtCore-only too: the PrivilegedOps interface tests
+# reach through their contexts (§2.7).
+target_link_libraries(synbench_core PUBLIC Qt6::Core synbench_privileged)
 target_include_directories(synbench_core PUBLIC "${PROJECT_SOURCE_DIR}/src")
 
 add_subdirectory(power)

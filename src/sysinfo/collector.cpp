@@ -16,6 +16,33 @@ void addOpenGlInfo(SystemInfo &info)
     info.apis.openGlIsEs = gl.isEs;
 }
 
+std::optional<SmbiosInfo> parseSmbiosTables(const SmbiosTables &tables)
+{
+    SmbiosVersion version{tables.major, tables.minor};
+    if (!tables.entryPoint.isEmpty()) {
+        const auto v = parseSmbiosEntryPoint(tables.entryPoint);
+        if (!v)
+            return std::nullopt;
+        version = *v;
+    }
+    return parseSmbiosTable(tables.table, version);
+}
+
+bool applyPrivilegedSmbios(SystemInfo &info, PrivilegedOps &ops, PrivError *error)
+{
+    const auto tables = ops.readSmbios(error);
+    if (!tables)
+        return false;
+    const auto smbios = parseSmbiosTables(*tables);
+    if (!smbios) {
+        if (error)
+            *error = {PrivError::Code::Protocol, QStringLiteral("Unrecognised SMBIOS entry point")};
+        return false;
+    }
+    applySmbios(info, *smbios);
+    return true;
+}
+
 void applySmbios(SystemInfo &info, const SmbiosInfo &smbios)
 {
     info.memory.modules.clear();

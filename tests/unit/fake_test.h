@@ -58,7 +58,9 @@ class FakeProbeContext : public ProbeContext
 {
 public:
     const SystemSnapshot &system() const override { return snapshot; }
+    PrivilegedOps &privileged() const override { return ops; }
     SystemSnapshot snapshot;
+    mutable UnavailablePrivilegedOps ops;
 };
 
 } // namespace sb::testing
