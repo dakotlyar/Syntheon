@@ -267,8 +267,20 @@ MigrateResult migrate(const QString &path, const QString &migrationsDir)
     }
 
     if (existed) {
-        if (!exec(db, QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)"), &result.error))
+        // F9: the backup is a plain file copy, so the WAL must be fully
+        // checkpointed first. wal_checkpoint reports "busy" in its first
+        // column (not as an error) when another connection holds it up.
+        QSqlQuery cp(db);
+        if (!cp.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)")) || !cp.next()) {
+            result.error = cp.lastError().text();
             return result;
+        }
+        if (cp.value(0).toInt() != 0) {
+            result.error = QStringLiteral("The history database is in use elsewhere, so it can't be backed up "
+                                          "before upgrading. Close other SynBench windows and try again.");
+            return result;
+        }
+        cp.finish();
         const QString backup = QStringLiteral("%1.bak-v%2").arg(path).arg(current);
         if (QFile::exists(backup) && !QFile::remove(backup)) {
             result.error = QStringLiteral("Couldn't replace the old backup %1").arg(backup);

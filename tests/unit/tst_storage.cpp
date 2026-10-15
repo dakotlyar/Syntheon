@@ -247,6 +247,40 @@ private slots:
         QCOMPARE(rows(b.db(), QStringLiteral("a")), 1);
     }
 
+    // F9: a checkpoint held up by another connection fails the migration
+    // (no half-current backup is taken). Takes the 5 s busy timeout.
+    void busyCheckpointFailsMigration()
+    {
+        QTemporaryDir dir, scripts;
+        writeFile(scripts.filePath(QStringLiteral("0001_init.sql")), "CREATE TABLE a (x INTEGER);");
+        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        QVERIFY(Database::migrate(path, scripts.path()).ok());
+
+        Database::ScopedConnection writer(path, QStringLiteral("w"));
+        Database::ScopedConnection reader(path, QStringLiteral("r"));
+        QSqlQuery w(writer.db());
+        QVERIFY(w.exec(QStringLiteral("INSERT INTO a VALUES (1)")));
+        // The reader pins a snapshot; the writer then adds WAL frames past it.
+        QVERIFY(reader.db().transaction());
+        QSqlQuery r(reader.db());
+        QVERIFY(r.exec(QStringLiteral("SELECT COUNT(*) FROM a")) && r.next());
+        QVERIFY(w.exec(QStringLiteral("INSERT INTO a VALUES (2)")));
+
+        writeFile(scripts.filePath(QStringLiteral("0002_more.sql")), "CREATE TABLE b (y INTEGER);");
+        const auto m = Database::migrate(path, scripts.path());
+        QCOMPARE(m.status, Database::MigrateResult::Status::Failed);
+        QVERIFY(m.error.contains(QLatin1StringView("in use")));
+        QVERIFY(!QFile::exists(path + QStringLiteral(".bak-v1")));
+        r.finish();
+        reader.db().commit();
+        QCOMPARE(userVersion(path), 1);
+
+        // Once nothing holds it up, the same migration goes through.
+        const auto again = Database::migrate(path, scripts.path());
+        QVERIFY2(again.ok(), qPrintable(again.error));
+        QVERIFY(QFile::exists(path + QStringLiteral(".bak-v1")));
+    }
+
     void failedMigrationRollsBack()
     {
         QTemporaryDir dir, scripts;
