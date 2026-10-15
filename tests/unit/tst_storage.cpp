@@ -83,6 +83,15 @@ int rows(QSqlDatabase db, const QString &table)
     return q.value(0).toInt();
 }
 
+#ifdef Q_OS_UNIX
+void setWritable(const QString &dir, const QString &file, bool writable)
+{
+    const auto ro = QFile::ReadOwner | QFile::ExeOwner;
+    QFile::setPermissions(dir, writable ? ro | QFile::WriteOwner : ro);
+    QFile::setPermissions(file, writable ? QFile::ReadOwner | QFile::WriteOwner : QFile::ReadOwner);
+}
+#endif
+
 void writeFile(const QString &path, const QByteArray &data)
 {
     QFile f(path);
@@ -533,6 +542,76 @@ private slots:
         QCOMPARE(RunRepository(storage.connection()).runCount(), 1);
 
         QFile::setPermissions(readOnly, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+    }
+
+    // F1: one failed settings write must not make every later sync fail.
+    void settingsSyncRecoversAfterFailure()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("needs POSIX permissions");
+#else
+        if (geteuid() == 0)
+            QSKIP("root ignores permissions");
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath(QStringLiteral("cfg"));
+        QVERIFY(QDir().mkpath(cfg));
+        const QString ini = QDir(cfg).filePath(QStringLiteral("settings.ini"));
+        SettingsStore s(ini);
+        s.setTheme(QStringLiteral("dark"));
+        s.setDataLocation(QStringLiteral("/somewhere"));
+        QVERIFY(s.sync());
+
+        setWritable(cfg, ini, false);
+        s.setLayout(QStringLiteral("tabs"));
+        s.setDataLocation({});
+        QVERIFY(!s.sync());
+        setWritable(cfg, ini, true);
+        QVERIFY(s.sync());
+
+        SettingsStore reread(ini);
+        QCOMPARE(reread.layout(), QStringLiteral("tabs"));
+        QCOMPARE(reread.theme(), QStringLiteral("dark"));
+        QVERIFY(reread.dataLocation().isEmpty());  // the removal reached the disk too
+#endif
+    }
+
+    void moveAndSwitchWorkAfterSettingsFailure()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("needs POSIX permissions");
+#else
+        if (geteuid() == 0)
+            QSKIP("root ignores permissions");
+        QTemporaryDir oldDir, newDir, otherDir, dir;
+        const QString cfg = dir.filePath(QStringLiteral("cfg"));
+        QVERIFY(QDir().mkpath(cfg));
+        const QString ini = QDir(cfg).filePath(QStringLiteral("settings.ini"));
+        SettingsStore settings(ini);
+        settings.setDataLocation(oldDir.path());
+        QVERIFY(settings.sync());
+        Storage storage(settings);
+        QVERIFY(storage.open().ok());
+        QVERIFY(RunRepository(storage.connection()).saveRun(sampleRun()));
+
+        setWritable(cfg, ini, false);
+        auto m = storage.moveTo(newDir.path());
+        QCOMPARE(m.status, Storage::MoveStatus::Failed);
+        QCOMPARE(storage.dataDir(), QDir::cleanPath(oldDir.path()));
+        QVERIFY(!QFile::exists(QDir(newDir.path()).filePath(QStringLiteral("synbench.db"))));
+        QCOMPARE(RunRepository(storage.connection()).runCount(), 1);
+
+        setWritable(cfg, ini, true);
+        m = storage.moveTo(newDir.path());
+        QCOMPARE(m.status, Storage::MoveStatus::Moved);
+        QCOMPARE(SettingsStore(ini).dataLocation(), QDir::cleanPath(newDir.path()));
+
+        setWritable(cfg, ini, false);
+        QVERIFY(!storage.switchTo(otherDir.path()).ok());
+        QCOMPARE(storage.dataDir(), QDir::cleanPath(newDir.path()));
+        setWritable(cfg, ini, true);
+        QVERIFY(storage.switchTo(otherDir.path()).ok());
+        QCOMPARE(SettingsStore(ini).dataLocation(), QDir::cleanPath(otherDir.path()));
+#endif
     }
 
     void moveRefusedWhileBusy()

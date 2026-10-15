@@ -2,6 +2,7 @@
 #include "storage/settings_store.h"
 
 #include <QStringList>
+#include <QVariantMap>
 
 namespace sb {
 
@@ -79,6 +80,24 @@ void SettingsStore::setFirstRunDone(bool done)
 
 bool SettingsStore::sync()
 {
+    m_settings->sync();
+    if (m_settings->status() == QSettings::NoError)
+        return true;
+
+    // F1: QSettings::status() is sticky; once a write fails it never reports
+    // success again. Rebuild the object from the current (in-memory) values
+    // and retry, so a later sync can succeed once the file is writable.
+    QVariantMap values;
+    for (const QString &key : m_settings->allKeys())
+        values.insert(key, m_settings->value(key));
+    const QString file = m_settings->fileName();
+    m_settings = std::make_unique<QSettings>(file, QSettings::IniFormat);
+    for (const QString &key : m_settings->allKeys()) {
+        if (!values.contains(key))
+            m_settings->remove(key);  // removed in memory, still on disk
+    }
+    for (auto it = values.cbegin(); it != values.cend(); ++it)
+        m_settings->setValue(it.key(), it.value());
     m_settings->sync();
     return m_settings->status() == QSettings::NoError;
 }
