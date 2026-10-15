@@ -6,7 +6,9 @@
 #include "fake_test.h"
 #include "storage/database.h"
 #include "storage/run_repository.h"
+#include "storage/settings_store.h"
 #include "storage/sqlite_run_sink.h"
+#include "storage/storage.h"
 
 #include <QCborValue>
 #include <QDir>
@@ -903,6 +905,54 @@ private slots:
         QCOMPARE(o.currentRun().tests[0].testId, QStringLiteral("cpu"));
         o.stop();
         QVERIFY(waitFinished(finished));
+    }
+
+    // F2: the sink follows the data location; it never writes to the old
+    // place or creates an empty database.
+    void runAfterMoveLandsInNewDatabase()
+    {
+        QTemporaryDir oldDir, newDir, cfg;
+        SettingsStore settings(cfg.filePath(QStringLiteral("settings.ini")));
+        settings.setDataLocation(oldDir.path());
+        Storage storage(settings);
+        QVERIFY(storage.open().ok());
+        const QString oldPath = storage.dbPath();
+        SqliteRunSink sqlite([&storage] { return storage.dbPath(); });
+
+        Fixture f;
+        Orchestrator o(f.registry, sqlite, f.inhibitor, fastConfig());
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        const auto first = o.start(plan({QStringLiteral("cpu")}), meta());
+        QVERIFY(first.ok);
+        QVERIFY(waitFinished(finished));
+
+        QCOMPARE(storage.moveTo(newDir.path()).status, Storage::MoveStatus::Moved);
+        QVERIFY(!QFile::exists(oldPath));
+
+        finished.clear();
+        const auto second = o.start(plan({QStringLiteral("ram")}), meta());
+        QVERIFY(second.ok);
+        QVERIFY(waitFinished(finished));
+        QCOMPARE(finishedRun(finished).status, RunStatus::Completed);
+
+        QVERIFY(!QFile::exists(oldPath));  // no ghost database
+        RunRepository repo(storage.connection());
+        QCOMPARE(repo.runCount(), 2);
+        QVERIFY(repo.load(first.runId));
+        QCOMPARE(repo.load(second.runId)->tests.size(), 1);
+    }
+
+    void sinkNeverCreatesMissingDatabase()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        SqliteRunSink sink(path);
+        RunRecord r;
+        r.uuid = QUuid::createUuid();
+        QString error;
+        QVERIFY(!sink.beginRun(r, &error));
+        QVERIFY(error.contains(QLatin1StringView("doesn't exist")));
+        QVERIFY(!QFile::exists(path));
     }
 
     void destroyWhileRunningStopsCleanly()

@@ -8,6 +8,9 @@
 #include <QSqlDatabase>
 #include <QString>
 
+#include <functional>
+#include <optional>
+
 namespace sb {
 
 class RunRepository;
@@ -16,10 +19,17 @@ class RunRepository;
 // worker), opened on first use and closed by threadFinished(). Uses
 // synchronous = NORMAL, switched to FULL by setDurable(true) while a
 // recoverable test runs (§3).
+//
+// The database path comes from a provider (normally Storage::dbPath()), read
+// whenever a connection is opened, so a run after a data-location move writes
+// to the new file (F2). A missing file is never created here.
 class SqliteRunSink : public RunSink
 {
 public:
-    explicit SqliteRunSink(QString dbPath);
+    using PathProvider = std::function<QString()>;
+
+    explicit SqliteRunSink(PathProvider dbPath);
+    explicit SqliteRunSink(const QString &dbPath);
     ~SqliteRunSink() override;
 
     bool beginRun(const RunRecord &run, QString *error) override;
@@ -37,10 +47,16 @@ private:
     QSqlDatabase connection(QString *error);
     std::optional<qint64> runId(RunRepository &repo, const QUuid &run, QString *error);
 
-    const QString m_path;
+    struct Connection {
+        QString name;
+        QString path;
+    };
+
+    const PathProvider m_path;
     QMutex m_mutex;
-    QHash<Qt::HANDLE, QString> m_connections;  // thread -> connection name
-    QHash<QUuid, qint64> m_runIds;
+    QHash<Qt::HANDLE, Connection> m_connections;  // per thread
+    QHash<QUuid, qint64> m_runIds;                // valid for m_runIdsPath only
+    QString m_runIdsPath;
 };
 
 } // namespace sb

@@ -4,13 +4,16 @@
 #include "storage/database.h"
 #include "storage/run_repository.h"
 
+#include <QFileInfo>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QThread>
 
 namespace sb {
 
-SqliteRunSink::SqliteRunSink(QString dbPath) : m_path(std::move(dbPath)) {}
+SqliteRunSink::SqliteRunSink(PathProvider dbPath) : m_path(std::move(dbPath)) {}
+
+SqliteRunSink::SqliteRunSink(const QString &dbPath) : m_path([dbPath] { return dbPath; }) {}
 
 SqliteRunSink::~SqliteRunSink()
 {
@@ -22,16 +25,27 @@ SqliteRunSink::~SqliteRunSink()
 QSqlDatabase SqliteRunSink::connection(QString *error)
 {
     const Qt::HANDLE thread = QThread::currentThreadId();
-    QString name;
+    const QString path = m_path();
+    Connection existing;
     {
         QMutexLocker lock(&m_mutex);
-        name = m_connections.value(thread);
+        existing = m_connections.value(thread);
     }
-    if (!name.isEmpty())
-        return QSqlDatabase::database(name, false);
+    if (!existing.name.isEmpty()) {
+        if (existing.path == path)
+            return QSqlDatabase::database(existing.name, false);
+        threadFinished();  // the data location moved since this thread connected
+    }
 
-    name = Database::uniqueConnectionName(QStringLiteral("run"));
-    QSqlDatabase db = Database::openConnection(m_path, name, error);
+    // Never create a database here: a missing file means the location moved
+    // or vanished, and SQLite would silently make an empty one.
+    if (!QFileInfo::exists(path)) {
+        if (error)
+            *error = QStringLiteral("The history database %1 doesn't exist").arg(path);
+        return {};
+    }
+    const QString name = Database::uniqueConnectionName(QStringLiteral("run"));
+    QSqlDatabase db = Database::openConnection(path, name, error);
     if (!db.isOpen()) {
         db = QSqlDatabase();
         Database::closeConnection(name);
@@ -39,19 +53,23 @@ QSqlDatabase SqliteRunSink::connection(QString *error)
     }
     QSqlQuery(db).exec(QStringLiteral("PRAGMA synchronous = NORMAL"));
     QMutexLocker lock(&m_mutex);
-    m_connections.insert(thread, name);
+    m_connections.insert(thread, {name, path});
+    if (m_runIdsPath != path) {
+        m_runIds.clear();  // ids belong to the database they came from
+        m_runIdsPath = path;
+    }
     return db;
 }
 
 void SqliteRunSink::threadFinished()
 {
-    QString name;
+    Connection c;
     {
         QMutexLocker lock(&m_mutex);
-        name = m_connections.take(QThread::currentThreadId());
+        c = m_connections.take(QThread::currentThreadId());
     }
-    if (!name.isEmpty())
-        Database::closeConnection(name);
+    if (!c.name.isEmpty())
+        Database::closeConnection(c.name);
 }
 
 std::optional<qint64> SqliteRunSink::runId(RunRepository &repo, const QUuid &run, QString *error)
@@ -126,8 +144,11 @@ bool SqliteRunSink::finishRun(const RunRecord &run, QString *error)
     const auto id = runId(repo, run.uuid, error);
     if (!id)
         return false;
-    if (repo.finishRun(*id, run.status, run.finishedAt, run.overall))
+    if (repo.finishRun(*id, run.status, run.finishedAt, run.overall)) {
+        QMutexLocker lock(&m_mutex);
+        m_runIds.remove(run.uuid);  // the run is final; nothing more is written to it
         return true;
+    }
     if (error)
         *error = repo.lastError();
     return false;
