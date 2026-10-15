@@ -645,11 +645,13 @@ void Orchestrator::abandon()
     m_watchdog.stop();
 
     const Shared::Entry &hungEntry = s->plan[index];
-    pendingLog.append({QDateTime::currentDateTimeUtc(), LogLevel::Error, hungEntry.testId,
-                       QStringLiteral("%1 did not respond after being cancelled; the run was abandoned")
-                           .arg(hungEntry.test->info().name)});
-    for (const LogLine &l : std::as_const(pendingLog))
-        emit logLine(l);
+    // Lines still in the buffer were already streamed to the UI; they only
+    // need saving. The new line is both saved and streamed.
+    const LogLine abandonedLine{QDateTime::currentDateTimeUtc(), LogLevel::Error, hungEntry.testId,
+                                QStringLiteral("%1 did not respond after being cancelled; the run was abandoned")
+                                    .arg(hungEntry.test->info().name)};
+    pendingLog.append(abandonedLine);
+    emit logLine(abandonedLine);
 
     TestResult hung = TestResult::interrupted(kDidNotRespond);
     hung.testId = hungEntry.testId;
