@@ -47,6 +47,14 @@ jobs:
       - name: Build
         run: cmake --build --preset linux-x64-release
 
+      # AP5-R2-4: test-only binaries never ship. Install rules arrive with
+      # packaging (task 19); until then the install tree is empty.
+      - name: Check shipping trees for test binaries
+        shell: bash
+        run: |
+          cmake --install build/linux-x64-release --prefix stage
+          packaging/checks/no-test-binaries.sh stage
+
       - name: Unit tests
         run: ctest --preset linux-x64-release
 
@@ -82,6 +90,14 @@ jobs:
 
       - name: Build
         run: cmake --build --preset windows-x64-release
+
+      # AP5-R2-4: test-only binaries never ship. Install rules arrive with
+      # packaging (task 19); until then the install tree is empty.
+      - name: Check shipping trees for test binaries
+        shell: bash
+        run: |
+          cmake --install build/windows-x64-release --prefix stage
+          packaging/checks/no-test-binaries.sh stage
 
       - name: Unit tests
         run: ctest --preset windows-x64-release

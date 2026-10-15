@@ -13,6 +13,13 @@ endfunction()
 
 add_subdirectory(unit)
 
+# The shipping-tree check must itself fail on a planted test binary (§10).
+if(UNIX)
+    add_test(NAME no_test_binaries_selftest
+        COMMAND sh -c "d=$(mktemp -d) && mkdir -p \"$d/usr/bin\" && touch \"$d/usr/bin/SynBench\" && \"$0\" \"$d\" && touch \"$d/usr/bin/synbench-helper-test\" && ! \"$0\" \"$d\" 2>/dev/null; r=$?; rm -rf \"$d\"; exit $r"
+                "${PROJECT_SOURCE_DIR}/packaging/checks/no-test-binaries.sh")
+endif()
+
 # Every tracked path must be checkout-able on Windows.
 add_test(NAME windows_safe_paths
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckWindowsPaths.cmake")

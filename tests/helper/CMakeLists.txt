@@ -2,6 +2,8 @@
 # Helper tests (Linux). Nothing here runs as root.
 add_executable(synbench-helper-test test_helper_main.cpp)
 target_link_libraries(synbench-helper-test PRIVATE synbench_helper_core)
+# AP5-R2-4: never next to the shipping binaries in <build>/bin.
+set_target_properties(synbench-helper-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-tools")
 
 synbench_add_unit_test(tst_helper_core SOURCES tst_helper_core.cpp LIBS synbench_helper_core Qt6::Core)
 synbench_add_unit_test(tst_helper_client SOURCES tst_helper_client.cpp LIBS synbench_privileged synbench_sysinfo)
