@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include "privileged/privileged_ops.h"
+#include "sysinfo/system_info.h"
+
+#include <QObject>
+#include <QStringList>
+
+#include <functional>
+#include <memory>
+
+#ifdef Q_OS_LINUX
+#include "privileged/linux_client/linux_helper_client.h"
+#endif
+
+namespace sb {
+
+// App-level startup state (§6, §7): the administrator gate (D1) and the
+// system snapshot. QML singleton "AppController".
+//
+// Linux: starts the privileged helper (one polkit prompt). While it starts,
+// authState is Authorising; if the prompt is declined, the helper fails, or it
+// dies mid-session, authState is Failed and QML shows the blocking AuthDialog
+// (Retry / Quit; there's no limited mode). Windows: the app is already
+// elevated (P12), so authState is Ready at once.
+//
+// The snapshot is collected on a pool thread; memory modules come from SMBIOS
+// through PrivilegedOps once both are ready (Linux: the helper's READ_SMBIOS).
+class AppController : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(AuthState authState READ authState NOTIFY authChanged)
+    Q_PROPERTY(QString authMessage READ authMessage NOTIFY authChanged)
+    Q_PROPERTY(bool systemInfoReady READ systemInfoReady NOTIFY systemInfoChanged)
+    Q_PROPERTY(QString machineLabel READ machineLabel NOTIFY systemInfoChanged)
+    Q_PROPERTY(QString systemSummary READ systemSummary NOTIFY systemInfoChanged)
+    Q_PROPERTY(bool memoryModulesKnown READ memoryModulesKnown NOTIFY systemInfoChanged)
+    Q_PROPERTY(QStringList memoryModules READ memoryModules NOTIFY systemInfoChanged)
+
+public:
+    enum class AuthState { Authorising, Ready, Failed };
+    Q_ENUM(AuthState)
+
+#ifdef Q_OS_LINUX
+    // Tests replace the pkexec launch; the app uses LinuxHelperClient's default.
+    using LaunchProvider = std::function<LinuxHelperClient::Launch()>;
+    explicit AppController(LaunchProvider launch = {}, LinuxHelperClient::Options options = defaultHelperOptions(),
+                           QObject *parent = nullptr);
+    static LinuxHelperClient::Options defaultHelperOptions();
+#else
+    explicit AppController(QObject *parent = nullptr);
+#endif
+    ~AppController() override;
+
+    void start();
+
+    AuthState authState() const { return m_authState; }
+    QString authMessage() const { return m_authMessage; }
+    bool systemInfoReady() const { return m_infoReady; }
+    QString machineLabel() const { return m_info.machineLabel(); }
+    QString systemSummary() const;
+    bool memoryModulesKnown() const { return m_info.memory.modulesKnown; }
+    QStringList memoryModules() const;
+
+    const SystemInfo &systemInfo() const { return m_info; }
+    PrivilegedOps &privileged();
+
+    Q_INVOKABLE void retryAuth();
+    Q_INVOKABLE void quit();
+
+signals:
+    void authChanged();
+    void systemInfoChanged();
+    void quitRequested();
+
+private:
+    void setAuth(AuthState state, const QString &message = {});
+    void readSmbiosWhenReady();
+    void onSmbios(std::optional<SmbiosTables> tables, PrivError error);
+
+#ifdef Q_OS_LINUX
+    LaunchProvider m_launch;
+    LinuxHelperClient m_helper;
+#else
+    std::unique_ptr<PrivilegedOps> m_ops;
+#endif
+    AuthState m_authState = AuthState::Authorising;
+    QString m_authMessage;
+    SystemInfo m_info;
+    bool m_infoReady = false;
+    bool m_smbiosRequested = false;
+};
+
+} // namespace sb

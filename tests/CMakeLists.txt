@@ -12,3 +12,6 @@ function(synbench_add_unit_test name)
 endfunction()
 
 add_subdirectory(unit)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_subdirectory(helper)
+endif()
