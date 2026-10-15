@@ -426,15 +426,20 @@ private slots:
         RecordingSink sink(f.events, &sqlite);
 
         int seenResults = -1;
+        int seenPlaceholders = -1;
         QString seenStatus;
         f[QStringLiteral("ram")]->runner = [&](RunContext &, const OptionValues &) {
             // While RAM runs, CPU's result is already committed and the run
             // row says 'running'.
             Database::ScopedConnection c(db, QStringLiteral("peek"));
             QSqlQuery q(c.db());
-            q.exec(QStringLiteral("SELECT COUNT(*) FROM test_results"));
+            q.exec(QStringLiteral("SELECT COUNT(*) FROM test_results WHERE status != 'not_run'"));
             q.next();
             seenResults = q.value(0).toInt();
+            q.exec(QStringLiteral("SELECT COUNT(*) FROM test_results WHERE status = 'not_run' "
+                                  "AND status_reason = 'Queued'"));
+            q.next();
+            seenPlaceholders = q.value(0).toInt();
             q.exec(QStringLiteral("SELECT status FROM runs"));
             q.next();
             seenStatus = q.value(0).toString();
@@ -448,6 +453,7 @@ private slots:
         QVERIFY(waitFinished(finished));
         QCOMPARE(seenResults, 1);
         QCOMPARE(seenStatus, QStringLiteral("running"));
+        QCOMPARE(seenPlaceholders, 1);  // RAM itself, still "Queued"
 
         Database::ScopedConnection c(db, QStringLiteral("check"));
         RunRepository repo(c.db());

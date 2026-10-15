@@ -101,7 +101,7 @@ std::optional<qint64> SqliteRunSink::runId(RunRepository &repo, const QUuid &run
 bool SqliteRunSink::beginRun(const RunRecord &run, QString *error)
 {
     SB_SINK_REPO(error);
-    const auto id = repo.insertRun(run);
+    const auto id = repo.saveRun(run);  // run row + placeholders, one transaction
     if (!id) {
         if (error)
             *error = repo.lastError();

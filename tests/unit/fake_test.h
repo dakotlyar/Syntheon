@@ -39,6 +39,7 @@ public:
     {
         return runner ? runner(ctx, options) : TestResult{};
     }
+    TestResult recover(RecoveryContext &ctx) override { return recoverer ? recoverer(ctx) : ITest::recover(ctx); }
     ScoreBreakdown score(const TestResult &r) const override { return scorer ? scorer(r) : ScoreBreakdown{}; }
 
     TestInfo m_info;
@@ -50,6 +51,7 @@ public:
     std::chrono::seconds limit{60};
     std::function<TestResult(RunContext &, const OptionValues &)> runner;
     std::function<ScoreBreakdown(const TestResult &)> scorer;
+    std::function<TestResult(RecoveryContext &)> recoverer;
 };
 
 class FakeProbeContext : public ProbeContext

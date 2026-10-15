@@ -132,6 +132,15 @@ std::optional<qint64> RunRepository::insertRun(const RunRecord &r)
 
 bool RunRepository::insertTestResultRows(qint64 runId, int position, const TestResult &t)
 {
+    // A test has one row per run: replace its placeholder (or an earlier
+    // row); the children go with it (ON DELETE CASCADE).
+    QSqlQuery del(m_db);
+    del.prepare(QStringLiteral("DELETE FROM test_results WHERE run_id = ? AND test_id = ?"));
+    del.addBindValue(runId);
+    del.addBindValue(notNull(t.testId));
+    if (!del.exec())
+        return fail(QStringLiteral("replace test result %1").arg(t.testId), del.lastError().text());
+
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
         "INSERT INTO test_results (run_id, position, test_id, test_version, formula_version, status, "
@@ -475,6 +484,74 @@ bool RunRepository::removeScratchPath(qint64 runId, const QString &path)
     q.addBindValue(path);
     if (!q.exec())
         return fail(QStringLiteral("remove scratch path"), q.lastError().text());
+    return true;
+}
+
+QVector<QUuid> RunRepository::runsWithStatus(RunStatus status)
+{
+    QVector<QUuid> out;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT uuid FROM runs WHERE status = ? ORDER BY started_at"));
+    q.addBindValue(toKey(status));
+    if (!q.exec()) {
+        fail(QStringLiteral("list runs"), q.lastError().text());
+        return out;
+    }
+    while (q.next())
+        out.append(QUuid::fromString(q.value(0).toString()));
+    return out;
+}
+
+QVector<QByteArray> RunRepository::loadCheckpoints(qint64 runId, const QString &testId)
+{
+    QVector<QByteArray> out;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT payload FROM checkpoints WHERE run_id = ? AND test_id = ? ORDER BY seq"));
+    q.addBindValue(runId);
+    q.addBindValue(testId);
+    if (!q.exec()) {
+        fail(QStringLiteral("load checkpoints"), q.lastError().text());
+        return out;
+    }
+    while (q.next())
+        out.append(q.value(0).toByteArray());
+    return out;
+}
+
+QDateTime RunRepository::lastActivity(qint64 runId)
+{
+    // Stored times share one UTC ISO format, so text order is time order.
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT MAX(t) FROM (SELECT created_at AS t FROM checkpoints WHERE run_id = ? "
+                             "UNION ALL SELECT ts FROM run_log WHERE run_id = ?)"));
+    q.addBindValue(runId);
+    q.addBindValue(runId);
+    if (!q.exec() || !q.next())
+        return {};
+    return parseTime(text(q.value(0)));
+}
+
+QVector<RunRepository::ScratchPath> RunRepository::scratchPathsOfFinishedRuns()
+{
+    QVector<ScratchPath> out;
+    QSqlQuery q(m_db);
+    if (!q.exec(QStringLiteral("SELECT s.id, r.uuid, s.path FROM scratch_paths s JOIN runs r ON r.id = s.run_id "
+                               "WHERE r.status != 'running' ORDER BY s.id"))) {
+        fail(QStringLiteral("list scratch paths"), q.lastError().text());
+        return out;
+    }
+    while (q.next())
+        out.append({q.value(0).toLongLong(), QUuid::fromString(q.value(1).toString()), q.value(2).toString()});
+    return out;
+}
+
+bool RunRepository::deleteScratchPathRow(qint64 id)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("DELETE FROM scratch_paths WHERE id = ?"));
+    q.addBindValue(id);
+    if (!q.exec())
+        return fail(QStringLiteral("delete scratch path"), q.lastError().text());
     return true;
 }
 

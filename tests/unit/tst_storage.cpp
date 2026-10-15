@@ -362,11 +362,21 @@ private slots:
         QCOMPARE(loaded->tests.size(), 1);
         QVERIFY(!loaded->finishedAt.isValid());
 
-        // A test result row is all-or-nothing: a duplicate test id fails and
-        // leaves no partial rows behind.
-        QVERIFY(!repo.insertTestResult(*id, 1, r.tests[0]));
+        // Committing a test again replaces its row and children (the
+        // placeholder written at run start is replaced this way).
+        TestResult again = r.tests[0];
+        again.metrics.resize(1);
+        QVERIFY(repo.insertTestResult(*id, 0, again));
         QCOMPARE(rows(c.db(), QStringLiteral("test_results")), 1);
-        QCOMPARE(rows(c.db(), QStringLiteral("metrics")), 3);
+        QCOMPARE(rows(c.db(), QStringLiteral("metrics")), 1);
+
+        // All-or-nothing: a bad result (duplicate metric key) fails and
+        // leaves the previous row intact.
+        TestResult bad = r.tests[0];
+        bad.metrics.append(bad.metrics[0]);
+        QVERIFY(!repo.insertTestResult(*id, 0, bad));
+        QCOMPARE(rows(c.db(), QStringLiteral("test_results")), 1);
+        QCOMPARE(rows(c.db(), QStringLiteral("metrics")), 1);
 
         const QDateTime done = r.startedAt.addSecs(60);
         QVERIFY(repo.finishRun(*id, RunStatus::Stopped, done, 1284.0));

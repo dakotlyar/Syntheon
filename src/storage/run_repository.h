@@ -25,7 +25,9 @@ public:
 
     // Inserts the runs row (record.tests are ignored). Returns its id.
     std::optional<qint64> insertRun(const RunRecord &record);
-    // One transaction: the test_results row plus its sub-results, metrics and series.
+    // One transaction: the test_results row plus its sub-results, metrics and
+    // series. Replaces the test's existing row in that run, if any (the
+    // placeholder written at run start).
     bool insertTestResult(qint64 runId, int position, const TestResult &result);
     bool finishRun(qint64 runId, RunStatus status, const QDateTime &finishedAt, std::optional<double> overall);
     // insertRun + every test + finishRun, in one transaction (fixtures, imports).
@@ -41,6 +43,21 @@ public:
     bool addCheckpoint(qint64 runId, const QString &testId, int seq, const QByteArray &payload);
     bool addScratchPath(qint64 runId, const QString &path);
     bool removeScratchPath(qint64 runId, const QString &path);
+
+    // Recovery (§3): runs left in a status, a test's checkpoints in seq order,
+    // the run's last sign of life (latest checkpoint or log line).
+    QVector<QUuid> runsWithStatus(RunStatus status);
+    QVector<QByteArray> loadCheckpoints(qint64 runId, const QString &testId);
+    QDateTime lastActivity(qint64 runId);
+
+    struct ScratchPath {
+        qint64 id = 0;
+        QUuid runUuid;
+        QString path;
+    };
+    // Scratch folders still registered for runs that aren't running (F5).
+    QVector<ScratchPath> scratchPathsOfFinishedRuns();
+    bool deleteScratchPathRow(qint64 id);
 
     // Clear history: DELETE FROM runs (cascades to everything), then VACUUM.
     bool clearHistory();

@@ -25,9 +25,13 @@ class RunSink
 public:
     virtual ~RunSink() = default;
 
-    // Inserts the run row with status 'running' (run.tests are ignored).
+    // Inserts the run row with status 'running' plus one placeholder row per
+    // planned test (run.tests: NotRun, "Queued"), in one transaction. The
+    // placeholders record the plan, so recovery after a crash knows which
+    // tests never finished (§3).
     virtual bool beginRun(const RunRecord &run, QString *error) = 0;
-    // One finished test, committed in its own transaction.
+    // One finished test, committed in its own transaction; replaces that
+    // test's placeholder row.
     virtual bool commitTest(const QUuid &run, int position, const TestResult &result, QString *error) = 0;
     virtual bool appendLog(const QUuid &run, const QVector<LogLine> &lines, QString *error) = 0;
     // Writes status, finished_at and the overall score.

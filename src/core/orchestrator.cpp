@@ -4,6 +4,7 @@
 #include "core/itest.h"
 #include "core/power_inhibitor.h"
 #include "core/registry.h"
+#include "core/result_rules.h"
 #include "core/run_sink.h"
 
 #include <QCborValue>
@@ -36,11 +37,6 @@ public:
 private:
     const SystemSnapshot &m_system;
 };
-
-bool scored(Status s)
-{
-    return s == Status::Ok || s == Status::Partial;
-}
 
 } // namespace
 
@@ -290,35 +286,7 @@ void finishResult(Shared &s, const Shared::Entry &e, Shared::Cancel cancel, cons
         r.statusReason = QStringLiteral("Stopped");
     }
 
-    // F3 (Dave): a NaN or infinite measurement makes the whole result an
-    // Error with no score, before it's scored or stored.
-    for (const Metric &m : std::as_const(r.metrics)) {
-        if (m.isNumeric() && !std::isfinite(std::get<double>(m.value))) {
-            r.status = Status::Error;
-            r.statusReason =
-                QStringLiteral("produced an invalid value for %1").arg(m.label.isEmpty() ? m.key : m.label);
-            break;
-        }
-    }
-
-    r.score.reset();
-    for (SubResult &sub : r.subResults)
-        sub.score.reset();
-    if (!scored(r.status))
-        return;
-    try {
-        const ScoreBreakdown b = e.test->score(r);
-        r.score = b.total;
-        for (SubResult &sub : r.subResults) {
-            const auto it = b.subScores.constFind(sub.id);
-            if (it != b.subScores.cend())
-                sub.score = *it;
-        }
-    } catch (const std::exception &ex) {
-        s.log(LogLevel::Error, e.testId, QStringLiteral("Scoring failed: %1").arg(QString::fromLocal8Bit(ex.what())));
-    } catch (...) {
-        s.log(LogLevel::Error, e.testId, QStringLiteral("Scoring failed"));
-    }
+    applyResultRules(*e.test, r, [&](const QString &message) { s.log(LogLevel::Error, e.testId, message); });
 }
 
 } // namespace
@@ -344,7 +312,10 @@ void Orchestrator::Shared::workerMain(std::shared_ptr<Shared> s)
     if (!s->inhibitor.acquire(QStringLiteral("Benchmark running"), &error))
         s->log(LogLevel::Warning, {}, QStringLiteral("Couldn't block system sleep: %1").arg(error));
 
-    const bool begun = s->sinkCall([&](QString &e) { return s->sink.beginRun(s->header, &e); });
+    RunRecord planned = s->header;
+    for (const Shared::Entry &e : std::as_const(s->plan))
+        planned.tests.append(notRun(e, QStringLiteral("Queued")));
+    const bool begun = s->sinkCall([&](QString &e) { return s->sink.beginRun(planned, &e); });
     if (begun)
         s->log(LogLevel::Info, {}, QStringLiteral("Run started"));
     else
