@@ -206,15 +206,22 @@ void LinuxHelperClient::stop()
 
 void LinuxHelperClient::fail(Failure failure, const QString &message)
 {
+    State previous;
     {
+        // AP5-R2-5: Failed is set under the same lock request() checks, so no
+        // request can register after failAllPending() and wait out its
+        // timeout.
         QMutexLocker lock(&m_mutex);
+        previous = m_state;
+        m_state = State::Failed;
         m_failure = failure;
         m_failureMessage = message;
     }
     qCWarning(lcHelper) << "helper failed:" << message;
     failAllPending(message);
     stop();
-    setState(State::Failed);
+    if (previous != State::Failed)
+        emit stateChanged(State::Failed);
     emit failed(failure, message);
 }
 

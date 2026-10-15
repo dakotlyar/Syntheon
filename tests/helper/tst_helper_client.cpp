@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -365,6 +366,44 @@ private slots:
         delete t;
         QCOMPARE(workerError.code, PrivError::Code::Unavailable);
         QCOMPARE(c.failure(), LinuxHelperClient::Failure::Exited);
+        QCOMPARE(c.state(), LinuxHelperClient::State::Failed);
+    }
+
+    // AP5-R2-5: requests racing the helper's death all end promptly with
+    // Unavailable; none waits out its (long) timeout.
+    void deathRacesManyRequests()
+    {
+        LinuxHelperClient::Options o = options();
+        o.requestTimeout = 60s;
+        LinuxHelperClient c(o);
+        QSignalSpy ready(&c, &LinuxHelperClient::ready);
+        c.start(testHelper());
+        QVERIFY(ready.wait(10000));
+        std::atomic<bool> stopFlag{false};
+        std::atomic<int> unavailable{0};
+        QList<QThread *> threads;
+        for (int i = 0; i < 8; ++i) {
+            threads.append(QThread::create([&] {
+                while (!stopFlag) {
+                    PrivError e;
+                    if (!c.readSmbios(&e) && e.code == PrivError::Code::Unavailable) {
+                        ++unavailable;
+                        return;
+                    }
+                }
+            }));
+            threads.last()->start();
+        }
+        QTest::qWait(100);
+        ::kill(pid_t(c.helperProcessId()), SIGKILL);
+        QElapsedTimer t;
+        t.start();
+        for (QThread *th : threads)
+            QTRY_VERIFY_WITH_TIMEOUT(th->isFinished(), 5000);
+        QVERIFY(t.elapsed() < 5000);
+        stopFlag = true;
+        qDeleteAll(threads);
+        QCOMPARE(unavailable.load(), 8);
         QCOMPARE(c.state(), LinuxHelperClient::State::Failed);
     }
 
