@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "storage/sqlite_run_sink.h"
 
 #include "storage/database.h"

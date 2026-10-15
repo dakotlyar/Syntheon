@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "tests/npu/npu_test.h"
 
 namespace sb::tests {

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # The platform PowerInhibitor implementations (D8). A separate target so
 # synbench_core itself keeps linking QtCore only (P21): the Linux one needs
 # QtDBus.

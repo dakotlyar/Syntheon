@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "storage/storage.h"
 
 #include "storage/run_repository.h"

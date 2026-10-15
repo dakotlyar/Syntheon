@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/registry.h"
 #include "fake_test.h"
 #include "tests/builtin_tests.h"

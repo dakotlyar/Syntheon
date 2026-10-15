@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 find_package(Qt6 REQUIRED COMPONENTS Test)
 
 # synbench_add_unit_test(<name> SOURCES ... LIBS ...)

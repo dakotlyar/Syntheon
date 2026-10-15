@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 qt_add_library(synbench_storage STATIC
     database.h database.cpp
     run_repository.h run_repository.cpp

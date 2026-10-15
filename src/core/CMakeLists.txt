@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 qt_add_library(synbench_core STATIC
     enums.h enums.cpp
     result.h result.cpp

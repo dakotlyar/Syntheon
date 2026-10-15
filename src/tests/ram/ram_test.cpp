@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "tests/ram/ram_test.h"
 
 namespace sb::tests {

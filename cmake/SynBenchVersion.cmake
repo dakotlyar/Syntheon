@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Version handling (P22). The VERSION file (YYYY.MM.N) is the single source of truth.
 #
 # synbench_read_version(<file>) sets, in the caller's scope:

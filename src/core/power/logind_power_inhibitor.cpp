@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/power/logind_power_inhibitor.h"
 
 #include <QDBusConnection>

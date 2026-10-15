@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # The built-in tests, in canonical order (P19). Adding a phase's real test means
 # swapping its folder's contents; this list and the core don't change (P4).
 #

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "tests/ai/ai_test.h"
 
 namespace sb::tests {

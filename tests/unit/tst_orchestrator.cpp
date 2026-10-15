@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/orchestrator.h"
 #include "core/power_inhibitor.h"
 #include "core/registry.h"

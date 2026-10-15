@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 -- SynBench history database, schema version 1 (Phase 1 design §4).
 -- Applied by the migration framework in its own transaction; the framework
 -- sets PRAGMA user_version afterwards. Never edit a shipped migration: add a
