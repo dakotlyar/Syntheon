@@ -1,27 +1,13 @@
-# Build artifacts
+# Build trees (local builds should live outside the source tree; see CMakeUserPresets.json)
 /build/
-/dist/
-/SynBench.AppDir/
-/installer_output/
-*.AppImage
+/out/
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
+# Per-developer CMake presets (local Qt path, build dirs)
+CMakeUserPresets.json
 
-# Build environments
-/.build_python/
-/.build_venv/
-.venv/
-venv/
-
-# Tooling
-appimagetool-x86_64.AppImage
-
-# Benchmark run output
-/tiamat
-
-# Runtime-installed optional packages (cupy/pyopencl/onnxruntime)
-/synbench_plugins/
-
+# IDE / tooling
+/.vscode/
+/.idea/
+/.cache/
+compile_commands.json
+*.user
