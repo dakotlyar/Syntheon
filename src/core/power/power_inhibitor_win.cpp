@@ -41,10 +41,12 @@ public:
     void release() override
     {
         QMutexLocker lock(&m_mutex);
-        if (!m_held)
+        // Only the acquiring thread can clear its execution state. A release
+        // from another thread (an abandoned run) leaves the lock "held" so the
+        // owning thread's own release() still clears it when it returns.
+        if (!m_held || GetCurrentThreadId() != m_thread)
             return;
-        if (GetCurrentThreadId() == m_thread)
-            SetThreadExecutionState(ES_CONTINUOUS);
+        SetThreadExecutionState(ES_CONTINUOUS);
         m_held = false;
     }
 

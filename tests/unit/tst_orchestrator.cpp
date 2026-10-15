@@ -551,7 +551,9 @@ private slots:
         QVERIFY(!again.ok);
         QVERIFY(again.errors.first().contains(QLatin1StringView("Restart")));
 
-        // The stuck test finally returns: nothing more reaches the sink or the UI.
+        // The stuck test finally returns: nothing more reaches the sink or the
+        // UI. The worker only closes its connection and releases the sleep
+        // block itself (F7: on Windows only that thread can).
         const int eventsBefore = f.events.size();
         const int linesBefore = logLines.count();
         release = true;
@@ -559,7 +561,7 @@ private slots:
         QTest::qWait(100);
         QStringList late = f.events.names().mid(eventsBefore);
         late.removeAll(QStringLiteral("threadFinished"));
-        QCOMPARE(late, QStringList());
+        QCOMPARE(late, QStringList{QStringLiteral("release")});
         QCOMPARE(logLines.count(), linesBefore);
     }
 

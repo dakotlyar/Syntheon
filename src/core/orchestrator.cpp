@@ -75,8 +75,9 @@ struct Orchestrator::Shared {
     Clock::time_point lastFlush = Clock::now();
     Clock::time_point lastProgress;
     QString lastStage;
-    std::thread::id workerId;
 
+    // F6: read from any thread (log/progress), written once by the worker.
+    std::atomic<std::thread::id> workerId{};
     std::atomic<bool> cancelFlag{false};
     std::atomic<bool> abandoned{false};
     std::atomic<bool> workerExited{false};
@@ -337,10 +338,7 @@ void Orchestrator::Shared::commit(int index, const TestResult &r)
 
 void Orchestrator::Shared::workerMain(std::shared_ptr<Shared> s)
 {
-    {
-        QMutexLocker lock(&s->mutex);
-        s->workerId = std::this_thread::get_id();
-    }
+    s->workerId = std::this_thread::get_id();
 
     QString error;
     if (!s->inhibitor.acquire(QStringLiteral("Benchmark running"), &error))
@@ -398,8 +396,15 @@ void Orchestrator::Shared::workerMain(std::shared_ptr<Shared> s)
             if (s->abandoned) {
                 // Too late: the run was already finalised without this test.
                 lock.unlock();
-                QMutexLocker sinkLock(&s->sinkMutex);
-                s->sink.threadFinished();
+                {
+                    QMutexLocker sinkLock(&s->sinkMutex);
+                    s->sink.threadFinished();
+                }
+                // F7: on Windows the sleep block belongs to this thread
+                // (SetThreadExecutionState), so only this thread can lift it;
+                // abandon()'s release from the UI thread can't. Until a hung
+                // test returns (or the app exits), sleep stays blocked.
+                s->inhibitor.release();
                 s->workerExited = true;
                 return;
             }
@@ -473,15 +478,30 @@ Orchestrator::~Orchestrator()
         const auto deadline = Clock::now() + m_config.grace;
         while (!m_shared->workerExited && Clock::now() < deadline)
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        if (!m_shared->workerExited)
-            abandon();
+        if (!m_shared->workerExited) {
+            int index;
+            {
+                QMutexLocker lock(&m_shared->mutex);
+                index = m_shared->current;
+            }
+            abandon(index);
+        }
     }
+    bool exited = true;
     if (m_shared) {
         QMutexLocker lock(&m_shared->mutex);
         m_shared->receiver = nullptr;
+        exited = m_shared->workerExited;
     }
-    if (m_worker.joinable())
-        m_worker.join();
+    // A worker still stuck somewhere abandon() couldn't claim (outside a
+    // test) is left behind rather than blocking shutdown forever. It only
+    // holds the shared state, which it co-owns.
+    if (m_worker.joinable()) {
+        if (exited || m_state == State::Idle)
+            m_worker.join();
+        else
+            m_worker.detach();
+    }
 }
 
 void Orchestrator::setState(State s)
@@ -610,6 +630,7 @@ void Orchestrator::onWatchdog()
         return;
     bool timedOut = false;
     bool hung = false;
+    int index = -1;
     QString testId;
     std::chrono::seconds limit{0};
     {
@@ -617,7 +638,8 @@ void Orchestrator::onWatchdog()
         if (!s->testRunning)
             return;
         const auto now = Clock::now();
-        testId = s->plan[s->current].testId;
+        index = s->current;
+        testId = s->plan[index].testId;
         limit = s->limit;
         if (s->cancel == Shared::Cancel::None && limit.count() > 0 && now - s->testStart >= limit) {
             s->cancel = Shared::Cancel::TimedOut;
@@ -630,25 +652,34 @@ void Orchestrator::onWatchdog()
     if (timedOut)
         s->log(LogLevel::Warning, testId, QStringLiteral("Reached its time limit of %1 s; cancelling").arg(limit.count()));
     if (hung)
-        abandon();
+        abandon(index);
 }
 
 // The current test ignored a cancel for the whole grace period. A thread can't
 // be killed safely (R7), so the run is finalised here as Interrupted and the
 // worker is left behind; the orchestrator refuses new runs until a restart.
-void Orchestrator::abandon()
+//
+// F10 (accepted as R7): the abandoned thread keeps running the test's code
+// for as long as it likes, using CPU and possibly the scratch folder. Nothing
+// can stop it short of process exit; the out-of-process runner (D2) is the
+// real fix, when a test first needs it.
+void Orchestrator::abandon(int index)
 {
     const auto s = m_shared;
     if (!s)
         return;
     QMutexLocker sinkLock(&s->sinkMutex);
-    int index;
     RunRecord record;
     QVector<LogLine> pendingLog;
     {
         QMutexLocker lock(&s->mutex);
-        if (!s->testRunning)
-            return;  // it returned just in time
+        // F4: the decision to abandon was taken outside this lock. In between,
+        // the hung test may have returned and the next one started, so
+        // re-check that it's still the same test, still cancelled, and still
+        // past its grace period; otherwise a healthy test would be killed.
+        if (!s->testRunning || s->current != index || s->cancel == Shared::Cancel::None
+            || Clock::now() - s->cancelAt < m_config.grace)
+            return;
         s->abandoned = true;
         s->receiver = nullptr;
         index = s->current;

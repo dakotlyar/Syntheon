@@ -14,6 +14,14 @@ namespace sb {
 // acquire() and release() are called on the run worker thread, because the
 // Windows mechanism (SetThreadExecutionState) is per-thread. release() is
 // idempotent.
+//
+// F7: when a run is abandoned (a test ignored its cancel, R7), the
+// orchestrator calls release() from its own thread. That lifts the logind
+// lock on Linux, but on Windows only the hung worker thread can lift its
+// state, which it does if and when the test finally returns (or the process
+// exits). So on Windows the sleep block can outlive an abandoned run.
+// The inhibitor must outlive the run's worker thread (it's an app-lifetime
+// object).
 class PowerInhibitor
 {
 public:

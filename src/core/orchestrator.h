@@ -117,7 +117,7 @@ public:
 private:
     void setState(State s);
     void onWatchdog();
-    void abandon();
+    void abandon(int index);
     void onWorkerDone(const RunRecord &run);
 
     const Registry &m_registry;

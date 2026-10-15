@@ -96,7 +96,10 @@ public:
     virtual std::chrono::seconds estimate(const OptionValues &) const = 0;   // for "≈ 14 min"
     virtual std::chrono::seconds timeLimit(const OptionValues &) const = 0;  // hard cap; 0 = none
 
-    // Execution: worker thread, blocking, cooperative cancel.
+    // Execution: worker thread, blocking, cooperative cancel. A test that
+    // ignores a cancel for the grace period is abandoned (R7): the run is
+    // saved as Interrupted and the thread keeps running until the test
+    // returns. System sleep stays blocked until then on Windows (F7).
     virtual TestResult run(RunContext &, const OptionValues &) = 0;
     virtual TestResult recover(RecoveryContext &) { return TestResult::interrupted(); }
 
