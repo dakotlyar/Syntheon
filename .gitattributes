@@ -1,0 +1,2 @@
+# Fixture captures must stay byte-exact on every checkout (no CRLF conversion).
+tests/fixtures/** -text

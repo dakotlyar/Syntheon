@@ -3,10 +3,12 @@
 #include "sysinfo/collector.h"
 #include "sysinfo/parsers/smbios.h"
 #include "sysinfo/parsers/text_parsers.h"
+#include "sysinfo/parsers/windows_parsers.h"
 
 #include <QFile>
 #include <QJsonDocument>
 #include <QTest>
+#include <QtEndian>
 
 using namespace sb;
 using namespace sb::sysinfo;
@@ -218,6 +220,111 @@ private slots:
         QVERIFY(info.memory.modulesKnown);
         QCOMPARE(info.memory.modules.size(), 2);
         QCOMPARE(info.memory.channels, 2);
+    }
+
+    // --- Windows helpers (portable, task 8) ---
+
+    void winHardwareId()
+    {
+        const auto ids = win::parseHardwareId(QStringLiteral("PCI\\VEN_8086&DEV_7D1D&SUBSYS_00000000&REV_04"));
+        QVERIFY(ids);
+        QCOMPARE(ids->first, 0x8086u);
+        QCOMPARE(ids->second, 0x7d1du);
+        QVERIFY(win::parseHardwareId(QStringLiteral("ACPI\\QCOM0D0A")) == std::nullopt);
+    }
+
+    void winStorageDescriptor()
+    {
+        // A STORAGE_DEVICE_DESCRIPTOR as an NVMe drive returns it.
+        QByteArray buf(36, '\0');
+        const QByteArray vendor;  // NVMe drives usually report no vendor
+        const QByteArray product = "WD_BLACK SN770 2TB";
+        const QByteArray serial = "SERIAL-SHOULD-NOT-APPEAR";
+        const quint32 productOff = 36, serialOff = 36 + quint32(product.size()) + 1;
+        buf += product + '\0' + serial + '\0';
+        qToLittleEndian<quint32>(1, buf.data());                         // Version
+        qToLittleEndian<quint32>(quint32(buf.size()), buf.data() + 4);   // Size
+        qToLittleEndian<quint32>(0, buf.data() + 12);                    // VendorIdOffset: none
+        qToLittleEndian<quint32>(productOff, buf.data() + 16);
+        qToLittleEndian<quint32>(serialOff, buf.data() + 24);
+        qToLittleEndian<quint32>(17, buf.data() + 28);                   // BusTypeNvme
+        const auto d = win::parseStorageDeviceDescriptor(buf);
+        QVERIFY(d);
+        QCOMPARE(d->model(), QStringLiteral("WD_BLACK SN770 2TB"));
+        QCOMPARE(win::busTypeName(d->busType), QStringLiteral("NVMe"));
+        QVERIFY(!d->vendor.contains(QLatin1StringView("SERIAL")));
+
+        win::StorageDescriptor sata{QStringLiteral("Samsung "), QStringLiteral("Samsung SSD 870 EVO 1TB"), 11};
+        QCOMPARE(sata.model(), QStringLiteral("Samsung SSD 870 EVO 1TB"));  // vendor not doubled
+        win::StorageDescriptor usb{QStringLiteral("SanDisk"), QStringLiteral("Extreme 55AE"), 7};
+        QCOMPARE(usb.model(), QStringLiteral("SanDisk Extreme 55AE"));
+
+        // Offsets past the end, or a buffer too short: no crash, no garbage.
+        QByteArray bad = buf;
+        qToLittleEndian<quint32>(100000, bad.data() + 16);
+        QCOMPARE(win::parseStorageDeviceDescriptor(bad)->product, QString());
+        QVERIFY(!win::parseStorageDeviceDescriptor(QByteArray(20, '\0')));
+    }
+
+    void winOsAndVersions()
+    {
+        QCOMPARE(win::windowsName(QStringLiteral("Windows 10 Pro"), 26100), QStringLiteral("Windows 11 Pro"));
+        QCOMPARE(win::windowsName(QStringLiteral("Windows 10 Home"), 19045), QStringLiteral("Windows 10 Home"));
+        QCOMPARE(win::dxgiDriverVersion((qint64(32) << 48) | (qint64(0) << 32) | (15 << 16) | 6094),
+                 QStringLiteral("32.0.15.6094"));
+        QCOMPARE(win::featureLevelName(0xc200), QStringLiteral("12_2"));
+        QCOMPARE(win::featureLevelName(0xb100), QStringLiteral("11_1"));
+        QCOMPARE(win::featureLevelName(0), QString());
+    }
+
+    void winEmulation()
+    {
+        // D9: only an x64 build on an ARM64 machine is "emulated".
+        QCOMPARE(win::emulatedNativeArch(true, 0xAA64), QStringLiteral("arm64"));
+        QCOMPARE(win::emulatedNativeArch(true, 0x8664), QString());
+        QCOMPARE(win::emulatedNativeArch(false, 0xAA64), QString());  // native ARM64 build
+        QCOMPARE(win::emulatedNativeArch(true, 0), QString());
+    }
+
+    void winBattery()
+    {
+        // Two system batteries in mWh; 1 = on AC.
+        BatteryInfo b = win::combineBattery({{false, 50000, 45000, 120}, {false, 23000, 21000, 80}}, 1, 87, 0);
+        QVERIFY(b.present);
+        QVERIFY(b.acOnline);
+        QCOMPARE(b.designWh, 73.0);
+        QCOMPARE(b.fullWh, 66.0);
+        QVERIFY(qAbs(b.healthPct - 66.0 / 73.0 * 100) < 1e-9);
+        QCOMPARE(b.chargePct, 87.0);
+        QCOMPARE(b.cycleCount, 200);
+        // Relative capacities aren't Wh; a desktop has none (flag 128).
+        b = win::combineBattery({{true, 100, 90, 0}}, 0, 50, 0);
+        QCOMPARE(b.designWh, 0.0);
+        QCOMPARE(b.cycleCount, -1);
+        b = win::combineBattery({}, 1, 255, 128);
+        QVERIFY(!b.present);
+        QCOMPARE(b.chargePct, -1.0);
+    }
+
+    void winCoresAndCaches()
+    {
+        CpuInfo cpu;
+        // Hybrid: 2 P-cores (class 1, 2 threads each) + 4 E-cores (class 0).
+        win::countCores({{1, 2}, {1, 2}, {0, 1}, {0, 1}, {0, 1}, {0, 1}}, cpu);
+        QCOMPARE(cpu.cores, 6);
+        QCOMPARE(cpu.threads, 8);
+        QCOMPARE(cpu.performanceCores, 2);
+        QCOMPARE(cpu.efficiencyCores, 4);
+        CpuInfo flat;
+        win::countCores({{0, 2}, {0, 2}}, flat);
+        QCOMPARE(flat.performanceCores, 0);  // one class: not hybrid
+
+        const CacheSizes c = win::sumCaches({{1, 2, 48 * 1024}, {1, 2, 48 * 1024}, {1, 1, 32 * 1024}, {2, 0, 1 << 20},
+                                             {3, 0, 32 << 20}, {3, 0, 32 << 20}});
+        QCOMPARE(c.l1d, qint64(96 * 1024));
+        QCOMPARE(c.l1i, qint64(32 * 1024));
+        QCOMPARE(c.l2, qint64(1) << 20);
+        QCOMPARE(c.l3, qint64(64) << 20);
     }
 
     void snapshotShape()
