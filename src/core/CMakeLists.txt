@@ -6,6 +6,7 @@ qt_add_library(synbench_core STATIC
     detail.h detail.cpp
     units.h units.cpp
     test_info.h
+    log_line.h
     itest.h itest.cpp
     registry.h registry.cpp
     selection_model.h selection_model.cpp
