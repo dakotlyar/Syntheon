@@ -114,6 +114,24 @@ QStringList splitSqlScript(const QString &script)
 {
     QStringList out;
     QString current;
+    // F8: inside a CREATE [TEMP|TEMPORARY] TRIGGER statement, ';' only ends
+    // the statement at nesting depth 0. BEGIN and CASE open a level, END
+    // closes one (CASE … END can appear in the trigger's WHEN clause and body).
+    QStringList lead;  // the statement's first three words, upper-case
+    bool trigger = false;
+    int depth = 0;
+
+    const auto flush = [&] {
+        const QString stmt = current.trimmed();
+        if (!stmt.isEmpty())
+            out.append(stmt);
+        current.clear();
+        lead.clear();
+        trigger = false;
+        depth = 0;
+    };
+    const auto isWordChar = [](QChar c) { return c.isLetterOrNumber() || c == QLatin1Char('_'); };
+
     const qsizetype n = script.size();
     for (qsizetype i = 0; i < n; ++i) {
         const QChar c = script[i];
@@ -132,34 +150,59 @@ QStringList splitSqlScript(const QString &script)
             current += QLatin1Char(' ');
             continue;
         }
-        if (c == QLatin1Char('\'') || c == QLatin1Char('"')) {
+        if (c == QLatin1Char('\'') || c == QLatin1Char('"') || c == QLatin1Char('`') || c == QLatin1Char('[')) {
+            // Strings and quoted identifiers. '…', "…" and `…` escape their
+            // quote by doubling it; […] has no escape.
+            const QChar close = c == QLatin1Char('[') ? QLatin1Char(']') : c;
             current += c;
             ++i;
             while (i < n) {
                 current += script[i];
-                if (script[i] == c) {
-                    if (i + 1 < n && script[i + 1] == c) {  // doubled quote = escaped
+                if (script[i] == close) {
+                    if (close != QLatin1Char(']') && i + 1 < n && script[i + 1] == close)
                         current += script[++i];
-                    } else {
+                    else
                         break;
-                    }
                 }
                 ++i;
             }
             continue;
         }
+        if (isWordChar(c)) {
+            qsizetype j = i;
+            while (j < n && isWordChar(script[j]))
+                ++j;
+            const QString word = script.mid(i, j - i);
+            current += word;
+            i = j - 1;
+            const QString upper = word.toUpper();
+            if (lead.size() < 3) {
+                lead.append(upper);
+                trigger = lead.size() >= 2 && lead[0] == QLatin1StringView("CREATE")
+                          && (lead[1] == QLatin1StringView("TRIGGER")
+                              || (lead.size() == 3
+                                  && (lead[1] == QLatin1StringView("TEMP") || lead[1] == QLatin1StringView("TEMPORARY"))
+                                  && lead[2] == QLatin1StringView("TRIGGER")));
+            }
+            if (trigger) {
+                if (upper == QLatin1StringView("BEGIN") || upper == QLatin1StringView("CASE"))
+                    ++depth;
+                else if (upper == QLatin1StringView("END") && depth > 0)
+                    --depth;
+            }
+            continue;
+        }
         if (c == QLatin1Char(';')) {
-            const QString stmt = current.trimmed();
-            if (!stmt.isEmpty())
-                out.append(stmt);
-            current.clear();
+            if (depth > 0) {
+                current += c;
+                continue;
+            }
+            flush();
             continue;
         }
         current += c;
     }
-    const QString tail = current.trimmed();
-    if (!tail.isEmpty())
-        out.append(tail);
+    flush();
     return out;
 }
 

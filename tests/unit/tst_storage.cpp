@@ -119,6 +119,56 @@ private slots:
         QVERIFY(s[1].contains(QLatin1StringView("'-- not a comment'")));
     }
 
+    // F8: triggers and the other identifier quotes.
+    void splitScriptTrigger()
+    {
+        const QStringList s = Database::splitSqlScript(QStringLiteral(
+            "CREATE TABLE a (x INTEGER, y TEXT);\n"
+            "CREATE TEMP TRIGGER t1 AFTER INSERT ON a WHEN CASE WHEN new.x > 0 THEN 1 ELSE 0 END\n"
+            "BEGIN\n"
+            "  UPDATE a SET y = CASE new.x WHEN 1 THEN 'one;' ELSE 'many' END WHERE rowid = new.rowid;\n"
+            "  DELETE FROM a WHERE x < 0; -- end; not here\n"
+            "END;\n"
+            "create trigger t2 before delete on a begin select raise(abort, 'no;'); end;\n"
+            "BEGIN TRANSACTION; END;"));
+        QCOMPARE(s.size(), 5);
+        QVERIFY(s[1].startsWith(QLatin1StringView("CREATE TEMP TRIGGER t1")));
+        QVERIFY(s[1].endsWith(QLatin1StringView("END")));
+        QVERIFY(s[1].contains(QLatin1StringView("DELETE FROM a WHERE x < 0;")));
+        QVERIFY(s[2].startsWith(QLatin1StringView("create trigger t2")));
+        QVERIFY(s[2].endsWith(QLatin1StringView("end")));
+        // Outside a trigger, BEGIN/END are ordinary statements.
+        QCOMPARE(s[3], QStringLiteral("BEGIN TRANSACTION"));
+        QCOMPARE(s[4], QStringLiteral("END"));
+    }
+
+    void splitScriptQuotedIdentifiers()
+    {
+        const QStringList s = Database::splitSqlScript(QStringLiteral(
+            "CREATE TABLE [we;ird -- name] (`col;``x` TEXT, \"q;\"\"\" INTEGER); SELECT 1"));
+        QCOMPARE(s.size(), 2);
+        QCOMPARE(s[0], QStringLiteral("CREATE TABLE [we;ird -- name] (`col;``x` TEXT, \"q;\"\"\" INTEGER)"));
+        QCOMPARE(s[1], QStringLiteral("SELECT 1"));
+    }
+
+    void migrationWithTrigger()
+    {
+        QTemporaryDir dir, scripts;
+        writeFile(scripts.filePath(QStringLiteral("0001_init.sql")),
+                  "CREATE TABLE [a b] (x INTEGER, `n;` INTEGER DEFAULT 0);\n"
+                  "CREATE TRIGGER bump AFTER INSERT ON [a b] BEGIN\n"
+                  "  UPDATE [a b] SET `n;` = new.x * 2 WHERE rowid = new.rowid;\n"
+                  "END;\n");
+        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const auto m = Database::migrate(path, scripts.path());
+        QVERIFY2(m.ok(), qPrintable(m.error));
+        Database::ScopedConnection c(path, QStringLiteral("t"));
+        QSqlQuery q(c.db());
+        QVERIFY(q.exec(QStringLiteral("INSERT INTO [a b] (x) VALUES (21)")));
+        QVERIFY(q.exec(QStringLiteral("SELECT `n;` FROM [a b]")) && q.next());
+        QCOMPARE(q.value(0).toInt(), 42);
+    }
+
     void embeddedSchemaVersion() { QCOMPARE(Database::schemaVersion(), 1); }
 
     void migrateFromEmpty()

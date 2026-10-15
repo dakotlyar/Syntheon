@@ -50,8 +50,9 @@ void closeConnection(const QString &connectionName);
 // A unique connection name for a temporary or per-thread connection.
 QString uniqueConnectionName(const QString &purpose);
 
-// Splits a migration script into statements. Handles -- and /* */ comments
-// and quoted strings; doesn't support trigger bodies (BEGIN … END).
+// Splits a migration script into statements. Handles -- and /* */
+// comments, '…' strings, "…", `…` and […] identifiers, and CREATE TRIGGER
+// bodies (BEGIN …; …; END).
 QStringList splitSqlScript(const QString &script);
 
 // RAII temporary connection, removed on destruction.
