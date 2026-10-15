@@ -47,6 +47,9 @@ jobs:
       - name: Build
         run: cmake --build --preset linux-x64-release
 
+      - name: Unit tests
+        run: ctest --preset linux-x64-release
+
   windows-x64:
     runs-on: windows-2022
     steps:
@@ -72,3 +75,6 @@ jobs:
 
       - name: Build
         run: cmake --build --preset windows-x64-release
+
+      - name: Unit tests
+        run: ctest --preset windows-x64-release

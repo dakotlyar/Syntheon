@@ -7,7 +7,7 @@
 if(MSVC)
     add_compile_options(/W4 /permissive- /utf-8 /Zc:__cplusplus /EHsc)
 else()
-    add_compile_options(-Wall -Wextra -Wpedantic)
+    add_compile_options(-Wall -Wextra -Wpedantic -Wno-missing-field-initializers)
     string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _sb_cpu)
     if(_sb_cpu MATCHES "^(x86_64|amd64)$")
         add_compile_options(-march=x86-64-v2 -mtune=generic)
