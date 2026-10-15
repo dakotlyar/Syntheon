@@ -1,3 +1,5 @@
 synbench_add_unit_test(tst_units SOURCES tst_units.cpp LIBS synbench_core)
 synbench_add_unit_test(tst_options SOURCES tst_options.cpp LIBS synbench_core)
 synbench_add_unit_test(tst_result SOURCES tst_result.cpp LIBS synbench_core)
+synbench_add_unit_test(tst_registry SOURCES tst_registry.cpp fake_test.h LIBS synbench_builtin_tests)
+synbench_add_unit_test(tst_selection_model SOURCES tst_selection_model.cpp LIBS synbench_builtin_tests)

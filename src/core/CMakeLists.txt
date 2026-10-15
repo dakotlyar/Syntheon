@@ -5,6 +5,10 @@ qt_add_library(synbench_core STATIC
     options.h options.cpp
     detail.h detail.cpp
     units.h units.cpp
+    test_info.h
+    itest.h itest.cpp
+    registry.h registry.cpp
+    selection_model.h selection_model.cpp
 )
 
 # P21: core links QtCore only, so a headless Phase 9 CLI can reuse it.

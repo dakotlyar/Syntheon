@@ -1,0 +1,2 @@
+add_library(synbench_test_gpu STATIC gpu_test.h gpu_test.cpp)
+target_link_libraries(synbench_test_gpu PUBLIC synbench_core PRIVATE synbench_test_common)

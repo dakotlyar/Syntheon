@@ -1,0 +1,114 @@
+#pragma once
+
+#include "core/detail.h"
+#include "core/options.h"
+#include "core/result.h"
+#include "core/test_info.h"
+
+#include <QCborMap>
+#include <QList>
+#include <QString>
+
+#include <chrono>
+
+namespace sb {
+
+// What a test sees during discovery (probe/options/preconditions), on a pool
+// thread. privileged() joins with the PrivilegedOps interface in task 9.
+class ProbeContext
+{
+public:
+    virtual ~ProbeContext() = default;
+    virtual const SystemSnapshot &system() const = 0;
+};
+
+class RunContext;
+
+// Optional per-sub-test progress/status: ctx.subTest("int_fp").begin() … .end(Status::Ok).
+class SubTestHandle
+{
+public:
+    SubTestHandle(RunContext &ctx, QString id) : m_ctx(ctx), m_id(std::move(id)) {}
+    void begin();
+    void end(Status status);
+
+private:
+    RunContext &m_ctx;
+    QString m_id;
+};
+
+// The test's only window to the outside world while it runs (§2.7). The
+// contract is process-agnostic (D2): a separate runner process can implement it
+// later without plugin changes. All members are safe to call from the test's
+// own helper threads.
+class RunContext
+{
+public:
+    virtual ~RunContext() = default;
+
+    // 0–1 for this test, plus a stage label ("Loaded latency").
+    virtual void progress(double fraction, const QString &stage) = 0;
+    virtual void log(LogLevel level, const QString &message) = 0;
+    // Poll at least every 250 ms and return promptly once true.
+    virtual bool cancelled() const = 0;
+
+    SubTestHandle subTest(const QString &id) { return SubTestHandle(*this, id); }
+    virtual void subTestBegin(const QString &id) = 0;
+    virtual void subTestEnd(const QString &id, Status status) = 0;
+
+    // Durable write to the database (Battery samples).
+    virtual void checkpoint(const QCborMap &payload) = 0;
+    // A temp folder registered in the database, so it's cleaned up even after
+    // a crash. Created on first call; empty if it can't be created.
+    virtual QString scratchDir() = 0;
+    // The snapshot taken at run start.
+    virtual const SystemSnapshot &system() const = 0;
+};
+
+// Given to ITest::recover() at startup for a run left in 'running' (task 6).
+class RecoveryContext
+{
+public:
+    virtual ~RecoveryContext() = default;
+    virtual const OptionValues &options() const = 0;
+    virtual QList<QCborMap> checkpoints() const = 0;
+    virtual const SystemSnapshot &system() const = 0;
+};
+
+class ITest
+{
+public:
+    virtual ~ITest() = default;
+    virtual const TestInfo &info() const = 0;
+
+    // Discovery: called on a pool thread at startup and on "refresh"; must
+    // finish in about 2 s.
+    virtual Availability probe(const ProbeContext &) const = 0;
+    virtual OptionSchema options(const ProbeContext &, const Availability &) const = 0;
+
+    // Live pre-start checks; polled while the tab is visible.
+    virtual QList<Precondition> preconditions(const OptionValues &, const ProbeContext &) const { return {}; }
+
+    virtual Validation validate(const OptionValues &) const { return Validation::success(); }  // pure
+    virtual std::chrono::seconds estimate(const OptionValues &) const = 0;   // for "≈ 14 min"
+    virtual std::chrono::seconds timeLimit(const OptionValues &) const = 0;  // hard cap; 0 = none
+
+    // Execution: worker thread, blocking, cooperative cancel.
+    virtual TestResult run(RunContext &, const OptionValues &) = 0;
+    virtual TestResult recover(RecoveryContext &) { return TestResult::interrupted(); }
+
+    // Pure functions over stored data (unit-testable, deterministic).
+    virtual ScoreBreakdown score(const TestResult &) const = 0;
+    virtual DetailLayout detail(const TestResult &result) const { return genericDetailLayout(result); }
+};
+
+// Option key of the automatic "Sub-tests" MultiSelect. Stable forever.
+inline constexpr QLatin1StringView kSubTestsOptionKey("subtests");
+
+// The schema the option tab shows: the test's own options plus, when it has
+// user-selectable sub-tests, an automatic "Sub-tests" MultiSelect (so every
+// test looks the same). Sub-tests the probe marked unavailable are disabled
+// with their reason.
+OptionSchema effectiveOptionSchema(const ITest &test, const ProbeContext &ctx, const Availability &availability);
+
+} // namespace sb
