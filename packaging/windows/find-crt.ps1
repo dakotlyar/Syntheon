@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Prints the folders holding the TARGET architecture's VC++ runtime and
-# Universal CRT DLLs, ';'-separated, for -DSYNBENCH_CRT_DIRS=... (P16: the CRT
+# Prints ONE folder holding the TARGET architecture's VC++ runtime and
+# Universal CRT DLLs (copied there, machine type checked from each PE header),
+# for -DSYNBENCH_CRT_DIRS=... (P16: the CRT
 # ships app-local, so neither installer needs a redistributable step). Asking
 # for the target architecture explicitly is the only reliable way to get the
 # ARM64 files in an x64 -> ARM64 cross build.
@@ -34,6 +35,38 @@ function Sort-ByVersion($dirs) {
     $dirs | Sort-Object { try { [version]($_.Name -replace '[^0-9.]', '') } catch { [version]'0.0' } } -Descending
 }
 
+# The machine type from a PE file's header (0x8664 x64, 0xAA64 ARM64).
+function Get-PeMachine([string]$path) {
+    $fs = [IO.File]::OpenRead($path)
+    try {
+        $b = New-Object byte[] 64
+        [void]$fs.Read($b, 0, 64)
+        $peOffset = [BitConverter]::ToInt32($b, 0x3C)
+        $fs.Position = $peOffset
+        $h = New-Object byte[] 6
+        [void]$fs.Read($h, 0, 6)
+        if ($h[0] -ne 0x50 -or $h[1] -ne 0x45) { return 'not a PE file' }
+        switch ([BitConverter]::ToUInt16($h, 4)) { 0x8664 { 'x64' } 0xAA64 { 'arm64' } 0x14C { 'x86' } default { 'other' } }
+    } finally { $fs.Dispose() }
+}
+
+# Collects the DLLs of the TARGET architecture only. Anything else found in a
+# redist folder (an x64 DLL in the ARM64 tree, e.g. vcruntime140_1.dll, which
+# only exists for x64) is reported and left out, never shipped: a mixed tree is
+# what pe-check.ps1 exists to reject, and if a shipped binary really imports a
+# left-out DLL, pe-check says so by name. The log shows what each folder holds.
+function Copy-MatchingDlls([string]$folder, [string]$destination) {
+    foreach ($dll in Get-ChildItem $folder -Filter *.dll -File) {
+        $m = Get-PeMachine $dll.FullName
+        if ($m -eq $Arch) {
+            [Console]::Error.WriteLine("  keep  $($dll.Name)  ($m)")
+            Copy-Item $dll.FullName $destination -Force
+        } else {
+            [Console]::Error.WriteLine("  SKIP  $($dll.Name)  is $m, not $Arch")
+        }
+    }
+}
+
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $vs = & $vswhere -latest -products * -property installationPath
 if (-not $vs) { throw 'Visual Studio not found' }
@@ -63,4 +96,12 @@ if (-not $ucrt) {
     [Console]::Error.WriteLine("warning: no $Arch UCRT redistributable under $kits; relying on the UCRT that ships with Windows 10")
 }
 
-(@($crt.FullName, $ucrt) | Where-Object { $_ }) -join ';'
+$out = Join-Path ($(if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() })) "synbench-crt-$Arch"
+Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $out | Out-Null
+foreach ($folder in @($crt.FullName, $ucrt) | Where-Object { $_ }) {
+    [Console]::Error.WriteLine("runtime folder: $folder")
+    Copy-MatchingDlls $folder $out
+}
+if (-not (Get-ChildItem $out -Filter *.dll)) { throw "no $Arch runtime DLLs found" }
+$out
