@@ -59,6 +59,60 @@ private slots:
         QVERIFY(c.firstRunDone());
     }
 
+    void systemInfoScreenDataAndEmulationBanner()
+    {
+        QTemporaryDir dir;
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = dir.filePath(QStringLiteral("a"));
+        AppRuntime rt(o);
+        AppController &a = rt.app();
+        QVERIFY(a.systemRows().isEmpty());  // nothing before the snapshot arrives
+        QVERIFY(a.emulationText().isEmpty());
+
+        SystemInfo i;
+        i.machine.hostname = QStringLiteral("Seinar");
+        i.machine.maker = QStringLiteral("ASUS");
+        i.machine.model = QStringLiteral("TUF Gaming A14");
+        i.cpu.name = QStringLiteral("Test CPU");
+        i.cpu.cores = 8;
+        i.cpu.threads = 16;
+        i.cpu.maxMhz = 5100;
+        i.memory.totalBytes = qint64(32) << 30;
+        i.os.name = QStringLiteral("Windows 11");
+        i.os.version = QStringLiteral("24H2");
+        i.os.arch = QStringLiteral("arm64");
+        i.battery = {true, 90.0, 84.6, 94.0, 100.0, true, 212};
+        i.apis.vulkanInstanceVersion = QStringLiteral("1.4.3");
+        i.apis.d3d12FeatureLevel = QStringLiteral("12_1");
+        i.emulated = true;
+        i.nativeArch = QStringLiteral("arm64");
+        a.setSystemInfoForTest(i);
+
+        const QVariantList rows = a.systemRows();
+        QVERIFY(rows.size() >= 8);
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("label")).toString(), QStringLiteral("Machine"));
+        QCOMPARE(rows[1 + 0].toMap().value(QStringLiteral("label")).toString(), QStringLiteral("Processor"));
+        QVERIFY(rows[1].toMap().value(QStringLiteral("value")).toString().contains(QStringLiteral("8 cores / 16 threads")));
+        QVERIFY(a.headerMachine().contains(QStringLiteral("Seinar")));
+        QVERIFY(a.headerMachine().contains(QStringLiteral("TUF Gaming A14")));
+        QCOMPARE(a.headerDetail(), QStringLiteral("Windows 11 arm64 · on AC power"));
+        QVERIFY(a.emulated());
+        QVERIFY(a.emulationText().contains(QStringLiteral("emulated")));
+        QCOMPARE(a.apiPills().size(), 2);  // DirectX 12 and Vulkan; no D3D11/OpenGL given
+        const QStringList battery = a.batteryLines();
+        QCOMPARE(battery.first(), QStringLiteral("90.0 Wh design · 84.6 Wh full charge"));
+        QVERIFY(battery.last().contains(QStringLiteral("Health 94%")));
+        QVERIFY(battery.last().contains(QStringLiteral("212 cycles")));
+
+        i.battery.present = false;
+        i.emulated = false;
+        a.setSystemInfoForTest(i);
+        QCOMPARE(a.batteryLines(), QStringList{QStringLiteral("No battery found")});
+        QVERIFY(a.emulationText().isEmpty());
+        QVERIFY(a.headerDetail().endsWith(QStringLiteral("no battery")));
+    }
+
     void storageControllerBasics()
     {
         QTemporaryDir dir;

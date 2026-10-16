@@ -39,6 +39,10 @@ class AppController : public QObject
     Q_PROPERTY(QString systemSummary READ systemSummary NOTIFY systemInfoChanged)
     Q_PROPERTY(bool memoryModulesKnown READ memoryModulesKnown NOTIFY systemInfoChanged)
     Q_PROPERTY(QStringList memoryModules READ memoryModules NOTIFY systemInfoChanged)
+    // System info screen: [{label, value}], API pills [{text, tone}], battery lines.
+    Q_PROPERTY(QVariantList systemRows READ systemRows NOTIFY systemInfoChanged)
+    Q_PROPERTY(QVariantList apiPills READ apiPills NOTIFY systemInfoChanged)
+    Q_PROPERTY(QStringList batteryLines READ batteryLines NOTIFY powerChanged)
     Q_PROPERTY(QString section READ section WRITE setSection NOTIFY sectionChanged)
     Q_PROPERTY(QString headerMachine READ headerMachine NOTIFY systemInfoChanged)
     Q_PROPERTY(QString headerDetail READ headerDetail NOTIFY powerChanged)
@@ -76,8 +80,18 @@ public:
     QString systemSummary() const;
     bool memoryModulesKnown() const { return m_info.memory.modulesKnown; }
     QStringList memoryModules() const;
+    QVariantList systemRows() const;
+    QVariantList apiPills() const;
+    QStringList batteryLines() const;
 
     const SystemInfo &systemInfo() const { return m_info; }
+    // Test hook: pretend this snapshot was collected (the real one is read on
+    // a pool thread at start).
+    void setSystemInfoForTest(const SystemInfo &info)
+    {
+        m_info = info;
+        m_infoReady = true;  // no signals: the run controller isn't probing in a unit test
+    }
     PrivilegedOps &privileged();
 
     // The visible section: run | progress | results | history | compare |

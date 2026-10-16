@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/controllers/app_controller.h"
 
+#include <QVariantMap>
+
 #include "sysinfo/collector.h"
 
 #include "synbench_version.h"
@@ -262,6 +264,133 @@ QStringList AppController::memoryModules() const
             parts << m.partNumber;
         out << parts.join(u' ');
     }
+    return out;
+}
+
+namespace {
+
+QString gibText(qint64 bytes)
+{
+    const double g = double(bytes) / (1024.0 * 1024 * 1024);
+    return g >= 100 ? QStringLiteral("%1 GB").arg(qRound(g)) : QStringLiteral("%1 GB").arg(g, 0, 'f', 1);
+}
+
+QString capacityText(qint64 bytes)
+{
+    const double tb = double(bytes) / 1e12;
+    return tb >= 1 ? QStringLiteral("%1 TB").arg(tb, 0, 'f', tb >= 10 ? 0 : 1) : QStringLiteral("%1 GB").arg(qRound(double(bytes) / 1e9));
+}
+
+QVariantMap infoRow(const QString &label, const QString &value)
+{
+    return {{QStringLiteral("label"), label}, {QStringLiteral("value"), value}};
+}
+
+} // namespace
+
+QVariantList AppController::systemRows() const
+{
+    QVariantList out;
+    if (!m_infoReady)
+        return out;
+    const SystemInfo &i = m_info;
+    out << infoRow(tr("Machine"), i.machineLabel());
+    if (!i.machine.biosVersion.isEmpty())
+        out << infoRow(tr("Firmware"), (i.machine.biosVendor + QLatin1Char(' ') + i.machine.biosVersion).trimmed());
+
+    QStringList shape;
+    if (i.cpu.cores > 0)
+        shape << tr("%1 cores / %2 threads").arg(i.cpu.cores).arg(i.cpu.threads);
+    if (i.cpu.performanceCores > 0 && i.cpu.efficiencyCores > 0)
+        shape << tr("%1 performance + %2 efficiency").arg(i.cpu.performanceCores).arg(i.cpu.efficiencyCores);
+    if (i.cpu.maxMhz > 0)
+        shape << tr("up to %1 GHz").arg(i.cpu.maxMhz / 1000.0, 0, 'f', 1);
+    out << infoRow(tr("Processor"), shape.isEmpty() ? i.cpu.name : i.cpu.name + QStringLiteral(", ") + shape.join(QStringLiteral(", ")));
+
+    QString mem = gibText(i.memory.totalBytes);
+    if (i.memory.modulesKnown && !i.memory.modules.isEmpty()) {
+        const MemoryModule &m = i.memory.modules.first();
+        QStringList d;
+        if (!m.type.isEmpty())
+            d << m.type;
+        if (m.configuredSpeedMts > 0 || m.speedMts > 0)
+            d << QStringLiteral("%1 MT/s").arg(m.configuredSpeedMts > 0 ? m.configuredSpeedMts : m.speedMts);
+        d << (i.memory.modules.size() == 1 ? tr("1 module") : tr("%1 modules").arg(i.memory.modules.size()));
+        mem += QStringLiteral(", ") + d.join(QStringLiteral(", "));
+    } else {
+        mem += QStringLiteral(", ") + tr("module details unavailable");
+    }
+    out << infoRow(tr("Memory"), mem);
+
+    QStringList gpus;
+    for (const GpuInfo &g : i.gpus) {
+        QString t = g.name;
+        if (g.vramBytes > 0)
+            t += QStringLiteral(" (%1)").arg(gibText(g.vramBytes));
+        if (!g.driverVersion.isEmpty())
+            t += QStringLiteral(", ") + g.driverVersion;
+        gpus << t;
+    }
+    out << infoRow(tr("Graphics"), gpus.isEmpty() ? tr("None found") : gpus.join(QLatin1Char('\n')));
+
+    QStringList vols;
+    for (const VolumeInfo &v : i.volumes) {
+        const QString kind = v.kind.isEmpty() ? v.bus : (v.bus + QLatin1Char(' ') + v.kind);
+        vols << QStringLiteral("%1 %2 (%3)").arg(capacityText(v.totalBytes), kind, v.mount).simplified();
+    }
+    out << infoRow(tr("Storage"), vols.isEmpty() ? tr("None found") : vols.join(QLatin1Char('\n')));
+
+    QStringList npus;
+    for (const NpuInfo &n : i.npus)
+        npus << n.name;
+    out << infoRow(tr("NPU"), npus.isEmpty() ? tr("None found") : npus.join(QLatin1Char('\n')));
+
+    QString os = (i.os.name + QLatin1Char(' ') + i.os.version).simplified() + QStringLiteral(", ") + i.os.arch;
+    if (!i.os.session.isEmpty())
+        os += QStringLiteral(", ") + i.os.session;
+    out << infoRow(tr("Operating system"), os);
+    out << infoRow(tr("SynBench"), QStringLiteral("%1 (%2, Qt %3)").arg(version(), i.cpu.arch, i.app.qtVersion));
+    return out;
+}
+
+QVariantList AppController::apiPills() const
+{
+    QVariantList out;
+    if (!m_infoReady)
+        return out;
+    auto pill = [&](const QString &text, bool good) {
+        out << QVariantMap{{QStringLiteral("text"), text}, {QStringLiteral("tone"), good ? QStringLiteral("good") : QStringLiteral("na")}};
+    };
+    const ApiInfo &a = m_info.apis;
+    if (!a.d3d12FeatureLevel.isEmpty())
+        pill(tr("DirectX 12"), true);
+    if (!a.d3d11FeatureLevel.isEmpty())
+        pill(tr("DirectX 11"), true);
+    pill(a.vulkanInstanceVersion.isEmpty() ? tr("Vulkan: not found") : tr("Vulkan %1").arg(a.vulkanInstanceVersion), !a.vulkanInstanceVersion.isEmpty());
+    if (!a.openGlVersion.isEmpty())
+        pill(a.openGlIsEs ? tr("OpenGL ES %1").arg(a.openGlVersion) : tr("OpenGL %1").arg(a.openGlVersion), true);
+    return out;
+}
+
+QStringList AppController::batteryLines() const
+{
+    if (!m_infoReady)
+        return {};
+    const BatteryInfo &b = m_info.battery;
+    if (!b.present)
+        return {tr("No battery found")};
+    QStringList out;
+    if (b.designWh > 0)
+        out << tr("%1 Wh design · %2 Wh full charge").arg(b.designWh, 0, 'f', 1).arg(b.fullWh, 0, 'f', 1);
+    QStringList s;
+    if (b.healthPct > 0)
+        s << tr("Health %1%").arg(qRound(b.healthPct));
+    if (b.chargePct >= 0)
+        s << tr("currently %1%").arg(qRound(b.chargePct));
+    s << (b.acOnline ? tr("on AC power") : tr("on battery"));
+    if (b.cycleCount >= 0)
+        s << (b.cycleCount == 1 ? tr("1 cycle") : tr("%1 cycles").arg(b.cycleCount));
+    out << s.join(QStringLiteral(", "));
     return out;
 }
 
