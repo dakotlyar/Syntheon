@@ -68,7 +68,7 @@ cmake --install build/windows-x64-package --prefix stage
 ./packaging/windows/deploy.ps1 -Stage stage -HostQt $env:QT_ROOT_DIR
 ./packaging/checks/pe-check.ps1 -Tree stage -Arch x64
 iscc packaging\windows\synbench.iss /DAppVersion=2026.11.0 /DArch=x64 /DSourceDir=$PWD\stage /DOutputDir=$PWD\out
-wix build -arch x64 -d Version=26.11.0 -d SourceDir=$PWD\stage -d "UpgradeCode={5E2C6D1B-8B1A-4C3E-9F55-0A6B2D7E4C11}" -o out\SynBench-windows-x64.msi packaging\windows\wix\Package.wxs
+wix build -arch x64 -d Version=26.11.0 -d SourceDir=$PWD\stage -d IconPath=$PWD\assets\synbench.ico -d "UpgradeCode={5E2C6D1B-8B1A-4C3E-9F55-0A6B2D7E4C11}" -o out\SynBench-windows-x64.msi packaging\windows\wix\Package.wxs
 ```
 
 The C and C++ runtime ships next to the exe (`SYNBENCH_CRT_DIRS`), so neither

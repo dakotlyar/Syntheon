@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later
      SynBench MSI (WiX v5, D9/D12). Built per architecture:
-       wix build -arch x64|arm64 -d Version=26.11.0 -d SourceDir=<stage> -d Arch=x64 -d UpgradeCode={...}
+       wix build -arch x64|arm64 -d Version=26.11.0 -d SourceDir=<stage> -d IconPath=<repo>\assets\synbench.ico -d UpgradeCode={...}
                  -o SynBench-<ver>-windows-<arch>.msi packaging\windows\wix\Package.wxs
      Version is the MSI form of the app version (26.11.N: MSI's first field is
      limited to 255, so the year is YY). Each architecture has its own stable UpgradeCode,
@@ -12,7 +12,7 @@
     <SummaryInformation Description="SynBench" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of SynBench is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
-    <Icon Id="SynBenchIcon" SourceFile="..\..\..\assets\synbench.ico" />
+    <Icon Id="SynBenchIcon" SourceFile="$(IconPath)" />
     <Property Id="ARPPRODUCTICON" Value="SynBenchIcon" />
 
     <!-- Inno and the MSI must not both own an install (each writes this value). -->

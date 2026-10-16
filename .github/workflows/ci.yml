@@ -368,7 +368,7 @@ jobs:
       - name: Build the MSI
         shell: pwsh
         run: |
-          wix build -arch x64 -d "Version=$env:SYNBENCH_MSI_VERSION" -d "SourceDir=$PWD\stage" `
+          wix build -arch x64 -d "Version=$env:SYNBENCH_MSI_VERSION" -d "SourceDir=$PWD\stage" -d "IconPath=$PWD\assets\synbench.ico" `
             -d "UpgradeCode={5E2C6D1B-8B1A-4C3E-9F55-0A6B2D7E4C11}" `
             -o "out\SynBench-$env:SYNBENCH_VERSION-windows-x64.msi" packaging\windows\wix\Package.wxs
           if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
@@ -498,7 +498,7 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\windows\synbench.iss `
             "/DAppVersion=$env:SYNBENCH_VERSION" /DArch=arm64 "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\out"
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
-          wix build -arch arm64 -d "Version=$env:SYNBENCH_MSI_VERSION" -d "SourceDir=$PWD\stage" `
+          wix build -arch arm64 -d "Version=$env:SYNBENCH_MSI_VERSION" -d "SourceDir=$PWD\stage" -d "IconPath=$PWD\assets\synbench.ico" `
             -d "UpgradeCode={A3D49B72-6E0F-4F1D-B6A8-7C1E5F90D2B4}" `
             -o "out\SynBench-$env:SYNBENCH_VERSION-windows-arm64.msi" packaging\windows\wix\Package.wxs
           if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
