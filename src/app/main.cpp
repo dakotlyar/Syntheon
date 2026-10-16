@@ -2,6 +2,9 @@
 #include "app/app_runtime.h"
 #include "app/fonts.h"
 #include "app/process_hardening.h"
+#ifdef Q_OS_LINUX
+#include "app/self_check.h"
+#endif
 #ifdef SYNBENCH_DEV_HOOKS
 #include "app/screenshot_tour.h"
 #endif
@@ -15,6 +18,7 @@
 #include "synbench_version.h"
 
 #include <cstdio>
+#include <cstring>
 #include <memory>
 
 #ifdef Q_OS_LINUX
@@ -23,6 +27,12 @@
 
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_LINUX
+    // `SynBench --synbench-selfcheck`: read-only, unprivileged, prints PASS/FAIL.
+    // (Ahead of everything else, so it works as any user and without a display.)
+    if (argc > 1 && std::strcmp(argv[1], "--synbench-selfcheck") == 0)
+        return sb::runSelfCheck(argc, argv);
+#endif
 #ifndef SYNBENCH_DEV_HOOKS
     // SynBench runs elevated: first of all, before Qt (or anything else) loads a
     // library, restrict where DLLs come from (Windows). The exe's own

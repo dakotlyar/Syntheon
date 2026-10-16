@@ -327,6 +327,35 @@ private slots:
         QCOMPARE(RunRepository(live.storage().connection()).load(run.uuid)->status, RunStatus::Running);
     }
 
+    // `SynBench --synbench-selfcheck` (the check CI runs on the real AppImage): in a
+    // build tree it passes by finding the helper, needs no display or root, and says so.
+    void selfCheckRunsWithoutADisplayOrRoot()
+    {
+#if defined(SYNBENCH_EXE) && defined(Q_OS_UNIX)
+        QProcess p;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.remove(QStringLiteral("DISPLAY"));
+        env.remove(QStringLiteral("WAYLAND_DISPLAY"));
+        env.remove(QStringLiteral("APPIMAGE"));
+        env.remove(QStringLiteral("APPDIR"));
+        p.setProcessEnvironment(env);
+        p.start(QStringLiteral(SYNBENCH_EXE), {QStringLiteral("--synbench-selfcheck")});
+        QVERIFY(p.waitForFinished(20000));
+        const QString out = QString::fromLocal8Bit(p.readAllStandardOutput());
+        QVERIFY2(p.exitCode() == 0 && out.contains(QStringLiteral("PASS: helper ")), qPrintable(out));
+        QVERIFY(out.contains(QStringLiteral("not an AppImage")));
+        // A forged environment (an AppImage claim from a binary that isn't in it) is ignored.
+        env.insert(QStringLiteral("APPIMAGE"), QStringLiteral("/tmp/evil.AppImage"));
+        env.insert(QStringLiteral("APPDIR"), QStringLiteral("/tmp/evil"));
+        p.setProcessEnvironment(env);
+        p.start(QStringLiteral(SYNBENCH_EXE), {QStringLiteral("--synbench-selfcheck")});
+        QVERIFY(p.waitForFinished(20000));
+        QCOMPARE(p.exitCode(), 0);
+#else
+        QSKIP("needs the executable on a Unix host");
+#endif
+    }
+
     // The real executable: a second launch on the same folder exits 0 and
     // the first gets the request; a different folder starts normally.
     void secondProcessExitsCleanlyAndTheFirstIsToldToRaise()

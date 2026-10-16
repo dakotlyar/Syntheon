@@ -261,12 +261,21 @@ jobs:
       # the image name. Prove the real runtime still reports exactly that.
       - name: The real AppImage mount matches what the helper launch check expects
         run: |
+          # The packaged app checks itself with --synbench-selfcheck (the same C++ the real
+          # launch uses; a text check of mountinfo once passed while the real check failed
+          # on every AppImage); the raw mountinfo line is checked as well.
           # The kernel octal-escapes space, #, backslash and tab in mountinfo fields
           # (the fs type included), so check a plain name, a name with spaces and
           # parentheses, and a launch through a symlink (the runtime reports the
           # real file's name then; $APPIMAGE is the real path too).
           check_mount() {  # <command to launch> <expected image file name, unescaped>
             local launcher=$1 expected=$2
+            # THE check: the packaged app's own C++ launch decision, run on the live
+            # mount (read-only, no root, no polkit, no window). It must pass.
+            local report
+            report=$(./"$launcher" --synbench-selfcheck) || { echo "$report"; echo "::error::--synbench-selfcheck failed for '$launcher'"; exit 1; }
+            echo "$report"
+            grep -q '^PASS: AppImage ' <<<"$report" || { echo "::error::selfcheck did not report a verified AppImage"; exit 1; }
             ./"$launcher" --appimage-mount > mount.txt &
             local mount_pid=$!
             for _ in $(seq 1 20); do [ -s mount.txt ] && break; sleep 0.5; done

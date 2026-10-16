@@ -13,6 +13,7 @@ qt_add_library(synbench_appcore STATIC
     controllers/startup_controller.h controllers/startup_controller.cpp
     single_instance.h single_instance.cpp
     process_hardening.h process_hardening.cpp
+    self_check.h self_check.cpp
     models/history_model.h models/history_model.cpp
     models/detail_blocks.h models/detail_blocks.cpp
     models/log_filter_model.h models/log_filter_model.cpp
