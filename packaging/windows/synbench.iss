@@ -42,6 +42,11 @@ AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
 AppUpdatesURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
+; Locked to Program Files (Dave): the app runs elevated, so it must live where a
+; normal user can't write. No folder page, no remembered custom folder, and a
+; /DIR= on the command line is refused in [Code].
+DisableDirPage=yes
+UsePreviousAppDir=no
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
@@ -101,9 +106,22 @@ Type: filesandordirs; Name: "{app}\synbench_plugins"
 // Inno and the MSI must not both own an install: refuse if the MSI is there.
 function InitializeSetup(): Boolean;
 var
-  Owner: String;
+  Owner, Requested, Allowed: String;
 begin
   Result := True;
+  // /DIR=<folder> would put an elevated program somewhere writable. Only the
+  // Program Files default is accepted (same folder, case-insensitive).
+  Requested := RemoveBackslash(ExpandConstant('{param:DIR|}'));
+  Allowed := RemoveBackslash(ExpandConstant('{autopf}\{#AppName}'));
+  if (Requested <> '') and (CompareText(Requested, Allowed) <> 0) then
+  begin
+    Log('Refusing /DIR=' + Requested + ': SynBench installs only into ' + Allowed);
+    if not WizardSilent then
+      SuppressibleMsgBox('SynBench installs only into ' + Allowed + '.', mbError, MB_OK, IDOK);
+    Result := False;
+    Exit;
+  end;
+
   if RegQueryStringValue(HKLM, 'Software\SynBench', 'Installer', Owner) and (Owner = 'msi') then
   begin
     // Never block a silent run on a message box: SuppressibleMsgBox answers

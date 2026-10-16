@@ -12,6 +12,7 @@ qt_add_library(synbench_appcore STATIC
     controllers/compare_controller.h controllers/compare_controller.cpp
     controllers/startup_controller.h controllers/startup_controller.cpp
     single_instance.h single_instance.cpp
+    process_hardening.h process_hardening.cpp
     models/history_model.h models/history_model.cpp
     models/detail_blocks.h models/detail_blocks.cpp
     models/log_filter_model.h models/log_filter_model.cpp
@@ -126,6 +127,9 @@ if(WIN32)
     target_sources(synbench_app PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/windows/SynBench.manifest")
     if(MSVC)
         target_link_options(synbench_app PRIVATE /MANIFESTUAC:NO)
+        # Libraries the exe links to are loaded before main(): from the application
+        # folder and System32 only (0x200 | 0x800), never the current folder or PATH.
+        target_link_options(synbench_app PRIVATE /DEPENDENTLOADFLAG:0xA00)
     endif()
 endif()
 

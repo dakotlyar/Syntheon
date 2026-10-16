@@ -3,6 +3,11 @@
 
 #include <QLibrary>
 
+#ifdef Q_OS_WIN
+#include <QDir>
+#include <windows.h>
+#endif
+
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
@@ -35,7 +40,12 @@ VulkanInfo probeVulkan()
 {
     VulkanInfo info;
 #if defined(Q_OS_WIN)
-    QLibrary lib(QStringLiteral("vulkan-1"));
+    // System32 only, by full path: never a vulkan-1.dll from the current
+    // folder, PATH or the app folder (the app runs elevated).
+    wchar_t systemDir[MAX_PATH] = {};
+    const UINT n = GetSystemDirectoryW(systemDir, MAX_PATH);
+    QLibrary lib(n > 0 && n < MAX_PATH ? QDir(QString::fromWCharArray(systemDir, int(n))).filePath(QStringLiteral("vulkan-1.dll"))
+                                       : QStringLiteral("C:/Windows/System32/vulkan-1.dll"));
 #else
     QLibrary lib(QStringLiteral("vulkan"), 1);
 #endif

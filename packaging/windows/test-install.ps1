@@ -129,6 +129,21 @@ try {
     Wait-Gone
     EndStep
 
+    # 3b. The install folder is locked to Program Files (Dave): a custom folder is refused
+    Step 'A custom install folder is refused'
+    $custom = Join-Path $tempRoot 'custom-install-dir'
+    $code = Start-Waited $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$custom", "/LOG=$logs\inno-dir.log")
+    if ($code -eq 0) { throw '/DIR= was accepted by the Inno installer' }
+    if (Test-Path (Join-Path $custom 'SynBench.exe')) { throw "the Inno installer installed into $custom" }
+    if (Test-Path $exe) { throw 'a refused /DIR= install still installed into Program Files' }
+    # MSI: INSTALLFOLDER is not a public property any more; the install goes to Program Files regardless.
+    Run 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', "INSTALLFOLDER=$custom", "InstallFolder=$custom", '/l*v', "$logs\msi-dir.log")
+    if (Test-Path (Join-Path $custom 'SynBench.exe')) { throw "the MSI installed into $custom" }
+    if (-not (Test-Path $exe)) { throw 'the MSI did not install into Program Files' }
+    Run 'msiexec.exe' @('/x', $Msi, '/qn', '/norestart')
+    Wait-Gone
+    EndStep
+
     # 4. Upgrade over the real Python v0.2.3 install (D10)
     if ($OldInstaller) {
         Step 'Upgrade over the Python v0.2.3 install'

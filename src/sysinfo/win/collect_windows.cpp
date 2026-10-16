@@ -222,14 +222,14 @@ QString emulatedNativeArch()
 
 void readGpus(SystemInfo &info)
 {
-    HMODULE dxgi = LoadLibraryW(L"dxgi.dll");
+    HMODULE dxgi = LoadLibraryExW(L"dxgi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!dxgi)
         return;
     using CreateFactory1 = HRESULT(WINAPI *)(REFIID, void **);
     const auto createFactory =
         reinterpret_cast<CreateFactory1>(reinterpret_cast<void *>(GetProcAddress(dxgi, "CreateDXGIFactory1")));
-    HMODULE d3d12 = LoadLibraryW(L"d3d12.dll");
-    HMODULE d3d11 = LoadLibraryW(L"d3d11.dll");
+    HMODULE d3d12 = LoadLibraryExW(L"d3d12.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    HMODULE d3d11 = LoadLibraryExW(L"d3d11.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     const auto createD3D12 = d3d12 ? reinterpret_cast<PFN_D3D12_CREATE_DEVICE>(
                                          reinterpret_cast<void *>(GetProcAddress(d3d12, "D3D12CreateDevice")))
                                    : nullptr;

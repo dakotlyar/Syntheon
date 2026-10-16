@@ -23,19 +23,19 @@
             Message="SynBench was installed with the setup program. Uninstall it first (Settings &gt; Apps), then run this MSI." />
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="SynBench" />
+      <Directory Id="InstallFolder" Name="SynBench" />
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="AppStartMenuFolder" Name="SynBench" />
     </StandardDirectory>
 
-    <Feature Id="Main" Title="SynBench" Level="1" ConfigurableDirectory="INSTALLFOLDER">
+    <Feature Id="Main" Title="SynBench" Level="1">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="OwnerMarker" />
     </Feature>
 
-    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+    <ComponentGroup Id="AppFiles" Directory="InstallFolder">
       <Component Id="MainExe" Bitness="always64">
         <File Id="SynBenchExe" Source="$(SourceDir)\SynBench.exe" KeyPath="yes" />
       </Component>
@@ -45,12 +45,12 @@
     </ComponentGroup>
 
     <Component Id="StartMenuShortcut" Directory="AppStartMenuFolder" Bitness="always64">
-      <Shortcut Id="SynBenchShortcut" Name="SynBench" Target="[INSTALLFOLDER]SynBench.exe" WorkingDirectory="INSTALLFOLDER" />
+      <Shortcut Id="SynBenchShortcut" Name="SynBench" Target="[InstallFolder]SynBench.exe" WorkingDirectory="InstallFolder" />
       <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
       <RegistryValue Root="HKCU" Key="Software\SynBench" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
-    <Component Id="OwnerMarker" Directory="INSTALLFOLDER" Bitness="always64">
+    <Component Id="OwnerMarker" Directory="InstallFolder" Bitness="always64">
       <RegistryValue Root="HKLM" Key="Software\SynBench" Name="Installer" Type="string" Value="msi" KeyPath="yes" />
     </Component>
   </Package>

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/app_runtime.h"
 #include "app/fonts.h"
+#include "app/process_hardening.h"
 #ifdef SYNBENCH_DEV_HOOKS
 #include "app/screenshot_tour.h"
 #endif
@@ -22,6 +23,25 @@
 
 int main(int argc, char *argv[])
 {
+    // SynBench runs elevated: first of all, before Qt (or anything else) loads a
+    // library, restrict where DLLs come from (Windows). The exe's own
+    // /DEPENDENTLOADFLAG covers the libraries that load before main().
+    sb::hardenDllSearch();
+#ifndef SYNBENCH_DEV_HOOKS
+    // A packaged build takes its plugins and QML only from its own folders, never
+    // from environment variables a caller set. (A development build keeps them:
+    // it runs from a Qt prefix and tests rely on that.)
+    sb::scrubQtEnvironment();
+    {
+        const QString exeDir = sb::executableFolder();
+#ifdef Q_OS_WIN
+        sb::pinLibraryPaths({exeDir});               // windeployqt layout: plugins next to the exe
+#else
+        sb::pinLibraryPaths({exeDir + QStringLiteral("/../plugins")});  // the AppDir's usr/plugins (also in qt.conf)
+#endif
+    }
+#endif
+
 #ifdef Q_OS_LINUX
     // P25: never run the GUI as root. A root GUI breaks on Wayland and leaves
     // root-owned history; SynBench asks for administrator access itself.
