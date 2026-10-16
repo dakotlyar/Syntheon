@@ -158,11 +158,19 @@ if(WIN32)
     # The folders arrive with backslashes (C:\Program Files\...); written as they
     # are into the generated install code, "\P" is an invalid escape (CMake dev
     # warnings, and the file name is mangled). Forward slashes, and quoted.
+    if(NOT SYNBENCH_DEV_HOOKS AND NOT SYNBENCH_CRT_DIRS)
+        message(FATAL_ERROR "A package build needs -DSYNBENCH_CRT_DIRS=<folder with the target's VC++ runtime> "
+                            "(packaging/windows/find-crt.ps1)")
+    endif()
     file(TO_CMAKE_PATH "${SYNBENCH_CRT_DIRS}" _synbench_crt_dirs)
     foreach(_dir IN LISTS _synbench_crt_dirs)
         file(GLOB _crt_dlls "${_dir}/*.dll")
         if(NOT _crt_dlls)
-            message(WARNING "SYNBENCH_CRT_DIRS: no DLLs in '${_dir}'")
+            if(SYNBENCH_DEV_HOOKS)
+                message(WARNING "SYNBENCH_CRT_DIRS: no DLLs in '${_dir}'")
+            else()
+                message(FATAL_ERROR "SYNBENCH_CRT_DIRS: no DLLs in '${_dir}' (a package build must ship the C++ runtime)")
+            endif()
         endif()
         foreach(_dll IN LISTS _crt_dlls)
             install(FILES "${_dll}" DESTINATION .)
