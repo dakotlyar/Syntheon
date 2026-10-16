@@ -151,9 +151,18 @@ if(WIN32)
     # (packaging/windows/find-crt.ps1), which is the only reliable way to get
     # the ARM64 ones in a cross build.
     set(SYNBENCH_CRT_DIRS "" CACHE STRING "Folders with the target architecture's VC++ runtime and UCRT DLLs to ship app-local")
-    foreach(_dir IN LISTS SYNBENCH_CRT_DIRS)
+    # The folders arrive with backslashes (C:\Program Files\...); written as they
+    # are into the generated install code, "\P" is an invalid escape (CMake dev
+    # warnings, and the file name is mangled). Forward slashes, and quoted.
+    file(TO_CMAKE_PATH "${SYNBENCH_CRT_DIRS}" _synbench_crt_dirs)
+    foreach(_dir IN LISTS _synbench_crt_dirs)
         file(GLOB _crt_dlls "${_dir}/*.dll")
-        install(FILES ${_crt_dlls} DESTINATION .)
+        if(NOT _crt_dlls)
+            message(WARNING "SYNBENCH_CRT_DIRS: no DLLs in '${_dir}'")
+        endif()
+        foreach(_dll IN LISTS _crt_dlls)
+            install(FILES "${_dll}" DESTINATION .)
+        endforeach()
     endforeach()
 else()
     # The AppDir keeps libraries in usr/lib next to usr/bin.
