@@ -25,8 +25,12 @@ bool removeTreeNoFollow(const QString &path)
 {
     const QFileInfo fi(path);  // QFileInfo describes the link itself (lstat)
     if (isLink(fi)) {
-        // Remove the link, never what it points to.
-        return fi.isJunction() ? QDir().rmdir(path) : QFile::remove(path);
+        // Remove the link, never what it points to. A file link goes with
+        // remove(); a directory link (Windows junction or directory symlink)
+        // needs rmdir, which removes the reparse point and not its target.
+        if (QFile::remove(path))
+            return true;
+        return QDir().rmdir(path);
     }
     if (!fi.exists())
         return true;

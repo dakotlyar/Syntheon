@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/orchestrator.h"
+#include "dir_link.h"
 #include "core/power_inhibitor.h"
 #include "core/registry.h"
 #include "core/run_sink.h"
@@ -969,10 +970,11 @@ private slots:
         keep.close();
         Fixture f;
         QString scratch;
+        bool linked = false;
         f[QStringLiteral("cpu")]->runner = [&](RunContext &ctx, const OptionValues &) {
             scratch = ctx.scratchDir();
             QDir(scratch).removeRecursively();
-            QFile::link(victim.path(), scratch);
+            linked = sb::testing::makeDirLink(victim.path(), scratch);
             return okResult(1);
         };
         RecordingSink sink(f.events);
@@ -982,8 +984,10 @@ private slots:
         QSignalSpy finished(&o, &Orchestrator::runFinished);
         QVERIFY(o.start(plan({QStringLiteral("cpu")}), meta()).ok);
         QVERIFY(waitFinished(finished));
+        if (!linked)
+            QSKIP("can't create directory links here");
         QVERIFY(QFile::exists(keep.fileName()));
-        QVERIFY(!QFileInfo(scratch).isSymLink());  // the link itself is gone
+        QVERIFY(!QFileInfo(scratch).isSymLink() && !QFileInfo(scratch).isJunction());  // the link itself is gone
         QVERIFY(f.events.names().contains(QStringLiteral("removeScratch")));
     }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/fs_util.h"
+#include "dir_link.h"
 #include "core/orchestrator.h"
 #include "core/power_inhibitor.h"
 #include "core/registry.h"
@@ -438,13 +439,14 @@ private slots:
 
         // 1. The scratch path itself is a link to the victim.
         const QString topLink = QDir(runFolder).filePath(QStringLiteral("cpu"));
-        QVERIFY(QFile::link(victimDir.path(), topLink));
+        if (!sb::testing::makeDirLink(victimDir.path(), topLink))
+            QSKIP("can't create directory links here");
         QVERIFY(repo.addScratchPath(*id, topLink));
         // 2. A real scratch folder containing a link to the victim.
         const QString real = QDir(runFolder).filePath(QStringLiteral("ram"));
         QVERIFY(QDir().mkpath(real));
         touch(QDir(real).filePath(QStringLiteral("junk.bin")));
-        QVERIFY(QFile::link(victimDir.path(), QDir(real).filePath(QStringLiteral("inner-link"))));
+        QVERIFY(sb::testing::makeDirLink(victimDir.path(), QDir(real).filePath(QStringLiteral("inner-link"))));
         QVERIFY(repo.addScratchPath(*id, real));
         // 3. The run folder replaced by a link (path shape still matches).
         RunRecord other;
@@ -453,7 +455,7 @@ private slots:
         other.startedAt = QDateTime::currentDateTimeUtc();
         const auto otherId = repo.saveRun(other);
         const QString linkedRun = QDir(root.path()).filePath(fs::scratchRunFolderName(other.uuid));
-        QVERIFY(QFile::link(victimDir.path(), linkedRun));
+        QVERIFY(sb::testing::makeDirLink(victimDir.path(), linkedRun));
         QVERIFY(repo.addScratchPath(*otherId, QDir(linkedRun).filePath(QStringLiteral("keep.txt"))));
 
         const RecoveryReport report = recoverRuns(f.db(), f.registry, root.path());
