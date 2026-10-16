@@ -46,6 +46,12 @@ AppController::AppController(QObject *parent)
 
 AppController::~AppController()
 {
+#ifdef Q_OS_LINUX
+    // AP5-R2-6: a pool task may be blocked in a privileged request (up to the
+    // 15 s timeout). Closing the helper fails every pending request at once,
+    // so the wait below ends promptly instead of freezing the window.
+    m_helper.shutdown();
+#endif
     // Pool tasks capture `this`; let them finish first.
     QThreadPool::globalInstance()->waitForDone();
 }

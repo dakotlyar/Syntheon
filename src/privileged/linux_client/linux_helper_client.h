@@ -85,6 +85,9 @@ public:
     void start(const Launch &launch);
     // Closes the helper's stdin; it exits on EOF.
     void stop();
+    // Final: marks the client Failed ("SynBench is closing"), failing every
+    // pending request now. For destructors that must not wait on requests.
+    void shutdown();
 
     // The pkexec (or helper) process id, for logs; 0 if none.
     qint64 helperProcessId() const;

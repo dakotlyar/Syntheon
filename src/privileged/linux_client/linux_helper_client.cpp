@@ -204,6 +204,20 @@ void LinuxHelperClient::stop()
         m_process->closeWriteChannel();
 }
 
+void LinuxHelperClient::shutdown()
+{
+    if (m_process)
+        m_process->disconnect(this);
+    {
+        QMutexLocker lock(&m_mutex);
+        m_state = State::Failed;
+        m_failure = Failure::Exited;
+        m_failureMessage = QStringLiteral("SynBench is closing");
+    }
+    failAllPending(QStringLiteral("SynBench is closing"));
+    stop();
+}
+
 void LinuxHelperClient::fail(Failure failure, const QString &message)
 {
     State previous;

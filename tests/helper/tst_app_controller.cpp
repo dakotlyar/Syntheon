@@ -2,6 +2,7 @@
 #include "../unit/smbios_builder.h"
 #include "app/controllers/app_controller.h"
 
+#include <QElapsedTimer>
 #include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -106,6 +107,46 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(c.authState(), AppController::AuthState::Ready, 10000);
         c.retryAuth();
         QCOMPARE(launches, 1);
+    }
+
+    // AP5-R2-6: destroying the controller while a pool task waits on a
+    // silent helper must not freeze for the request timeout.
+    void destructionDoesntWaitForRequests()
+    {
+        const QString mute = m_dir.filePath(QStringLiteral("mute.sh"));
+        proto::Frame f;
+        f.op = std::uint16_t(proto::Op::Hello);
+        f.flags = proto::Response;
+        f.payload = proto::encodeHello({proto::kProtocolVersion, 0, "test"});
+        const proto::Bytes hello = proto::encode(f);
+        const QString helloFile = m_dir.filePath(QStringLiteral("hello.bin"));
+        QFile h(helloFile);
+        QVERIFY(h.open(QIODevice::WriteOnly));
+        h.write(reinterpret_cast<const char *>(hello.data()), qint64(hello.size()));
+        h.close();
+        QFile s(mute);
+        QVERIFY(s.open(QIODevice::WriteOnly));
+        s.write(("#!/bin/sh\ncat '" + helloFile + "'\nexec sleep 60\n").toUtf8());
+        s.close();
+        QFile::setPermissions(mute, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+
+        LinuxHelperClient::Options o = options();
+        o.requestTimeout = 60s;
+        QElapsedTimer t;
+        {
+            AppController c([mute] { return LinuxHelperClient::Launch{{mute, {}}, std::nullopt}; }, o);
+            c.start();
+            QTRY_COMPARE_WITH_TIMEOUT(c.authState(), AppController::AuthState::Ready, 10000);
+            QTRY_VERIFY_WITH_TIMEOUT(c.systemInfoReady(), 20000);
+            QTest::qWait(300);  // the SMBIOS request is now waiting on the mute helper
+            auto &helper = static_cast<LinuxHelperClient &>(c.privileged());
+            const pid_t pid = pid_t(helper.helperProcessId());
+            t.start();
+            // destructor runs here
+            QMetaObject::invokeMethod(&c, [] {});
+            Q_UNUSED(pid)
+        }
+        QVERIFY2(t.elapsed() < 5000, qPrintable(QString::number(t.elapsed())));
     }
 
     void helperDyingMidSessionBlocksAgain()
