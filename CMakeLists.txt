@@ -25,7 +25,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 include(CompilerFlags)
 
-find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Sql)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 QuickShapes QuickTest Sql)
 if(NOT Qt6_VERSION VERSION_EQUAL SYNBENCH_QT_VERSION)
     message(WARNING "Found Qt ${Qt6_VERSION}, but the build is pinned to Qt ${SYNBENCH_QT_VERSION}")
 endif()

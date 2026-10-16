@@ -380,10 +380,18 @@ private slots:
                                 "emulated"})
             QVERIFY2(s.data.contains(QLatin1StringView(key)), key);
         QCOMPARE(s.toJson().value(QStringLiteral("sysinfo_version")).toInt(), 1);
-        info.machine.hostname.clear();
         info.machine.maker = QStringLiteral("ASUS");
         info.machine.model = QStringLiteral("TUF Gaming A14 FA401EA");
-        QCOMPARE(info.machineLabel(), QStringLiteral("ASUS TUF Gaming A14 FA401EA"));
+        QCOMPARE(info.machineLabel(), QStringLiteral("Knowhere · ASUS TUF Gaming A14 FA401EA"));
+        info.machine.family = QStringLiteral("TUF Gaming A14");
+        QCOMPARE(info.machineLabel(), QStringLiteral("Knowhere · ASUS TUF Gaming A14"));
+        info.machine.maker = QStringLiteral("LENOVO");
+        info.machine.family = QStringLiteral("Lenovo ThinkPad X1");  // family already names the maker
+        QCOMPARE(info.machineLabel(), QStringLiteral("Knowhere · Lenovo ThinkPad X1"));
+        info.machine.hostname.clear();
+        QCOMPARE(info.machineLabel(), QStringLiteral("Lenovo ThinkPad X1"));
+        info.machine = {};
+        QCOMPARE(info.machineLabel(), QStringLiteral("Unknown machine"));
     }
 };
 

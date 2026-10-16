@@ -500,6 +500,11 @@ BatteryInfo readBattery()
 
 } // namespace
 
+BatteryInfo readBatteryNow()
+{
+    return readBattery();
+}
+
 SystemInfo collectSystemInfo()
 {
     SystemInfo info;

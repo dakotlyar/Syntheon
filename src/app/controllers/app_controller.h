@@ -5,6 +5,7 @@
 #include "sysinfo/system_info.h"
 
 #include <QObject>
+#include <QTimer>
 #include <QStringList>
 
 #include <functional>
@@ -32,11 +33,18 @@ class AppController : public QObject
     Q_OBJECT
     Q_PROPERTY(AuthState authState READ authState NOTIFY authChanged)
     Q_PROPERTY(QString authMessage READ authMessage NOTIFY authChanged)
+    Q_PROPERTY(QString authStateName READ authStateName NOTIFY authChanged)
     Q_PROPERTY(bool systemInfoReady READ systemInfoReady NOTIFY systemInfoChanged)
     Q_PROPERTY(QString machineLabel READ machineLabel NOTIFY systemInfoChanged)
     Q_PROPERTY(QString systemSummary READ systemSummary NOTIFY systemInfoChanged)
     Q_PROPERTY(bool memoryModulesKnown READ memoryModulesKnown NOTIFY systemInfoChanged)
     Q_PROPERTY(QStringList memoryModules READ memoryModules NOTIFY systemInfoChanged)
+    Q_PROPERTY(QString section READ section WRITE setSection NOTIFY sectionChanged)
+    Q_PROPERTY(QString headerMachine READ headerMachine NOTIFY systemInfoChanged)
+    Q_PROPERTY(QString headerDetail READ headerDetail NOTIFY powerChanged)
+    Q_PROPERTY(bool emulated READ emulated NOTIFY systemInfoChanged)
+    Q_PROPERTY(QString emulationText READ emulationText NOTIFY systemInfoChanged)
+    Q_PROPERTY(QString version READ version CONSTANT)
 
 public:
     enum class AuthState { Authorising, Ready, Failed };
@@ -54,9 +62,15 @@ public:
     ~AppController() override;
 
     void start();
+    // Smoke runs (SYNBENCH_SMOKE=1, CI under xvfb) have no polkit agent: no
+    // helper is started, the gate is open and privileged calls are
+    // Unavailable. Never set in a normal launch.
+    void setElevationDisabled(bool disabled) { m_noElevation = disabled; }
 
     AuthState authState() const { return m_authState; }
     QString authMessage() const { return m_authMessage; }
+    // "authorising" | "ready" | "failed" (QML compares strings, not enums).
+    QString authStateName() const;
     bool systemInfoReady() const { return m_infoReady; }
     QString machineLabel() const { return m_info.machineLabel(); }
     QString systemSummary() const;
@@ -66,6 +80,20 @@ public:
     const SystemInfo &systemInfo() const { return m_info; }
     PrivilegedOps &privileged();
 
+    // The visible section: run | progress | results | history | compare |
+    // system | settings. Results and its Detail sub-page share "results".
+    QString section() const { return m_section; }
+    void setSection(const QString &section);
+    QString headerMachine() const;
+    QString headerDetail() const;  // "Windows 11 x64 · on AC power"
+    bool emulated() const { return m_info.emulated; }
+    QString emulationText() const;
+    QString version() const;
+    // Fresh power state, polled every 5 s while the app runs.
+    void refreshPower();
+    // The current snapshot with the latest power state, for a run to freeze.
+    SystemSnapshot snapshotForRun() const { return m_info.toSnapshot(); }
+
     Q_INVOKABLE void retryAuth();
     Q_INVOKABLE void quit();
 
@@ -73,9 +101,12 @@ signals:
     void authChanged();
     void systemInfoChanged();
     void quitRequested();
+    void sectionChanged();
+    void powerChanged();
 
 private:
     void setAuth(AuthState state, const QString &message = {});
+    void startHelper();
     void readSmbiosWhenReady();
     void onSmbios(std::optional<SmbiosTables> tables, PrivError error);
 
@@ -90,6 +121,11 @@ private:
     SystemInfo m_info;
     bool m_infoReady = false;
     bool m_smbiosRequested = false;
+    QString m_section = QStringLiteral("run");
+    QTimer m_powerTimer;
+    bool m_powerBusy = false;
+    bool m_noElevation = false;
+    UnavailablePrivilegedOps m_unavailable;
 };
 
 } // namespace sb

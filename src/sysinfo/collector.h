@@ -29,6 +29,10 @@ std::optional<SmbiosInfo> parseSmbiosTables(const SmbiosTables &tables);
 // memory modules appear once the helper is up (task 10).
 bool applyPrivilegedSmbios(SystemInfo &info, PrivilegedOps &ops, PrivError *error = nullptr);
 
+// The cheap, changing part of the snapshot: the power state polled every 5 s
+// for the header ("on AC power") and the Battery preconditions.
+BatteryInfo readBatteryNow();
+
 AppInfo appInfo();
 
 } // namespace sb::sysinfo

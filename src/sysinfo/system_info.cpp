@@ -31,10 +31,18 @@ QString hex4(quint32 v)
 
 QString SystemInfo::machineLabel() const
 {
+    // "Knowhere · ASUS TUF Gaming A14" (Dave): host name + maker and the
+    // marketing family when the firmware has one (else the model). Either
+    // half alone if the other is unknown.
+    QString hardware = machine.family.isEmpty() ? machine.model : machine.family;
+    if (!machine.maker.isEmpty() && !hardware.startsWith(machine.maker, Qt::CaseInsensitive))
+        hardware = machine.maker + QLatin1Char(' ') + hardware;
+    hardware = hardware.trimmed();
+    if (!machine.hostname.isEmpty() && !hardware.isEmpty())
+        return machine.hostname + QStringLiteral(" · ") + hardware;
     if (!machine.hostname.isEmpty())
         return machine.hostname;
-    const QString mm = QStringList{machine.maker, machine.model}.join(u' ').trimmed();
-    return mm.isEmpty() ? QStringLiteral("Unknown machine") : mm;
+    return hardware.isEmpty() ? QStringLiteral("Unknown machine") : hardware;
 }
 
 QJsonObject SystemInfo::toJson() const

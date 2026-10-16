@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import SynBench
 
 ApplicationWindow {
     id: window
@@ -12,39 +13,58 @@ ApplicationWindow {
     minimumHeight: 560
     visible: true
     title: qsTr("SynBench")
+    color: Theme.win
 
-    // Temporary content until the QML foundation and System info screen
-    // (tasks 12 and 17): shows the administrator gate and what was detected.
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 24
-        spacing: 8
+    // The theme is set only in Settings; "system" follows the OS live.
+    Binding { target: Theme; property: "mode"; value: Settings.theme }
 
-        Label {
-            visible: AppController.authState === AppController.Authorising
-            text: qsTr("Authorising… approve the administrator prompt to continue.")
-        }
-        Label {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            text: AppController.systemInfoReady ? AppController.systemSummary : qsTr("Detecting hardware…")
-        }
-        Label {
-            visible: AppController.systemInfoReady && !AppController.memoryModulesKnown
-            text: qsTr("Reading memory details…")
-        }
-        Repeater {
-            model: AppController.memoryModules
-            delegate: Label {
-                required property string modelData
-                text: modelData
-            }
-        }
-        Item { Layout.fillHeight: true }
+    // D18: native OS title bar + this strip inside the window.
+    header: HeaderStrip {
+        machine: AppController.headerMachine
+        detail: AppController.headerDetail
     }
 
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 0
+
+        Banner {
+            objectName: "emulationBanner"
+            Layout.fillWidth: true
+            text: AppController.emulationText
+        }
+
+        AppShell {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            layout: Settings.layout
+            section: AppController.section
+            version: AppController.version
+            onNavigate: id => AppController.section = id
+
+            RunScreen {}
+            ProgressScreen {}
+            ResultsScreen {}
+            HistoryScreen {}
+            CompareScreen {}
+            SystemInfoScreen {}
+            SettingsScreen {}
+        }
+    }
+
+    // Launch gates, in order: the history must open, then administrator
+    // access. Both block; neither has a limited mode.
+    StorageProblemDialog {
+        visible: StorageController.startupKind !== "none"
+        newerVersion: StorageController.startupKind === "newer"
+        message: StorageController.startupMessage
+        onUseDefault: error = StorageController.useDefaultLocation()
+        onChooseFolder: path => error = StorageController.openHistoryIn(path)
+        onQuitClicked: AppController.quit()
+    }
     AuthDialog {
-        visible: AppController.authState === AppController.Failed
+        visible: StorageController.startupKind === "none" && AppController.authStateName !== "ready"
+        authorising: AppController.authStateName === "authorising"
         message: AppController.authMessage
         onRetryClicked: AppController.retryAuth()
         onQuitClicked: AppController.quit()

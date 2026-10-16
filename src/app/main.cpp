@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "app/controllers/app_controller.h"
+#include "app/app_runtime.h"
+#include "app/fonts.h"
+#include "app/screenshot_tour.h"
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
+#include <QQuickWindow>
 #include <QtQml>
 
 #include "synbench_version.h"
 
 #include <cstdio>
+#include <memory>
 
 #ifdef Q_OS_LINUX
 #include <unistd.h>
@@ -32,19 +36,29 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationDisplayName(QStringLiteral("SynBench"));
     QGuiApplication::setApplicationVersion(QStringLiteral(SYNBENCH_DISPLAY_VERSION));
 
+    sb::loadBundledFonts();
     // P15: Qt Quick Controls Basic, re-skinned in QML.
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
-    sb::AppController controller;
-    QObject::connect(&controller, &sb::AppController::quitRequested, &app, &QCoreApplication::quit);
-    qmlRegisterSingletonInstance("SynBench", 1, 0, "AppController", &controller);
+    sb::AppRuntime runtime(sb::AppRuntime::optionsFromEnvironment());
+    QObject::connect(&runtime.app(), &sb::AppController::quitRequested, &app, &QCoreApplication::quit);
+    runtime.registerQml();
 
     QQmlApplicationEngine engine;
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
         [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.loadFromModule("SynBench", "Main");
-    controller.start();
+    runtime.start();
+
+    // Developer tool: SYNBENCH_TOUR=<folder> saves a screenshot of every screen.
+    const QString tourFolder = qEnvironmentVariable("SYNBENCH_TOUR");
+    std::unique_ptr<sb::ScreenshotTour> tour;
+    if (!tourFolder.isEmpty() && !engine.rootObjects().isEmpty()) {
+        tour = std::make_unique<sb::ScreenshotTour>(qobject_cast<QQuickWindow *>(engine.rootObjects().first()), runtime,
+                                                    tourFolder);
+        tour->start();
+    }
 
     return QGuiApplication::exec();
 }

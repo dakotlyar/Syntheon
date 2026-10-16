@@ -65,6 +65,9 @@ struct ChartAxis {
     enum class Scale { Linear, Log2 };
     Scale scale = Scale::Linear;
     QStringList tickLabels;
+    // The x position of each label, in the series' x unit (KiB, minutes). If
+    // shorter than tickLabels, the labels are spread evenly.
+    QVector<double> tickValues;
     bool operator==(const ChartAxis &) const = default;
 };
 

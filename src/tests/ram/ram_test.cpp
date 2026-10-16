@@ -114,6 +114,7 @@ StubSpec makeSpec()
             chart.xAxis.scale = ChartAxis::Scale::Log2;
             chart.xAxis.tickLabels = {QStringLiteral("4K"), QStringLiteral("32K"), QStringLiteral("1M"), QStringLiteral("16M"),
                                       QStringLiteral("128M"), QStringLiteral("1G")};
+            chart.xAxis.tickValues = {4, 32, 1024, 16384, 131072, 1048576};  // KiB
             chart.yUnit = QStringLiteral("ns");
             chart.annotations = {{32, QStringLiteral("L1")}, {512, QStringLiteral("L2")}, {16384, QStringLiteral("L3")},
                                  {524288, QStringLiteral("DRAM")}};

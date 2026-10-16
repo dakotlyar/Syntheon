@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include "app/controllers/app_controller.h"
+#include "app/controllers/settings_controller.h"
+#include "app/controllers/storage_controller.h"
+#include "storage/settings_store.h"
+#include "storage/storage.h"
+
+#include <QObject>
+#include <QTemporaryDir>
+
+#include <memory>
+
+namespace sb {
+
+// Owns the app's backend objects in dependency order and exposes the QML
+// singletons. main() builds one; the unit tests build their own with a
+// temporary settings file and data folder.
+class AppRuntime : public QObject
+{
+    Q_OBJECT
+
+public:
+    struct Options {
+        // SYNBENCH_SMOKE=1: a temporary settings file and history, no
+        // elevation (there is no polkit agent under xvfb), stubs at a fast
+        // time scale. Used by CI.
+        bool smoke = false;
+        QString settingsFile;  // empty = the per-user settings.ini
+        QString dataFolder;    // empty = from the settings
+    };
+
+    explicit AppRuntime(Options options, QObject *parent = nullptr);
+    ~AppRuntime() override;
+
+    static Options optionsFromEnvironment();
+
+    // Registers the controllers as the QML singletons Settings, AppController
+    // and StorageController (module SynBench).
+    void registerQml();
+    // Opens the history and starts the gates (storage, elevation).
+    void start();
+
+    SettingsStore &settingsStore() { return *m_store; }
+    Storage &storage() { return *m_storage; }
+    SettingsController &settings() { return *m_settings; }
+    StorageController &storageController() { return *m_storageController; }
+    AppController &app() { return *m_app; }
+    bool smoke() const { return m_options.smoke; }
+
+private:
+    Options m_options;
+    std::unique_ptr<QTemporaryDir> m_smokeDir;
+    std::unique_ptr<SettingsStore> m_store;
+    std::unique_ptr<Storage> m_storage;
+    std::unique_ptr<SettingsController> m_settings;
+    std::unique_ptr<StorageController> m_storageController;
+    std::unique_ptr<AppController> m_app;
+};
+
+} // namespace sb

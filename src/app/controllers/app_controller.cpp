@@ -3,6 +3,8 @@
 
 #include "sysinfo/collector.h"
 
+#include "synbench_version.h"
+
 #include <QCoreApplication>
 #include <QLoggingCategory>
 #include <QThreadPool>
@@ -58,11 +60,23 @@ AppController::~AppController()
 
 PrivilegedOps &AppController::privileged()
 {
+    if (m_noElevation)
+        return m_unavailable;
 #ifdef Q_OS_LINUX
     return m_helper;
 #else
     return *m_ops;
 #endif
+}
+
+QString AppController::authStateName() const
+{
+    switch (m_authState) {
+    case AuthState::Authorising: return QStringLiteral("authorising");
+    case AuthState::Ready: return QStringLiteral("ready");
+    case AuthState::Failed: return QStringLiteral("failed");
+    }
+    return {};
 }
 
 void AppController::setAuth(AuthState state, const QString &message)
@@ -72,7 +86,68 @@ void AppController::setAuth(AuthState state, const QString &message)
     emit authChanged();
 }
 
-void AppController::start()
+void AppController::setSection(const QString &section)
+{
+    if (section == m_section)
+        return;
+    m_section = section;
+    emit sectionChanged();
+}
+
+QString AppController::headerMachine() const
+{
+    return m_infoReady ? m_info.machineLabel() : QString();
+}
+
+QString AppController::headerDetail() const
+{
+    if (!m_infoReady)
+        return {};
+    QStringList parts;
+    parts << QStringLiteral("%1 %2").arg(m_info.os.name, m_info.os.arch).trimmed();
+    if (m_info.battery.present)
+        parts << (m_info.battery.acOnline ? QStringLiteral("on AC power")
+                                          : QStringLiteral("on battery · %1%").arg(qRound(std::max(0.0, m_info.battery.chargePct))));
+    else
+        parts << QStringLiteral("no battery");
+    return parts.join(QStringLiteral(" · "));
+}
+
+QString AppController::emulationText() const
+{
+    if (!m_info.emulated)
+        return {};
+    return QStringLiteral("This is the x64 build running emulated on an ARM64 PC, so results are not native. "
+                          "Install the ARM64 build for real numbers.");
+}
+
+QString AppController::version() const
+{
+    return m_info.app.version.isEmpty() ? QStringLiteral(SYNBENCH_DISPLAY_VERSION) : m_info.app.version;
+}
+
+void AppController::refreshPower()
+{
+    if (m_powerBusy || !m_infoReady)
+        return;
+    m_powerBusy = true;
+    QThreadPool::globalInstance()->start([this] {
+        const BatteryInfo b = sysinfo::readBatteryNow();
+        QMetaObject::invokeMethod(this, [this, b] {
+            m_powerBusy = false;
+            const bool changed = b.present != m_info.battery.present || b.acOnline != m_info.battery.acOnline
+                                 || qRound(b.chargePct) != qRound(m_info.battery.chargePct);
+            // Keep the one-off fields (design capacity, health, cycles) from the full snapshot.
+            m_info.battery.present = b.present;
+            m_info.battery.acOnline = b.acOnline;
+            m_info.battery.chargePct = b.chargePct;
+            if (changed)
+                emit powerChanged();
+        });
+    });
+}
+
+void AppController::startHelper()
 {
 #ifdef Q_OS_LINUX
     setAuth(AuthState::Authorising);
@@ -83,6 +158,21 @@ void AppController::start()
 #else
     setAuth(AuthState::Ready);  // already elevated (P12)
 #endif
+}
+
+void AppController::start()
+{
+    m_powerTimer.setInterval(5000);
+    connect(&m_powerTimer, &QTimer::timeout, this, &AppController::refreshPower);
+    m_powerTimer.start();
+
+    if (m_noElevation) {
+        setAuth(AuthState::Ready);
+        m_smbiosRequested = true;  // nothing to ask for
+    } else {
+        startHelper();
+    }
+
     QThreadPool::globalInstance()->start([this] {
         const SystemInfo info = sysinfo::collectSystemInfo();
         QMetaObject::invokeMethod(this, [this, info] {
@@ -91,6 +181,7 @@ void AppController::start()
             m_infoReady = true;
             qCInfo(lcApp) << "system info collected for" << m_info.machineLabel();
             emit systemInfoChanged();
+            emit powerChanged();
             readSmbiosWhenReady();
         });
     });
@@ -98,15 +189,9 @@ void AppController::start()
 
 void AppController::retryAuth()
 {
-#ifdef Q_OS_LINUX
     if (m_authState != AuthState::Failed)
         return;
-    setAuth(AuthState::Authorising);
-    if (m_launch)
-        m_helper.start(m_launch());
-    else
-        m_helper.start();
-#endif
+    startHelper();
 }
 
 void AppController::quit()

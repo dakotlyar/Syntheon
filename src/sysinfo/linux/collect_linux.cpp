@@ -96,6 +96,11 @@ QVector<VolumeInfo> volumes()
 
 } // namespace
 
+BatteryInfo readBatteryNow()
+{
+    return linux_sysfs::readBattery(QStringLiteral("/"));
+}
+
 SystemInfo collectSystemInfo()
 {
     const QString root = QStringLiteral("/");

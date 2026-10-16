@@ -110,8 +110,8 @@ struct SystemInfo {
     bool emulated = false;  // D9: x64 build running emulated on ARM64 Windows
     QString nativeArch;     // the machine's own architecture when emulated
 
-    // History's "Machine" column: the host name (what Dave calls his
-    // machines), else maker + model.
+    // History's "Machine" column and the header strip: "Knowhere · ASUS TUF
+    // Gaming A14" (host name + maker and family/model).
     QString machineLabel() const;
     QJsonObject toJson() const;
     SystemSnapshot toSnapshot() const;
