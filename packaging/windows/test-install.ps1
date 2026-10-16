@@ -145,6 +145,19 @@ try {
     Remove-Item -Path $key -Recurse -Force
     EndStep
 
+    # 3c. The MSI refuses over the old Python SynBench (Dave); the setup program is the upgrade path.
+    # Simulated with the old install's uninstall key, which is all the MSI reads;
+    # the real v0.2.3 upgrade by the setup program is step 4.
+    Step 'The MSI refuses over the old Python SynBench'
+    $oldKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{14A62E4F-2EF1-40BC-82D9-2418EC833479}_is1'
+    New-Item -Path $oldKey -Force | Out-Null
+    Set-ItemProperty -Path $oldKey -Name 'UninstallString' -Value '"C:\Program Files\SynBench\unins000.exe"'
+    $code = Start-Waited 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-oldpython.log")
+    Remove-Item -Path $oldKey -Recurse -Force
+    if ($code -eq 0) { throw 'the MSI installed over the old Python SynBench' }
+    if (Test-Path $exe) { throw 'a refused MSI still put SynBench.exe in place' }
+    EndStep
+
     # 3b. The install folder is locked to Program Files (Dave): a custom folder is refused
     Step 'A custom install folder is refused'
     $custom = Join-Path $tempRoot 'custom-install-dir'

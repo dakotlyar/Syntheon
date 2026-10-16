@@ -28,6 +28,16 @@ firmware details such as the memory modules. On Windows that is the UAC prompt
 (`pkexec`) prompt. Without administrator access the app does not run; there is
 no limited mode.
 
+**Installing on Windows.** There are two installers per architecture: the setup
+program and the MSI. They are not interchangeable: if one is installed, the other
+refuses (uninstall the first). The setup program **upgrades** the old Python
+SynBench (v0.2.3) in place; the **MSI refuses** when the old SynBench is
+installed ("Uninstall it first, or use the setup program, which upgrades it"). The
+x64 and ARM64 builds exclude each other the same way (the ARM64 setup replaces an
+x64 install; the x64 setup refuses over ARM64). Both install only into Program
+Files; there is no folder choice. Uninstalling leaves your history (and the
+small `run` folder under `%LOCALAPPDATA%\SynBench`) in place.
+
 Only one SynBench can be open on a history. Starting it a second time brings
 the open window forward.
 

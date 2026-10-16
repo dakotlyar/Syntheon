@@ -22,6 +22,17 @@
     <Launch Condition="INNOINSTALLED &lt;&gt; &quot;inno&quot;"
             Message="SynBench was installed with the setup program. Uninstall it first (Settings &gt; Apps), then run this MSI." />
 
+    <!-- The old Python SynBench (Inno, the shared AppId) is installed: this MSI would
+         end up beside it, in the same folder (Dave: refuse). The setup program is the
+         one that upgrades it. A v2 setup install also has this key, but is refused
+         above with its own message. -->
+    <Property Id="OLDPYTHONINNO">
+      <RegistrySearch Id="OldPythonInno" Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{14A62E4F-2EF1-40BC-82D9-2418EC833479}_is1"
+                      Name="UninstallString" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="NOT OLDPYTHONINNO"
+            Message="The old SynBench is installed. Uninstall it first, or use the setup program, which upgrades it." />
+
     <!-- One architecture of SynBench per machine: the other architecture's MSI
          (or setup) must be uninstalled first. Each install records its own. -->
     <Property Id="INSTALLEDARCH">
