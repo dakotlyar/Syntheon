@@ -10,8 +10,12 @@ For every ELF file under the tree:
   1. its machine matches --arch (no stray other-architecture binary)
   2. every NEEDED library is in the tree or on the system allowlist
      (packaging/linux/excludelist.txt)
-  3. the newest GLIBC_ symbol it needs is <= --glibc (2.35, D11), and the
-     newest GLIBCXX_/CXXABI_ symbols are within Ubuntu 22.04's libstdc++
+  3. the newest GLIBC_ symbol it needs is <= the architecture's floor, and the
+     newest GLIBCXX_/CXXABI_ symbols are within that distro's libstdc++:
+       x86_64   glibc 2.35, GLIBCXX_3.4.30, CXXABI_1.3.13  (Ubuntu 22.04, D11)
+       aarch64  glibc 2.39, GLIBCXX_3.4.33, CXXABI_1.3.15  (Ubuntu 24.04; the
+                official Qt arm64 build needs 2.38 / 3.4.32, Dave 2026-10-16)
+     (--glibc/--glibcxx/--cxxabi override)
 A newer symbol means the AppImage would not start on the baseline distros.
 Exit status 1 and a list of findings if anything fails.
 """
@@ -22,6 +26,8 @@ import sys
 from pathlib import Path
 
 MACHINES = {"x86_64": "Advanced Micro Devices X86-64", "aarch64": "AArch64"}
+# The floor per architecture (glibc, GLIBCXX, CXXABI): the oldest distro each is supported on.
+FLOORS = {"x86_64": ("2.35", "3.4.30", "1.3.13"), "aarch64": ("2.39", "3.4.33", "1.3.15")}
 
 
 def ver(s):
@@ -37,12 +43,18 @@ def main():
     ap.add_argument("tree")
     ap.add_argument("--arch", required=True, choices=MACHINES)
     ap.add_argument("--cross-prefix", default="")
-    ap.add_argument("--glibc", default="2.35")
-    ap.add_argument("--glibcxx", default="3.4.30", help="jammy's libstdc++6 (GCC 12)")
-    ap.add_argument("--cxxabi", default="1.3.13")
+    ap.add_argument("--glibc", help="default: the architecture's floor")
+    ap.add_argument("--glibcxx")
+    ap.add_argument("--cxxabi")
+    ap.add_argument("--print-limits", action="store_true", help="print the limits that would be used and exit")
     ap.add_argument("--allowlist", default=str(Path(__file__).resolve().parent.parent / "linux" / "excludelist.txt"))
     a = ap.parse_args()
 
+    floor = FLOORS[a.arch]
+    a.glibc, a.glibcxx, a.cxxabi = a.glibc or floor[0], a.glibcxx or floor[1], a.cxxabi or floor[2]
+    if a.print_limits:
+        print(f"{a.arch}: glibc {a.glibc}, GLIBCXX {a.glibcxx}, CXXABI {a.cxxabi}")
+        return 0
     tree = Path(a.tree)
     allow = [l.strip() for l in Path(a.allowlist).read_text().splitlines() if l.strip() and not l.startswith("#")]
     readelf, objdump = a.cross_prefix + "readelf", a.cross_prefix + "objdump"

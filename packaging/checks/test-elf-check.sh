@@ -17,6 +17,11 @@ expect_fail() {  # <label> <args...>
         echo "ok: elf-check rejects: $label ($(head -1 "$tmp/err"))"
     fi
 }
+# The floor is per architecture: ARM64 is glibc 2.39 (24.04), x64 stays 2.35.
+[[ $(python3 "$here/elf-check.py" x --arch aarch64 --print-limits) == "aarch64: glibc 2.39, GLIBCXX 3.4.33, CXXABI 1.3.15" ]] \
+    || { echo "FAIL: wrong aarch64 limits" >&2; ok=1; }
+[[ $(python3 "$here/elf-check.py" x --arch x86_64 --print-limits) == "x86_64: glibc 2.35, GLIBCXX 3.4.30, CXXABI 1.3.13" ]] \
+    || { echo "FAIL: wrong x86_64 limits" >&2; ok=1; }
 mkdir -p "$tmp/wrongarch"; cp /bin/true "$tmp/wrongarch/true"
 expect_fail "an x86_64 binary in an aarch64 tree" "$tmp/wrongarch" --arch aarch64
 mkdir -p "$tmp/missinglib"; cp /bin/true "$tmp/missinglib/true"
