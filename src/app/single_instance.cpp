@@ -9,6 +9,9 @@
 
 #ifdef Q_OS_WIN
 #include <windows.h>
+#ifndef ASFRW_ANY
+#define ASFRW_ANY ((DWORD)-1)  // not in every set of headers
+#endif
 #endif
 
 Q_LOGGING_CATEGORY(lcInstance, "synbench.instance")
