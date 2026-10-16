@@ -29,7 +29,7 @@ qt_add_resources(synbench_appcore "synbench_fonts"
         "${PROJECT_SOURCE_DIR}/assets/fonts/IBMPlexMono-Medium.ttf"
 )
 target_link_libraries(synbench_appcore
-    PUBLIC synbench_core synbench_storage synbench_sysinfo synbench_privileged synbench_builtin_tests synbench_power Qt6::Gui Qt6::Qml Qt6::Quick
+    PUBLIC synbench_core synbench_storage synbench_sysinfo synbench_privileged synbench_builtin_tests synbench_power Qt6::Gui Qt6::Network Qt6::Qml Qt6::Quick
     PRIVATE synbench_version)
 target_include_directories(synbench_appcore PUBLIC "${PROJECT_SOURCE_DIR}/src")
 if(SYNBENCH_DEV_HOOKS)

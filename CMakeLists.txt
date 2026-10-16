@@ -37,7 +37,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 include(CompilerFlags)
 
-set(_synbench_qt_components Core Gui Qml Quick QuickControls2 QuickShapes Sql)
+set(_synbench_qt_components Core Gui Network Qml Quick QuickControls2 QuickShapes Sql)
 if(SYNBENCH_BUILD_TESTS)
     list(APPEND _synbench_qt_components QuickTest)  # tests only: never packaged
 endif()
