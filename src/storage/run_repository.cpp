@@ -19,9 +19,11 @@ QVariant nullableText(const QString &s)
     return s.isNull() ? QVariant(QMetaType::fromType<QString>()) : QVariant(s);
 }
 
+// A non-finite value (SQLite would store NaN as NULL anyway, and infinities
+// poison sorting) is never written as a real: it becomes NULL.
 QVariant nullableReal(const std::optional<double> &v)
 {
-    return v ? QVariant(*v) : QVariant(QMetaType::fromType<double>());
+    return v && std::isfinite(*v) ? QVariant(*v) : QVariant(QMetaType::fromType<double>());
 }
 
 std::optional<double> optionalReal(const QVariant &v)

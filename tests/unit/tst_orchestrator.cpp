@@ -680,6 +680,50 @@ private slots:
         QCOMPARE(stored->tests[0].status, Status::Error);
     }
 
+    // AP5-R2-7: invalid scores are Errors; the metric rule leaves statuses
+    // that don't claim a result alone.
+    void invalidScoreAndStatusesKept()
+    {
+        Fixture f;
+        f[QStringLiteral("cpu")]->scorer = [](const TestResult &) {
+            ScoreBreakdown b;
+            b.total = qQNaN();
+            return b;
+        };
+        f[QStringLiteral("ram")]->scorer = [](const TestResult &) {
+            ScoreBreakdown b;
+            b.total = 10;
+            b.subScores.insert(QStringLiteral("a"), qInf());
+            return b;
+        };
+        f[QStringLiteral("ram")]->runner = [](RunContext &, const OptionValues &) {
+            TestResult r = okResult(1);
+            r.subResults = {{QStringLiteral("a"), Status::Ok, {}, {}}};
+            return r;
+        };
+        // A cancelled test with a half-measured NaN keeps "cancelled".
+        f[QStringLiteral("gpu")]->runner = [](RunContext &, const OptionValues &) {
+            TestResult r = TestResult::withStatus(Status::Cancelled);
+            r.metrics = {{QStringLiteral("v"), {}, QStringLiteral("V"), qQNaN(), {}, Direction::Neutral, false}};
+            return r;
+        };
+        RecordingSink sink(f.events);
+        Orchestrator o(f.registry, sink, f.inhibitor, fastConfig());
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        QVERIFY(o.start(plan({QStringLiteral("cpu"), QStringLiteral("ram"), QStringLiteral("gpu")}), meta()).ok);
+        QVERIFY(waitFinished(finished));
+        const RunRecord run = finishedRun(finished);
+        QCOMPARE(statuses(run), (QStringList{QStringLiteral("cpu=error"), QStringLiteral("ram=error"),
+                                             QStringLiteral("gpu=cancelled")}));
+        QCOMPARE(run.tests[0].statusReason, QStringLiteral("produced an invalid score"));
+        QCOMPARE(run.tests[1].statusReason, QStringLiteral("produced an invalid score"));
+        QVERIFY(!run.tests[0].score);
+        QVERIFY(!run.tests[1].score);
+        QVERIFY(!run.tests[1].subResults[0].score);
+        QVERIFY(run.tests[2].statusReason.isEmpty());
+        QVERIFY(!run.overall);
+    }
+
     void subScoresAndScorerFailure()
     {
         Fixture f;

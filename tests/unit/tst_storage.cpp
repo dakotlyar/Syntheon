@@ -414,6 +414,26 @@ private slots:
         QCOMPARE(std::get<double>(m[3].value), 1.5);
     }
 
+    // AP5-R2-7: a non-finite score never reaches a REAL column.
+    void nonFiniteScoresStoredAsNull()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        QVERIFY(Database::migrate(path).ok());
+        Database::ScopedConnection c(path, QStringLiteral("t"));
+        RunRepository repo(c.db());
+        RunRecord r = sampleRun();
+        r.overall = qInf();
+        r.tests[0].score = qQNaN();
+        r.tests[0].subResults[0].score = -qInf();
+        QVERIFY2(repo.saveRun(r), qPrintable(repo.lastError()));
+        const auto loaded = repo.load(r.uuid);
+        QVERIFY(loaded);
+        QVERIFY(!loaded->overall);
+        QVERIFY(!loaded->tests[0].score);
+        QVERIFY(!loaded->tests[0].subResults[0].score);
+    }
+
     void runLog()
     {
         QTemporaryDir dir;
