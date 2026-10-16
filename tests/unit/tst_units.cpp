@@ -29,6 +29,8 @@ private slots:
         QTest::newRow("percent") << 98.0 << "%" << "98.0%";
         QTest::newRow("points no unit") << 1284.0 << "points" << "1,284";
         QTest::newRow("unitless") << 12.5 << "" << "12.5";
+        QTest::newRow("a count") << 24.0 << "" << "24";
+        QTest::newRow("a big count") << 1234567.0 << "" << "1,234,567";
         QTest::newRow("micro") << 1210.0 << "µs" << "1,210 µs";
         QTest::newRow("zero") << 0.0 << "ns" << "0 ns";
         QTest::newRow("negative") << -1234.5 << "W" << "-1,235 W";

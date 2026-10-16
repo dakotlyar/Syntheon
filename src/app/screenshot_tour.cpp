@@ -58,6 +58,12 @@ void ScreenshotTour::step()
     const QString section = m_sections[m_index / perSection];
     const bool dark = (m_index % perSection) == 1;
     m_runtime.app().setSection(section);
+    if (section == QLatin1StringView("results")) {
+        const QString detail = qEnvironmentVariable("SYNBENCH_TOUR_DETAIL");
+        m_runtime.results().openCurrent();
+        if (!detail.isEmpty())
+            m_runtime.results().showDetail(detail);
+    }
     m_runtime.settings().setTheme(dark ? QStringLiteral("dark") : QStringLiteral("light"));
     QTimer::singleShot(450, this, [this, section, dark] {
         const QImage image = m_window->grabWindow();

@@ -34,6 +34,11 @@ public:
     std::optional<qint64> saveRun(const RunRecord &record);
 
     std::optional<qint64> runId(const QUuid &uuid);
+    // The newest run, and the newest run that has a usable Battery result on
+    // or before `onOrBefore` (N4: the Detail Battery tab for an older run
+    // shows the Battery result of its time).
+    std::optional<QUuid> latestRun();
+    std::optional<QUuid> latestBatteryRun(const QDateTime &onOrBefore);
     std::optional<RunRecord> load(const QUuid &uuid);
     int runCount();
 

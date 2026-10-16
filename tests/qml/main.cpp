@@ -4,6 +4,7 @@
 #include "app/models/options_model.h"
 #include "core/result.h"
 #include "storage/run_repository.h"
+#include "tests/common/stub_clock.h"
 
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -19,6 +20,9 @@ class Fixtures : public QObject
     Q_OBJECT
 
 public:
+    // Stubs run at this fraction of their real time (tests only).
+    Q_INVOKABLE void setStubScale(double scale) { sb::tests::setStubTimeScale(scale); }
+
     Q_INVOKABLE QObject *allKindsModel()
     {
         sb::OptionSchema s;

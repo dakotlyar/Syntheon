@@ -1,0 +1,155 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import QtQuick
+import QtTest
+import SynBench
+import SynBenchTest
+
+// Results, Detail (every block type from real stub runs), the Battery tab
+// (D4, N4), the Stopped "partial" marker (N2) and View log (D16).
+TestCase {
+    id: test
+    name: "ResultsScreen"
+    width: 1000
+    height: 1000
+    visible: true
+    when: windowShown
+
+    Component { id: screenComponent; ResultsScreen { width: 1000; height: 1000 } }
+    Component { id: spyComponent; SignalSpy {} }
+
+    function initTestCase() {
+        tryVerify(function() { return !RunController.probing }, 20000)
+        tryVerify(function() { return AppController.authStateName === "ready" }, 10000)
+    }
+
+    function runAndWait(ids, options) {
+        RunController.clearSelection()
+        for (const id of ids) RunController.toggle(id)
+        for (const o of (options || [])) RunController.setOption(o[0], o[1], o[2])
+        const spy = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
+        verify(RunController.start())
+        spy.wait(60000)
+        return spy.signalArguments[0]
+    }
+
+    function rowFor(screen, id) { return findChild(screen, "result-" + id) }
+    function tick() { waitForRendering(test) }
+
+    function test_1_summaryRowsAndDetail() {
+        Fixtures.setStubScale(0.02)
+        runAndWait(["cpu", "ram", "storage"])
+        const screen = createTemporaryObject(screenComponent, test)
+        Results.openRun("")
+        tick()
+        verify(Results.valid)
+        compare(findChild(screen, "overallScore").text, Results.overallText)
+        verify(!findChild(screen, "partialMarker").visible)
+        verify(!findChild(screen, "statusBadge").visible)
+        for (const id of ["cpu", "ram", "storage"])
+            verify(rowFor(screen, id) !== null, id)
+        verify(findChild(rowFor(screen, "cpu"), "score").text.length > 0)
+
+        // A row opens that test's detail page; the rail's Results stays selected.
+        verify(!Results.detailOpen)
+        mouseClick(rowFor(screen, "ram"))
+        verify(Results.detailOpen)
+        tick()
+        compare(Results.detailTitle, "RAM")
+        verify(findChild(screen, "detailPage") !== null)
+        verify(findChild(screen, "chart") !== null)  // the latency curve
+        verify(findChild(screen, "chart").points.length > 5)
+        verify(findChild(screen, "kpiValue") !== null)
+        compare(Results.detailTabs.length, 3)  // the tests of this run, no Battery yet
+        verify(findChild(screen, "dtab-ram") !== null)
+
+        // Another tab: Storage's CrystalDiskMark-style grid.
+        mouseClick(findChild(screen, "dtab-storage"))
+        tick()
+        compare(Results.detailTestId, "storage")
+        verify(findChild(screen, "gridMain") !== null)
+
+        mouseClick(findChild(screen, "backToResults"))
+        verify(!Results.detailOpen)
+    }
+
+    function test_2_batteryTabFromASeparateRun() {
+        // A Battery run, then a later standard run: the later run's Detail
+        // gets a "Battery" tab labelled as coming from a separate run.
+        runAndWait(["battery"], [["battery", "override_preconditions", true], ["battery", "profile", "light"]])
+        runAndWait(["cpu"])
+        const screen = createTemporaryObject(screenComponent, test)
+        Results.openRun("")
+        tick()
+        compare(Results.rows.length, 1)
+        const tabs = Results.detailTabs.map(function(t) { return t.id })
+        compare(tabs, ["cpu", "battery"])
+        Results.showDetail("cpu")
+        tick()
+        verify(!findChild(screen, "separateRunNote").visible)
+        mouseClick(findChild(screen, "dtab-battery"))
+        tick()
+        compare(Results.detailTestId, "battery")
+        verify(findChild(screen, "separateRunNote").visible)
+        verify(findChild(screen, "separateRunNote").text.indexOf("From a separate run") === 0)
+        verify(findChild(screen, "separateRunNote").text.indexOf("Light profile") > 0)
+        verify(findChild(screen, "chart") !== null)  // the drain curve
+        Results.closeDetail()
+        RunController.setOption("battery", "override_preconditions", false)
+        RunController.setOption("battery", "profile", "mixed")
+    }
+
+    function test_3_viewLogDialog() {
+        const screen = createTemporaryObject(screenComponent, test)
+        Results.openRun("")
+        tick()
+        mouseClick(findChild(screen, "viewLog"))
+        const copy = findChild(screen, "copyLog")
+        tryVerify(function() { return copy !== null && copy.visible }, 5000)
+        const view = findChild(screen, "storedLogView")
+        tryVerify(function() { return view.count > 0 }, 5000)
+        const all = view.count
+        const filter = findChild(screen, "logTestFilter")
+        filter.chosen("cpu")
+        verify(view.count > 0 && view.count <= all)
+        filter.chosen("ram")  // not in this run's log
+        compare(view.count, 0)
+        filter.chosen("")
+        compare(view.count, all)
+        mouseClick(copy)  // copying must not blow up
+        keyClick(Qt.Key_Escape)
+    }
+
+    function test_4_stoppedRunShowsPartialMarker() {
+        Fixtures.setStubScale(0.15)
+        RunController.clearSelection()
+        RunController.toggle("cpu")
+        RunController.toggle("ram")
+        const spy = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
+        verify(RunController.start())
+        // Stop once the first test has a score.
+        // (StateRole is Qt::UserRole + 4)
+        tryVerify(function() { return RunController.queue.rowCount() === 2 && RunController.queue.data(RunController.queue.index(0, 0), 0x0100 + 4) === "done" }, 30000)
+        RunController.stop()
+        spy.wait(30000)
+        compare(spy.signalArguments[0][1], "stopped")
+        const screen = createTemporaryObject(screenComponent, test)
+        Results.openRun("")
+        tick()
+        compare(Results.statusLabel, "Stopped")
+        verify(findChild(screen, "statusBadge").visible)
+        compare(findChild(screen, "statusBadge").text, "Stopped")
+        verify(findChild(screen, "partialMarker").visible)  // N2
+        verify(findChild(screen, "overallNote").text.indexOf("Partial") === 0)
+        // RAM was either mid-run (Stopped) or never started (Not run).
+        verify(["Stopped", "Not run"].indexOf(findChild(rowFor(screen, "ram"), "score").text) >= 0)
+        Fixtures.setStubScale(0.02)
+    }
+
+    function test_5_noResultsAfterClearHistory() {
+        StorageController.clearHistory()
+        const screen = createTemporaryObject(screenComponent, test)
+        verify(!Results.valid)
+        verify(findChild(screen, "emptyState").visible)
+        verify(!findChild(screen, "viewLog").visible)
+    }
+}

@@ -9,6 +9,9 @@ qt_add_library(synbench_appcore STATIC
     controllers/settings_controller.h controllers/settings_controller.cpp
     controllers/storage_controller.h controllers/storage_controller.cpp
     controllers/run_controller.h controllers/run_controller.cpp
+    controllers/results_controller.h controllers/results_controller.cpp
+    models/detail_blocks.h models/detail_blocks.cpp
+    models/log_filter_model.h models/log_filter_model.cpp
     models/options_model.h models/options_model.cpp
     models/log_model.h models/log_model.cpp
     models/run_queue_model.h models/run_queue_model.cpp
@@ -61,6 +64,15 @@ qt_add_qml_module(synbench_ui
         qml/shell/TopTabsNav.qml
         qml/shell/HeaderStrip.qml
         qml/shell/Banner.qml
+        qml/detail/KpisBlock.qml
+        qml/detail/TableBlock.qml
+        qml/detail/GridBlock.qml
+        qml/detail/ChartBlock.qml
+        qml/detail/NoteBlock.qml
+        qml/detail/NaStateBlock.qml
+        qml/detail/DetailPage.qml
+        qml/screens/DetailScreen.qml
+        qml/dialogs/LogDialog.qml
         qml/screens/RunScreen.qml
         qml/screens/ProgressScreen.qml
         qml/screens/ResultsScreen.qml

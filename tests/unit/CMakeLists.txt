@@ -27,3 +27,4 @@ synbench_add_unit_test(tst_protocol SOURCES tst_protocol.cpp LIBS synbench_proto
 synbench_add_unit_test(tst_stubs SOURCES tst_stubs.cpp fake_test.h LIBS synbench_builtin_tests synbench_storage)
 synbench_add_unit_test(tst_controllers SOURCES tst_controllers.cpp LIBS synbench_appcore)
 synbench_add_unit_test(tst_run_controller SOURCES tst_run_controller.cpp LIBS synbench_appcore)
+synbench_add_unit_test(tst_results SOURCES tst_results.cpp LIBS synbench_appcore)

@@ -22,12 +22,12 @@ Item {
     property color color: Theme.accent
     property string description
 
-    readonly property real left: 44
-    readonly property real right: 14
-    readonly property real top: 14
-    readonly property real bottom: 34
-    readonly property real plotW: Math.max(1, width - left - right)
-    readonly property real plotH: Math.max(1, height - top - bottom)
+    readonly property real padLeft: 44
+    readonly property real padRight: 14
+    readonly property real padTop: 14
+    readonly property real padBottom: 34
+    readonly property real plotW: Math.max(1, width - padLeft - padRight)
+    readonly property real plotH: Math.max(1, height - padTop - padBottom)
 
     function niceMax(v) {
         if (v <= 0) return 1
@@ -61,9 +61,9 @@ Item {
         var a = logX ? Math.log(Math.max(minX, 1e-9)) / Math.LN2 : minX
         var b = logX ? Math.log(Math.max(maxX, 1e-9)) / Math.LN2 : maxX
         var x = logX ? Math.log(Math.max(v, 1e-9)) / Math.LN2 : v
-        return left + (b === a ? 0 : (x - a) / (b - a)) * plotW
+        return padLeft + (b === a ? 0 : (x - a) / (b - a)) * plotW
     }
-    function fy(v) { return top + (1 - Math.max(0, Math.min(maxY, v)) / maxY) * plotH }
+    function fy(v) { return padTop + (1 - Math.max(0, Math.min(maxY, v)) / maxY) * plotH }
 
     readonly property var polyline: {
         var p = []
@@ -89,10 +89,10 @@ Item {
             required property int index
             readonly property real v: root.maxY * index / 4
             Rectangle {
-                x: root.left; y: root.fy(v); width: root.plotW; height: 1; color: Theme.line
+                x: root.padLeft; y: root.fy(v); width: root.plotW; height: 1; color: Theme.line
             }
             SbText {
-                x: 0; width: root.left - 8; y: root.fy(v) - height / 2
+                x: 0; width: root.padLeft - 8; y: root.fy(v) - height / 2
                 horizontalAlignment: Text.AlignRight
                 text: Math.round(v * 10) / 10 + (root.yUnit === "%" ? "%" : "")
                 kind: "data"; font.pixelSize: 11; color: Theme.muted
@@ -110,7 +110,7 @@ Item {
         delegate: SbText {
             required property var modelData
             x: root.fx(modelData.x) - width / 2
-            y: root.height - root.bottom + 14
+            y: root.height - root.padBottom + 14
             text: modelData.label
             kind: "data"; font.pixelSize: 11; color: Theme.muted
         }

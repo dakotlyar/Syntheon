@@ -34,6 +34,10 @@ QString formatNumber(double value, const QString &unit)
     if (unit == QLatin1StringView("MT/s"))
         locale.setNumberOptions(QLocale::OmitGroupSeparator);
 
+    // Counts ("2 channels", "24 threads") are whole numbers.
+    if (unit.isEmpty() && std::fabs(value - std::round(value)) < 1e-9)
+        return locale.toString(std::llround(value));
+
     const auto decimalsFor = [](double a) {
         if (a == 0.0 || a >= 100.0)
             return 0;

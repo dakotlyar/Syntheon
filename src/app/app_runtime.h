@@ -2,6 +2,7 @@
 #pragma once
 
 #include "app/controllers/app_controller.h"
+#include "app/controllers/results_controller.h"
 #include "app/controllers/run_controller.h"
 #include "app/controllers/settings_controller.h"
 #include "app/controllers/storage_controller.h"
@@ -52,6 +53,7 @@ public:
     StorageController &storageController() { return *m_storageController; }
     AppController &app() { return *m_app; }
     RunController &run() { return *m_run; }
+    ResultsController &results() { return *m_results; }
     bool smoke() const { return m_options.smoke; }
 
 private:
@@ -63,6 +65,7 @@ private:
     std::unique_ptr<StorageController> m_storageController;
     std::unique_ptr<AppController> m_app;
     std::unique_ptr<RunController> m_run;
+    std::unique_ptr<ResultsController> m_results;
 };
 
 } // namespace sb

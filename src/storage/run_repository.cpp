@@ -293,6 +293,26 @@ std::optional<qint64> RunRepository::runId(const QUuid &uuid)
     return q.value(0).toLongLong();
 }
 
+std::optional<QUuid> RunRepository::latestRun()
+{
+    QSqlQuery q(m_db);
+    if (!q.exec(QStringLiteral("SELECT uuid FROM runs ORDER BY started_at DESC, id DESC LIMIT 1")) || !q.next())
+        return std::nullopt;
+    return QUuid::fromString(q.value(0).toString());
+}
+
+std::optional<QUuid> RunRepository::latestBatteryRun(const QDateTime &onOrBefore)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT r.uuid FROM runs r JOIN test_results t ON t.run_id = r.id "
+                             "WHERE t.test_id = 'battery' AND t.status IN ('ok', 'partial') AND r.started_at <= ? "
+                             "ORDER BY r.started_at DESC, r.id DESC LIMIT 1"));
+    q.addBindValue(formatTime(onOrBefore));
+    if (!q.exec() || !q.next())
+        return std::nullopt;
+    return QUuid::fromString(q.value(0).toString());
+}
+
 std::optional<RunRecord> RunRepository::load(const QUuid &uuid)
 {
     QSqlQuery q(m_db);

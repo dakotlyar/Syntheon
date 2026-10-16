@@ -2,6 +2,7 @@
 import QtQuick
 import QtTest
 import SynBench
+import SynBenchTest
 
 // The Settings screen on real controllers: layout and theme apply right away
 // and persist; Clear history asks first and then really clears.
@@ -16,6 +17,7 @@ TestCase {
     Binding { target: Theme; property: "mode"; value: Settings.theme }
 
     Component { id: screenComponent; SettingsScreen { width: 900; height: 700 } }
+    Component { id: spyComponent; SignalSpy {} }
 
     function test_layoutAndTheme() {
         const screen = createTemporaryObject(screenComponent, test)
@@ -46,8 +48,6 @@ TestCase {
         compare(spy.signalArguments[0][0], "tabs")
         Settings.layout = "rail"
     }
-    Component { id: spyComponent; SignalSpy {} }
-
     function test_showsTheHistoryLocation() {
         const screen = createTemporaryObject(screenComponent, test)
         verify(findChild(screen, "dataPath").text.endsWith("synbench.db"))
@@ -55,6 +55,15 @@ TestCase {
     }
 
     function test_clearHistoryAsksFirst() {
+        if (StorageController.runCount === 0) {
+            // Earlier tests may have cleared the history: make a run to clear.
+            Fixtures.setStubScale(0.02)
+            RunController.clearSelection()
+            RunController.toggle("cpu")
+            const spy = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
+            verify(RunController.start())
+            spy.wait(60000)
+        }
         const screen = createTemporaryObject(screenComponent, test)
         const count = StorageController.runCount
         verify(count > 0)
