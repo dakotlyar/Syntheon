@@ -127,6 +127,11 @@ jobs:
       - name: Build
         run: cmake --build --preset windows-x64-release
 
+      # For diagnosis when the manifest check below fails: the real link command.
+      - name: Show how SynBench.exe was linked
+        shell: pwsh
+        run: ninja -C build/windows-x64-release -t commands bin/SynBench.exe | Select-Object -Last 1
+
       - name: The exe has exactly one manifest, requesting administrator rights
         shell: pwsh
         run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-x64-release/bin/SynBench.exe
@@ -315,6 +320,11 @@ jobs:
       - name: Build
         run: cmake --build --preset windows-x64-package
 
+      # For diagnosis when the manifest check below fails: the real link command.
+      - name: Show how SynBench.exe was linked
+        shell: pwsh
+        run: ninja -C build/windows-x64-package -t commands bin/SynBench.exe | Select-Object -Last 1
+
       - name: The exe has exactly one manifest, requesting administrator rights
         shell: pwsh
         run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-x64-package/bin/SynBench.exe
@@ -443,6 +453,11 @@ jobs:
 
       - name: Build
         run: cmake --build --preset windows-arm64-cross
+
+      # For diagnosis when the manifest check below fails: the real link command.
+      - name: Show how SynBench.exe was linked
+        shell: pwsh
+        run: ninja -C build/windows-arm64-cross -t commands bin/SynBench.exe | Select-Object -Last 1
 
       - name: The exe has exactly one manifest, requesting administrator rights
         shell: pwsh
