@@ -17,13 +17,57 @@ $qmlDir = Join-Path $PSScriptRoot '..\..\src\app\qml'
 $args = @('--release', '--no-translations', '--no-compiler-runtime', '--no-opengl-sw', '--no-system-d3d-compiler',
           '--qmldir', $qmlDir, (Join-Path $Stage 'SynBench.exe'))
 if ($TargetQt) {
-    $qtpaths = Join-Path $TargetQt 'bin\qtpaths.bat'
-    if (-not (Test-Path $qtpaths)) { $qtpaths = Join-Path $TargetQt 'bin\qtpaths6.bat' }
-    if (-not (Test-Path $qtpaths)) { throw "no qtpaths(.bat) in $TargetQt\bin" }
+    # The aqt "arm64_cross_compiled" Qt ships host-qtpaths.bat: a wrapper that
+    # runs the HOST qtpaths with the target's configuration (target_qt.conf).
+    # That is the one windeployqt wants (its own qtpaths.exe is an ARM64 program
+    # an x64 machine can't run). Using the host's plain qtpaths instead would
+    # quietly deploy x64 DLLs into the ARM64 tree, so there is no such fallback.
+    $bin = Join-Path $TargetQt 'bin'
+    # The target Qt's configuration names the host Qt as its sibling folder
+    # (HostPrefix=../../msvc2022_64) and host-qtpaths.bat runs qtpaths from
+    # there. When the host Qt was installed elsewhere, point a junction at it.
+    $sibling = Join-Path (Split-Path $TargetQt -Parent) 'msvc2022_64'
+    if (-not (Test-Path $sibling)) {
+        Write-Host "linking $sibling -> $HostQt (where the target Qt expects its host Qt)"
+        New-Item -ItemType Junction -Path $sibling -Target $HostQt | Out-Null
+    }
+    $qtpaths = 'host-qtpaths.bat', 'host-qtpaths6.bat', 'qtpaths.bat', 'qtpaths6.bat' |
+        ForEach-Object { Join-Path $bin $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $qtpaths) {
+        [Console]::Error.WriteLine("--- qtpaths* in $bin")
+        Get-ChildItem $bin -Filter '*qtpaths*' -ErrorAction SilentlyContinue | ForEach-Object { [Console]::Error.WriteLine($_.FullName) }
+        [Console]::Error.WriteLine("--- everything in $bin")
+        Get-ChildItem $bin -ErrorAction SilentlyContinue | ForEach-Object { [Console]::Error.WriteLine($_.Name) }
+        throw "no host-qtpaths(.bat)/qtpaths(.bat) in $bin"
+    }
+    Write-Host "windeployqt --qtpaths $qtpaths"
     $args = @('--qtpaths', $qtpaths) + $args
 }
 & $tool @args
 if ($LASTEXITCODE -ne 0) { throw "windeployqt exited with $LASTEXITCODE" }
+# Plugins SynBench does not use. The SQL drivers other than SQLite need client
+# libraries we do not ship (OCI.dll, LIBPQ.dll, fbclient.dll, MIMAPI64.dll...),
+# which pe-check.ps1 rightly rejects; and nothing here needs the others below.
+# What is kept is named, so a new plugin has to be added on purpose.
+$keep = @{
+    'sqldrivers'   = @('qsqlite.dll')
+    'imageformats' = @('qsvg.dll', 'qjpeg.dll', 'qico.dll', 'qgif.dll')
+    'platforms'    = @('qwindows.dll', 'qoffscreen.dll')
+}
+foreach ($folder in $keep.Keys) {
+    $dir = Join-Path $Stage "plugins\$folder"
+    if (-not (Test-Path $dir)) { $dir = Join-Path $Stage $folder }   # windeployqt puts plugin folders next to the exe
+    if (-not (Test-Path $dir)) { continue }
+    Get-ChildItem $dir -File | Where-Object { $keep[$folder] -notcontains $_.Name.ToLowerInvariant() } | ForEach-Object {
+        Write-Host "removing unused plugin $folder\$($_.Name)"
+        Remove-Item -Force $_.FullName
+    }
+}
+foreach ($unused in 'generic', 'qmltooling', 'styles') {
+    foreach ($base in @($Stage, (Join-Path $Stage 'plugins'))) {
+        Remove-Item -Recurse -Force (Join-Path $base $unused) -ErrorAction SilentlyContinue
+    }
+}
 # Only the Basic style is used; the other QML styles would just add size.
 foreach ($style in 'Material', 'Universal', 'Fusion', 'Imagine', 'FluentWinUI3', 'Windows') {
     Remove-Item -Recurse -Force (Join-Path $Stage "qml\QtQuick\Controls\$style") -ErrorAction SilentlyContinue

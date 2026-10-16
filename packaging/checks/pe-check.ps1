@@ -42,6 +42,8 @@ foreach ($f in $files) {
 }
 if ($problems) {
     $problems | Sort-Object -Unique | ForEach-Object { Write-Error $_ -ErrorAction Continue }
+    $missing = $problems | ForEach-Object { if ($_ -match 'needs (\S+), which is neither') { $Matches[1] } } | Sort-Object -Unique
+    if ($missing) { Write-Host "Unsatisfied DLLs: $($missing -join ', ')" }
     exit 1
 }
 Write-Host "OK: $($files.Count) files, all $Arch, every dependency accounted for"
