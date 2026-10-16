@@ -75,6 +75,9 @@ public:
         QString appDir;               // $APPDIR (the runtime's mount point)
         QString applicationFilePath;  // QCoreApplication::applicationFilePath()
         QStringList pkexecDirs = defaultPkexecDirs();
+        // The kernel's view of the mounts: $APPDIR is believed only if it is
+        // really a FUSE mount (an environment variable alone proves nothing).
+        QString mountInfo = QStringLiteral("/proc/self/mountinfo");
         static Environment current();
     };
     static QStringList defaultPkexecDirs();  // fixed system dirs, never $PATH

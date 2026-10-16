@@ -127,6 +127,17 @@ private slots:
         appImage.applicationFilePath = mountedApp;
         appImage.appDir = t.filePath(QStringLiteral("mount_abc"));
         appImage.appImage = image;
+        // The kernel's mount table says $APPDIR is a FUSE mount of this image.
+        const auto mountTable = [&](const QString &fsType, const QString &source, const QString &mountPoint) {
+            static int counter = 0;
+            const QString path = t.filePath(QStringLiteral("mountinfo-%1").arg(++counter));
+            QFile m(path);
+            if (m.open(QIODevice::WriteOnly))
+                m.write(QStringLiteral("22 1 0:5 / /proc rw - proc proc rw\n"
+                                       "99 22 0:44 / %1 ro,nosuid - %2 %3 ro\n").arg(mountPoint, fsType, source).toUtf8());
+            return path;
+        };
+        appImage.mountInfo = mountTable(QStringLiteral("fuse.AppImage"), image, appImage.appDir);
         l = LinuxHelperClient::defaultLaunch(appImage);
         QVERIFY(l);
         QCOMPARE(l->primary.arguments, (QStringList{image, QStringLiteral("--synbench-helper")}));
@@ -134,6 +145,25 @@ private slots:
         QCOMPARE(l->fallback->program, pkexec);
         QCOMPARE(l->fallback->arguments,
                  (QStringList{image, QStringLiteral("--appimage-extract-and-run"), QStringLiteral("--synbench-helper")}));
+
+        // AP-5: the environment alone proves nothing. Without a matching FUSE
+        // mount of this image at $APPDIR, both variables are ignored.
+        for (const QString &bad : {mountTable(QStringLiteral("ext4"), image, appImage.appDir),                        // not FUSE
+                                    mountTable(QStringLiteral("fuse.AppImage"), t.filePath(QStringLiteral("other.AppImage")), appImage.appDir),  // another image
+                                    mountTable(QStringLiteral("fuse.AppImage"), image, t.filePath(QStringLiteral("elsewhere"))),  // another mount point
+                                    t.filePath(QStringLiteral("no-such-mountinfo"))}) {
+            LinuxHelperClient::Environment forged = appImage;
+            forged.mountInfo = bad;
+            const auto launch = LinuxHelperClient::defaultLaunch(forged);
+            QVERIFY(launch);
+            // No AppImage re-exec, no fallback: just the helper next to the binary.
+            QCOMPARE(launch->primary.arguments, QStringList{QFileInfo(t.filePath(QStringLiteral("mount_abc/usr/bin/synbench-helper"))).canonicalFilePath()});
+            QVERIFY(!launch->fallback);
+        }
+        // A runtime that reports no path as the source ("AppImage") is still a real FUSE mount.
+        LinuxHelperClient::Environment bareSource = appImage;
+        bareSource.mountInfo = mountTable(QStringLiteral("fuse.AppImage"), QStringLiteral("AppImage"), appImage.appDir);
+        QVERIFY(LinuxHelperClient::defaultLaunch(bareSource)->fallback.has_value());
 
         // A stray or forged $APPIMAGE is ignored: binary not inside $APPDIR,
         // no $APPDIR, or a relative/non-executable image.

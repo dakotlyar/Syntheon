@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QEventLoop>
 #include <QLoggingCategory>
@@ -40,6 +41,59 @@ LinuxHelperClient::Environment LinuxHelperClient::Environment::current()
     return e;
 }
 
+namespace {
+
+// mountinfo escapes space, tab, newline and backslash as \040 style octal.
+QString unescapeMountField(const QString &s)
+{
+    QString out;
+    for (int i = 0; i < s.size(); ++i) {
+        if (s[i] == QLatin1Char('\\') && i + 3 < s.size() + 0 && s.mid(i + 1, 3).size() == 3) {
+            bool ok = false;
+            const int v = s.mid(i + 1, 3).toInt(&ok, 8);
+            if (ok) {
+                out += QChar(v);
+                i += 3;
+                continue;
+            }
+        }
+        out += s[i];
+    }
+    return out;
+}
+
+// Is `appDir` really the mount point of an AppImage's FUSE mount, for this image?
+// Trusts the kernel's mount table, not $APPDIR/$APPIMAGE. The mount's source
+// is the image path for the type-2 runtime; if the source isn't an absolute
+// path (some runtimes report just "AppImage") only the mount itself is proof.
+bool appImageMountIsReal(const QString &mountInfoPath, const QString &appDir, const QString &imagePath)
+{
+    QFile f(mountInfoPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+    while (!f.atEnd()) {
+        const QString line = QString::fromUtf8(f.readLine()).trimmed();
+        const int dash = line.indexOf(QStringLiteral(" - "));
+        if (dash < 0)
+            continue;
+        const QStringList pre = line.left(dash).split(QLatin1Char(' '));
+        const QStringList post = line.mid(dash + 3).split(QLatin1Char(' '));
+        if (pre.size() < 5 || post.size() < 2)
+            continue;
+        if (QDir::cleanPath(unescapeMountField(pre[4])) != appDir)
+            continue;
+        if (!post[0].startsWith(QLatin1StringView("fuse")))
+            continue;
+        const QString source = unescapeMountField(post[1]);
+        if (QFileInfo(source).isAbsolute())
+            return QFileInfo(source).canonicalFilePath() == imagePath;
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
 std::optional<LinuxHelperClient::Launch> LinuxHelperClient::defaultLaunch(const Environment &env, QString *error)
 {
     // pkexec from a fixed system directory only, never through $PATH.
@@ -59,6 +113,18 @@ std::optional<LinuxHelperClient::Launch> LinuxHelperClient::defaultLaunch(const 
 
     const QString binary = QFileInfo(env.applicationFilePath).canonicalFilePath();
 
+    // Dev build / no AppImage: the helper next to the app binary, canonical.
+    const auto devLaunch = [&]() -> std::optional<Launch> {
+        const QString helper =
+            QFileInfo(QFileInfo(binary).dir().filePath(QStringLiteral("synbench-helper"))).canonicalFilePath();
+        if (helper.isEmpty() || !QFileInfo(helper).isExecutable()) {
+            if (error)
+                *error = QStringLiteral("The privileged helper (synbench-helper) is missing next to SynBench.");
+            return std::nullopt;
+        }
+        return Launch{{pkexec, {helper}}, std::nullopt};
+    };
+
     // AppImage: only if this binary really runs from inside the mounted image.
     // Root then re-executes the AppImage file itself (root normally can't enter
     // the user's FUSE mount).
@@ -68,6 +134,10 @@ std::optional<LinuxHelperClient::Launch> LinuxHelperClient::defaultLaunch(const 
         if (!appDir.isEmpty() && !binary.isEmpty() && binary.startsWith(appDir + QLatin1Char('/'))
             && image.isAbsolute() && image.isFile() && image.isExecutable()) {
             const QString imagePath = image.canonicalFilePath();
+            if (!appImageMountIsReal(env.mountInfo, appDir, imagePath)) {
+                qCWarning(lcHelper) << "$APPDIR isn't a FUSE mount of $APPIMAGE; ignoring both";
+                return devLaunch();
+            }
             // (b) The fallback is a second pkexec, so a second polkit prompt:
             // accepted, as it only happens when the first re-exec failed.
             return Launch{{pkexec, {imagePath, QStringLiteral("--synbench-helper")}},
@@ -76,15 +146,7 @@ std::optional<LinuxHelperClient::Launch> LinuxHelperClient::defaultLaunch(const 
         }
     }
 
-    // Dev build / no AppImage: the helper next to the app binary, canonical.
-    const QString helper =
-        QFileInfo(QFileInfo(binary).dir().filePath(QStringLiteral("synbench-helper"))).canonicalFilePath();
-    if (helper.isEmpty() || !QFileInfo(helper).isExecutable()) {
-        if (error)
-            *error = QStringLiteral("The privileged helper (synbench-helper) is missing next to SynBench.");
-        return std::nullopt;
-    }
-    return Launch{{pkexec, {helper}}, std::nullopt};
+    return devLaunch();
 }
 
 QString LinuxHelperClient::thisBuildId()
