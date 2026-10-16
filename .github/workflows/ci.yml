@@ -73,7 +73,10 @@ jobs:
       - name: Upload test logs
         if: failure()
         uses: actions/upload-artifact@v6
+        # Best effort: a GitHub storage quota problem must not fail the job.
+        continue-on-error: true
         with:
+          retention-days: 3
           name: test-logs-linux-x64
           path: |
             build/linux-x64-release/test-logs
@@ -139,7 +142,10 @@ jobs:
       - name: Upload test logs
         if: failure()
         uses: actions/upload-artifact@v6
+        # Best effort: a GitHub storage quota problem must not fail the job.
+        continue-on-error: true
         with:
+          retention-days: 3
           name: test-logs-windows-x64
           path: |
             build/windows-x64-release/test-logs
