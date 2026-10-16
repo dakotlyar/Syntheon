@@ -3,11 +3,17 @@ find_package(Qt6 REQUIRED COMPONENTS Test)
 
 # synbench_add_unit_test(<name> SOURCES ... LIBS ...)
 # One Qt Test executable per test file, registered with CTest.
+#
+# Every test gets tests/support/crash_handler.cpp (a crash prints its cause
+# instead of leaving an empty log) and writes verbose results to
+# <build>/test-logs/<name>.txt as well as stdout, so CI can upload them.
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test-logs")
 function(synbench_add_unit_test name)
     cmake_parse_arguments(ARG "" "" "SOURCES;LIBS" ${ARGN})
-    qt_add_executable(${name} ${ARG_SOURCES})
+    qt_add_executable(${name} ${ARG_SOURCES} "${PROJECT_SOURCE_DIR}/tests/support/crash_handler.cpp")
     target_link_libraries(${name} PRIVATE Qt6::Test ${ARG_LIBS})
-    add_test(NAME ${name} COMMAND ${name})
+    add_test(NAME ${name}
+        COMMAND ${name} -v2 -o "${CMAKE_BINARY_DIR}/test-logs/${name}.txt,txt" -o "-,txt")
     set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()
 

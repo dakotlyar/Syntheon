@@ -58,6 +58,28 @@ jobs:
       - name: Unit tests
         run: ctest --preset linux-x64-release --output-on-failure
 
+      # A failing (or crashing) test must leave something to read: the tail of
+      # every test log, the failed tests re-run verbosely, and the logs as an
+      # artifact.
+      - name: Failed test details
+        if: failure()
+        shell: bash
+        run: |
+          for f in build/linux-x64-release/test-logs/*.txt; do
+            [ -f "$f" ] || continue
+            echo "::group::$f (last 100 lines)"; tail -n 100 "$f"; echo "::endgroup::"
+          done
+          ctest --preset linux-x64-release --rerun-failed --output-on-failure || true
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-logs-linux-x64
+          path: |
+            build/linux-x64-release/test-logs
+            build/linux-x64-release/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+
       # The live system snapshot on this runner, printed for review (ctest
       # hides test output on success).
       - name: System snapshot
@@ -101,6 +123,28 @@ jobs:
 
       - name: Unit tests
         run: ctest --preset windows-x64-release --output-on-failure
+
+      # A failing (or crashing) test must leave something to read: the tail of
+      # every test log, the failed tests re-run verbosely, and the logs as an
+      # artifact.
+      - name: Failed test details
+        if: failure()
+        shell: bash
+        run: |
+          for f in build/windows-x64-release/test-logs/*.txt; do
+            [ -f "$f" ] || continue
+            echo "::group::$f (last 100 lines)"; tail -n 100 "$f"; echo "::endgroup::"
+          done
+          ctest --preset windows-x64-release --rerun-failed --output-on-failure || true
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-logs-windows-x64
+          path: |
+            build/windows-x64-release/test-logs
+            build/windows-x64-release/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
 
       # The live system snapshot on this runner, printed for review (ctest
       # hides test output on success).
