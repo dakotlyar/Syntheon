@@ -17,11 +17,16 @@ ScreenshotTour::ScreenshotTour(QQuickWindow *window, AppRuntime &runtime, QStrin
     : QObject(parent), m_window(window), m_runtime(runtime), m_folder(std::move(folder))
 {
     const QString wanted = qEnvironmentVariable("SYNBENCH_TOUR_SECTIONS");
-    m_sections = wanted.isEmpty()
-                     ? QStringList{QStringLiteral("run"), QStringLiteral("progress"), QStringLiteral("results"),
-                                   QStringLiteral("history"), QStringLiteral("compare"), QStringLiteral("system"),
-                                   QStringLiteral("settings")}
-                     : wanted.split(QLatin1Char(','), Qt::SkipEmptyParts);
+    // Section names end up in file names: only the known ones are accepted,
+    // so nothing here can name a path ("../x").
+    const QStringList known{QStringLiteral("run"),     QStringLiteral("progress"), QStringLiteral("results"), QStringLiteral("history"),
+                            QStringLiteral("compare"), QStringLiteral("system"),   QStringLiteral("settings")};
+    for (const QString &s : wanted.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        if (known.contains(s) && !m_sections.contains(s))
+            m_sections.append(s);
+    }
+    if (m_sections.isEmpty())
+        m_sections = known;
     QDir().mkpath(m_folder);
 }
 

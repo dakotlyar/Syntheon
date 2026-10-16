@@ -12,6 +12,8 @@ namespace sb {
 AppRuntime::Options AppRuntime::optionsFromEnvironment()
 {
     Options o;
+#ifdef SYNBENCH_DEV_HOOKS
+    // Developer hooks only; a packaged build reads none of these.
     o.smoke = qEnvironmentVariableIntValue("SYNBENCH_SMOKE") != 0;
     o.noElevation = o.smoke || !qEnvironmentVariable("SYNBENCH_TOUR").isEmpty();
     // Developer hooks for tests that start the real executable.
@@ -19,6 +21,7 @@ AppRuntime::Options AppRuntime::optionsFromEnvironment()
     o.dataFolder = qEnvironmentVariable("SYNBENCH_DATA_DIR");
     if (qEnvironmentVariableIntValue("SYNBENCH_NO_ELEVATION") != 0)
         o.noElevation = true;
+#endif
     return o;
 }
 

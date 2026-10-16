@@ -11,6 +11,18 @@ project(SynBench
     LANGUAGES CXX)
 
 option(SYNBENCH_BUILD_TESTS "Build the unit tests" ON)
+# Developer hooks: the SYNBENCH_SMOKE / SYNBENCH_TOUR* / SYNBENCH_STUB_SCALE /
+# SYNBENCH_DATA_DIR / SYNBENCH_SETTINGS_FILE / SYNBENCH_NO_ELEVATION
+# environment variables, the screenshot tour and the test-only AppController
+# hooks. ON for the dev and CI presets, OFF for packaging presets (what ships
+# never reads these variables). The unit tests need them, so tests imply ON.
+option(SYNBENCH_DEV_HOOKS "Compile in the developer hooks (env variables, screenshot tour, test hooks)" ON)
+if(SYNBENCH_BUILD_TESTS AND NOT SYNBENCH_DEV_HOOKS)
+    message(FATAL_ERROR "SYNBENCH_BUILD_TESTS needs SYNBENCH_DEV_HOOKS=ON (packaging presets build neither)")
+endif()
+if(SYNBENCH_DEV_HOOKS)
+    add_compile_definitions(SYNBENCH_DEV_HOOKS=1)
+endif()
 option(SYNBENCH_RELEASE_BUILD "Release build: no -dev+<sha> suffix on the version" OFF)
 set(SYNBENCH_QT_VERSION "6.12.0" CACHE STRING "Qt version the build is pinned to (set by CMakePresets.json)")
 
@@ -25,7 +37,11 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 include(CompilerFlags)
 
-find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 QuickShapes QuickTest Sql)
+set(_synbench_qt_components Core Gui Qml Quick QuickControls2 QuickShapes Sql)
+if(SYNBENCH_BUILD_TESTS)
+    list(APPEND _synbench_qt_components QuickTest)  # tests only: never packaged
+endif()
+find_package(Qt6 6.12 REQUIRED COMPONENTS ${_synbench_qt_components})
 if(NOT Qt6_VERSION VERSION_EQUAL SYNBENCH_QT_VERSION)
     message(WARNING "Found Qt ${Qt6_VERSION}, but the build is pinned to Qt ${SYNBENCH_QT_VERSION}")
 endif()

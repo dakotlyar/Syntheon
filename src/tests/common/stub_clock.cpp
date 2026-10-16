@@ -6,6 +6,7 @@
 #include <QtGlobal>
 
 #include <atomic>
+#include <cmath>
 
 namespace sb::tests {
 
@@ -17,16 +18,24 @@ std::atomic<double> &override()
     return value;
 }
 
+// The default scale: real time. Developer hooks only: SYNBENCH_STUB_SCALE (a
+// plain finite number in (0, 100]; anything else, including inf, NaN, huge or
+// negative, is ignored) and SYNBENCH_SMOKE (0.03). A packaged build compiles
+// these out.
 double fromEnvironment()
 {
+#ifdef SYNBENCH_DEV_HOOKS
     static const double v = [] {
         bool ok = false;
         const double s = qEnvironmentVariable("SYNBENCH_STUB_SCALE").toDouble(&ok);
-        if (ok && s > 0)
+        if (ok && std::isfinite(s) && s > 0 && s <= 100)
             return s;
         return qEnvironmentVariableIntValue("SYNBENCH_SMOKE") != 0 ? 0.03 : 1.0;
     }();
     return v;
+#else
+    return 1.0;
+#endif
 }
 
 } // namespace

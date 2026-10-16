@@ -4,7 +4,6 @@
 qt_add_library(synbench_appcore STATIC
     app_runtime.h app_runtime.cpp
     fonts.h fonts.cpp
-    screenshot_tour.h screenshot_tour.cpp
     controllers/app_controller.h controllers/app_controller.cpp
     controllers/settings_controller.h controllers/settings_controller.cpp
     controllers/storage_controller.h controllers/storage_controller.cpp
@@ -33,6 +32,9 @@ target_link_libraries(synbench_appcore
     PUBLIC synbench_core synbench_storage synbench_sysinfo synbench_privileged synbench_builtin_tests synbench_power Qt6::Gui Qt6::Qml Qt6::Quick
     PRIVATE synbench_version)
 target_include_directories(synbench_appcore PUBLIC "${PROJECT_SOURCE_DIR}/src")
+if(SYNBENCH_DEV_HOOKS)
+    target_sources(synbench_appcore PRIVATE screenshot_tour.h screenshot_tour.cpp)
+endif()
 
 # Theme.qml is a singleton (set before the module is declared).
 set_source_files_properties(qml/theme/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)

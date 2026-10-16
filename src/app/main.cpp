@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/app_runtime.h"
 #include "app/fonts.h"
+#ifdef SYNBENCH_DEV_HOOKS
 #include "app/screenshot_tour.h"
+#endif
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -74,6 +76,7 @@ int main(int argc, char *argv[])
         w->alert(0);
     });
 
+#ifdef SYNBENCH_DEV_HOOKS
     // Developer tool: SYNBENCH_TOUR=<folder> saves a screenshot of every screen.
     const QString tourFolder = qEnvironmentVariable("SYNBENCH_TOUR");
     std::unique_ptr<sb::ScreenshotTour> tour;
@@ -82,6 +85,7 @@ int main(int argc, char *argv[])
                                                     tourFolder);
         tour->start();
     }
+#endif
 
     return QGuiApplication::exec();
 }

@@ -85,13 +85,15 @@ public:
     QStringList batteryLines() const;
 
     const SystemInfo &systemInfo() const { return m_info; }
-    // Test hook: pretend this snapshot was collected (the real one is read on
-    // a pool thread at start).
+#ifdef SYNBENCH_DEV_HOOKS
+    // Test hook, compiled out of packaged builds: pretend this snapshot was
+    // collected (the real one is read on a pool thread at start).
     void setSystemInfoForTest(const SystemInfo &info)
     {
         m_info = info;
         m_infoReady = true;  // no signals: the run controller isn't probing in a unit test
     }
+#endif
     PrivilegedOps &privileged();
 
     // The visible section: run | progress | results | history | compare |
