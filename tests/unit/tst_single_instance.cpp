@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QProcess>
 #include <QSignalSpy>
+#include <QStandardPaths>
 #include <QSysInfo>
 #include <QTemporaryDir>
 #include <QTest>
@@ -152,10 +153,19 @@ private slots:
         QVERIFY(SingleInstance::nameFor(folder).startsWith(m_runtime.path()));
         QVERIFY(QFile::exists(SingleInstance::nameFor(folder)));
 #else
-        // Windows: a lock file under %LOCALAPPDATA% and a named pipe (a name, not a file).
-        QVERIFY(instance::lockFilePath(folder).contains(QStringLiteral("SynBench")));
-        QVERIFY(SingleInstance::nameFor(folder).startsWith(QStringLiteral("synbench-")));
-        QVERIFY(!SingleInstance::nameFor(folder).contains(QLatin1Char('\\')));
+        // Windows: the lock file is under the per-user local data folder
+        // (%LOCALAPPDATA%\SynBench\run), NOT in the history folder, named by the
+        // folder's hash; the socket is a named pipe (a name, not a file).
+        const QString lock = QDir::fromNativeSeparators(instance::lockFilePath(folder));
+        const QString local = QDir::fromNativeSeparators(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation));
+        const QByteArray why = ("lock path was '" + lock + "', local data folder '" + local + "'").toLocal8Bit();
+        QVERIFY2(lock.startsWith(local + QStringLiteral("/SynBench/run/"), Qt::CaseInsensitive), why.constData());
+        QVERIFY2(!lock.startsWith(QDir::fromNativeSeparators(folder), Qt::CaseInsensitive), why.constData());
+        QVERIFY2(lock.contains(instance::key(folder)), why.constData());
+        QVERIFY(QFile::exists(instance::lockFilePath(folder)));
+        const QString pipe = SingleInstance::nameFor(folder);
+        QVERIFY2(pipe.startsWith(QStringLiteral("synbench-")) && !pipe.contains(QLatin1Char('\\')) && !pipe.contains(QLatin1Char('/')),
+                 qPrintable(pipe));
 #endif
     }
 

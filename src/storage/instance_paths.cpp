@@ -29,10 +29,13 @@ QString key(const QString &folder)
 QString stateDir()
 {
 #ifdef Q_OS_WIN
-    const QString base = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    // %LOCALAPPDATA%\SynBench\run, spelled out like the history folder is
+    // (AppLocalDataLocation would use whatever the application/organisation
+    // names happen to be, which differ in tests and tools).
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
     if (base.isEmpty())
         return {};
-    const QString dir = QDir(base).filePath(QStringLiteral("run"));
+    const QString dir = QDir(base).filePath(QStringLiteral("SynBench/run"));
 #else
     const QString base = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
     if (base.isEmpty())
