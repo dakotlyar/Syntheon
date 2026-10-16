@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [v2]
   workflow_dispatch:
+  # release.yml runs the same jobs on a tag, then publishes their artifacts.
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -175,3 +177,442 @@ jobs:
       # hides test output on success).
       - name: System snapshot
         run: ctest --preset windows-x64-release -R tst_sysinfo_live -V --output-on-failure
+
+  # ---------------------------------------------------------------- packaging
+  # The packaged builds use the *-package presets: no developer hooks, no
+  # tests. Each job proves that (no SYNBENCH_ names in the binaries) before it
+  # makes an installer.
+
+  package-linux-x64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build and runtime-library dependencies
+        run: |
+          sudo apt-get update
+          # The -dev packages to build; the runtime libraries Qt's xcb and
+          # wayland plugins need are bundled from these (make-appdir.py).
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libgl1-mesa-dev libegl1-mesa-dev \
+            libxkbcommon-dev libfontconfig1-dev \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
+            libxcb-shape0 libxcb-xkb1 libxcb-xinerama0 libxcb-randr0 libxcb-sync1 libxcb-xfixes0 \
+            libxkbcommon-x11-0 libwayland-egl1
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          cache: true
+          aqtsource: ${{ env.AQT_SOURCE }}
+
+      - name: Configure (packaging preset)
+        run: cmake --preset linux-x64-package
+
+      - name: Build
+        run: cmake --build --preset linux-x64-package
+
+      - name: Install
+        run: cmake --install build/linux-x64-package --prefix stage
+
+      - name: The packaged binaries carry no developer hooks and no test binaries
+        run: |
+          bash packaging/checks/no-dev-hooks.sh stage
+          bash packaging/checks/no-test-binaries.sh stage
+
+      - name: Build the AppDir
+        run: |
+          python3 packaging/linux/make-appdir.py \
+            --install-tree stage --appdir AppDir --qt "$QT_ROOT_DIR" \
+            --qml-root src/app/qml --qml-scanner "$QT_ROOT_DIR/libexec/qmlimportscanner"
+
+      - name: Static checks on the AppDir (architecture, libraries, glibc 2.35 floor)
+        run: |
+          python3 packaging/checks/elf-check.py AppDir --arch x86_64
+          bash packaging/checks/no-dev-hooks.sh AppDir
+          bash packaging/checks/no-test-binaries.sh AppDir
+          bash packaging/checks/test-elf-check.sh
+          desktop-file-validate AppDir/io.github.dakotlyar.SynBench.desktop
+
+      - name: Build the AppImage
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          bash packaging/linux/make-appimage.sh AppDir "SynBench-$version-x86_64.AppImage" x86_64 appimage-tools
+          echo "APPIMAGE_FILE=SynBench-$version-x86_64.AppImage" >> "$GITHUB_ENV"
+
+      # The helper trust check (linux_helper_client.cpp) believes $APPDIR only if
+      # the kernel's mount table shows a fuse.<image name> mount whose source is
+      # the image name. Prove the real runtime still reports exactly that.
+      - name: The real AppImage mount matches what the helper launch check expects
+        run: |
+          ./"$APPIMAGE_FILE" --appimage-mount > mount.txt &
+          mount_pid=$!
+          for _ in $(seq 1 20); do [ -s mount.txt ] && break; sleep 0.5; done
+          mnt=$(head -1 mount.txt)
+          line=$(awk -v m="$mnt" '$5 == m' /proc/self/mountinfo)
+          echo "mountinfo: $line"
+          kill "$mount_pid" || true
+          echo "$line" | grep -q " - fuse\.$APPIMAGE_FILE $APPIMAGE_FILE " \
+            || { echo "::error::the AppImage runtime reports its mount differently than the helper launch check expects"; exit 1; }
+
+      # No smoke switch in a packaged build: it must start with its bundled
+      # libraries and stay up (the administrator prompt then fails: no polkit
+      # agent here). timeout exits 124 when the app was still running.
+      - name: The AppImage starts and stays up
+        run: |
+          set +e
+          QT_QPA_PLATFORM=offscreen timeout 15 ./"$APPIMAGE_FILE"
+          code=$?
+          [ "$code" -eq 124 ] || { echo "::error::SynBench exited with $code within 15 s"; exit 1; }
+
+      - name: Upload the AppImage
+        uses: actions/upload-artifact@v6
+        continue-on-error: true
+        with:
+          name: SynBench-linux-x86_64-AppImage
+          path: ${{ env.APPIMAGE_FILE }}
+          if-no-files-found: error
+
+  package-windows-x64:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+          aqtsource: ${{ env.AQT_SOURCE }}
+
+      - name: Find the x64 runtime DLLs
+        shell: pwsh
+        run: |
+          $crt = ./packaging/windows/find-crt.ps1 -Arch x64
+          "SYNBENCH_CRT_DIRS=$crt" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configure (packaging preset)
+        shell: pwsh
+        run: cmake --preset windows-x64-package "-DSYNBENCH_CRT_DIRS=$env:SYNBENCH_CRT_DIRS"
+
+      - name: Build
+        run: cmake --build --preset windows-x64-package
+
+      - name: Install and deploy Qt
+        shell: pwsh
+        run: |
+          cmake --install build/windows-x64-package --prefix stage
+          ./packaging/windows/deploy.ps1 -Stage stage -HostQt $env:QT_ROOT_DIR
+
+      - name: The packaged binaries carry no developer hooks, no test binaries, and are all x64
+        shell: pwsh
+        run: |
+          ./packaging/checks/no-dev-hooks.ps1 -Tree stage
+          bash packaging/checks/no-test-binaries.sh stage
+          ./packaging/checks/pe-check.ps1 -Tree stage -Arch x64
+
+      - name: Versions
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          $p = $v.Split('.')
+          $msi = "$($p[0].Substring(2)).$($p[1]).$($p[2])"
+          "SYNBENCH_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SYNBENCH_MSI_VERSION=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install Inno Setup and WiX
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y }
+          dotnet tool install --global wix --version 5.0.2
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build the Inno installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\windows\synbench.iss `
+            "/DAppVersion=$env:SYNBENCH_VERSION" /DArch=x64 "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\out"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Build the MSI
+        shell: pwsh
+        run: |
+          wix build -arch x64 -d "Version=$env:SYNBENCH_MSI_VERSION" -d "SourceDir=$PWD\stage" `
+            -d "UpgradeCode={5E2C6D1B-8B1A-4C3E-9F55-0A6B2D7E4C11}" `
+            -o "out\SynBench-$env:SYNBENCH_VERSION-windows-x64.msi" packaging\windows\wix\Package.wxs
+          if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
+
+      # D10: the real Python v0.2.3 installer, to upgrade over.
+      - name: Fetch the Python v0.2.3 installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download v0.2.3 --repo $env:GITHUB_REPOSITORY --pattern 'SynBench-Setup.exe' --dir old
+
+      - name: Silent install, launch, uninstall (Inno and MSI) and the upgrade over v0.2.3
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          ./packaging/windows/test-install.ps1 `
+            -Inno "out\SynBench-$env:SYNBENCH_VERSION-windows-x64-setup.exe" `
+            -Msi "out\SynBench-$env:SYNBENCH_VERSION-windows-x64.msi" `
+            -OldInstaller old\SynBench-Setup.exe -Version $env:SYNBENCH_VERSION
+
+      - name: Upload install logs
+        if: failure()
+        uses: actions/upload-artifact@v6
+        continue-on-error: true
+        with:
+          name: install-logs-windows-x64
+          path: ${{ runner.temp }}/install-logs
+          if-no-files-found: ignore
+
+      - name: Upload the installers
+        uses: actions/upload-artifact@v6
+        continue-on-error: true
+        with:
+          name: SynBench-windows-x64-installers
+          path: out/*
+          if-no-files-found: error
+
+  # Cross builds (D13): nothing here is ever executed. The static checks
+  # (P27) are the whole validation until someone runs the result.
+  package-windows-arm64:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up MSVC (x64 -> ARM64 cross tools)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm64
+
+      - name: Install the host Qt (x64)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+          aqtsource: ${{ env.AQT_SOURCE }}
+
+      - name: Install the target Qt (ARM64, cross-compiled)
+        shell: pwsh
+        run: |
+          $host_qt = $env:QT_ROOT_DIR
+          python -m pip install --quiet "$env:AQT_SOURCE"
+          python -m aqt install-qt windows desktop $env:QT_VERSION win64_msvc2022_arm64_cross_compiled -O "$env:RUNNER_TEMP\qt-arm64"
+          if ($LASTEXITCODE -ne 0) { throw "aqt failed" }
+          $target = Get-ChildItem "$env:RUNNER_TEMP\qt-arm64\$env:QT_VERSION" -Directory | Select-Object -First 1
+          "HOST_QT=$host_qt" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "TARGET_QT=$($target.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Find the ARM64 runtime DLLs
+        shell: pwsh
+        run: |
+          $crt = ./packaging/windows/find-crt.ps1 -Arch arm64
+          "SYNBENCH_CRT_DIRS=$crt" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configure (cross)
+        shell: pwsh
+        run: |
+          cmake --preset windows-arm64-cross "-DQT_HOST_PATH=$env:HOST_QT" "-DCMAKE_PREFIX_PATH=$env:TARGET_QT" `
+            "-DSYNBENCH_CRT_DIRS=$env:SYNBENCH_CRT_DIRS"
+
+      - name: Build
+        run: cmake --build --preset windows-arm64-cross
+
+      - name: Install and deploy Qt (host tool, target Qt)
+        shell: pwsh
+        run: |
+          cmake --install build/windows-arm64-cross --prefix stage
+          ./packaging/windows/deploy.ps1 -Stage stage -HostQt $env:HOST_QT -TargetQt $env:TARGET_QT
+
+      - name: Static checks (P27) - every file is ARM64, every dependency is present
+        shell: pwsh
+        run: |
+          ./packaging/checks/no-dev-hooks.ps1 -Tree stage
+          bash packaging/checks/no-test-binaries.sh stage
+          ./packaging/checks/pe-check.ps1 -Tree stage -Arch arm64
+
+      - name: Versions
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          $p = $v.Split('.')
+          "SYNBENCH_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SYNBENCH_MSI_VERSION=$($p[0].Substring(2)).$($p[1]).$($p[2])" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install Inno Setup and WiX
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y }
+          dotnet tool install --global wix --version 5.0.2
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      # ISCC and WiX are x64 tools; they build the ARM64 installers fine.
+      - name: Build the ARM64 Inno installer and MSI
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\windows\synbench.iss `
+            "/DAppVersion=$env:SYNBENCH_VERSION" /DArch=arm64 "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\out"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          wix build -arch arm64 -d "Version=$env:SYNBENCH_MSI_VERSION" -d "SourceDir=$PWD\stage" `
+            -d "UpgradeCode={A3D49B72-6E0F-4F1D-B6A8-7C1E5F90D2B4}" `
+            -o "out\SynBench-$env:SYNBENCH_VERSION-windows-arm64.msi" packaging\windows\wix\Package.wxs
+          if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
+
+      - name: Upload the installers
+        uses: actions/upload-artifact@v6
+        continue-on-error: true
+        with:
+          name: SynBench-windows-arm64-installers
+          path: out/*
+          if-no-files-found: error
+
+  linux-arm64-cross:
+    runs-on: ubuntu-22.04
+    env:
+      SYSROOT: ${{ github.workspace }}/sysroot-arm64
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the cross compiler and build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build g++-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            mmdebstrap desktop-file-utils libgl1-mesa-dev
+
+      # P26: the sysroot comes from the cache, keyed on the package list; on a
+      # miss it is built here (sysroot-arm64.yml pre-warms it).
+      - name: Sysroot cache
+        id: sysroot
+        uses: actions/cache@v4
+        with:
+          path: sysroot-arm64
+          key: sysroot-arm64-${{ hashFiles('packaging/linux/linux-arm64-sysroot.txt', 'packaging/linux/make-sysroot.sh', 'packaging/linux/fix-sysroot-symlinks.py') }}
+
+      - name: Build the sysroot
+        if: steps.sysroot.outputs.cache-hit != 'true'
+        run: bash packaging/linux/make-sysroot.sh "$SYSROOT"
+
+      - name: Install the host Qt (x64)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          cache: true
+          aqtsource: ${{ env.AQT_SOURCE }}
+
+      - name: Install the target Qt (ARM64)
+        run: |
+          python3 -m pip install --quiet "$AQT_SOURCE"
+          python3 -m aqt install-qt linux_arm64 desktop "$QT_VERSION" linux_gcc_arm64 -O "$RUNNER_TEMP/qt-arm64"
+          echo "HOST_QT=$QT_ROOT_DIR" >> "$GITHUB_ENV"
+          echo "TARGET_QT=$RUNNER_TEMP/qt-arm64/$QT_VERSION/gcc_arm64" >> "$GITHUB_ENV"
+
+      - name: Configure (cross)
+        run: |
+          cmake --preset linux-arm64-cross \
+            -DSYNBENCH_SYSROOT="$SYSROOT" -DSYNBENCH_TARGET_QT="$TARGET_QT" \
+            -DQT_HOST_PATH="$HOST_QT" -DCMAKE_PREFIX_PATH="$TARGET_QT"
+
+      - name: Build
+        run: cmake --build --preset linux-arm64-cross
+
+      - name: Install
+        run: cmake --install build/linux-arm64-cross --prefix stage
+
+      - name: The packaged binaries carry no developer hooks and no test binaries
+        run: |
+          bash packaging/checks/no-dev-hooks.sh stage
+          bash packaging/checks/no-test-binaries.sh stage
+
+      - name: Build the AppDir (cross, aarch64 readelf, sysroot library search)
+        run: |
+          python3 packaging/linux/make-appdir.py \
+            --install-tree stage --appdir AppDir --qt "$TARGET_QT" \
+            --qml-root src/app/qml --qml-scanner "$HOST_QT/libexec/qmlimportscanner" \
+            --cross-prefix aarch64-linux-gnu- --sysroot "$SYSROOT"
+
+      - name: Static checks (P27)
+        run: |
+          python3 packaging/checks/elf-check.py AppDir --arch aarch64 --cross-prefix aarch64-linux-gnu-
+          bash packaging/checks/no-dev-hooks.sh AppDir
+          bash packaging/checks/no-test-binaries.sh AppDir
+          # The check must also FAIL on a planted bad binary: an x86_64 file in the aarch64 tree.
+          mkdir -p planted && cp /bin/true planted/true
+          if python3 packaging/checks/elf-check.py planted --arch aarch64 --cross-prefix aarch64-linux-gnu- 2>/dev/null; then
+            echo "::error::elf-check passed on a planted x86_64 binary"; exit 1
+          fi
+
+      - name: Build the AppImage (x86_64 appimagetool, aarch64 runtime)
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          bash packaging/linux/make-appimage.sh AppDir "SynBench-$version-aarch64.AppImage" aarch64 appimage-tools
+          echo "APPIMAGE_FILE=SynBench-$version-aarch64.AppImage" >> "$GITHUB_ENV"
+
+      # N1: a CI artifact only; it is never run, so it stays out of Releases.
+      - name: Upload the AppImage (artifact only)
+        uses: actions/upload-artifact@v6
+        continue-on-error: true
+        with:
+          name: SynBench-linux-aarch64-AppImage
+          path: ${{ env.APPIMAGE_FILE }}
+          if-no-files-found: error
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install lint tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck desktop-file-utils appstream
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          sudo mv actionlint /usr/local/bin/
+
+      - name: Workflows (actionlint)
+        run: actionlint
+
+      - name: Shell scripts (shellcheck)
+        run: shellcheck packaging/checks/*.sh packaging/linux/*.sh
+
+      - name: Python scripts compile
+        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py
+
+      - name: Desktop file and AppStream metadata
+        run: |
+          desktop-file-validate packaging/linux/io.github.dakotlyar.SynBench.desktop
+          appstreamcli validate --no-net packaging/linux/io.github.dakotlyar.SynBench.metainfo.xml || true
+
+      - name: Install Qt (for qmllint)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          cache: true
+          aqtsource: ${{ env.AQT_SOURCE }}
+
+      - name: QML (qmllint)
+        run: |
+          find src/app/qml tests/qml -name '*.qml' -print0 | xargs -0 "$QT_ROOT_DIR/bin/qmllint" -I "$QT_ROOT_DIR/qml" --max-warnings 0 || \
+            { echo "::warning::qmllint reported warnings"; true; }

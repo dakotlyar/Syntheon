@@ -1,0 +1,39 @@
+name: ARM64 sysroot
+
+# Pre-warms the cache for the Linux ARM64 cross job (P26) whenever the package
+# list or the scripts that build the sysroot change. The cross job also builds
+# the sysroot itself on a cache miss, so this workflow is an optimisation.
+
+on:
+  push:
+    branches: [v2]
+    paths:
+      - packaging/linux/linux-arm64-sysroot.txt
+      - packaging/linux/make-sysroot.sh
+      - packaging/linux/fix-sysroot-symlinks.py
+  workflow_dispatch:
+
+jobs:
+  sysroot:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: sysroot-arm64
+          key: sysroot-arm64-${{ hashFiles('packaging/linux/linux-arm64-sysroot.txt', 'packaging/linux/make-sysroot.sh', 'packaging/linux/fix-sysroot-symlinks.py') }}
+
+      - name: Build the sysroot
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mmdebstrap
+          bash packaging/linux/make-sysroot.sh sysroot-arm64
+
+      - name: What is in it
+        run: |
+          du -sh sysroot-arm64
+          ls sysroot-arm64/usr/lib/aarch64-linux-gnu | head -20

@@ -1,0 +1,59 @@
+name: Release
+
+# A tag v<VERSION> (for example v2026.11.0) builds and tests everything with
+# the CI workflow, then opens a DRAFT GitHub release with the five release
+# files. A person looks at the draft and publishes it. N1: the Linux ARM64
+# AppImage is built and statically checked but stays a CI artifact: it has
+# never been run anywhere, so it is not part of a release.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  draft-release:
+    needs: ci
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The tag matches the VERSION file
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match VERSION ($version)"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Download the installers and the x64 AppImage
+        uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+          pattern: SynBench-*
+          merge-multiple: false
+
+      - name: Collect exactly the five release files
+        run: |
+          mkdir release
+          cp "artifacts/SynBench-windows-x64-installers/SynBench-$VERSION-windows-x64-setup.exe" release/
+          cp "artifacts/SynBench-windows-x64-installers/SynBench-$VERSION-windows-x64.msi" release/
+          cp "artifacts/SynBench-windows-arm64-installers/SynBench-$VERSION-windows-arm64-setup.exe" release/
+          cp "artifacts/SynBench-windows-arm64-installers/SynBench-$VERSION-windows-arm64.msi" release/
+          cp "artifacts/SynBench-linux-x86_64-AppImage/SynBench-$VERSION-x86_64.AppImage" release/
+          test "$(ls release | wc -l)" -eq 5
+          ls -l release
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* --draft --generate-notes --title "SynBench $VERSION"
