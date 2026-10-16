@@ -169,8 +169,9 @@ ScreenFrame {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
                         kind: "small"
-                        text: qsTr("%n saved run(s) · %1 · kept until you clear them", "", StorageController.runCount)
-                              .arg(StorageController.sizeText)
+                        text: (StorageController.runCount === 1 ? qsTr("1 saved run")
+                               : qsTr("%1 saved runs").arg(StorageController.runCount))
+                              + " · " + StorageController.sizeText + qsTr(" · kept until you clear them")
                     }
 
                     // D7: the folder already has a history.
@@ -245,14 +246,16 @@ ScreenFrame {
                             SbText {
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
-                                text: qsTr("Delete all %n saved run(s) from this machine? This can't be undone.", "",
-                                           StorageController.runCount)
+                                text: (StorageController.runCount === 1 ? qsTr("Delete the saved run from this machine?")
+                                       : qsTr("Delete all %1 saved runs from this machine?").arg(StorageController.runCount))
+                                      + " " + qsTr("This can't be undone.")
                             }
                             RowLayout {
                                 spacing: 6
                                 SbButton {
                                     objectName: "clearYes"
-                                    text: qsTr("Delete %n run(s)", "", StorageController.runCount)
+                                    text: StorageController.runCount === 1 ? qsTr("Delete 1 run")
+                                          : qsTr("Delete %1 runs").arg(StorageController.runCount)
                                     danger: true
                                     onClicked: {
                                         const result = StorageController.clearHistory()

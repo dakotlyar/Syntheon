@@ -26,6 +26,7 @@ public:
 
 private:
     void step();
+    void prepare();
 
     QQuickWindow *m_window;
     AppRuntime &m_runtime;

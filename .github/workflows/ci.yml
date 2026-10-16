@@ -58,6 +58,15 @@ jobs:
       - name: Unit tests
         run: ctest --preset linux-x64-release --output-on-failure
 
+      # §10 smoke launch: loads the UI, runs every stub fast against a
+      # temporary history (no elevation) and exits 0.
+      - name: Smoke launch
+        timeout-minutes: 3
+        env:
+          SYNBENCH_SMOKE: "1"
+          QT_QPA_PLATFORM: offscreen
+        run: build/linux-x64-release/bin/SynBench
+
       # A failing (or crashing) test must leave something to read: the tail of
       # every test log, the failed tests re-run verbosely, and the logs as an
       # artifact.
@@ -126,6 +135,16 @@ jobs:
 
       - name: Unit tests
         run: ctest --preset windows-x64-release --output-on-failure
+
+      # §10 smoke launch (a GUI exe: wait for it and take its exit code).
+      - name: Smoke launch
+        timeout-minutes: 3
+        env:
+          SYNBENCH_SMOKE: "1"
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath build/windows-x64-release/bin/SynBench.exe -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "SynBench smoke exited with $($p.ExitCode)" }
 
       # A failing (or crashing) test must leave something to read: the tail of
       # every test log, the failed tests re-run verbosely, and the logs as an

@@ -10,6 +10,7 @@ AppRuntime::Options AppRuntime::optionsFromEnvironment()
 {
     Options o;
     o.smoke = qEnvironmentVariableIntValue("SYNBENCH_SMOKE") != 0;
+    o.noElevation = o.smoke || !qEnvironmentVariable("SYNBENCH_TOUR").isEmpty();
     return o;
 }
 
@@ -17,7 +18,8 @@ AppRuntime::AppRuntime(Options options, QObject *parent) : QObject(parent), m_op
 {
     QString ini = m_options.settingsFile;
     QString data = m_options.dataFolder;
-    if (m_options.smoke) {
+    // The tour needs a throwaway history too, never the user's.
+    if (m_options.smoke || (m_options.noElevation && m_options.settingsFile.isEmpty())) {
         m_smokeDir = std::make_unique<QTemporaryDir>();
         if (ini.isEmpty())
             ini = m_smokeDir->filePath(QStringLiteral("settings.ini"));
@@ -33,7 +35,8 @@ AppRuntime::AppRuntime(Options options, QObject *parent) : QObject(parent), m_op
     m_settings = std::make_unique<SettingsController>(*m_store);
     m_storageController = std::make_unique<StorageController>(*m_storage, *m_store);
     m_app = std::make_unique<AppController>();
-    m_app->setElevationDisabled(m_options.smoke);
+    m_app->setElevationDisabled(m_options.smoke || m_options.noElevation);
+    m_run = std::make_unique<RunController>(*m_storage, *m_storageController, *m_app);
 }
 
 AppRuntime::~AppRuntime() = default;
@@ -43,12 +46,17 @@ void AppRuntime::registerQml()
     qmlRegisterSingletonInstance("SynBench", 1, 0, "Settings", m_settings.get());
     qmlRegisterSingletonInstance("SynBench", 1, 0, "AppController", m_app.get());
     qmlRegisterSingletonInstance("SynBench", 1, 0, "StorageController", m_storageController.get());
+    qmlRegisterSingletonInstance("SynBench", 1, 0, "RunController", m_run.get());
 }
 
 void AppRuntime::start()
 {
     m_storageController->open();
     m_app->start();
+    if (m_options.smoke)
+        m_run->runSmoke();
+    else
+        m_run->refreshProbes();
 }
 
 } // namespace sb

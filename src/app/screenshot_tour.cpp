@@ -2,6 +2,7 @@
 #include "app/screenshot_tour.h"
 
 #include "app/app_runtime.h"
+#include "app/controllers/run_controller.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -25,7 +26,19 @@ ScreenshotTour::ScreenshotTour(QQuickWindow *window, AppRuntime &runtime, QStrin
 
 void ScreenshotTour::start()
 {
-    QTimer::singleShot(1500, this, &ScreenshotTour::step);  // let the first frame, system info and fonts settle
+    QTimer::singleShot(1500, this, &ScreenshotTour::prepare);  // let the first frame, system info and fonts settle
+}
+
+// SYNBENCH_TOUR_SELECT=cpu,battery ticks those tests first; SYNBENCH_TOUR_TAB
+// picks the option tab to show.
+void ScreenshotTour::prepare()
+{
+    for (const QString &id : qEnvironmentVariable("SYNBENCH_TOUR_SELECT").split(QLatin1Char(','), Qt::SkipEmptyParts))
+        m_runtime.run().selection().setSelected(id, true);
+    const QString tab = qEnvironmentVariable("SYNBENCH_TOUR_TAB");
+    if (!tab.isEmpty())
+        m_runtime.run().setActiveTab(tab);
+    QTimer::singleShot(600, this, &ScreenshotTour::step);
 }
 
 void ScreenshotTour::step()

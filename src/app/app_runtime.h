@@ -2,6 +2,7 @@
 #pragma once
 
 #include "app/controllers/app_controller.h"
+#include "app/controllers/run_controller.h"
 #include "app/controllers/settings_controller.h"
 #include "app/controllers/storage_controller.h"
 #include "storage/settings_store.h"
@@ -27,6 +28,9 @@ public:
         // elevation (there is no polkit agent under xvfb), stubs at a fast
         // time scale. Used by CI.
         bool smoke = false;
+        // No polkit prompt, no helper: set by the developer screenshot tour
+        // (SYNBENCH_TOUR) and by smoke runs, so neither ever asks for a password.
+        bool noElevation = false;
         QString settingsFile;  // empty = the per-user settings.ini
         QString dataFolder;    // empty = from the settings
     };
@@ -47,6 +51,7 @@ public:
     SettingsController &settings() { return *m_settings; }
     StorageController &storageController() { return *m_storageController; }
     AppController &app() { return *m_app; }
+    RunController &run() { return *m_run; }
     bool smoke() const { return m_options.smoke; }
 
 private:
@@ -57,6 +62,7 @@ private:
     std::unique_ptr<SettingsController> m_settings;
     std::unique_ptr<StorageController> m_storageController;
     std::unique_ptr<AppController> m_app;
+    std::unique_ptr<RunController> m_run;
 };
 
 } // namespace sb

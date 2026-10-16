@@ -8,6 +8,10 @@ qt_add_library(synbench_appcore STATIC
     controllers/app_controller.h controllers/app_controller.cpp
     controllers/settings_controller.h controllers/settings_controller.cpp
     controllers/storage_controller.h controllers/storage_controller.cpp
+    controllers/run_controller.h controllers/run_controller.cpp
+    models/options_model.h models/options_model.cpp
+    models/log_model.h models/log_model.cpp
+    models/run_queue_model.h models/run_queue_model.cpp
 )
 qt_add_resources(synbench_appcore "synbench_fonts"
     PREFIX "/synbench/fonts"
@@ -19,7 +23,7 @@ qt_add_resources(synbench_appcore "synbench_fonts"
         "${PROJECT_SOURCE_DIR}/assets/fonts/IBMPlexMono-Medium.ttf"
 )
 target_link_libraries(synbench_appcore
-    PUBLIC synbench_core synbench_storage synbench_sysinfo synbench_privileged Qt6::Gui Qt6::Qml Qt6::Quick
+    PUBLIC synbench_core synbench_storage synbench_sysinfo synbench_privileged synbench_builtin_tests synbench_power Qt6::Gui Qt6::Qml Qt6::Quick
     PRIVATE synbench_version)
 target_include_directories(synbench_appcore PUBLIC "${PROJECT_SOURCE_DIR}/src")
 
@@ -47,6 +51,11 @@ qt_add_qml_module(synbench_ui
         qml/components/ScoreDial.qml
         qml/components/LineChart.qml
         qml/components/ScreenFrame.qml
+        qml/components/SbCombo.qml
+        qml/components/SbSpin.qml
+        qml/components/SbField.qml
+        qml/options/OptionEditor.qml
+        qml/options/OptionTab.qml
         qml/shell/AppShell.qml
         qml/shell/RailNav.qml
         qml/shell/TopTabsNav.qml
