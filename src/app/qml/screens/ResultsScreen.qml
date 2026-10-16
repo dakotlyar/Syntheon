@@ -15,11 +15,10 @@ Item {
 
     function openDetail(testId) { Results.showDetail(testId) }
 
-    // Showing the page with nothing open falls back to this session's run.
-    // A run opened on purpose (History > Open) is never replaced here; the
-    // Progress screen's "View results" opens the current run itself.
+    // Showing the page follows this session's run, unless a run was opened on
+    // purpose from History (pinned); a new run un-pins.
     onVisibleChanged: if (visible && AppController.section === "results" && !showingDetail && RunController.hasRun
-                          && !Results.valid)
+                          && !Results.pinned && (!Results.valid || Results.uuid !== RunController.runUuid))
         Results.openCurrent()
 
     StackLayout {

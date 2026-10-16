@@ -87,7 +87,16 @@ void StartupController::finishRecovery(const RecoveryReport &report)
             lines << tr("The run from %1 was interrupted").arg(QLocale().toString(n.startedAt.toLocalTime().time(), QLocale::ShortFormat));
         }
     }
-    if (!report.errors.isEmpty())
+    // Once per distinct problem: the same leftover failing again on every pass
+    // (each location change) must not stack up identical lines.
+    bool newProblem = false;
+    for (const QString &e : report.errors) {
+        if (!m_seenProblems.contains(e)) {
+            m_seenProblems.insert(e);
+            newProblem = true;
+        }
+    }
+    if (newProblem)
         lines << tr("Some leftovers couldn't be cleaned up; see the log.");
     if (!lines.isEmpty()) {
         // Append to a notice nobody has dismissed yet; never replace it with less.

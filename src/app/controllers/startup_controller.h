@@ -6,6 +6,7 @@
 #include "storage/recovery.h"
 
 #include <QObject>
+#include <QSet>
 #include <QThread>
 #include <QVariantList>
 
@@ -47,6 +48,8 @@ public:
     // to report": it stays until the user dismisses it.
     void recover();
     bool recovering() const { return m_thread != nullptr; }
+    // Applies a finished pass (the worker thread queues this; tests call it).
+    void finishRecovery(const RecoveryReport &report);
     // Blocks until recovery has finished (tests, shutdown).
     void waitForRecovery();
 
@@ -72,9 +75,8 @@ private:
     RunController &m_run;
     StorageController &m_storage;
     SettingsController &m_settings;
-    void finishRecovery(const RecoveryReport &report);
-
     QString m_notice;
+    QSet<QString> m_seenProblems;
     QThread *m_thread = nullptr;
     bool m_again = false;
     std::unique_ptr<StorageController::ScopedLock> m_lock;

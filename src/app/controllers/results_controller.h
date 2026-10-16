@@ -26,6 +26,8 @@ class ResultsController : public QObject
     Q_PROPERTY(bool valid READ valid NOTIFY runChanged)
     Q_PROPERTY(QString uuid READ uuid NOTIFY runChanged)
     Q_PROPERTY(bool live READ live NOTIFY runChanged)
+    // True while the run shown was chosen on purpose in History (it then stays).
+    Q_PROPERTY(bool pinned READ pinned NOTIFY runChanged)
     Q_PROPERTY(QString title READ title NOTIFY runChanged)
     Q_PROPERTY(QString subtitle READ subtitle NOTIFY runChanged)
     Q_PROPERTY(QString statusKey READ statusKey NOTIFY runChanged)
@@ -52,6 +54,7 @@ public:
     bool valid() const { return m_run.has_value(); }
     QString uuid() const;
     bool live() const { return m_live; }
+    bool pinned() const { return m_pinned; }
     QString title() const;
     QString subtitle() const;
     QString statusKey() const;
@@ -75,6 +78,9 @@ public:
     Q_INVOKABLE bool openRun(const QString &uuid);
     // The run in progress, or the one that just finished ("View results so far").
     Q_INVOKABLE void openCurrent();
+    // History > Open: shows that run and keeps showing it, until a run starts
+    // in this session or openCurrent() is called.
+    Q_INVOKABLE bool openFromHistory(const QString &uuid);
     Q_INVOKABLE void selectDetail(const QString &testId);
     // Opens (or closes) the Detail sub-page of Results.
     bool detailOpen() const { return m_detailOpen; }
@@ -105,6 +111,7 @@ private:
     Storage &m_storage;
     StorageController &m_storageController;
     std::optional<RunRecord> m_run;
+    bool m_pinned = false;
     bool m_live = false;
     QVariantList m_rows, m_tabs;
     bool m_detailOpen = false;

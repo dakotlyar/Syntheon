@@ -158,7 +158,7 @@ ScreenFrame {
                             Layout.preferredWidth: 64
                             text: qsTr("Open")
                             onClicked: {
-                                if (Results.openRun(hrow.uuid))
+                                if (Results.openFromHistory(hrow.uuid))
                                     AppController.section = "results"
                             }
                         }

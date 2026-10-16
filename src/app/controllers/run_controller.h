@@ -8,6 +8,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QThreadPool>
 #include <QTimer>
 #include <QVariantList>
 
@@ -183,6 +184,7 @@ private:
     QString m_etaText;
     QStringList m_startErrors;
     QString m_scratchRoot;
+    QThreadPool m_probePool;  // this controller's probe tasks only
     bool m_smoke = false;
     bool m_smokeBatteryStarted = false;
 };

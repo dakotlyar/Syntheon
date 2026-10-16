@@ -95,6 +95,9 @@ public:
     }
 #endif
     PrivilegedOps &privileged();
+    // Fails every pending privileged request at once (a blocked probe or
+    // SMBIOS read returns immediately). For shutdown; the helper is closed.
+    void abortPrivileged();
 
     // The visible section: run | progress | results | history | compare |
     // system | settings. Results and its Detail sub-page share "results".

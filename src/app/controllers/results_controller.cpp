@@ -43,8 +43,11 @@ ResultsController::ResultsController(RunController &run, Storage &storage, Stora
         if (m_live)
             setRun(m_runController.currentRun(), true);
     });
+    // A new run un-pins whatever was opened from History: Results follows the
+    // session's run again, when it starts and when it finishes.
+    connect(&m_runController, &RunController::runStarted, this, [this] { m_pinned = false; });
     connect(&m_runController, &RunController::runFinished, this, [this](const QString &uuid) {
-        if (m_live || !m_run)  // it was showing this run (or nothing): switch to the stored copy
+        if (m_live || !m_run || !m_pinned)  // following this run (or nothing is open): show the stored copy
             openRun(uuid);
     });
     connect(&m_storageController, &StorageController::historyChanged, this, [this] {
@@ -91,8 +94,18 @@ bool ResultsController::openRun(const QString &uuid)
     return true;
 }
 
+bool ResultsController::openFromHistory(const QString &uuid)
+{
+    const bool ok = openRun(uuid);
+    m_pinned = ok;
+    if (ok)
+        emit runChanged();
+    return ok;
+}
+
 void ResultsController::openCurrent()
 {
+    m_pinned = false;
     if (m_runController.hasRun()) {
         setRun(m_runController.currentRun(), m_runController.running());
         return;

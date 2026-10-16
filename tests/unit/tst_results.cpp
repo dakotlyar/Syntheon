@@ -389,6 +389,37 @@ private slots:
         QVERIFY(res.rows().isEmpty());
         QVERIFY(res.detailBlocks().isEmpty());
     }
+    // AP-5 re-check: Results follows the session's run when it finishes,
+    // unless an older run was opened on purpose from History.
+    void resultsFollowsTheSessionRunUnlessPinned()
+    {
+        tests::setStubTimeScale(0.02);
+        startRuntime();
+        const auto old = seed(RunStatus::Completed, QDateTime::currentDateTimeUtc().addDays(-3), {cpuResult(500)});
+        ResultsController &res = m_rt->results();
+        RunController &rc = m_rt->run();
+
+        QVERIFY(res.openRun({}));  // an older run is showing, not pinned
+        QSignalSpy finished(&rc, &RunController::runFinished);
+        rc.toggle(QStringLiteral("cpu"));
+        QVERIFY(rc.start());
+        QVERIFY(finished.wait(60000));
+        QCOMPARE(res.uuid(), rc.runUuid());  // followed it
+
+        // Opened on purpose: a finished run doesn't take over...
+        QVERIFY(res.openFromHistory(old.uuid.toString(QUuid::WithoutBraces)));
+        QVERIFY(res.pinned());
+        QCOMPARE(res.uuid(), old.uuid.toString(QUuid::WithoutBraces));
+        // ...but the next run un-pins it and is followed.
+        finished.clear();
+        rc.clearSelection();
+        rc.toggle(QStringLiteral("cpu"));
+        QVERIFY(rc.start());
+        QVERIFY(!res.pinned());
+        QVERIFY(finished.wait(60000));
+        QCOMPARE(res.uuid(), rc.runUuid());
+    }
+
     // AP-5 #7: when the open run is gone, the detail page closes and the view
     // falls back to the newest run that's left.
     void goneRunClosesDetailAndFallsBack()

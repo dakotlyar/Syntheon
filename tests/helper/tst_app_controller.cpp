@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../unit/smbios_builder.h"
 #include "app/controllers/app_controller.h"
+#include "app/controllers/run_controller.h"
+#include "app/controllers/storage_controller.h"
+#include "storage/settings_store.h"
+#include "storage/storage.h"
 
 #include <QElapsedTimer>
 #include <QFile>
@@ -147,6 +151,51 @@ private slots:
             Q_UNUSED(pid)
         }
         QVERIFY2(t.elapsed() < 5000, qPrintable(QString::number(t.elapsed())));
+    }
+
+    // Quitting while a probe waits on a silent helper: the run controller's
+    // destructor must fail the request first (it used to wait the full
+    // request timeout for the global pool).
+    void runControllerDestructionDoesntWaitForRequests()
+    {
+        const QString mute = m_dir.filePath(QStringLiteral("mute2.sh"));
+        proto::Frame f;
+        f.op = std::uint16_t(proto::Op::Hello);
+        f.flags = proto::Response;
+        f.payload = proto::encodeHello({proto::kProtocolVersion, 0, "test"});
+        const proto::Bytes hello = proto::encode(f);
+        const QString helloFile = m_dir.filePath(QStringLiteral("hello2.bin"));
+        QFile h(helloFile);
+        QVERIFY(h.open(QIODevice::WriteOnly));
+        h.write(reinterpret_cast<const char *>(hello.data()), qint64(hello.size()));
+        h.close();
+        QFile s(mute);
+        QVERIFY(s.open(QIODevice::WriteOnly));
+        s.write(("#!/bin/sh\ncat '" + helloFile + "'\nexec sleep 60\n").toUtf8());
+        s.close();
+        QFile::setPermissions(mute, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+
+        LinuxHelperClient::Options o = options();
+        o.requestTimeout = 60s;
+        QElapsedTimer t;
+        {
+            AppController c([mute] { return LinuxHelperClient::Launch{{mute, {}}, std::nullopt}; }, o);
+            SettingsStore store(m_dir.filePath(QStringLiteral("rc.ini")));
+            store.setDataLocation(m_dir.filePath(QStringLiteral("rcdata")));
+            QDir().mkpath(m_dir.filePath(QStringLiteral("rcdata")));
+            Storage storage(store);
+            StorageController sc(storage, store);
+            {
+                RunController rc(storage, sc, c);
+                c.start();
+                QTRY_COMPARE_WITH_TIMEOUT(c.authState(), AppController::AuthState::Ready, 10000);
+                QTRY_VERIFY_WITH_TIMEOUT(c.systemInfoReady(), 20000);
+                QTest::qWait(300);  // the SMBIOS request is waiting on the mute helper
+                t.start();
+            }  // ~RunController
+            QVERIFY2(t.elapsed() < 5000, qPrintable(QString::number(t.elapsed())));
+        }
+        QVERIFY2(t.elapsed() < 8000, qPrintable(QString::number(t.elapsed())));
     }
 
     void helperDyingMidSessionBlocksAgain()

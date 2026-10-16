@@ -117,8 +117,11 @@ RunController::~RunController()
 {
     // Probe tasks hold `this`, the registry and the privileged ops; let them
     // finish before any of those go away (their results are dropped with the
-    // object's queued events).
-    QThreadPool::globalInstance()->waitForDone();
+    // object's queued events). A probe may be blocked in a privileged request
+    // (up to its 15 s timeout): fail those first, and wait only for our own
+    // pool, so quitting never freezes the window.
+    m_app.abortPrivileged();
+    m_probePool.waitForDone();
 }
 
 RunController::TestState *RunController::stateOf(const QString &id) const
@@ -308,7 +311,7 @@ void RunController::refreshProbes()
         auto snapshot = m_app.snapshotForRun();
         PrivilegedOps *ops = &m_app.privileged();
         ITest *test = t.get();
-        QThreadPool::globalInstance()->start([this, id, test, snapshot, ops] {
+        m_probePool.start([this, id, test, snapshot, ops] {
             // Discovery runs off the UI thread, never on it (§2.7).
             AppProbeContext ctx(snapshot, *ops);
             const Availability availability = test->probe(ctx);

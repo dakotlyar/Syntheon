@@ -280,6 +280,27 @@ private slots:
         QVERIFY(!rt.storage().isBusy());
     }
 
+    // AP-5 re-check: the same leftover failing on every pass is reported once.
+    void leftoverWarningIsNotRepeated()
+    {
+        QTemporaryDir dir;
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = dir.filePath(QStringLiteral("a"));
+        AppRuntime rt(o);
+        StartupController &st = rt.startup();
+        RecoveryReport report;
+        report.errors = {QStringLiteral("couldn't delete /tmp/synbench-x/scratch")};
+        st.finishRecovery(report);
+        st.dismissRecoveryNotice();
+        st.finishRecovery(report);  // the same problem again, next pass
+        QVERIFY(!st.recoveryPending());
+        report.errors = {QStringLiteral("a different problem")};
+        st.finishRecovery(report);
+        QVERIFY(st.recoveryPending());
+        QCOMPARE(st.recoveryNotice().count(QStringLiteral("leftovers")), 1);
+    }
+
     void firstRunDialogData()
     {
         QTemporaryDir dir;

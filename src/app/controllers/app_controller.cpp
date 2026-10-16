@@ -60,6 +60,13 @@ AppController::~AppController()
     QThreadPool::globalInstance()->waitForDone();
 }
 
+void AppController::abortPrivileged()
+{
+#ifdef Q_OS_LINUX
+    m_helper.shutdown();
+#endif
+}
+
 PrivilegedOps &AppController::privileged()
 {
     if (m_noElevation)

@@ -205,8 +205,11 @@ Storage::OpenResult Storage::switchTo(const QString &folder)
     m_settings.setDataLocation(target);
     if (!m_settings.sync()) {
         r = {OpenStatus::Failed, QStringLiteral("Couldn't save the setting to %1.").arg(m_settings.fileName())};
-        if (!previous.isEmpty())
-            openAt(previous, false);
+        if (!previous.isEmpty()) {
+            const OpenResult back = openAt(previous, false);
+            if (!back.ok())
+                r.error += QStringLiteral(" (and reopening the previous history failed: %1)").arg(back.error);
+        }
     }
     return r;
 }
