@@ -141,10 +141,9 @@ private slots:
         l = LinuxHelperClient::defaultLaunch(appImage);
         QVERIFY(l);
         QCOMPARE(l->primary.arguments, (QStringList{image, QStringLiteral("--synbench-helper")}));
-        QVERIFY(l->fallback);
-        QCOMPARE(l->fallback->program, pkexec);
-        QCOMPARE(l->fallback->arguments,
-                 (QStringList{image, QStringLiteral("--appimage-extract-and-run"), QStringLiteral("--synbench-helper")}));
+        // No extract-and-run fallback under pkexec: the runtime would extract to a
+        // predictable world-readable folder that root then executes from.
+        QVERIFY(!l->fallback);
 
         // AP-5: the environment alone proves nothing. Without a matching FUSE
         // mount of this image at $APPDIR, both variables are ignored.
@@ -165,7 +164,7 @@ private slots:
         const QString name = QFileInfo(image).fileName();
         LinuxHelperClient::Environment realistic = appImage;
         realistic.mountInfo = mountTable(QStringLiteral("fuse.") + name, name, appImage.appDir);
-        QVERIFY(LinuxHelperClient::defaultLaunch(realistic)->fallback.has_value());
+        QCOMPARE(LinuxHelperClient::defaultLaunch(realistic)->primary.arguments.value(0), image);  // the AppImage branch
         // Special characters in the file name: the kernel octal-escapes them in
         // the fs type and the source (observed on a real AppImage named
         // "SynBench test (1).AppImage": fuse.SynBench\040test\040(1).AppImage).
@@ -186,7 +185,7 @@ private slots:
         // ...but a name that isn't this image's is refused.
         LinuxHelperClient::Environment otherName = appImage;
         otherName.mountInfo = mountTable(QStringLiteral("fuse.Other.AppImage"), QStringLiteral("Other.AppImage"), appImage.appDir);
-        QVERIFY(!LinuxHelperClient::defaultLaunch(otherName)->fallback.has_value());
+        QVERIFY(LinuxHelperClient::defaultLaunch(otherName)->primary.arguments.value(0) != image);
 
         // A stray or forged $APPIMAGE is ignored: binary not inside $APPDIR,
         // no $APPDIR, or a relative/non-executable image.
@@ -205,7 +204,7 @@ private slots:
         QFile pf(notExec.appImage);
         QVERIFY(pf.open(QIODevice::WriteOnly));
         pf.close();
-        QVERIFY(!LinuxHelperClient::defaultLaunch(notExec)->fallback);
+        QVERIFY(LinuxHelperClient::defaultLaunch(notExec)->primary.arguments.value(0) != notExec.appImage);
 
         // No pkexec in the fixed dirs: an error, $PATH is never searched.
         LinuxHelperClient::Environment noPkexec = dev;

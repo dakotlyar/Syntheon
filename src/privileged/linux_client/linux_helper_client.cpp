@@ -145,11 +145,12 @@ std::optional<LinuxHelperClient::Launch> LinuxHelperClient::defaultLaunch(const 
                 qCWarning(lcHelper) << "$APPDIR isn't a FUSE mount of $APPIMAGE; ignoring both";
                 return devLaunch();
             }
-            // (b) The fallback is a second pkexec, so a second polkit prompt:
-            // accepted, as it only happens when the first re-exec failed.
-            return Launch{{pkexec, {imagePath, QStringLiteral("--synbench-helper")}},
-                          Command{pkexec, {imagePath, QStringLiteral("--appimage-extract-and-run"),
-                                           QStringLiteral("--synbench-helper")}}};
+            // No "--appimage-extract-and-run" fallback: the runtime extracts to a
+            // PREDICTABLE, world-readable $TMPDIR/appimage_extracted_<hash> (checked on
+            // the pinned runtime), and as root that is a directory another local user
+            // could prepare. If root can't enter the FUSE mount, elevation fails with a
+            // clear error instead (R2 passed on the real pkexec here).
+            return Launch{{pkexec, {imagePath, QStringLiteral("--synbench-helper")}}, std::nullopt};
         }
     }
 
