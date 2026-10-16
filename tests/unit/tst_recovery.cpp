@@ -459,10 +459,14 @@ private slots:
         QVERIFY(repo.addScratchPath(*otherId, QDir(linkedRun).filePath(QStringLiteral("keep.txt"))));
 
         const RecoveryReport report = recoverRuns(f.db(), f.registry, root.path());
-        QCOMPARE(report.scratchPathsRemoved, 1);  // only the real folder
-        QCOMPARE(report.errors.size(), 2);
+        // The real folder and the link standing at a scratch path (as a link,
+        // never entered) go; a path under a replaced run folder is refused.
+        QCOMPARE(report.scratchPathsRemoved, 2);
+        QCOMPARE(report.errors.size(), 1);
         QVERIFY(QFile::exists(QDir(victimDir.path()).filePath(QStringLiteral("keep.txt"))));
         QVERIFY(!QFileInfo::exists(real));
+        QVERIFY(!fs::isLinkOrReparsePoint(topLink));
+        QVERIFY(!QFileInfo(topLink).exists());
         QSqlQuery q(f.db());
         QVERIFY(q.exec(QStringLiteral("SELECT COUNT(*) FROM scratch_paths")) && q.next());
         QCOMPARE(q.value(0).toInt(), 0);

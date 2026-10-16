@@ -5,16 +5,49 @@
 #include <QFile>
 #include <QFileInfo>
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace sb::fs {
 
 namespace {
 
 bool isLink(const QFileInfo &fi)
 {
-    return fi.isSymbolicLink() || fi.isJunction();
+    if (fi.isSymbolicLink() || fi.isJunction())
+        return true;
+#ifdef Q_OS_WIN
+    // Qt doesn't flag every kind of reparse point; ask the file system.
+    const DWORD attributes = GetFileAttributesW(reinterpret_cast<LPCWSTR>(QDir::toNativeSeparators(fi.filePath()).utf16()));
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT);
+#else
+    return false;
+#endif
 }
 
 } // namespace
+
+bool isLinkOrReparsePoint(const QString &path)
+{
+    return isLink(QFileInfo(path));
+}
+
+bool removeLinkItself(const QString &path)
+{
+    if (!isLink(QFileInfo(path)))
+        return false;
+    // A file link goes with remove(); a directory link (junction or
+    // directory symlink) needs rmdir(), which removes the reparse point and
+    // never its target.
+    return QFile::remove(path) || QDir().rmdir(path);
+}
 
 QString scratchRunFolderName(const QUuid &runUuid)
 {
@@ -24,14 +57,8 @@ QString scratchRunFolderName(const QUuid &runUuid)
 bool removeTreeNoFollow(const QString &path)
 {
     const QFileInfo fi(path);  // QFileInfo describes the link itself (lstat)
-    if (isLink(fi)) {
-        // Remove the link, never what it points to. A file link goes with
-        // remove(); a directory link (Windows junction or directory symlink)
-        // needs rmdir, which removes the reparse point and not its target.
-        if (QFile::remove(path))
-            return true;
-        return QDir().rmdir(path);
-    }
+    if (isLink(fi))
+        return removeLinkItself(path);  // never what it points to
     if (!fi.exists())
         return true;
     if (!fi.isDir())
@@ -44,10 +71,10 @@ bool removeTreeNoFollow(const QString &path)
     return QDir().rmdir(path) && ok;
 }
 
-bool isSafeScratchPath(const QString &path, const QString &scratchRoot, const QUuid &runUuid)
+bool isSafeScratchPath(const QString &path, const QString &scratchRoot, const QUuid &runUuid, bool allowLinkAtPath)
 {
     const QFileInfo fi(path);
-    if (!fi.isAbsolute() || isLink(fi))
+    if (!fi.isAbsolute() || (!allowLinkAtPath && isLink(fi)))
         return false;
     const QString name = fi.fileName();
     if (name.isEmpty() || name == QLatin1StringView(".") || name == QLatin1StringView(".."))
@@ -60,6 +87,18 @@ bool isSafeScratchPath(const QString &path, const QString &scratchRoot, const QU
     if (root.isEmpty() || canonicalParent.isEmpty())
         return false;
     return canonicalParent == QDir(root).filePath(scratchRunFolderName(runUuid));
+}
+
+ScratchCleanup cleanupScratch(const QString &path, const QString &scratchRoot, const QUuid &runUuid)
+{
+    // Only a path of exactly the right shape is ever touched; a link there is
+    // removed as a link, anything else is a real folder to delete without
+    // following links.
+    if (!isSafeScratchPath(path, scratchRoot, runUuid, /*allowLinkAtPath=*/true))
+        return ScratchCleanup::Unsafe;
+    if (isLink(QFileInfo(path)))
+        return removeLinkItself(path) ? ScratchCleanup::LinkRemoved : ScratchCleanup::Failed;
+    return removeTreeNoFollow(path) ? ScratchCleanup::Removed : ScratchCleanup::Failed;
 }
 
 } // namespace sb::fs

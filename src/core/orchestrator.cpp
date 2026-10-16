@@ -253,12 +253,21 @@ public:
     {
         if (m_scratch.isEmpty())
             return;
-        if (!fs::isSafeScratchPath(m_scratch, scratchRoot(), m_s.header.uuid)) {
+        switch (fs::cleanupScratch(m_scratch, scratchRoot(), m_s.header.uuid)) {
+        case fs::ScratchCleanup::Removed:
+            break;
+        case fs::ScratchCleanup::LinkRemoved:
             m_s.log(LogLevel::Warning, m_testId,
-                    QStringLiteral("The scratch folder %1 was replaced by something else; not deleting it").arg(m_scratch));
-            QFile::remove(m_scratch);  // if it's a link: the link only
-        } else if (!fs::removeTreeNoFollow(m_scratch)) {
+                    QStringLiteral("The scratch folder %1 was replaced by a link; removed the link, not what it points to")
+                        .arg(m_scratch));
+            break;
+        case fs::ScratchCleanup::Unsafe:
+            m_s.log(LogLevel::Warning, m_testId,
+                    QStringLiteral("The scratch folder %1 isn't where it should be; not deleting it").arg(m_scratch));
+            break;
+        case fs::ScratchCleanup::Failed:
             m_s.log(LogLevel::Warning, m_testId, QStringLiteral("Couldn't delete the scratch folder %1").arg(m_scratch));
+            break;
         }
         m_s.sinkCall([&](QString &e) { return m_s.sink.removeScratchPath(m_s.header.uuid, m_scratch, &e); });
         const QFileInfo runFolder(QFileInfo(m_scratch).path());

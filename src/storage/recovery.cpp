@@ -135,17 +135,21 @@ void cleanScratch(RunRepository &repo, const QString &scratchRoot, RecoveryRepor
 {
     for (const RunRepository::ScratchPath &s : repo.scratchPathsOfFinishedRuns()) {
         const QFileInfo info(s.path);
-        if (!fs::isSafeScratchPath(s.path, scratchRoot, s.runUuid)) {
-            // The database is a file: a damaged or edited one, or a test that
-            // swapped its folder for a link, must not be able to point this
-            // at anything else.
-            report.errors.append(QStringLiteral("Ignored an unexpected scratch path: %1").arg(s.path));
-        } else if (!fs::removeTreeNoFollow(s.path)) {
-            report.errors.append(QStringLiteral("Couldn't delete the scratch folder %1").arg(s.path));
-            continue;  // keep the row; try again next start
-        } else {
+        // The database is a file: a damaged or edited one, or a test that
+        // swapped its folder for a link, must not be able to point this at
+        // anything else. The same helper the orchestrator uses.
+        switch (fs::cleanupScratch(s.path, scratchRoot, s.runUuid)) {
+        case fs::ScratchCleanup::Removed:
+        case fs::ScratchCleanup::LinkRemoved:
             QDir().rmdir(info.path());  // the run's folder, once empty
             ++report.scratchPathsRemoved;
+            break;
+        case fs::ScratchCleanup::Unsafe:
+            report.errors.append(QStringLiteral("Ignored an unexpected scratch path: %1").arg(s.path));
+            break;
+        case fs::ScratchCleanup::Failed:
+            report.errors.append(QStringLiteral("Couldn't delete the scratch folder %1").arg(s.path));
+            continue;  // keep the row; try again next start
         }
         if (!repo.deleteScratchPathRow(s.id))
             report.errors.append(repo.lastError());

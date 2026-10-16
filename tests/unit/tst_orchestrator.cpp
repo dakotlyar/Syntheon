@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "core/fs_util.h"
 #include "core/orchestrator.h"
 #include "dir_link.h"
 #include "core/power_inhibitor.h"
@@ -1023,6 +1024,8 @@ private slots:
             QSKIP("can't create directory links here");
         QVERIFY(QFile::exists(keep.fileName()));
         QVERIFY(!QFileInfo(scratch).isSymLink() && !QFileInfo(scratch).isJunction());  // the link itself is gone
+        QVERIFY(!fs::isLinkOrReparsePoint(scratch));
+        QVERIFY(!QFileInfo::exists(scratch));
         QVERIFY(f.events.names().contains(QStringLiteral("removeScratch")));
     }
 
