@@ -2,6 +2,7 @@
 #include "app/screenshot_tour.h"
 
 #include "app/app_runtime.h"
+#include "storage/run_repository.h"
 #include "app/controllers/run_controller.h"
 
 #include <QCoreApplication>
@@ -38,6 +39,10 @@ void ScreenshotTour::prepare()
     const QString tab = qEnvironmentVariable("SYNBENCH_TOUR_TAB");
     if (!tab.isEmpty())
         m_runtime.run().setActiveTab(tab);
+    // SYNBENCH_TOUR_SEED=N adds N made-up saved runs (History / Compare
+    // screenshots); the newest N are ticked for Compare.
+    if (const int n = qEnvironmentVariableIntValue("SYNBENCH_TOUR_SEED"); n > 0)
+        seedRuns(n);
     // SYNBENCH_TOUR_RUN=1 starts the ticked tests; screenshots then wait
     // SYNBENCH_TOUR_DELAY ms (default 600) so a run can get under way, or finish.
     if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_RUN") != 0)
@@ -45,6 +50,40 @@ void ScreenshotTour::prepare()
     bool ok = false;
     const int delay = qEnvironmentVariable("SYNBENCH_TOUR_DELAY").toInt(&ok);
     QTimer::singleShot(ok ? delay : 600, this, &ScreenshotTour::step);
+}
+
+void ScreenshotTour::seedRuns(int n)
+{
+    RunRepository repo(m_runtime.storage().connection());
+    QStringList ids;
+    for (int i = 0; i < n; ++i) {
+        RunRecord r;
+        r.uuid = QUuid::createUuid();
+        r.status = i == 1 ? RunStatus::Stopped : RunStatus::Completed;
+        r.startedAt = QDateTime::currentDateTimeUtc().addDays(-(n - i) * 3);
+        r.finishedAt = r.startedAt.addSecs(900);
+        r.appVersion = QStringLiteral("2026.11.0");
+        r.system.machineLabel = QStringLiteral("Knowhere · ASUS TUF Gaming A14");
+        for (const QString &id : {QStringLiteral("cpu"), QStringLiteral("ram"), QStringLiteral("storage")}) {
+            if (i == 1 && id != QLatin1StringView("cpu"))
+                continue;
+            TestResult t;
+            t.testId = id;
+            t.status = Status::Ok;
+            t.score = (id == QLatin1StringView("cpu") ? 1200.0 : id == QLatin1StringView("ram") ? 600.0 : 900.0) * (1.0 + 0.07 * i);
+            t.formulaVersion = (i == 0 && id == QLatin1StringView("storage")) ? 0 : 1;
+            t.metrics = {{QStringLiteral("headline"), {}, QStringLiteral("Headline"), *t.score * 3.1, QStringLiteral("points"), Direction::HigherIsBetter, true},
+                         {QStringLiteral("latency"), {}, QStringLiteral("Latency"), 80.0 - i * 3, QStringLiteral("ns"), Direction::LowerIsBetter, false}};
+            r.tests.append(t);
+        }
+        r.overall = computeOverall(r.tests, [](const QString &) { return true; });
+        repo.saveRun(r);
+        ids << r.uuid.toString(QUuid::WithoutBraces);
+    }
+    m_runtime.history().reload();
+    for (const QString &id : ids.mid(ids.size() - qMin(4, int(ids.size()))))
+        m_runtime.history().toggleChecked(id);
+    m_runtime.compare().setRuns(m_runtime.history().checkedUuids());
 }
 
 void ScreenshotTour::step()

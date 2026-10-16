@@ -293,6 +293,51 @@ std::optional<qint64> RunRepository::runId(const QUuid &uuid)
     return q.value(0).toLongLong();
 }
 
+QVector<RunRepository::RunSummary> RunRepository::listRuns(int offset, int limit)
+{
+    QVector<RunSummary> out;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT id, uuid, started_at, machine_label, kind, status, overall_score FROM runs "
+                             "ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?"));
+    q.addBindValue(limit);
+    q.addBindValue(offset);
+    if (!q.exec()) {
+        fail(QStringLiteral("list runs"), q.lastError().text());
+        return out;
+    }
+    QVector<qint64> ids;
+    while (q.next()) {
+        RunSummary s;
+        ids.append(q.value(0).toLongLong());
+        s.uuid = QUuid::fromString(q.value(1).toString());
+        s.startedAt = parseTime(q.value(2).toString());
+        s.machineLabel = q.value(3).toString();
+        s.kind = runKindFromKey(q.value(4).toString()).value_or(RunKind::Standard);
+        s.status = runStatusFromKey(q.value(5).toString()).value_or(RunStatus::Completed);
+        s.overall = optionalReal(q.value(6));
+        out.append(s);
+    }
+    QSqlQuery tq(m_db);
+    tq.prepare(QStringLiteral("SELECT test_id, options_json, "
+                              "(SELECT value_num FROM metrics WHERE test_result_id = test_results.id AND key = 'runtime') "
+                              "FROM test_results WHERE run_id = ? ORDER BY position"));
+    for (int i = 0; i < out.size(); ++i) {
+        tq.addBindValue(ids[i]);
+        if (!tq.exec())
+            continue;
+        while (tq.next()) {
+            const QString testId = tq.value(0).toString();
+            out[i].testIds.append(testId);
+            if (testId == QLatin1StringView("battery")) {
+                out[i].batteryProfile = parseObject(tq.value(1).toString()).value(QStringLiteral("profile")).toString();
+                if (!tq.value(2).isNull())
+                    out[i].batteryMinutes = tq.value(2).toDouble();
+            }
+        }
+    }
+    return out;
+}
+
 std::optional<QUuid> RunRepository::latestRun()
 {
     QSqlQuery q(m_db);

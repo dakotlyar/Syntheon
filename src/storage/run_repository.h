@@ -37,6 +37,20 @@ public:
     // The newest run, and the newest run that has a usable Battery result on
     // or before `onOrBefore` (N4: the Detail Battery tab for an older run
     // shows the Battery result of its time).
+    // One History row: enough to list a run without loading its results.
+    struct RunSummary {
+        QUuid uuid;
+        QDateTime startedAt;
+        QString machineLabel;
+        RunKind kind = RunKind::Standard;
+        RunStatus status = RunStatus::Completed;
+        std::optional<double> overall;
+        QStringList testIds;                  // in run order
+        std::optional<double> batteryMinutes; // a Battery run's runtime
+        QString batteryProfile;               // "mixed"
+    };
+    // Newest first; `offset`/`limit` page through a long history (§7: 200 a page).
+    QVector<RunSummary> listRuns(int offset, int limit);
     std::optional<QUuid> latestRun();
     std::optional<QUuid> latestBatteryRun(const QDateTime &onOrBefore);
     std::optional<RunRecord> load(const QUuid &uuid);

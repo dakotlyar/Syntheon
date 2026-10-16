@@ -10,6 +10,8 @@ qt_add_library(synbench_appcore STATIC
     controllers/storage_controller.h controllers/storage_controller.cpp
     controllers/run_controller.h controllers/run_controller.cpp
     controllers/results_controller.h controllers/results_controller.cpp
+    controllers/compare_controller.h controllers/compare_controller.cpp
+    models/history_model.h models/history_model.cpp
     models/detail_blocks.h models/detail_blocks.cpp
     models/log_filter_model.h models/log_filter_model.cpp
     models/options_model.h models/options_model.cpp

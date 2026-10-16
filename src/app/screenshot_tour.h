@@ -26,6 +26,7 @@ public:
 
 private:
     void step();
+    void seedRuns(int n);
     void prepare();
 
     QQuickWindow *m_window;

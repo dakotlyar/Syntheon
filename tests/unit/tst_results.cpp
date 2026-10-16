@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/app_runtime.h"
+#include "app/controllers/compare_controller.h"
 #include "app/models/detail_blocks.h"
+#include "app/models/history_model.h"
 #include "app/models/log_filter_model.h"
 #include "app/models/log_model.h"
 #include "core/units.h"
@@ -373,6 +375,139 @@ private slots:
         QVERIFY(!res.valid());
         QVERIFY(res.rows().isEmpty());
         QVERIFY(res.detailBlocks().isEmpty());
+    }
+    // --- History and Compare (task 16) ---
+
+    void historyListsNewestFirstAndPages()
+    {
+        startRuntime();
+        const QDateTime t0 = QDateTime(QDate(2026, 10, 1), QTime(12, 0), QTimeZone::UTC);
+        seed(RunStatus::Completed, t0, {cpuResult(1000)});
+        seed(RunStatus::Stopped, t0.addDays(1), {cpuResult(1100)});
+        seed(RunStatus::Completed, t0.addDays(2), {batteryResult(402, QStringLiteral("mixed"))}, RunKind::Exclusive);
+        HistoryModel &h = m_rt->history();
+        h.reload();
+        QCOMPARE(h.totalCount(), 3);
+        QCOMPARE(h.rowCount(), 3);
+        // newest first: the Battery run
+        QCOMPARE(h.data(h.index(0), HistoryModel::TestsRole).toString(), QStringLiteral("Battery (Mixed)"));
+        QCOMPARE(h.data(h.index(0), HistoryModel::OverallRole).toString(), QStringLiteral("6 h 42 m"));
+        QCOMPARE(h.data(h.index(1), HistoryModel::StatusRole).toString(), QStringLiteral("Stopped"));
+        QCOMPARE(h.data(h.index(1), HistoryModel::PartialRole).toBool(), true);  // N2
+        QCOMPARE(h.data(h.index(2), HistoryModel::StatusRole).toString(), QString());
+        QCOMPARE(h.data(h.index(2), HistoryModel::PartialRole).toBool(), false);
+        QVERIFY(!h.canFetchMore({}));
+
+        // Ticking: two or more to compare.
+        QVERIFY(!h.canCompare());
+        QCOMPARE(h.compareText(), QStringLiteral("Pick 2 or more"));
+        h.toggleChecked(h.data(h.index(1), HistoryModel::UuidRole).toString());
+        h.toggleChecked(h.data(h.index(2), HistoryModel::UuidRole).toString());
+        QVERIFY(h.canCompare());
+        QCOMPARE(h.compareText(), QStringLiteral("Compare 2 runs"));
+        QCOMPARE(h.checkedUuids().size(), 2);
+        QCOMPARE(h.checkedUuids().first(), h.data(h.index(1), HistoryModel::UuidRole).toString());  // newest first
+        h.clearChecked();
+        QCOMPARE(h.checkedCount(), 0);
+    }
+
+    void historyPagesAt200()
+    {
+        startRuntime();
+        const QDateTime t0 = QDateTime(QDate(2026, 1, 1), QTime(0, 0), QTimeZone::UTC);
+        for (int i = 0; i < 205; ++i)
+            seed(RunStatus::Completed, t0.addSecs(i * 60), {cpuResult(900 + i)});
+        HistoryModel &h = m_rt->history();
+        h.reload();
+        QCOMPARE(h.totalCount(), 205);
+        QCOMPARE(h.rowCount(), 200);
+        QVERIFY(h.canFetchMore({}));
+        h.fetchMore({});
+        QCOMPARE(h.rowCount(), 205);
+        QVERIFY(!h.canFetchMore({}));
+    }
+
+    void historyDropsTicksOfClearedRuns()
+    {
+        startRuntime();
+        const auto a = seed(RunStatus::Completed, QDateTime::currentDateTimeUtc(), {cpuResult(1)});
+        HistoryModel &h = m_rt->history();
+        h.reload();
+        h.toggleChecked(a.uuid.toString(QUuid::WithoutBraces));
+        QCOMPARE(h.checkedCount(), 1);
+        QCOMPARE(m_rt->storageController().clearHistory(), QString());
+        QCOMPARE(h.totalCount(), 0);
+        QCOMPARE(h.checkedCount(), 0);
+    }
+
+    void compareTwoRunsWithBaselineSwitch()
+    {
+        startRuntime();
+        const QDateTime t0 = QDateTime(QDate(2026, 10, 1), QTime(12, 0), QTimeZone::UTC);
+        const auto older = seed(RunStatus::Completed, t0, {cpuResult(1000)});
+        const auto newer = seed(RunStatus::Completed, t0.addDays(1), {cpuResult(1360)});
+        CompareController &c = m_rt->compare();
+        QVERIFY(!c.setRuns({older.uuid.toString(QUuid::WithoutBraces)}));  // needs two
+        QVERIFY(c.setRuns({older.uuid.toString(QUuid::WithoutBraces), newer.uuid.toString(QUuid::WithoutBraces)}));
+        QCOMPARE(c.runs().size(), 2);
+        QCOMPARE(c.baselineUuid(), newer.uuid.toString(QUuid::WithoutBraces));  // D5: newest
+
+        auto row = [&](const QString &id) {
+            for (const QVariant &v : c.scoreRows())
+                if (v.toMap().value(QStringLiteral("testId")).toString() == id)
+                    return v.toMap();
+            return QVariantMap{};
+        };
+        auto cell = [](const QVariantMap &r, int i) { return r.value(QStringLiteral("cells")).toList().at(i).toMap(); };
+        // Columns newest first: [newer(baseline), older]. older vs newer = -26%.
+        QCOMPARE(cell(row(QStringLiteral("cpu")), 0).value(QStringLiteral("changeText")).toString(), QString());
+        QCOMPARE(cell(row(QStringLiteral("cpu")), 1).value(QStringLiteral("changeText")).toString(), QStringLiteral("-26%"));
+        QCOMPARE(cell(row(QStringLiteral("cpu")), 1).value(QStringLiteral("direction")).toString(), QStringLiteral("bad"));
+
+        c.setBaseline(older.uuid.toString(QUuid::WithoutBraces));
+        QCOMPARE(c.baselineUuid(), older.uuid.toString(QUuid::WithoutBraces));
+        QCOMPARE(cell(row(QStringLiteral("cpu")), 0).value(QStringLiteral("changeText")).toString(), QStringLiteral("+36%"));
+        QCOMPARE(cell(row(QStringLiteral("cpu")), 0).value(QStringLiteral("direction")).toString(), QStringLiteral("good"));
+        QVERIFY(c.runs().at(1).toMap().value(QStringLiteral("baseline")).toBool());
+
+        // Raw metrics side by side.
+        QCOMPARE(c.rawTestId(), QStringLiteral("cpu"));
+        QVERIFY(!c.rawRows().isEmpty());
+        QCOMPARE(c.rawRows().first().toMap().value(QStringLiteral("label")).toString(), QStringLiteral("Single-thread mark"));
+    }
+
+    void compareFourRunsMissingTestsAndScoringChange()
+    {
+        startRuntime();
+        const QDateTime t0 = QDateTime(QDate(2026, 10, 1), QTime(12, 0), QTimeZone::UTC);
+        QStringList ids;
+        TestResult v2 = cpuResult(1500);
+        v2.formulaVersion = 2;  // D6
+        const QVector<QVector<TestResult>> sets = {{cpuResult(1000)}, {cpuResult(1100)}, {batteryResult(300, QStringLiteral("mixed"))}, {v2}};
+        for (int i = 0; i < 4; ++i)
+            ids << seed(i == 1 ? RunStatus::Stopped : RunStatus::Completed, t0.addDays(i), sets[i],
+                        i == 2 ? RunKind::Exclusive : RunKind::Standard).uuid.toString(QUuid::WithoutBraces);
+        CompareController &c = m_rt->compare();
+        QVERIFY(c.setRuns(ids));
+        QCOMPARE(c.runs().size(), 4);
+        QCOMPARE(c.baselineUuid(), ids[3]);
+        QVariantMap cpu, overall;
+        for (const QVariant &v : c.scoreRows()) {
+            if (v.toMap().value(QStringLiteral("testId")).toString() == QLatin1StringView("cpu"))
+                cpu = v.toMap();
+            if (v.toMap().value(QStringLiteral("overall")).toBool())
+                overall = v.toMap();
+        }
+        QCOMPARE(cpu.value(QStringLiteral("cells")).toList().size(), 4);
+        QVERIFY(cpu.value(QStringLiteral("scoringChanged")).toBool());  // D6
+        // The Battery-only run has no CPU result: a dash, not a number.
+        QCOMPARE(cpu.value(QStringLiteral("cells")).toList().at(1).toMap().value(QStringLiteral("text")).toString(), QStringLiteral("—"));
+        // N2: the Stopped run (index 2, newest first) is marked partial.
+        QVERIFY(overall.value(QStringLiteral("cells")).toList().at(2).toMap().value(QStringLiteral("partial")).toBool());
+        QVERIFY(!overall.value(QStringLiteral("cells")).toList().at(0).toMap().value(QStringLiteral("partial")).toBool());
+        QCOMPARE(CompareController::changeText(52.4, true), QStringLiteral("+52% (worse)"));
+        QCOMPARE(CompareController::changeText(-12.2, true), QStringLiteral("-12%"));
+        QCOMPARE(CompareController::changeText(0.2, false), QStringLiteral("0%"));
     }
 };
 
