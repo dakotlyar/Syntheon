@@ -53,6 +53,7 @@ qt_add_qml_module(synbench_ui
         qml/components/SbText.qml
         qml/components/Box.qml
         qml/components/Pill.qml
+        qml/components/SbDialog.qml
         qml/components/Swatch.qml
         qml/components/ProgressTrack.qml
         qml/components/Icon.qml

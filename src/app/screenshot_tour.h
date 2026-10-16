@@ -27,6 +27,7 @@ public:
 private:
     void step();
     void seedRuns(int n);
+    void openDialog(const QString &name);
     void prepare();
 
     QQuickWindow *m_window;

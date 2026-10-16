@@ -6,7 +6,7 @@ import SynBench
 
 // A stored run's log (D16), filterable by test and level, with Copy. Works for
 // any run in History, including Stopped, Interrupted and Recovered ones.
-Dialog {
+SbDialog {
     id: dialog
 
     property var model: null
@@ -18,13 +18,13 @@ Dialog {
         open()
     }
 
-    modal: true
-    anchors.centerIn: parent
     width: Math.min(parent ? parent.width - 48 : 760, 760)
     height: Math.min(parent ? parent.height - 48 : 520, 520)
     padding: 16
-    background: Rectangle { color: Theme.panel; border.color: Theme.line; radius: 8 }
-    header: SbText { text: qsTr("Run log"); kind: "title"; leftPadding: 16; topPadding: 14 }
+
+    title: qsTr("Run log")
+    // The log is a viewer: Escape or a click outside closes it.
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     contentItem: ColumnLayout {
         spacing: 10

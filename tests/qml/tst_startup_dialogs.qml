@@ -17,6 +17,9 @@ TestCase {
     Component { id: notice; RecoveryNoticeDialog { parent: test } }
     Component { id: inUse; InUseDialog { parent: test } }
     Component { id: spyComponent; SignalSpy {} }
+    Component { id: authC; AuthDialog { parent: test } }
+    Component { id: storageC; StorageProblemDialog { parent: test; message: "m" } }
+    Component { id: logC; LogDialog { parent: test } }
 
     function initTestCase() {
         tryVerify(function() { return !RunController.probing }, 20000)
@@ -57,5 +60,19 @@ TestCase {
         verify(findChild(d.contentItem, "inUseError").visible)
         mouseClick(findChild(d.footer, "quit"))
         compare(quit.count, 1)
+    }
+
+    // Zeb #2: every dialog uses the one themed style (SbDialog): its own title
+    // bar in the app's title font on the theme's panel colour, in light and dark.
+    function test_everyDialogUsesTheSharedStyle() {
+        for (const c of [authC, storageC, logC, firstRun, notice, inUse]) {
+            const d = createTemporaryObject(c, test)
+            verify(d !== null)
+            const title = findChild(d.header, "dialogTitle")
+            verify(title !== null, "no shared title in " + d)
+            verify(title.text.length > 0, "empty title in " + d)
+            compare(title.font.pixelSize, 19)  // SbText kind "title"
+            compare(String(d.background.color), String(Theme.panel))
+        }
     }
 }

@@ -8,7 +8,7 @@ import SynBench
 // so the only ways out are Retry (prompt again) and Quit. While the prompt is
 // open ("authorising") only Quit is offered; it also times out after two
 // minutes into the failed state.
-Dialog {
+SbDialog {
     id: dialog
 
     property bool authorising: false
@@ -16,19 +16,8 @@ Dialog {
     signal retryClicked()
     signal quitClicked()
 
-    modal: true
-    closePolicy: Popup.NoAutoClose
-    anchors.centerIn: parent
     width: Math.min(parent ? parent.width - 48 : 480, 480)
-    padding: 18
     title: authorising ? qsTr("Waiting for administrator approval") : qsTr("SynBench needs administrator access")
-    background: Rectangle { color: Theme.panel; border.color: Theme.line; radius: 8 }
-    header: SbText {
-        text: dialog.title
-        kind: "title"
-        leftPadding: 18; topPadding: 16; rightPadding: 18
-        wrapMode: Text.WordWrap
-    }
 
     contentItem: ColumnLayout {
         spacing: 10

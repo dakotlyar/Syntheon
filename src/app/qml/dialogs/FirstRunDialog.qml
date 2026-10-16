@@ -6,26 +6,15 @@ import SynBench
 
 // Shown once, after the storage and administrator gates: what SynBench found
 // (one line per test, from its probe) and where your history is kept.
-Dialog {
+SbDialog {
     id: dialog
 
     signal finished()
 
-    modal: true
-    closePolicy: Popup.NoAutoClose
-    anchors.centerIn: parent
     width: Math.min(parent ? parent.width - 48 : 560, 560)
-    padding: 18
-    background: Rectangle { color: Theme.panel; border.color: Theme.line; radius: 8 }
-    header: ColumnLayout {
-        spacing: 2
-        SbText { text: qsTr("Welcome to SynBench"); kind: "title"; leftPadding: 18; topPadding: 16 }
-        SbText {
-            text: qsTr("Here is what this machine can run.")
-            kind: "small"
-            leftPadding: 18
-        }
-    }
+
+    title: qsTr("Welcome to SynBench")
+    subtitle: qsTr("Here is what this machine can run.")
 
     contentItem: ColumnLayout {
         spacing: 12

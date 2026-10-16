@@ -6,21 +6,15 @@ import SynBench
 
 // The history is locked, but no running SynBench answered. Either a copy is
 // open and unresponsive, or an earlier run ended abnormally and left its lock.
-Dialog {
+SbDialog {
     id: dialog
 
     property string error
     signal takeOver()
     signal quitClicked()
 
-    modal: true
-    closePolicy: Popup.NoAutoClose
-    anchors.centerIn: parent
     width: Math.min(parent ? parent.width - 48 : 500, 500)
-    padding: 18
     title: qsTr("SynBench may already be open")
-    background: Rectangle { color: Theme.panel; border.color: Theme.line; radius: 8 }
-    header: SbText { text: dialog.title; kind: "title"; leftPadding: 18; topPadding: 16; wrapMode: Text.WordWrap }
 
     contentItem: ColumnLayout {
         spacing: 10

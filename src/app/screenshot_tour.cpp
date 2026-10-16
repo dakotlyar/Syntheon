@@ -8,6 +8,9 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QImage>
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickItem>
 #include <QQuickWindow>
 #include <QTimer>
 
@@ -56,9 +59,46 @@ void ScreenshotTour::prepare()
     // SYNBENCH_TOUR_DELAY ms (default 600) so a run can get under way, or finish.
     if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_RUN") != 0)
         m_runtime.run().start();
+    // SYNBENCH_TOUR_DIALOG=<name> opens one of the app's dialogs over every
+    // screenshot, with sample text (only the dialogs listed here).
+    if (const QString dialog = qEnvironmentVariable("SYNBENCH_TOUR_DIALOG"); !dialog.isEmpty())
+        openDialog(dialog);
     bool ok = false;
     const int delay = qEnvironmentVariable("SYNBENCH_TOUR_DELAY").toInt(&ok);
     QTimer::singleShot(ok ? delay : 600, this, &ScreenshotTour::step);
+}
+
+void ScreenshotTour::openDialog(const QString &name)
+{
+    static const QHash<QString, QPair<QString, QVariantMap>> known{
+        {QStringLiteral("storage"), {QStringLiteral("StorageProblemDialog"),
+                                     {{QStringLiteral("message"), QStringLiteral("The history file at /home/you/.local/share/SynBench/synbench.db "
+                                                                                  "is damaged or isn't a SynBench history (file is not a database). "
+                                                                                  "It was left untouched.")}}}},
+        {QStringLiteral("newer"), {QStringLiteral("StorageProblemDialog"),
+                                   {{QStringLiteral("newerVersion"), true},
+                                    {QStringLiteral("message"), QStringLiteral("The saved runs in /home/you/.local/share/SynBench were made by a newer SynBench.")}}}},
+        {QStringLiteral("auth"), {QStringLiteral("AuthDialog"), {{QStringLiteral("message"), QStringLiteral("The administrator prompt was dismissed.")}}}},
+        {QStringLiteral("inuse"), {QStringLiteral("InUseDialog"), {}}},
+        {QStringLiteral("recovery"), {QStringLiteral("RecoveryNoticeDialog"), {{QStringLiteral("message"), QStringLiteral("The run from 14:02 was interrupted")}}}},
+        {QStringLiteral("firstrun"), {QStringLiteral("FirstRunDialog"), {}}},
+    };
+    const auto it = known.constFind(name);
+    QQmlEngine *engine = qmlEngine(m_window);
+    if (it == known.constEnd() || !engine || !m_window->contentItem()) {
+        qWarning("screenshot tour: unknown dialog '%s'", qPrintable(name));
+        return;
+    }
+    QQmlComponent component(engine, QStringLiteral("SynBench"), it->first);
+    QVariantMap props = it->second;
+    props.insert(QStringLiteral("parent"), QVariant::fromValue(static_cast<QObject *>(m_window->contentItem())));
+    QObject *dialog = component.createWithInitialProperties(props);
+    if (!dialog) {
+        qWarning("screenshot tour: %s", qPrintable(component.errorString()));
+        return;
+    }
+    dialog->setParent(this);
+    QMetaObject::invokeMethod(dialog, "open");
 }
 
 void ScreenshotTour::seedRuns(int n)

@@ -8,7 +8,7 @@ import SynBench
 // §4: the saved runs can't be opened at launch (a removed drive, or a history
 // from a newer SynBench). Use the default location, choose another, or quit.
 // Nothing is ever downgraded or overwritten.
-Dialog {
+SbDialog {
     id: dialog
 
     property string message
@@ -18,12 +18,8 @@ Dialog {
     signal chooseFolder(string path)
     signal quitClicked()
 
-    modal: true
-    closePolicy: Popup.NoAutoClose
-    anchors.centerIn: parent
     width: Math.min(parent ? parent.width - 48 : 520, 520)
     title: newerVersion ? qsTr("These saved runs are from a newer SynBench") : qsTr("Your saved runs aren't available")
-    background: Rectangle { color: Theme.panel; border.color: Theme.line; radius: 8 }
 
     FolderDialog {
         id: picker
