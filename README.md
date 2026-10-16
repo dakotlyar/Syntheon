@@ -18,7 +18,7 @@ Download an installer or the AppImage from a release:
 | Platform | File |
 |---|---|
 | Windows x64 | `SynBench-<version>-windows-x64-setup.exe` or `SynBench-<version>-windows-x64.msi` |
-| Windows ARM64 | `SynBench-<version>-windows-arm64-setup.exe` or `...-arm64.msi` |
+| Windows ARM64 | `SynBench-<version>-windows-arm64-setup.exe` or `...-arm64.msi`. Cross-compiled and only **statically checked** in CI (no ARM code runs there): it needs a hand test on a Snapdragon PC before it can be trusted |
 | Linux x64 | `SynBench-<version>-x86_64.AppImage` (needs glibc 2.35+: Ubuntu 22.04, Debian 12, Fedora 36 or newer) |
 | Linux ARM64 | not released yet: built in CI as an untested artifact. It needs **glibc 2.39 (Ubuntu 24.04 or newer)**, because the official Qt for ARM64 Linux requires it |
 
@@ -50,6 +50,8 @@ SynBench asks for administrator access so it can read firmware tables (the
 memory modules) and, in later phases, a few other things only root can do. This
 is what that means in practice.
 
+- **Not signed:** neither the Windows installers nor the AppImage are code-signed
+  or GPG-signed yet; check the download against the checksum on its release page.
 - **Windows:** the whole app runs elevated (its manifest asks for administrator
   rights, so UAC prompts at every start). A declined prompt means the app does
   not open. The installers are not code-signed yet, so Windows shows "Unknown
@@ -71,10 +73,11 @@ is what that means in practice.
   the next prompt run something else as root. This is the same trust model as
   most AppImages that elevate: it protects against SynBench's own mistakes and
   limits what the helper can do, but it does **not** defend against another
-  program already running as you. SynBench checks that the file it re-executes is
-  really the mounted image it was started from (against the kernel's mount
-  table, not just environment variables), but a user can mount their own FUSE
-  filesystem, so this narrows the risk rather than removing it. If that is
+  program already running as you. SynBench checks, against the kernel's mount table
+  and not just environment variables, that `$APPDIR` is a FUSE mount whose name is
+  the image's file name. That is **all** it proves: it does not prove the mount
+  really comes from `$APPIMAGE`, and a user can mount their own FUSE filesystem
+  under that name, so the check narrows the risk rather than removing it. If that is
   not acceptable for you, do not elevate: SynBench has no limited mode, so it
   will not run.
 - Only one SynBench runs per history folder; a second launch brings the first
