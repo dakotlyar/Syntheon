@@ -57,7 +57,7 @@ QVariant RunQueueModel::data(const QModelIndex &index, int role) const
 
 QHash<int, QByteArray> RunQueueModel::roleNames() const
 {
-    return {{TestIdRole, "testId"}, {NameRole, "name"},   {ColorTokenRole, "colorToken"}, {StateRole, "state"},
+    return {{TestIdRole, "testId"}, {NameRole, "name"},   {ColorTokenRole, "colorToken"}, {StateRole, "runState"},
             {FractionRole, "fraction"}, {StageRole, "stage"}, {StateTextRole, "stateText"}};
 }
 

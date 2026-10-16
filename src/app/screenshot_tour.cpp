@@ -38,7 +38,13 @@ void ScreenshotTour::prepare()
     const QString tab = qEnvironmentVariable("SYNBENCH_TOUR_TAB");
     if (!tab.isEmpty())
         m_runtime.run().setActiveTab(tab);
-    QTimer::singleShot(600, this, &ScreenshotTour::step);
+    // SYNBENCH_TOUR_RUN=1 starts the ticked tests; screenshots then wait
+    // SYNBENCH_TOUR_DELAY ms (default 600) so a run can get under way, or finish.
+    if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_RUN") != 0)
+        m_runtime.run().start();
+    bool ok = false;
+    const int delay = qEnvironmentVariable("SYNBENCH_TOUR_DELAY").toInt(&ok);
+    QTimer::singleShot(ok ? delay : 600, this, &ScreenshotTour::step);
 }
 
 void ScreenshotTour::step()

@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import QtQuick
+import QtTest
+import SynBench
+
+// The Progress screen on a real (fast) stub run.
+TestCase {
+    id: test
+    name: "ProgressScreen"
+    width: 1000
+    height: 900
+    visible: true
+    when: windowShown
+
+    Component { id: screenComponent; ProgressScreen { width: 1000; height: 900 } }
+    Component { id: spyComponent; SignalSpy {} }
+
+    function initTestCase() {
+        tryVerify(function() { return !RunController.probing }, 20000)
+        tryVerify(function() { return AppController.authStateName === "ready" }, 10000)
+    }
+
+    // The first test in the process: nothing has run yet.
+    function test_1_emptyStateBeforeAnyRun() {
+        const screen = createTemporaryObject(screenComponent, test)
+        verify(!RunController.hasRun)
+        verify(findChild(screen, "emptyState").visible)
+        verify(!findChild(screen, "queueBox").visible)
+        verify(!findChild(screen, "stopRun").visible)
+        verify(!findChild(screen, "viewResults").visible)
+        compare(screen.title, "Progress")
+    }
+
+    function test_2_aRunShowsQueueLogAndStop() {
+        RunController.clearSelection()
+        RunController.toggle("cpu")
+        RunController.toggle("ram")
+        const screen = createTemporaryObject(screenComponent, test)
+        const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
+        verify(RunController.start())
+        waitForRendering(screen)
+
+        verify(RunController.running)
+        verify(!findChild(screen, "emptyState").visible)
+        verify(findChild(screen, "queueBox").visible)
+        verify(findChild(screen, "stopRun").visible)
+        compare(findChild(screen, "viewResults").text, "View results so far")
+        compare(screen.title, "Running 2 tests")
+        verify(findChild(screen, "queue-cpu") !== null)
+        verify(findChild(screen, "queue-ram") !== null)
+        compare(AppController.section, "progress")
+
+        // The log fills while it runs.
+        tryVerify(function() { return RunController.log.count > 2 }, 20000)
+        verify(findChild(screen, "logView").count > 0)
+
+        finished.wait(60000)
+        compare(finished.count, 1)
+        verify(!RunController.running)
+        verify(!findChild(screen, "stopRun").visible)
+        compare(findChild(screen, "viewResults").text, "View results")
+        compare(screen.title, "Run of 2 tests")
+        compare(findChild(findChild(screen, "queue-cpu"), "state").text, "✓ done")
+        compare(findChild(findChild(screen, "queue-ram"), "state").text, "✓ done")
+        verify(findChild(findChild(screen, "queue-cpu"), "stage").text.indexOf("Done") === 0)
+        verify(!findChild(screen, "restartBanner").visible)
+    }
+
+    function test_3_viewResultsNavigates() {
+        const screen = createTemporaryObject(screenComponent, test)
+        AppController.section = "progress"
+        mouseClick(findChild(screen, "viewResults"))
+        compare(AppController.section, "results")
+        AppController.section = "run"
+    }
+
+    function test_4_stopRun() {
+        // Stop mid-run: the run is saved as Stopped (D3) and the row says so.
+        RunController.clearSelection()
+        RunController.toggle("storage")
+        RunController.toggle("gpu")
+        const screen = createTemporaryObject(screenComponent, test)
+        const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
+        RunController.setOption("storage", "simulate", "normal")
+        verify(RunController.start())
+        waitForRendering(screen)
+        tryVerify(function() { return findChild(screen, "stopRun").visible }, 5000)
+        mouseClick(findChild(screen, "stopRun"))
+        finished.wait(30000)
+        compare(finished.signalArguments[0][1], "stopped")
+        verify(findChild(screen, "queue-storage") !== null)
+        const st = findChild(screen, "queue-storage").runState; verify(["cancelled", "done", "not_run"].indexOf(st) >= 0, "state was " + st)
+    }
+}
