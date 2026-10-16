@@ -93,6 +93,40 @@
         "SYNBENCH_BUILD_TESTS": "OFF",
         "SYNBENCH_RELEASE_BUILD": "ON"
       }
+    },
+    {
+      "name": "linux-arm64-cross",
+      "displayName": "Linux ARM64 (cross, no developer hooks)",
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "toolchainFile": "${sourceDir}/cmake/toolchains/aarch64-linux-gnu.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "SYNBENCH_DEV_HOOKS": "OFF",
+        "SYNBENCH_BUILD_TESTS": "OFF",
+        "SYNBENCH_RELEASE_BUILD": "ON"
+      }
+    },
+    {
+      "name": "windows-arm64-cross",
+      "displayName": "Windows ARM64 (cross, no developer hooks)",
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "toolchainFile": "${sourceDir}/cmake/toolchains/windows-arm64.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "SYNBENCH_DEV_HOOKS": "OFF",
+        "SYNBENCH_BUILD_TESTS": "OFF",
+        "SYNBENCH_RELEASE_BUILD": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -119,6 +153,14 @@
     {
       "name": "windows-x64-package",
       "configurePreset": "windows-x64-package"
+    },
+    {
+      "name": "linux-arm64-cross",
+      "configurePreset": "linux-arm64-cross"
+    },
+    {
+      "name": "windows-arm64-cross",
+      "configurePreset": "windows-arm64-cross"
     }
   ],
   "testPresets": [
