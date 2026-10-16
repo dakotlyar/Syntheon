@@ -92,4 +92,22 @@ TestCase {
         compare(AppController.section, "results")
         compare(Results.uuid, uuid)
     }
+
+    // AP-5 #2: History > Open must stay on the run that was opened, even though
+    // this session also has a (different, newer) run of its own.
+    function test_5_openedRunIsNotReplacedByTheSessionsRun() {
+        const h = createTemporaryObject(historyComponent, test)
+        const r = createTemporaryObject(resultsComponent, test, { visible: false })
+        tick()
+        verify(RunController.hasRun)
+        const older = History.data(History.index(1, 0), 257)
+        verify(older !== RunController.runUuid)
+        mouseClick(findChild(findChild(h, "run-" + older), "open"))
+        compare(AppController.section, "results")
+        r.visible = true  // the Results page is shown after the click
+        tick()
+        compare(Results.uuid, older)
+    }
+
+    Component { id: resultsComponent; ResultsScreen { width: 1000; height: 900 } }
 }

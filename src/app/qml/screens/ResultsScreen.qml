@@ -15,9 +15,11 @@ Item {
 
     function openDetail(testId) { Results.showDetail(testId) }
 
-    // Following the run in progress: "View results so far".
+    // Showing the page with nothing open falls back to this session's run.
+    // A run opened on purpose (History > Open) is never replaced here; the
+    // Progress screen's "View results" opens the current run itself.
     onVisibleChanged: if (visible && AppController.section === "results" && !showingDetail && RunController.hasRun
-                          && (RunController.running || !Results.valid || Results.uuid !== RunController.runUuid))
+                          && !Results.valid)
         Results.openCurrent()
 
     StackLayout {

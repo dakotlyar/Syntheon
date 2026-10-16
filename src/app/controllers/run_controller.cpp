@@ -381,6 +381,10 @@ void RunController::clearSelection()
 
 void RunController::onSelectionChanged()
 {
+    if (!m_startErrors.isEmpty()) {
+        m_startErrors.clear();
+        emit startErrorsChanged();
+    }
     const QStringList now = m_selection.selectedIds();
     // The newly ticked test becomes the active tab (as in the mockup).
     QString newest;
@@ -581,11 +585,15 @@ QVariantList RunController::preconditions() const
 
 bool RunController::start()
 {
-    m_startErrors.clear();
+    if (!m_startErrors.isEmpty()) {
+        m_startErrors.clear();
+        emit startErrorsChanged();
+    }
     // Recovery treats every 'running' row as a leftover: never start (and so
     // write one) until it has finished.
     if (m_storageController.lockedBy(QStringLiteral("recovery"))) {
         m_startErrors = {tr("SynBench is still checking earlier runs. Try again in a moment.")};
+        emit startErrorsChanged();
         emit startRefused(m_startErrors);
         return false;
     }
@@ -599,6 +607,7 @@ bool RunController::start()
     const auto result = m_orchestrator.start(plan, meta);
     if (!result.ok) {
         m_startErrors = result.errors;
+        emit startErrorsChanged();
         emit startRefused(result.errors);
         return false;
     }

@@ -6,6 +6,7 @@
 #include "app/models/log_filter_model.h"
 #include "app/models/log_model.h"
 #include "core/units.h"
+#include "storage/database.h"
 #include "storage/run_repository.h"
 #include "tests/common/stub_clock.h"
 
@@ -68,6 +69,7 @@ private:
         o.dataFolder = m_dir->filePath(QStringLiteral("data"));
         m_rt = std::make_unique<AppRuntime>(o);
         m_rt->storageController().open();
+        m_rt->startup().waitForRecovery();
         m_rt->app().start();
         m_rt->run().refreshProbes();
         QTRY_VERIFY_WITH_TIMEOUT(!m_rt->run().probing(), 20000);
@@ -358,6 +360,16 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(res.rows().size() >= 1 && res.rows().first().toMap().value(QStringLiteral("status")).toString() == QLatin1StringView("ok"), 40000);
         QVERIFY(res.overallPartial());
         QVERIFY(res.overallNote().startsWith(QStringLiteral("Partial")));
+
+        // AP-5 #9: "View log" during a run keeps each line's own time (it
+        // used to stamp every line with "now") and says it's a snapshot.
+        QTest::qWait(2200);
+        auto *shown = qobject_cast<QAbstractItemModel *>(res.logModel());
+        auto *liveLog = qobject_cast<QAbstractItemModel *>(rc.log());
+        QVERIFY(shown && liveLog);
+        QVERIFY(shown->rowCount() >= 1);
+        QCOMPARE(shown->data(shown->index(0, 0), LogModel::TimeRole), liveLog->data(liveLog->index(0, 0), LogModel::TimeRole));
+        QVERIFY(res.live());  // the dialog's snapshot note keys off this
         rc.stop();
         QVERIFY(finished.wait(20000));
         QVERIFY(!res.live());  // switched to the stored copy
@@ -376,6 +388,43 @@ private slots:
         QVERIFY(res.rows().isEmpty());
         QVERIFY(res.detailBlocks().isEmpty());
     }
+    // AP-5 #7: when the open run is gone, the detail page closes and the view
+    // falls back to the newest run that's left.
+    void goneRunClosesDetailAndFallsBack()
+    {
+        startRuntime();
+        seed(RunStatus::Completed, QDateTime::currentDateTimeUtc(), {cpuResult(500)});
+        ResultsController &res = m_rt->results();
+        QVERIFY(res.openRun({}));
+        res.showDetail(QStringLiteral("cpu"));
+        QVERIFY(res.detailOpen());
+        QCOMPARE(m_rt->storageController().clearHistory(), QString());
+        QVERIFY(!res.detailOpen());
+        QVERIFY(!res.valid());
+
+        // A history switched to one with another run: that run shows.
+        const QString other = m_dir->filePath(QStringLiteral("other"));
+        QDir().mkpath(other);
+        QUuid otherId;
+        {
+            const QString path = QDir(other).filePath(QStringLiteral("synbench.db"));
+            QVERIFY(Database::migrate(path).ok());
+            Database::ScopedConnection c(path, QStringLiteral("seed"));
+            RunRecord r;
+            r.uuid = otherId = QUuid::createUuid();
+            r.status = RunStatus::Completed;
+            r.startedAt = QDateTime::currentDateTimeUtc();
+            r.tests = {cpuResult(900)};
+            QVERIFY(RunRepository(c.db()).saveRun(r));
+        }
+        seed(RunStatus::Completed, QDateTime::currentDateTimeUtc(), {cpuResult(100)});
+        QVERIFY(res.openRun({}));
+        res.showDetail(QStringLiteral("cpu"));
+        QCOMPARE(m_rt->storageController().openHistoryIn(other), QString());
+        QVERIFY(!res.detailOpen());
+        QCOMPARE(res.uuid(), otherId.toString(QUuid::WithoutBraces));
+    }
+
     // --- History and Compare (task 16) ---
 
     void historyListsNewestFirstAndPages()

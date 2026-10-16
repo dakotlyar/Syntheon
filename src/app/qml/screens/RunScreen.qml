@@ -260,6 +260,19 @@ ScreenFrame {
                     onClicked: RunController.start()
                 }
             }
+            // Start was pressed and refused: say why.
+            Repeater {
+                model: RunController.startErrors
+                delegate: SbText {
+                    required property string modelData
+                    objectName: "startError"
+                    Layout.fillWidth: true
+                    text: modelData
+                    kind: "small"
+                    color: Theme.bad
+                    wrapMode: Text.WordWrap
+                }
+            }
             // What is blocking Start, in words.
             Repeater {
                 model: RunController.selectedCount > 0 ? RunController.problems : []

@@ -32,6 +32,7 @@ public:
     void append(const LogLine &line);
     void setLines(const QVector<LogLine> &lines);  // replaces everything
     void clear();
+    const QVector<LogLine> &lines() const { return m_lines; }
     int capacity() const { return m_capacity; }
 
     // The visible text, for the Copy button: "14:02:01  CPU  message" per line.

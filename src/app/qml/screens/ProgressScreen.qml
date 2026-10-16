@@ -25,7 +25,7 @@ ScreenFrame {
             objectName: "viewResults"
             visible: RunController.hasRun
             text: RunController.running ? qsTr("View results so far") : qsTr("View results")
-            onClicked: AppController.section = "results"
+            onClicked: { Results.openCurrent(); AppController.section = "results" }
         }
     ]
 

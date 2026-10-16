@@ -50,6 +50,9 @@ ResultsController::ResultsController(RunController &run, Storage &storage, Stora
     connect(&m_storageController, &StorageController::historyChanged, this, [this] {
         // A cleared history or a switched location: don't keep showing a run that is gone.
         if (m_run && !m_live && !openRun(uuid())) {
+            closeDetail();
+            if (openRun({}))  // the newest run that is left, if any
+                return;
             m_run.reset();
             m_rows.clear();
             m_tabs.clear();
@@ -369,17 +372,9 @@ QObject *ResultsController::logModel()
         return m_logFilter.get();
     if (m_live) {
         // The live ring buffer is what "View log" shows during a run.
-        m_logSource->setLines({});
+        // A snapshot of the live buffer, with each line's own time.
         const auto *live = qobject_cast<LogModel *>(m_runController.log());
-        for (int i = 0; live && i < live->rowCount(); ++i) {
-            const QModelIndex idx = live->index(i);
-            LogLine l;
-            l.testId = live->data(idx, LogModel::TestIdRole).toString();
-            l.message = live->data(idx, LogModel::MessageRole).toString();
-            l.level = logLevelFromKey(live->data(idx, LogModel::LevelRole).toString()).value_or(LogLevel::Info);
-            l.timestamp = QDateTime::currentDateTime();
-            m_logSource->append(l);
-        }
+        m_logSource->setLines(live ? live->lines() : QVector<LogLine>{});
         return m_logFilter.get();
     }
     RunRepository repo(m_storage.connection());

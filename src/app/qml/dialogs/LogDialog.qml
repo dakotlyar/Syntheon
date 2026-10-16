@@ -47,6 +47,13 @@ Dialog {
                 onChosen: value => { current = value; if (dialog.model) dialog.model.minLevel = value }
             }
             Item { Layout.fillWidth: true }
+            SbText {
+                objectName: "snapshotNote"
+                visible: Results.live
+                text: qsTr("Snapshot, reopen for newer lines")
+                kind: "small"
+                color: Theme.warn
+            }
             SbText { text: qsTr("%1 lines").arg(dialog.model ? dialog.model.rowCount() : 0); kind: "small" }
             SbButton {
                 objectName: "copyLog"

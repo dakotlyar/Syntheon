@@ -39,6 +39,8 @@ class RunController : public QObject
     Q_PROPERTY(QString runButtonText READ runButtonText NOTIFY selectionChanged)
     Q_PROPERTY(bool canStart READ canStart NOTIFY startabilityChanged)
     Q_PROPERTY(QStringList problems READ problems NOTIFY startabilityChanged)
+    // Why the last Start was refused (shown in the run bar); cleared by the next try or edit.
+    Q_PROPERTY(QStringList startErrors READ lastStartErrors NOTIFY startErrorsChanged)
     Q_PROPERTY(QVariantList tabs READ tabs NOTIFY selectionChanged)
     Q_PROPERTY(QString activeTab READ activeTab WRITE setActiveTab NOTIFY activeTabChanged)
     Q_PROPERTY(QObject *options READ options NOTIFY activeTabChanged)
@@ -133,6 +135,7 @@ signals:
     void runStarted();
     void runFinished(const QString &uuid, const QString &status);
     void startRefused(const QStringList &errors);
+    void startErrorsChanged();
     void runUpdated();  // a test finished: the current run changed
 
 private:

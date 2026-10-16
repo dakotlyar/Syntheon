@@ -32,6 +32,7 @@ private:
         o.dataFolder = m_dir->filePath(QStringLiteral("data"));
         m_rt = std::make_unique<AppRuntime>(o);
         m_rt->storageController().open();
+        m_rt->startup().waitForRecovery();
         m_rt->app().start();  // no elevation: the gate opens at once
         rc().refreshProbes();
         QTRY_VERIFY_WITH_TIMEOUT(!rc().probing(), 20000);
@@ -47,6 +48,23 @@ private:
     }
 
 private slots:
+    // AP-5 #5: a refused Start says why (and the reason clears on the next edit).
+    void refusedStartExposesItsReason()
+    {
+        startRuntime();
+        rc().toggle(QStringLiteral("cpu"));
+        QSignalSpy changed(&rc(), &RunController::startErrorsChanged);
+        m_rt->storageController().lock(QStringLiteral("recovery"), QStringLiteral("checking"));
+        QVERIFY(!rc().canStart());
+        QVERIFY(!rc().start());
+        QVERIFY(!rc().lastStartErrors().isEmpty());
+        QVERIFY(changed.count() >= 1);
+        rc().toggle(QStringLiteral("ram"));  // any edit clears it
+        QVERIFY(rc().lastStartErrors().isEmpty());
+        m_rt->storageController().unlock(QStringLiteral("recovery"));
+        QVERIFY(rc().canStart());
+    }
+
     void init() { tests::setStubTimeScale(0.03); }
     void cleanup()
     {
