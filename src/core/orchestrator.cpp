@@ -85,6 +85,10 @@ struct Orchestrator::Shared {
     std::atomic<std::thread::id> workerId{};
     std::atomic<bool> cancelFlag{false};
     std::atomic<bool> abandoned{false};
+    // Set (under sinkMutex) when the Orchestrator is destroyed. From then on
+    // the sink, inhibitor and receiver may be gone, and a hung worker that
+    // finally returns must not touch them (it only unwinds).
+    std::atomic<bool> detached{false};
     std::atomic<bool> workerExited{false};
 
     // Serialises sink calls. abandon() holds it while it finalises the run,
@@ -114,7 +118,7 @@ struct Orchestrator::Shared {
     bool sinkCall(F &&f)
     {
         QMutexLocker lock(&sinkMutex);
-        if (abandoned)
+        if (abandoned || detached)
             return false;
         QString error;
         if (f(error))
@@ -394,14 +398,20 @@ void Orchestrator::Shared::workerMain(std::shared_ptr<Shared> s)
                 // Too late: the run was already finalised without this test.
                 lock.unlock();
                 {
+                    // The Orchestrator may have been destroyed while this
+                    // thread was stuck, and the sink and inhibitor with it:
+                    // `detached` (set under this mutex) says so.
                     QMutexLocker sinkLock(&s->sinkMutex);
-                    s->sink.threadFinished();
+                    if (!s->detached) {
+                        s->sink.threadFinished();
+                        // F7: on Windows the sleep block belongs to this
+                        // thread (SetThreadExecutionState), so only this
+                        // thread can lift it; abandon()'s release from the
+                        // UI thread can't. Until a hung test returns (or the
+                        // app exits), sleep stays blocked.
+                        s->inhibitor.release();
+                    }
                 }
-                // F7: on Windows the sleep block belongs to this thread
-                // (SetThreadExecutionState), so only this thread can lift it;
-                // abandon()'s release from the UI thread can't. Until a hung
-                // test returns (or the app exits), sleep stays blocked.
-                s->inhibitor.release();
                 s->workerExited = true;
                 return;
             }
@@ -486,6 +496,15 @@ Orchestrator::~Orchestrator()
     }
     bool exited = true;
     if (m_shared) {
+        {
+            // From here on a worker that is still running (an abandoned one
+            // that never returns, or returns later) must not touch the sink,
+            // inhibitor or receiver; they belong to the caller and may be
+            // destroyed right after this destructor.
+            QMutexLocker sinkLock(&m_shared->sinkMutex);
+            m_shared->abandoned = true;
+            m_shared->detached = true;
+        }
         QMutexLocker lock(&m_shared->mutex);
         m_shared->receiver = nullptr;
         exited = m_shared->workerExited;
@@ -499,6 +518,19 @@ Orchestrator::~Orchestrator()
         else
             m_worker.detach();
     }
+}
+
+bool Orchestrator::waitForWorkerExit(std::chrono::milliseconds timeout)
+{
+    if (!m_shared)
+        return true;
+    const auto deadline = Clock::now() + timeout;
+    while (!m_shared->workerExited) {
+        if (Clock::now() >= deadline)
+            return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return true;
 }
 
 void Orchestrator::setState(State s)

@@ -137,7 +137,7 @@ StubSpec makeSpec()
             ctx.progress(double(n) / kSamples, QStringLiteral("Draining · %1%").arg(qRound(std::max(0.0, charge))));
             if (mode == QLatin1StringView("hang") && n == kSamples / 2) {
                 ctx.log(LogLevel::Warning, QStringLiteral("Simulated hang: ignoring Stop from here"));
-                QThread::sleep(15 * 60);
+                stubHang();
                 return TestResult::error(QStringLiteral("Simulated hang ended"));
             }
             if (mode == QLatin1StringView("error") && n == kSamples / 2) {
@@ -191,8 +191,12 @@ StubSpec makeSpec()
             chart.seriesKeys = {QStringLiteral("drain")};
             chart.yUnit = QStringLiteral("%");
             chart.xAxis.scale = ChartAxis::Scale::Linear;
-            for (int h = 0; h <= 8; ++h)
+            const Metric *runtime = r.metric(QStringLiteral("runtime"));
+            const double minutes = runtime && runtime->isNumeric() ? std::get<double>(runtime->value) : 480;
+            for (int h = 0; h * 60 <= minutes + 30; ++h) {
                 chart.xAxis.tickLabels.append(QStringLiteral("%1h").arg(h));
+                chart.xAxis.tickValues.append(h * 60.0);  // minutes
+            }
             d.blocks.append({QStringLiteral("Charge over time"), chart});
         }
         if (r.statusReason == QLatin1StringView("Recovered from checkpoints"))

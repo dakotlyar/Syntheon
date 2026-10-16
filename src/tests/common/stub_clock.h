@@ -9,4 +9,11 @@ namespace sb::tests {
 double stubTimeScale();
 void setStubTimeScale(double scale);  // tests
 
+// A simulated hang (Simulate = Hang) ignores Stop on purpose. It ends when
+// released (tests, so the stuck thread can be joined) or after 15 minutes.
+void releaseStubHangs();
+unsigned stubHangGeneration();
+// Blocks like a hung test: no cancel check, until released or 15 minutes.
+void stubHang();
+
 } // namespace sb::tests

@@ -264,6 +264,8 @@ private slots:
         QCOMPARE(run.status, RunStatus::Interrupted);
         QCOMPARE(run.tests[0].statusReason, QStringLiteral("Did not respond, restart SynBench"));
         QCOMPARE(o.state(), Orchestrator::State::Abandoned);
+        tests::releaseStubHangs();  // let the hung stub finish so it can be joined
+        QVERIFY(o.waitForWorkerExit(10s));
 
         // Unknown modes are rejected up front.
         Orchestrator o2(m_registry, *m_sink, m_inhibitor, fastConfig());

@@ -277,7 +277,7 @@ TestResult StubTest::run(RunContext &ctx, const OptionValues &optionsIn)
                 ctx.log(LogLevel::Warning, QStringLiteral("Simulated hang: ignoring Stop from here"));
                 // Deliberately never looks at ctx.cancelled(): the orchestrator
                 // must abandon this run (R7). Bounded so a stray process ends.
-                QThread::sleep(15 * 60);
+                stubHang();
                 return TestResult::error(QStringLiteral("Simulated hang ended"));
             }
             const int slices = std::max(1, int(stepMs / (kSliceMs * 5)));

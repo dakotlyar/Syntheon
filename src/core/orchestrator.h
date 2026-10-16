@@ -99,6 +99,14 @@ public:
     StartResult start(const Plan &plan, const RunMeta &meta);
     void stop();
 
+    // True once the worker thread has left its run loop, including an
+    // abandoned (hung) one that finally returned. A hung test can't be killed
+    // (R7), so anything its run() uses (the registry, captured locals) must
+    // outlive it: wait here before destroying them. The sink, inhibitor and
+    // registry must otherwise outlive the Orchestrator, as before; the
+    // destructor makes a late-returning worker leave them alone.
+    bool waitForWorkerExit(std::chrono::milliseconds timeout);
+
     State state() const { return m_state; }
     // The run in progress (or the last one), updated as tests finish: what
     // "View results so far" shows.

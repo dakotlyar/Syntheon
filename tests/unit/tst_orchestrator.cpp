@@ -565,7 +565,7 @@ private slots:
         const int linesBefore = logLines.count();
         release = true;
         QTRY_VERIFY(returned.load());
-        QTest::qWait(100);
+        QVERIFY(o.waitForWorkerExit(10s));  // never leave a hung thread running past the fixtures
         QStringList late = f.events.names().mid(eventsBefore);
         late.removeAll(QStringLiteral("threadFinished"));
         QCOMPARE(late, QStringList{QStringLiteral("release")});
@@ -593,6 +593,41 @@ private slots:
         QCOMPARE(o.state(), Orchestrator::State::Abandoned);
         release = true;
         QTRY_VERIFY(returned.load());
+        QVERIFY(o.waitForWorkerExit(10s));
+    }
+
+    // R7/F10: the Orchestrator is destroyed while a hung test is still
+    // running; when it finally returns it must leave the (by then destroyed)
+    // sink and inhibitor alone. Run under AddressSanitizer this fails without
+    // the `detached` guard.
+    void hungWorkerOutlivingTheOrchestrator()
+    {
+        std::atomic<bool> release{false};
+        std::atomic<bool> inRun{false};
+        std::atomic<bool> exited{false};
+        auto f = std::make_unique<Fixture>();
+        f->fakes[QStringLiteral("cpu")]->runner = [&](RunContext &, const OptionValues &) {
+            inRun = true;
+            while (!release)
+                QThread::msleep(5);
+            exited = true;
+            return okResult(1);
+        };
+        auto sink = std::make_unique<RecordingSink>(f->events);
+        auto inhibitor = std::make_unique<RecordingInhibitor>(f->events);
+        auto o = std::make_unique<Orchestrator>(f->registry, *sink, *inhibitor, fastConfig());
+        QVERIFY(o->start(plan({QStringLiteral("cpu")}), meta()).ok);
+        QTRY_VERIFY(inRun.load());
+        // Destroying a running orchestrator stops it, waits the grace period,
+        // abandons the hung test and goes away.
+        o.reset();
+        // The sink and the inhibitor go away too, then the thread wakes up.
+        sink.reset();
+        inhibitor.reset();
+        release = true;
+        QTRY_VERIFY(exited.load());
+        QTest::qWait(150);  // time for the tail of workerMain to run (and to crash if it touched freed memory)
+        f.reset();
     }
 
     void errorsDontStopTheRun()

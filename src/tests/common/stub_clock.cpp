@@ -2,6 +2,7 @@
 #include "tests/common/stub_clock.h"
 
 #include <QString>
+#include <QThread>
 #include <QtGlobal>
 
 #include <atomic>
@@ -39,6 +40,29 @@ double stubTimeScale()
 void setStubTimeScale(double scale)
 {
     override() = scale;
+}
+
+static std::atomic<unsigned> &hangGeneration()
+{
+    static std::atomic<unsigned> g{0};
+    return g;
+}
+
+void releaseStubHangs()
+{
+    hangGeneration()++;
+}
+
+unsigned stubHangGeneration()
+{
+    return hangGeneration().load();
+}
+
+void stubHang()
+{
+    const unsigned generation = stubHangGeneration();
+    for (int i = 0; i < 15 * 60 * 50 && stubHangGeneration() == generation; ++i)
+        QThread::msleep(20);
 }
 
 } // namespace sb::tests

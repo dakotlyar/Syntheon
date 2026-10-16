@@ -374,22 +374,22 @@ private slots:
         config.watchdogInterval = 10ms;
         config.scratchRoot = scratchRoot.path();
         QUuid runId;
-        {
-            Orchestrator o(f.registry, sink, inhibitor, config);
-            QSignalSpy finished(&o, &Orchestrator::runFinished);
-            RunMeta meta;
-            const auto started = o.start({{QStringLiteral("cpu"), {}}}, meta);
-            QVERIFY(started.ok);
-            runId = started.runId;
-            QVERIFY(finished.wait(10000));
-            QCOMPARE(o.state(), Orchestrator::State::Abandoned);
-        }
+        Orchestrator o(f.registry, sink, inhibitor, config);
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        RunMeta meta;
+        const auto started = o.start({{QStringLiteral("cpu"), {}}}, meta);
+        QVERIFY(started.ok);
+        runId = started.runId;
+        QVERIFY(finished.wait(10000));
+        QCOMPARE(o.state(), Orchestrator::State::Abandoned);
         QVERIFY(QFileInfo::exists(scratch));  // left behind by the abandoned run
         QCOMPARE(f.repo().load(runId)->status, RunStatus::Interrupted);
 
-        // "Next start": release the stuck thread first so it isn't using the folder.
+        // "Next start": release the stuck thread first so it isn't using the
+        // folder, and let it finish before anything it touches goes away.
         release = true;
         QTRY_VERIFY(returned.load());
+        QVERIFY(o.waitForWorkerExit(10s));
         const RecoveryReport report = recoverRuns(f.db(), f.registry, scratchRoot.path());
         QVERIFY2(report.errors.isEmpty(), qPrintable(report.errors.join(u'\n')));
         QCOMPARE(report.scratchPathsRemoved, 1);
