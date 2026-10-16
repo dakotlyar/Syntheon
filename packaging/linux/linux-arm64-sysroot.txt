@@ -43,6 +43,13 @@ libgssapi-krb5-2
 # NEED at run time and that are NOT on the exclude list, so make-appdir.py
 # bundles them from here (read with readelf -d from the real gcc_arm64 Qt).
 # The x64 build bundles the same ones from its build machine.
+# Wayland: the system libraries Qt's native wayland platform plugin links to.
+# They are on the exclude list (the user's compositor and drivers must match), so
+# they are NOT bundled; they are here so the sysroot is complete.
+libwayland-client0
+libwayland-cursor0
+libwayland-egl1
+libxkbcommon0
 libice6
 libsm6
 libxcb-glx0

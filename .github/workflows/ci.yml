@@ -245,6 +245,9 @@ jobs:
       - name: Static checks on the AppDir (architecture, libraries, glibc 2.35 floor)
         run: |
           python3 packaging/checks/elf-check.py AppDir --arch x86_64
+          # Both Qt platform plugins: native Wayland and xcb (the X11/XWayland fallback).
+          for f in libqwayland.so libqxcb.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
+          test -n "$(find AppDir/usr/plugins/wayland-shell-integration -name 'libxdg-shell.so')"
           bash packaging/checks/no-dev-hooks.sh AppDir
           bash packaging/checks/no-test-binaries.sh AppDir
           bash packaging/checks/test-elf-check.sh
@@ -632,6 +635,8 @@ jobs:
       - name: Static checks (P27, the aarch64 floor is glibc 2.39)
         run: |
           python3 packaging/checks/elf-check.py AppDir --arch aarch64 --cross-prefix aarch64-linux-gnu-
+          for f in libqwayland.so libqxcb.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
+          test -n "$(find AppDir/usr/plugins/wayland-shell-integration -name 'libxdg-shell.so')"
           bash packaging/checks/no-dev-hooks.sh AppDir
           bash packaging/checks/no-test-binaries.sh AppDir
           # The check must also FAIL on a planted bad binary: an x86_64 file in the aarch64 tree.

@@ -46,7 +46,12 @@ APP_ID = "io.github.dakotlyar.SynBench"
 # Qt plugin folders that SynBench can use. (tls, sqldrivers other than sqlite,
 # designer, ... are left out on purpose.)
 PLUGIN_DIRS = {
-    "platforms": ["libqxcb.so", "libqwayland-egl.so", "libqwayland-generic.so", "libqoffscreen.so", "libqminimal.so"],
+    # xcb (X11, also the XWayland fallback) and wayland (native; Qt 6.12 has ONE
+    # wayland platform plugin, libqwayland.so, with the shell, decoration and
+    # graphics integrations in the three wayland-* folders below). The older
+    # 6.x names stay listed so a different Qt still works.
+    "platforms": ["libqxcb.so", "libqwayland.so", "libqwayland-egl.so", "libqwayland-generic.so", "libqoffscreen.so",
+                  "libqminimal.so"],
     "xcbglintegrations": None,  # everything
     "wayland-decoration-client": None,
     "wayland-graphics-integration-client": None,
