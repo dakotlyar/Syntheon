@@ -91,6 +91,18 @@ is what that means in practice.
   window forward. Its lock and socket live in your own runtime directory, not
   in the (possibly synced) history folder.
 
+## Known limits
+
+- **A backslash in the AppImage's file name.** The AppImage runtime drops `\`
+  from the name it gives its mount, so SynBench can't verify the image and
+  refuses to ask for administrator access (it fails closed). You see:
+  `The AppImage's mount could not be verified (the mount is named
+  'fuse.SynBench.AppImage' / 'SynBench.AppImage', the image is 'Syn\Bench.AppImage'
+  (expected fs type 'fuse.Syn\Bench.AppImage')). SynBench won't ask for
+  administrator access from an image it can't verify.`
+  **Workaround:** rename the file without the backslash (spaces, brackets and
+  `#` are fine). `--synbench-selfcheck` shows the same message.
+
 ## Known harmless messages
 
 When started from a terminal on KDE/GNOME you may see
