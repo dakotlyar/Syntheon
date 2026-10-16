@@ -102,6 +102,11 @@ is what that means in practice.
   administrator access from an image it can't verify.`
   **Workaround:** rename the file without the backslash (spaces, brackets and
   `#` are fine). `--synbench-selfcheck` shows the same message.
+- **Root must be able to enter the AppImage's FUSE mount.** The helper runs as
+  root straight from the mounted image; there is no `--appimage-extract-and-run`
+  fallback (it would extract to a predictable `/tmp` directory, and pkexec clears
+  `TMPDIR`). On a system where root can't reach your FUSE mount, asking for
+  administrator access fails with an error instead of falling back.
 
 ## Known harmless messages
 
