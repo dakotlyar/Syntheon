@@ -42,6 +42,24 @@ TestCase {
         verify(findChild(editor(t.tab, "info"), "info").visible)
     }
 
+    // Zeb #1: a long, non-neutral pill wraps inside the row, never over the label.
+    function test_longInfoPillStaysInsideItsRow() {
+        const t = makeTab()
+        waitForRendering(t.tab)
+        const row = editor(t.tab, "longinfo")
+        const label = findChild(row, "infoLabel")
+        const pill = findChild(row, "infoPill")
+        verify(pill.visible)
+        const labelRight = label.mapToItem(row, label.width, 0).x
+        const pillLeft = pill.mapToItem(row, 0, 0).x
+        const pillRight = pill.mapToItem(row, pill.width, 0).x
+        verify(pillLeft >= labelRight, "pill starts at " + pillLeft + ", label ends at " + labelRight)
+        verify(pillRight <= row.width + 0.5, "pill ends at " + pillRight + " of " + row.width)
+        const text = findChild(pill, "pillText")
+        verify(text.lineCount >= 1)
+        verify(text.contentWidth <= pill.width)  // wrapped, not clipped wide
+    }
+
     function test_boolWrites() {
         const t = makeTab()
         compare(t.model.value("flag"), true)
@@ -57,7 +75,10 @@ TestCase {
         verify(a.checked)
         verify(!b.checked)
         verify(!c.enabled)
-        verify(c.text.indexOf("no Intel device") >= 0)  // the reason is shown
+        verify(c.text.indexOf("no Intel device") >= 0)  // the reason is shown...
+        compare(c.text.split("no Intel device").length - 1, 1)  // ...once
+        const d = findChild(editor(t.tab, "multi"), "multi-d")
+        compare(d.text, "Delta (no NVIDIA GPU)")  // already in the label: not appended again
         mouseClick(b)
         compare(t.model.value("multi"), ["a", "b"])
         mouseClick(a)

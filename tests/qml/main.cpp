@@ -32,7 +32,9 @@ public:
         sb::OptionDef m;
         m.key = QStringLiteral("multi"); m.label = QStringLiteral("Runtimes"); m.kind = sb::OptionKind::MultiSelect;
         m.items = {{QStringLiteral("a"), QStringLiteral("Alpha")}, {QStringLiteral("b"), QStringLiteral("Beta")},
-                   {QStringLiteral("c"), QStringLiteral("Gamma"), false, QStringLiteral("no Intel device")}};
+                   {QStringLiteral("c"), QStringLiteral("Gamma"), false, QStringLiteral("no Intel device")},
+                   // a label that already carries its reason: shown once, not twice
+                   {QStringLiteral("d"), QStringLiteral("Delta (no NVIDIA GPU)"), false, QStringLiteral("no NVIDIA GPU")}};
         m.defaultValue = QStringList{QStringLiteral("a")};
         s.options.append(m);
         sb::OptionDef seg;
@@ -64,6 +66,11 @@ public:
         info.key = QStringLiteral("info"); info.label = QStringLiteral("Window"); info.kind = sb::OptionKind::Info;
         info.infoValue = QStringLiteral("1280×720"); info.infoTone = sb::Tone::Good;
         s.options.append(info);
+        sb::OptionDef warn;
+        warn.key = QStringLiteral("longinfo"); warn.label = QStringLiteral("Models"); warn.kind = sb::OptionKind::Info;
+        warn.infoValue = QStringLiteral("Specific models and precisions are Phase 6 open questions.");
+        warn.infoTone = sb::Tone::Warn;
+        s.options.append(warn);
 
         auto *values = new sb::OptionValues;
         m_values.push_back(std::unique_ptr<sb::OptionValues>(values));

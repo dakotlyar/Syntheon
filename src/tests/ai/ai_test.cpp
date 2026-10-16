@@ -68,7 +68,7 @@ StubSpec makeSpec()
         for (const Runtime &r : kRuntimes) {
             OptionItem item{QString::fromLatin1(r.id), QString::fromLatin1(r.name)};
             if (QLatin1StringView(r.id) == QLatin1StringView("openvino")) {
-                item.label = QStringLiteral("OpenVINO (no Intel device)");
+                // The editor adds the reason to the label itself.
                 item.enabled = false;
                 item.disabledReason = QStringLiteral("no Intel device");
             } else {

@@ -58,7 +58,9 @@ ColumnLayout {
                 required property var modelData
                 objectName: "multi-" + modelData.value
                 enabled: modelData.enabled
+                // The reason once: an item whose label already says it isn't repeated.
                 text: modelData.enabled || !modelData.disabledReason
+                      || modelData.label.indexOf(modelData.disabledReason) >= 0
                       ? modelData.label : modelData.label + " (" + modelData.disabledReason + ")"
                 checked: root.value.indexOf(modelData.value) >= 0
                 onToggled: {
@@ -161,11 +163,23 @@ ColumnLayout {
                 anchors.margins: 6
                 anchors.leftMargin: 10
                 anchors.rightMargin: 10
-                SbText { text: root.label; Layout.fillWidth: root.infoTone !== "neutral"; Layout.alignment: Qt.AlignTop }
+                SbText {
+                    objectName: "infoLabel"
+                    text: root.label
+                    Layout.fillWidth: root.infoTone !== "neutral"
+                    Layout.minimumWidth: implicitWidth
+                    Layout.alignment: Qt.AlignTop
+                }
                 Pill {
+                    objectName: "infoPill"
                     visible: root.infoTone !== "neutral"
                     text: root.infoValue
                     tone: root.infoTone === "neutral" ? "" : root.infoTone
+                    // Never wider than the room the label leaves (it wraps instead
+                    // of spilling over the label, whatever the tone).
+                    Layout.maximumWidth: Math.max(60, infoRow.width - infoRow.spacing - 80)
+                    Layout.preferredWidth: Math.min(naturalWidth, Layout.maximumWidth)
+                    Layout.alignment: Qt.AlignRight | Qt.AlignTop
                 }
                 SbText {
                     visible: root.infoTone === "neutral"
