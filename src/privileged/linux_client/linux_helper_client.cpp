@@ -84,14 +84,17 @@ bool appImageMountIsReal(const QString &mountInfoPath, const QString &appDir, co
             continue;
         if (QDir::cleanPath(unescapeMountField(pre[4])) != appDir)
             continue;
-        if (!post[0].startsWith(QLatin1StringView("fuse")))
+        // The kernel octal-escapes space, tab, newline, '#' and '\\' in EVERY field,
+        // the file system type included ("fuse.My\040App.AppImage").
+        const QString fsType = unescapeMountField(post[0]);
+        if (!fsType.startsWith(QLatin1StringView("fuse")))
             continue;
         const QString source = unescapeMountField(post[1]);
         if (QFileInfo(source).isAbsolute())
             return QFileInfo(source).canonicalFilePath() == imagePath;
         const QString name = QFileInfo(imagePath).fileName();
         // `source` is relative to where the AppImage was started; only its file name is known.
-        return QFileInfo(source).fileName() == name && post[0] == QStringLiteral("fuse.") + name;
+        return QFileInfo(source).fileName() == name && fsType == QStringLiteral("fuse.") + name;
     }
     return false;
 }

@@ -259,15 +259,32 @@ jobs:
       # the image name. Prove the real runtime still reports exactly that.
       - name: The real AppImage mount matches what the helper launch check expects
         run: |
-          ./"$APPIMAGE_FILE" --appimage-mount > mount.txt &
-          mount_pid=$!
-          for _ in $(seq 1 20); do [ -s mount.txt ] && break; sleep 0.5; done
-          mnt=$(head -1 mount.txt)
-          line=$(awk -v m="$mnt" '$5 == m' /proc/self/mountinfo)
-          echo "mountinfo: $line"
-          kill "$mount_pid" || true
-          echo "$line" | grep -q " - fuse\.$APPIMAGE_FILE $APPIMAGE_FILE " \
-            || { echo "::error::the AppImage runtime reports its mount differently than the helper launch check expects"; exit 1; }
+          # The kernel octal-escapes space, #, backslash and tab in mountinfo fields
+          # (the fs type included), so check a plain name, a name with spaces and
+          # parentheses, and a launch through a symlink (the runtime reports the
+          # real file's name then; $APPIMAGE is the real path too).
+          check_mount() {  # <command to launch> <expected image file name, unescaped>
+            local launcher=$1 expected=$2
+            ./"$launcher" --appimage-mount > mount.txt &
+            local mount_pid=$!
+            for _ in $(seq 1 20); do [ -s mount.txt ] && break; sleep 0.5; done
+            local mnt line escaped
+            mnt=$(head -1 mount.txt)
+            line=$(awk -v m="$mnt" '$5 == m' /proc/self/mountinfo)
+            echo "mountinfo: $line"
+            kill "$mount_pid" || true
+            wait "$mount_pid" 2>/dev/null || true
+            escaped=${expected// /\\040}
+            case "$line" in
+              *" - fuse.$escaped $escaped "*) ;;
+              *) echo "::error::mount of '$launcher' is not 'fuse.$escaped $escaped' as the helper launch check expects"; exit 1 ;;
+            esac
+          }
+          check_mount "$APPIMAGE_FILE" "$APPIMAGE_FILE"
+          cp "$APPIMAGE_FILE" "SynBench test (1).AppImage"
+          check_mount "SynBench test (1).AppImage" "SynBench test (1).AppImage"
+          ln -s "SynBench test (1).AppImage" link-to-it.AppImage
+          check_mount "link-to-it.AppImage" "SynBench test (1).AppImage"
 
       # No smoke switch in a packaged build: it must start with its bundled
       # libraries and stay up (the administrator prompt then fails: no polkit

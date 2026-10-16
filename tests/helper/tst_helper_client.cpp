@@ -166,6 +166,23 @@ private slots:
         LinuxHelperClient::Environment realistic = appImage;
         realistic.mountInfo = mountTable(QStringLiteral("fuse.") + name, name, appImage.appDir);
         QVERIFY(LinuxHelperClient::defaultLaunch(realistic)->fallback.has_value());
+        // Special characters in the file name: the kernel octal-escapes them in
+        // the fs type and the source (observed on a real AppImage named
+        // "SynBench test (1).AppImage": fuse.SynBench\040test\040(1).AppImage).
+        for (const QString &odd : {QStringLiteral("My App (1).AppImage"), QStringLiteral("a#b.AppImage"),
+                                    QStringLiteral("back\\slash.AppImage"), QStringLiteral("tab\tname.AppImage")}) {
+            const QString oddImage = exe(odd);
+            const auto esc = [](QString v) {
+                v.replace(QLatin1Char('\\'), QStringLiteral("\\134")).replace(QLatin1Char(' '), QStringLiteral("\\040"));
+                v.replace(QLatin1Char('\t'), QStringLiteral("\\011")).replace(QLatin1Char('#'), QStringLiteral("\\043"));
+                return v;
+            };
+            LinuxHelperClient::Environment e = appImage;
+            e.appImage = oddImage;
+            e.mountInfo = mountTable(QStringLiteral("fuse.") + esc(odd), esc(odd), appImage.appDir);
+            const auto launch = LinuxHelperClient::defaultLaunch(e);
+            QVERIFY2(launch && launch->primary.arguments.value(0) == oddImage, qPrintable(odd));
+        }
         // ...but a name that isn't this image's is refused.
         LinuxHelperClient::Environment otherName = appImage;
         otherName.mountInfo = mountTable(QStringLiteral("fuse.Other.AppImage"), QStringLiteral("Other.AppImage"), appImage.appDir);
