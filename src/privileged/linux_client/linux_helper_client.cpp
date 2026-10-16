@@ -62,19 +62,35 @@ QString unescapeMountField(const QString &s)
     return out;
 }
 
+} // namespace
+
 // Is `appDir` really the mount point of an AppImage's FUSE mount, for this image?
-// Trusts the kernel's mount table, not $APPDIR/$APPIMAGE. The mount's source
-// of the type-2 runtime (checked against a real AppImage, 2026-10-16) is the
-// image's file NAME as it was launched, not a full path, and the fs type is
-// "fuse.<file name>": both must match the image's name. An absolute source
-// (another runtime) must be the image itself.
-bool appImageMountIsReal(const QString &mountInfoPath, const QString &appDir, const QString &imagePath)
+// Trusts the kernel's mount table, not $APPDIR/$APPIMAGE. The mount of the
+// type-2 runtime (checked on a real AppImage, 2026-10-16) has fs type
+// "fuse.<image file name>" and the source "<image file name>" (the real file's
+// name, no directory, even when launched through a symlink): both must match the
+// image's name. An absolute source (another runtime) must be the image itself.
+//
+// The mount table is read with readAll(): /proc files report size 0, so
+// QFile::atEnd() is true at once and a readLine() loop never runs. That made the
+// check fail on every real AppImage while passing on the temp files of the tests.
+LinuxHelperClient::MountCheck LinuxHelperClient::verifyAppImageMount(const QString &mountInfoPath, const QString &appDir,
+                                                                      const QString &imagePath)
 {
+    MountCheck r;
     QFile f(mountInfoPath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
-        return false;
-    while (!f.atEnd()) {
-        const QString line = QString::fromUtf8(f.readLine()).trimmed();
+    if (!f.open(QIODevice::ReadOnly)) {
+        r.reason = QStringLiteral("can't read %1").arg(mountInfoPath);
+        return r;
+    }
+    const QString table = QString::fromUtf8(f.readAll());
+    if (table.isEmpty()) {
+        r.reason = QStringLiteral("%1 is empty").arg(mountInfoPath);
+        return r;
+    }
+    const QString name = QFileInfo(imagePath).fileName();
+    for (const QString &raw : table.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
+        const QString line = raw.trimmed();
         const int dash = line.indexOf(QStringLiteral(" - "));
         if (dash < 0)
             continue;
@@ -84,22 +100,86 @@ bool appImageMountIsReal(const QString &mountInfoPath, const QString &appDir, co
             continue;
         if (QDir::cleanPath(unescapeMountField(pre[4])) != appDir)
             continue;
-        // The kernel octal-escapes space, tab, newline, '#' and '\\' in EVERY field,
-        // the file system type included ("fuse.My\040App.AppImage").
+        // The kernel octal-escapes space, tab, newline, '#' and backslash in EVERY
+        // field, the file system type included ("fuse.My\040App.AppImage").
         const QString fsType = unescapeMountField(post[0]);
-        if (!fsType.startsWith(QLatin1StringView("fuse")))
-            continue;
         const QString source = unescapeMountField(post[1]);
-        if (QFileInfo(source).isAbsolute())
-            return QFileInfo(source).canonicalFilePath() == imagePath;
-        const QString name = QFileInfo(imagePath).fileName();
+        r.detail = QStringLiteral("mount %1: fs type '%2', source '%3'").arg(appDir, fsType, source);
+        if (!fsType.startsWith(QLatin1StringView("fuse"))) {
+            r.reason = QStringLiteral("the mount at %1 is not FUSE (%2)").arg(appDir, fsType);
+            return r;
+        }
+        if (QFileInfo(source).isAbsolute()) {
+            r.ok = QFileInfo(source).canonicalFilePath() == imagePath;
+            if (!r.ok)
+                r.reason = QStringLiteral("the mount's source %1 is not the image %2").arg(source, imagePath);
+            return r;
+        }
         // `source` is relative to where the AppImage was started; only its file name is known.
-        return QFileInfo(source).fileName() == name && fsType == QStringLiteral("fuse.") + name;
+        r.ok = QFileInfo(source).fileName() == name && fsType == QStringLiteral("fuse.") + name;
+        if (!r.ok)
+            r.reason = QStringLiteral("the mount is named '%1' / '%2', the image is '%3' (expected fs type 'fuse.%3')")
+                           .arg(fsType, source, name);
+        return r;
     }
-    return false;
+    r.reason = QStringLiteral("no mount at %1 in %2").arg(appDir, mountInfoPath);
+    return r;
 }
 
-} // namespace
+LinuxHelperClient::LaunchPlan LinuxHelperClient::planLaunch(const Environment &env)
+{
+    LaunchPlan plan;
+    const QString binary = QFileInfo(env.applicationFilePath).canonicalFilePath();
+
+    // AppImage: only if this binary really runs from inside the mounted image
+    // ($APPIMAGE alone proves nothing, AP5-R2-1). Root then re-executes the
+    // AppImage file itself (root normally can't enter the user's FUSE mount).
+    if (!env.appImage.isEmpty() && !env.appDir.isEmpty()) {
+        const QString appDir = QFileInfo(env.appDir).canonicalFilePath();
+        if (!appDir.isEmpty() && !binary.isEmpty() && binary.startsWith(appDir + QLatin1Char('/'))) {
+            plan.kind = LaunchPlan::Kind::AppImage;
+            const QFileInfo image(env.appImage);
+            if (!image.isAbsolute() || !image.isFile() || !image.isExecutable()) {
+                plan.message = QStringLiteral("The AppImage's mount could not be verified: $APPIMAGE (%1) is not an "
+                                              "absolute path to an executable file.")
+                                   .arg(env.appImage);
+                return plan;
+            }
+            plan.imagePath = image.canonicalFilePath();
+            const MountCheck check = verifyAppImageMount(env.mountInfo, appDir, plan.imagePath);
+            plan.mountDetail = check.detail;
+            if (!check.ok) {
+                plan.message = QStringLiteral("The AppImage's mount could not be verified (%1). SynBench won't ask for "
+                                              "administrator access from an image it can't verify.")
+                                   .arg(check.reason);
+                return plan;
+            }
+            plan.mountVerified = true;
+            // In an AppImage the helper is started by AppRun from the image itself.
+            plan.helperPath = QDir(appDir).filePath(QStringLiteral("usr/libexec/synbench-helper"));
+            plan.message = QStringLiteral("AppImage %1 verified").arg(plan.imagePath);
+            return plan;
+        }
+    }
+
+    // Dev build or an unpacked install: the helper next to the app binary, or in
+    // ../libexec (the install layout). Canonical, executable.
+    plan.kind = LaunchPlan::Kind::Dev;
+    const QDir dir = QFileInfo(binary).dir();
+    const QStringList candidates{dir.filePath(QStringLiteral("synbench-helper")),
+                                 dir.filePath(QStringLiteral("../libexec/synbench-helper"))};
+    for (const QString &c : candidates) {
+        const QString canonical = QFileInfo(c).canonicalFilePath();
+        if (!canonical.isEmpty() && QFileInfo(canonical).isExecutable()) {
+            plan.helperPath = canonical;
+            plan.message = QStringLiteral("helper %1").arg(canonical);
+            return plan;
+        }
+    }
+    plan.message = QStringLiteral("The privileged helper (synbench-helper) was not found. Looked in: %1.")
+                       .arg(QDir::toNativeSeparators(candidates.join(QStringLiteral(", "))));
+    return plan;
+}
 
 std::optional<LinuxHelperClient::Launch> LinuxHelperClient::defaultLaunch(const Environment &env, QString *error)
 {
@@ -118,43 +198,29 @@ std::optional<LinuxHelperClient::Launch> LinuxHelperClient::defaultLaunch(const 
         return std::nullopt;
     }
 
-    const QString binary = QFileInfo(env.applicationFilePath).canonicalFilePath();
-
-    // Dev build / no AppImage: the helper next to the app binary, canonical.
-    const auto devLaunch = [&]() -> std::optional<Launch> {
-        const QString helper =
-            QFileInfo(QFileInfo(binary).dir().filePath(QStringLiteral("synbench-helper"))).canonicalFilePath();
-        if (helper.isEmpty() || !QFileInfo(helper).isExecutable()) {
+    const LaunchPlan plan = planLaunch(env);
+    if (plan.kind == LaunchPlan::Kind::AppImage) {
+        if (!plan.mountVerified) {
+            // Never fall through to the dev path inside an AppImage: it would only
+            // report a missing helper and hide the real reason.
+            qCWarning(lcHelper) << plan.message;
             if (error)
-                *error = QStringLiteral("The privileged helper (synbench-helper) is missing next to SynBench.");
+                *error = plan.message;
             return std::nullopt;
         }
-        return Launch{{pkexec, {helper}}, std::nullopt};
-    };
-
-    // AppImage: only if this binary really runs from inside the mounted image.
-    // Root then re-executes the AppImage file itself (root normally can't enter
-    // the user's FUSE mount).
-    if (!env.appImage.isEmpty() && !env.appDir.isEmpty()) {
-        const QString appDir = QFileInfo(env.appDir).canonicalFilePath();
-        const QFileInfo image(env.appImage);
-        if (!appDir.isEmpty() && !binary.isEmpty() && binary.startsWith(appDir + QLatin1Char('/'))
-            && image.isAbsolute() && image.isFile() && image.isExecutable()) {
-            const QString imagePath = image.canonicalFilePath();
-            if (!appImageMountIsReal(env.mountInfo, appDir, imagePath)) {
-                qCWarning(lcHelper) << "$APPDIR isn't a FUSE mount of $APPIMAGE; ignoring both";
-                return devLaunch();
-            }
-            // No "--appimage-extract-and-run" fallback: the runtime extracts to a
-            // PREDICTABLE, world-readable $TMPDIR/appimage_extracted_<hash> (checked on
-            // the pinned runtime), and as root that is a directory another local user
-            // could prepare. If root can't enter the FUSE mount, elevation fails with a
-            // clear error instead (R2 passed on the real pkexec here).
-            return Launch{{pkexec, {imagePath, QStringLiteral("--synbench-helper")}}, std::nullopt};
-        }
+        // No "--appimage-extract-and-run" fallback: the runtime extracts to a
+        // PREDICTABLE, world-readable $TMPDIR/appimage_extracted_<hash> (checked on
+        // the pinned runtime), and as root that is a directory another local user
+        // could prepare. If root can't enter the FUSE mount, elevation fails with a
+        // clear error instead (R2 passed on the real pkexec here).
+        return Launch{{pkexec, {plan.imagePath, QStringLiteral("--synbench-helper")}}, std::nullopt};
     }
-
-    return devLaunch();
+    if (plan.helperPath.isEmpty()) {
+        if (error)
+            *error = plan.message;
+        return std::nullopt;
+    }
+    return Launch{{pkexec, {plan.helperPath}}, std::nullopt};
 }
 
 QString LinuxHelperClient::thisBuildId()

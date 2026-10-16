@@ -81,6 +81,27 @@ public:
         static Environment current();
     };
     static QStringList defaultPkexecDirs();  // fixed system dirs, never $PATH
+
+    // The result of checking an AppImage's mount against the kernel's mount table.
+    struct MountCheck {
+        bool ok = false;
+        QString reason;  // why not
+        QString detail;  // what the matching mount looked like
+    };
+    static MountCheck verifyAppImageMount(const QString &mountInfoPath, const QString &appDir, const QString &imagePath);
+
+    // What defaultLaunch() decided and why, without needing pkexec: used by the
+    // launch itself and by `SynBench --synbench-selfcheck`.
+    struct LaunchPlan {
+        enum class Kind { Dev, AppImage };
+        Kind kind = Kind::Dev;
+        bool mountVerified = false;  // AppImage only
+        QString imagePath;           // AppImage: the verified $APPIMAGE (canonical)
+        QString helperPath;          // Dev: the helper to run; AppImage: where it lives inside the image
+        QString mountDetail;
+        QString message;             // the reason when it can't launch, else a one-line summary
+    };
+    static LaunchPlan planLaunch(const Environment &env);
     // nullopt (with `error`) if pkexec or the helper can't be found.
     static std::optional<Launch> defaultLaunch(const Environment &env, QString *error = nullptr);
     // "<display version> <build id>", what the helper reports in HELLO.

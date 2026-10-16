@@ -153,11 +153,14 @@ private slots:
                                     t.filePath(QStringLiteral("no-such-mountinfo"))}) {
             LinuxHelperClient::Environment forged = appImage;
             forged.mountInfo = bad;
-            const auto launch = LinuxHelperClient::defaultLaunch(forged);
-            QVERIFY(launch);
-            // No AppImage re-exec, no fallback: just the helper next to the binary.
-            QCOMPARE(launch->primary.arguments, QStringList{QFileInfo(t.filePath(QStringLiteral("mount_abc/usr/bin/synbench-helper"))).canonicalFilePath()});
-            QVERIFY(!launch->fallback);
+            QString why;
+            const auto launch = LinuxHelperClient::defaultLaunch(forged, &why);
+            // Inside an AppImage with an unverifiable mount there is NO launch at all (the
+            // dev path would only report a missing helper and hide the real reason), and the
+            // error says what failed.
+            QVERIFY2(!launch, qPrintable(why));
+            QVERIFY2(why.contains(QLatin1StringView("mount could not be verified")), qPrintable(why));
+            QVERIFY2(!why.contains(QLatin1StringView("missing")), qPrintable(why));
         }
         // What the real type-2 runtime reports (observed on a real AppImage):
         // fs type "fuse.<file name>", source "<file name>" (no directory).
@@ -185,7 +188,9 @@ private slots:
         // ...but a name that isn't this image's is refused.
         LinuxHelperClient::Environment otherName = appImage;
         otherName.mountInfo = mountTable(QStringLiteral("fuse.Other.AppImage"), QStringLiteral("Other.AppImage"), appImage.appDir);
-        QVERIFY(LinuxHelperClient::defaultLaunch(otherName)->primary.arguments.value(0) != image);
+        QString otherWhy;
+        QVERIFY(!LinuxHelperClient::defaultLaunch(otherName, &otherWhy));
+        QVERIFY(otherWhy.contains(QLatin1StringView("expected fs type")));
 
         // A stray or forged $APPIMAGE is ignored: binary not inside $APPDIR,
         // no $APPDIR, or a relative/non-executable image.
@@ -198,13 +203,31 @@ private slots:
         QCOMPARE(LinuxHelperClient::defaultLaunch(noDir)->primary.arguments, QStringList{helper});
         LinuxHelperClient::Environment relative = appImage;
         relative.appImage = QStringLiteral("SynBench-x86_64.AppImage");
-        QVERIFY(LinuxHelperClient::defaultLaunch(relative)->primary.arguments.value(0) != relative.appImage);
+        QVERIFY(!LinuxHelperClient::defaultLaunch(relative));  // the binary IS inside $APPDIR: refused, not ignored
         LinuxHelperClient::Environment notExec = appImage;
         notExec.appImage = t.filePath(QStringLiteral("plain-file"));
         QFile pf(notExec.appImage);
         QVERIFY(pf.open(QIODevice::WriteOnly));
         pf.close();
-        QVERIFY(LinuxHelperClient::defaultLaunch(notExec)->primary.arguments.value(0) != notExec.appImage);
+        QVERIFY(!LinuxHelperClient::defaultLaunch(notExec));
+
+        // The real mount table (/proc: size 0, so QFile::atEnd() is true at once): reading it
+        // must work. This is the bug that made every real AppImage fail the check while the
+        // tests, which read ordinary temp files, passed.
+        {
+            const auto proc = LinuxHelperClient::verifyAppImageMount(QStringLiteral("/proc/self/mountinfo"), QStringLiteral("/proc"),
+                                                                     image);
+            QVERIFY2(proc.reason.contains(QLatin1StringView("not FUSE")), qPrintable(proc.reason + " | " + proc.detail));
+            QVERIFY2(proc.detail.contains(QLatin1StringView("fs type 'proc'")), qPrintable(proc.detail));
+        }
+        // The dev path says where it looked.
+        {
+            LinuxHelperClient::Environment lost = dev;
+            lost.applicationFilePath = t.filePath(QStringLiteral("evil/pkexec"));
+            QString lostWhy;
+            QVERIFY(!LinuxHelperClient::defaultLaunch(lost, &lostWhy));
+            QVERIFY2(lostWhy.contains(QLatin1StringView("Looked in")) && lostWhy.contains(QLatin1StringView("libexec")), qPrintable(lostWhy));
+        }
 
         // No pkexec in the fixed dirs: an error, $PATH is never searched.
         LinuxHelperClient::Environment noPkexec = dev;
