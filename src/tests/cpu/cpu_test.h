@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "tests/common/skeleton_test.h"
+#include "tests/common/stub_test.h"
 
 namespace sb::tests {
 
-// Skeleton: the stub behaviour lands in task 11, the real test in its phase.
-class CpuTest : public SkeletonTest
+// Phase 1 stub (D15). Phase 2 replaces this folder with the real test.
+class CpuTest : public StubTest
 {
 public:
     CpuTest();
