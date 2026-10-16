@@ -49,8 +49,8 @@ jobs:
           cp "artifacts/SynBench-windows-arm64-installers/SynBench-$VERSION-windows-arm64-setup.exe" release/
           cp "artifacts/SynBench-windows-arm64-installers/SynBench-$VERSION-windows-arm64.msi" release/
           cp "artifacts/SynBench-linux-x86_64-AppImage/SynBench-$VERSION-x86_64.AppImage" release/
-          test "$(ls release | wc -l)" -eq 5
-          ls -l release
+          test "$(find release -type f | wc -l)" -eq 5
+          find release -type f -exec ls -l {} +
 
       - name: Create the draft release
         env:
