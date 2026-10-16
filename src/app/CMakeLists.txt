@@ -129,7 +129,10 @@ if(WIN32)
         target_link_options(synbench_app PRIVATE /MANIFESTUAC:NO)
         # Libraries the exe links to are loaded before main(): from the application
         # folder and System32 only (0x200 | 0x800), never the current folder or PATH.
-        target_link_options(synbench_app PRIVATE /DEPENDENTLOADFLAG:0xA00)
+        # PACKAGED builds only: a development build finds Qt through PATH.
+        if(NOT SYNBENCH_DEV_HOOKS)
+            target_link_options(synbench_app PRIVATE /DEPENDENTLOADFLAG:0xA00)
+        endif()
     endif()
 endif()
 

@@ -23,11 +23,15 @@
 
 int main(int argc, char *argv[])
 {
+#ifndef SYNBENCH_DEV_HOOKS
     // SynBench runs elevated: first of all, before Qt (or anything else) loads a
     // library, restrict where DLLs come from (Windows). The exe's own
     // /DEPENDENTLOADFLAG covers the libraries that load before main().
+    // PACKAGED builds only: they have every DLL and plugin beside the exe
+    // (windeployqt). A development build finds Qt through PATH and its prefix,
+    // which these restrictions would break (and a missing DLL at load time makes
+    // Windows show a modal dialog, hanging an unattended run).
     sb::hardenDllSearch();
-#ifndef SYNBENCH_DEV_HOOKS
     // A packaged build takes its plugins and QML only from its own folders, never
     // from environment variables a caller set. (A development build keeps them:
     // it runs from a Qt prefix and tests rely on that.)

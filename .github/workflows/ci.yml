@@ -151,15 +151,13 @@ jobs:
       - name: Unit tests
         run: ctest --preset windows-x64-release --output-on-failure
 
-      # §10 smoke launch (a GUI exe: wait for it and take its exit code).
+      # §10 smoke launch (a GUI exe). run-smoke.ps1 cannot hang: the Windows error
+      # mode turns a missing DLL into an immediate exit code instead of a dialog,
+      # and the wait is bounded (60 s, then the process tree is killed).
       - name: Smoke launch
         timeout-minutes: 3
-        env:
-          SYNBENCH_SMOKE: "1"
         shell: pwsh
-        run: |
-          $p = Start-Process -FilePath build/windows-x64-release/bin/SynBench.exe -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "SynBench smoke exited with $($p.ExitCode)" }
+        run: ./packaging/checks/run-smoke.ps1 -Exe build/windows-x64-release/bin/SynBench.exe -TimeoutSeconds 60
 
       # A failing (or crashing) test must leave something to read: the tail of
       # every test log, the failed tests re-run verbosely, and the logs as an
