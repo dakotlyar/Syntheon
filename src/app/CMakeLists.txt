@@ -112,16 +112,20 @@ endif()
 
 # ---------------------------------------------------------------- Windows: manifest, version, icon
 if(WIN32)
-    # The exe's resources: icon, version info (file version 2026.11.N.0) and
-    # the manifest that asks for administrator rights (P12/D1). The linker's
-    # own manifest is turned off, since ours is embedded by the .rc file.
+    # The exe's resources: icon and version info (file version 2026.11.N.0)
+    # from the .rc, plus the manifest asking for administrator rights (P12/D1).
     set(SYNBENCH_SOURCE_DIR "${PROJECT_SOURCE_DIR}")
     configure_file(windows/synbench.rc.in "${CMAKE_CURRENT_BINARY_DIR}/synbench.rc" @ONLY)
     target_sources(synbench_app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/synbench.rc")
     set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/synbench.rc" PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/windows/SynBench.manifest;${PROJECT_SOURCE_DIR}/assets/synbench.ico")
+        OBJECT_DEPENDS "${PROJECT_SOURCE_DIR}/assets/synbench.ico")
+    # ONE manifest, merged and embedded by CMake's link step from this source
+    # file (a second one from the .rc gave "CVT1100: duplicate resource
+    # MANIFEST 1"). The linker's own default, an asInvoker execution level, is
+    # switched off so it can't conflict with ours (requireAdministrator).
+    target_sources(synbench_app PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/windows/SynBench.manifest")
     if(MSVC)
-        target_link_options(synbench_app PRIVATE /MANIFEST:NO)
+        target_link_options(synbench_app PRIVATE /MANIFESTUAC:NO)
     endif()
 endif()
 

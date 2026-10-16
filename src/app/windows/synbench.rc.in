@@ -6,8 +6,9 @@
 // The icon with the lowest id is the exe's icon.
 1 ICON "@SYNBENCH_SOURCE_DIR@/assets/synbench.ico"
 
-// RT_MANIFEST (24), id 1: the exe's own manifest (administrator, DPI, long paths).
-1 24 "@CMAKE_CURRENT_SOURCE_DIR@/windows/SynBench.manifest"
+// The manifest (administrator, DPI, long paths) is NOT here: CMake merges and
+// embeds it from the target's .manifest source (see CMakeLists.txt). Putting
+// it in this file as well gave "CVT1100: duplicate resource MANIFEST 1".
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION @SYNBENCH_VERSION_MAJOR@,@SYNBENCH_VERSION_MINOR@,@SYNBENCH_VERSION_PATCH@,0

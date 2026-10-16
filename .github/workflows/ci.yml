@@ -127,6 +127,10 @@ jobs:
       - name: Build
         run: cmake --build --preset windows-x64-release
 
+      - name: The exe has exactly one manifest, requesting administrator rights
+        shell: pwsh
+        run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-x64-release/bin/SynBench.exe
+
       # AP5-R2-4: test-only binaries never ship. Install rules arrive with
       # packaging (task 19); until then the install tree is empty.
       - name: Check shipping trees for test binaries
@@ -310,6 +314,10 @@ jobs:
       - name: Build
         run: cmake --build --preset windows-x64-package
 
+      - name: The exe has exactly one manifest, requesting administrator rights
+        shell: pwsh
+        run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-x64-package/bin/SynBench.exe
+
       - name: Install and deploy Qt
         shell: pwsh
         run: |
@@ -434,6 +442,10 @@ jobs:
 
       - name: Build
         run: cmake --build --preset windows-arm64-cross
+
+      - name: The exe has exactly one manifest, requesting administrator rights
+        shell: pwsh
+        run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-arm64-cross/bin/SynBench.exe
 
       - name: Install and deploy Qt (host tool, target Qt)
         shell: pwsh
