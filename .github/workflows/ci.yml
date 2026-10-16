@@ -675,7 +675,9 @@ jobs:
       - name: Desktop file and AppStream metadata
         run: |
           desktop-file-validate packaging/linux/io.github.dakotlyar.SynBench.desktop
-          appstreamcli validate --no-net packaging/linux/io.github.dakotlyar.SynBench.metainfo.xml || true
+          sed "s/@SYNBENCH_VERSION@/$(tr -d '[:space:]' < VERSION)/; s/@SYNBENCH_RELEASE_DATE@/$(date -u +%F)/" \
+            packaging/linux/io.github.dakotlyar.SynBench.metainfo.xml.in > metainfo-check.xml
+          appstreamcli validate --no-net metainfo-check.xml
 
       - name: Install Qt (for qmllint)
         uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
@@ -689,5 +691,8 @@ jobs:
 
       - name: QML (qmllint)
         run: |
-          find src/app/qml tests/qml -name '*.qml' -print0 | xargs -0 "$QT_ROOT_DIR/bin/qmllint" -I "$QT_ROOT_DIR/qml" --max-warnings 0 || \
-            { echo "::warning::qmllint reported warnings"; true; }
+          # Errors fail the job (qmllint's exit status). Warnings do not: the existing
+          # ~1100 are almost all [unqualified] and [import] (the singletons are
+          # reached through the module, which the linter can't see), and cleaning
+          # them up is its own piece of work, not a gate.
+          find src/app/qml tests/qml -name '*.qml' -print0 | xargs -0 "$QT_ROOT_DIR/bin/qmllint" -I "$QT_ROOT_DIR/qml"

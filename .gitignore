@@ -11,3 +11,5 @@ CMakeUserPresets.json
 /.cache/
 compile_commands.json
 *.user
+__pycache__/
+*.pyc

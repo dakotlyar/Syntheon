@@ -185,7 +185,12 @@ else()
     endif()
     install(FILES "${PROJECT_SOURCE_DIR}/packaging/linux/io.github.dakotlyar.SynBench.desktop"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
-    install(FILES "${PROJECT_SOURCE_DIR}/packaging/linux/io.github.dakotlyar.SynBench.metainfo.xml"
+    # The release entry comes from the VERSION file and the build date (honours
+    # SOURCE_DATE_EPOCH), not from a number typed into the file.
+    string(TIMESTAMP SYNBENCH_RELEASE_DATE "%Y-%m-%d" UTC)
+    configure_file("${PROJECT_SOURCE_DIR}/packaging/linux/io.github.dakotlyar.SynBench.metainfo.xml.in"
+                   "${CMAKE_CURRENT_BINARY_DIR}/io.github.dakotlyar.SynBench.metainfo.xml" @ONLY)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/io.github.dakotlyar.SynBench.metainfo.xml"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo")
     install(FILES "${PROJECT_SOURCE_DIR}/assets/synbench.svg"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps" RENAME synbench.svg)

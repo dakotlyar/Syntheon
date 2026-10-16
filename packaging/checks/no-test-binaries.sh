@@ -11,7 +11,7 @@ set -euo pipefail
 [[ $# -ge 1 ]] || { echo "usage: $0 <tree>..." >&2; exit 2; }
 found=0
 for tree in "$@"; do
-    [[ -d $tree ]] || continue
+    [[ -d $tree ]] || { echo "no such tree to check: $tree" >&2; exit 2; }
     while IFS= read -r -d '' f; do
         echo "test-only binary in a shipping tree: $f" >&2
         found=1
