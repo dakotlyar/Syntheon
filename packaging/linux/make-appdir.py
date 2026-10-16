@@ -16,6 +16,19 @@ Layout produced:
   AppDir/<app-id>.desktop, synbench.png, .DirIcon
   AppDir/usr/bin/SynBench (+ qt.conf), usr/libexec/synbench-helper
   AppDir/usr/lib       bundled libraries (Qt and whatever Qt needs, minus the exclude list)
+
+The bundling rule, the same for both architectures (one exclude list):
+  * a library is NOT bundled if it is on packaging/linux/excludelist.txt: glibc
+    and its friends, the graphics drivers/loaders, the windowing core
+    (libX11, libxcb, Wayland), fontconfig/freetype/harfbuzz, D-Bus/systemd/glib,
+    xkbcommon. Those belong to the user's system and must match its drivers.
+  * EVERYTHING ELSE that a bundled file needs (libSM/libICE, the libxcb-*
+    helper libraries the xcb plugin uses, libbrotli, libzstd, ICU, ...) is
+    bundled, taken from the Qt prefix first, then from the build machine (x64)
+    or the sysroot (arm64). So whatever Qt needs beyond the exclude list must be
+    present there: for arm64 that is the package list in linux-arm64-sysroot.txt.
+  * a needed library that is neither excluded nor found is an error, not a
+    silent omission.
   AppDir/usr/plugins   Qt plugins     AppDir/usr/qml   QML imports
 """
 import argparse

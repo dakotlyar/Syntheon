@@ -27,6 +27,9 @@ from pathlib import Path
 
 MACHINES = {"x86_64": "Advanced Micro Devices X86-64", "aarch64": "AArch64"}
 # The floor per architecture (glibc, GLIBCXX, CXXABI): the oldest distro each is supported on.
+# aarch64 (noble): read from the real libstdc++.so.6 of both libstdc++6 14-20240412-0ubuntu1
+# (24.04.0) and 14.2.0-4ubuntu2~24.04.1 (updates) with objdump -T: both export up to
+# GLIBCXX_3.4.33 and CXXABI_1.3.15. x86_64 (jammy): libstdc++6 12.x, GLIBCXX_3.4.30, CXXABI_1.3.13.
 FLOORS = {"x86_64": ("2.35", "3.4.30", "1.3.13"), "aarch64": ("2.39", "3.4.33", "1.3.15")}
 
 

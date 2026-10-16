@@ -39,6 +39,20 @@ libglib2.0-dev
 libvulkan-dev
 libicu-dev
 libgssapi-krb5-2
+# What the official arm64 Qt's xcb platform plugin, Qt Network and Qt Core
+# NEED at run time and that are NOT on the exclude list, so make-appdir.py
+# bundles them from here (read with readelf -d from the real gcc_arm64 Qt).
+# The x64 build bundles the same ones from its build machine.
+libice6
+libsm6
+libxcb-glx0
+libxcb-randr0
+libxcb-render0
+libxcb-shm0
+libxcb-sync1
+libxcb-xfixes0
+libbrotli1
+libzstd1
 libxcb-cursor0
 libxcb-icccm4
 libxcb-image0
