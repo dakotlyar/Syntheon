@@ -2,6 +2,7 @@
 #include "app/app_runtime.h"
 #include "app/single_instance.h"
 #include "storage/database.h"
+#include "storage/instance_paths.h"
 #include "storage/run_repository.h"
 #include "storage/settings_store.h"
 #include "storage/storage.h"
@@ -15,6 +16,8 @@
 #include <QTest>
 
 #include <future>
+
+#include <unistd.h>
 
 using namespace sb;
 
@@ -41,7 +44,16 @@ class TestSingleInstance : public QObject
 {
     Q_OBJECT
 
+private:
+    QTemporaryDir m_runtime;  // a private $XDG_RUNTIME_DIR for the whole test
+
 private slots:
+    void initTestCase()
+    {
+        QVERIFY(m_runtime.isValid());
+        qputenv("XDG_RUNTIME_DIR", m_runtime.path().toUtf8());
+    }
+
     void secondStorageOnTheSameFolderIsRefused()
     {
         QTemporaryDir dir;
@@ -104,13 +116,130 @@ private slots:
         const QString folder = dir.filePath(QStringLiteral("data"));
         QDir().mkpath(folder);
         s.setDataLocation(folder);
-        QFile lock(QDir(folder).filePath(QStringLiteral("synbench.lock")));
+        QFile lock(instance::lockFilePath(folder));
         QVERIFY(lock.open(QIODevice::WriteOnly));
         // QLockFile's format: pid, application name, host name.
         lock.write(QByteArray("2147483000\nSynBench\n") + QSysInfo::machineHostName().toUtf8() + "\n");
         lock.close();
         Storage st(s);
         QVERIFY2(st.open().ok(), "a lock owned by a dead process must not block the app");
+    }
+
+    // The lock isn't in the history folder (it may be synced) but in a private
+    // per-user directory; the socket is there too.
+    void lockAndSocketLiveInAPrivateStateDir()
+    {
+        QTemporaryDir dir;
+        SettingsStore s(dir.filePath(QStringLiteral("s.ini")));
+        const QString folder = dir.filePath(QStringLiteral("data"));
+        QDir().mkpath(folder);
+        s.setDataLocation(folder);
+        Storage st(s);
+        QVERIFY(st.open().ok());
+        QVERIFY(!QDir(folder).entryList({QStringLiteral("*.lock")}).contains(QStringLiteral("synbench.lock")));
+        QVERIFY(QFile::exists(instance::lockFilePath(folder)));
+        QVERIFY(instance::lockFilePath(folder).startsWith(m_runtime.path()));
+        const QFileInfo state(instance::stateDir());
+        QCOMPARE(state.ownerId(), uint(geteuid()));
+        QVERIFY(!(state.permissions() & (QFile::ReadGroup | QFile::ReadOther | QFile::WriteGroup | QFile::WriteOther)));
+        SingleInstance si;
+        QVERIFY(si.listen(folder));
+        QVERIFY(SingleInstance::nameFor(folder).startsWith(m_runtime.path()));
+        QVERIFY(QFile::exists(SingleInstance::nameFor(folder)));
+    }
+
+    // A symlinked path is the same history: same key, same lock.
+    void symlinkedPathIsTheSameInstance()
+    {
+        QTemporaryDir dir;
+        const QString real = dir.filePath(QStringLiteral("real"));
+        const QString link = dir.filePath(QStringLiteral("link"));
+        QDir().mkpath(real);
+        QVERIFY(QFile::link(real, link));
+        QCOMPARE(instance::key(real), instance::key(link));
+        QCOMPARE(SingleInstance::nameFor(real), SingleInstance::nameFor(link));
+        SettingsStore s1(dir.filePath(QStringLiteral("1.ini"))), s2(dir.filePath(QStringLiteral("2.ini")));
+        s1.setDataLocation(real);
+        s2.setDataLocation(link);
+        Storage a(s1), b(s2);
+        QVERIFY(a.open().ok());
+        QCOMPARE(b.open().status, Storage::OpenStatus::InUse);
+    }
+
+    // A lock whose owner is on another host (a hostname change, or a copied
+    // state dir) can't be proven stale: it blocks, and Take over clears it.
+    void foreignHostLockBlocksUntilTakenOver()
+    {
+        QTemporaryDir dir;
+        SettingsStore s(dir.filePath(QStringLiteral("s.ini")));
+        const QString folder = dir.filePath(QStringLiteral("data"));
+        QDir().mkpath(folder);
+        s.setDataLocation(folder);
+        QFile lock(instance::lockFilePath(folder));
+        QVERIFY(lock.open(QIODevice::WriteOnly));
+        lock.write(QByteArray::number(qint64(getpid())) + "\nSynBench\nsome-other-host\n");  // a live pid, another host
+        lock.close();
+        Storage st(s);
+        QCOMPARE(st.open().status, Storage::OpenStatus::InUse);
+        QVERIFY(st.takeOverLock().ok());
+        QVERIFY(st.isOpen());
+    }
+
+    // A held lock with nobody listening (a hung copy, or a lock left behind):
+    // the runtime doesn't exit silently and doesn't claim success, it reports
+    // the problem for the dialog, and Take over continues.
+    void heldLockWithoutAnAnswerOffersTakeOver()
+    {
+        QTemporaryDir dir;
+        const QString folder = dir.filePath(QStringLiteral("data"));
+        QDir().mkpath(folder);
+        SettingsStore s1(dir.filePath(QStringLiteral("holder.ini")));
+        s1.setDataLocation(folder);
+        Storage holder(s1);  // holds the lock, runs no socket
+        QVERIFY(holder.open().ok());
+
+        AppRuntime::Options o;
+        o.noElevation = true;
+        o.focusWaitMs = 200;
+        o.settingsFile = dir.filePath(QStringLiteral("b.ini"));
+        o.dataFolder = folder;
+        AppRuntime rt(o);
+        QVERIFY(rt.claimInstance());                     // not "redirected": nobody answered
+        QVERIFY(!rt.redirectedToRunningInstance());
+        QCOMPARE(rt.storageController().startupKind(), QStringLiteral("inuse"));
+        QVERIFY(!rt.storage().isOpen());
+
+        // Quit's message and exit code are the QML dialog's job (tested there);
+        // Take over opens the history and moves on.
+        QCOMPARE(rt.storageController().takeOver(), QString());
+        QCOMPARE(rt.storageController().startupKind(), QStringLiteral("none"));
+        QVERIFY(rt.storage().isOpen());
+        QVERIFY(QFile::exists(SingleInstance::nameFor(folder)));  // and it now answers a second launch
+    }
+
+    // A socket that can't be created is a visible warning, not just a log line.
+    // (A runtime dir path too long for a Unix socket makes listen() fail while
+    // the lock file still works.)
+    void socketFailureIsReportedToTheUser()
+    {
+        QTemporaryDir dir;
+        const QString deep = QDir(dir.path()).filePath(QString(120, QLatin1Char('d')));
+        QVERIFY(QDir().mkpath(deep));
+        QFile::setPermissions(deep, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        struct Restore {
+            QByteArray old = qgetenv("XDG_RUNTIME_DIR");
+            ~Restore() { qputenv("XDG_RUNTIME_DIR", old); }
+        } restore;
+        qputenv("XDG_RUNTIME_DIR", deep.toUtf8());
+
+        AppRuntime::Options o;
+        o.noElevation = true;
+        o.settingsFile = dir.filePath(QStringLiteral("a.ini"));
+        o.dataFolder = dir.filePath(QStringLiteral("data"));
+        AppRuntime rt(o);
+        QVERIFY(rt.claimInstance());
+        QCOMPARE(rt.storageController().startupKind(), QStringLiteral("none"));  // the app still works
+        QVERIFY2(!rt.startup().instanceWarning().isEmpty(), "the user must be told a second launch can't be redirected");
     }
 
     void aSecondLaunchAsksTheFirstToComeToTheFront()

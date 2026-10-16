@@ -11,6 +11,7 @@
 #include <QCoreApplication>
 #include <QLocale>
 #include <QStringList>
+#include <QTimer>
 
 namespace sb {
 
@@ -71,11 +72,20 @@ void StartupController::recover()
     connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
     m_thread->start();
     emit recoveringChanged();
+    // Normally over in milliseconds. Only past a second does the window say so.
+    m_slow = false;
+    QTimer::singleShot(kSlowRecoveryMs, this, [this] {
+        if (m_thread && !m_slow) {
+            m_slow = true;
+            emit recoveringChanged();
+        }
+    });
 }
 
 void StartupController::finishRecovery(const RecoveryReport &report)
 {
     m_thread = nullptr;
+    m_slow = false;
     m_lock.reset();  // unlocks, whatever happened
 
     QStringList lines;
@@ -110,6 +120,14 @@ void StartupController::finishRecovery(const RecoveryReport &report)
     emit recoveryFinished();
     if (m_again)
         recover();
+}
+
+void StartupController::setInstanceWarning(const QString &w)
+{
+    if (w == m_instanceWarning)
+        return;
+    m_instanceWarning = w;
+    emit instanceWarningChanged();
 }
 
 void StartupController::dismissRecoveryNotice()

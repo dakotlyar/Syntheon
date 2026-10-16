@@ -65,6 +65,9 @@ public:
     // Opens the configured location (the default one is created if missing),
     // migrating the database as needed.
     OpenResult open();
+    // "Take over" after an in-use answer nobody could confirm: deletes the
+    // lock file for the configured folder, then opens.
+    OpenResult takeOverLock();
     // Launch dialog option "Use default location": forgets the custom folder.
     OpenResult useDefaultLocation();
     // Opens (creating if needed) the history in `folder` and makes it the data

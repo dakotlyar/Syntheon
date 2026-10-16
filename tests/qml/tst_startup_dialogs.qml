@@ -15,6 +15,7 @@ TestCase {
 
     Component { id: firstRun; FirstRunDialog { parent: test } }
     Component { id: notice; RecoveryNoticeDialog { parent: test } }
+    Component { id: inUse; InUseDialog { parent: test } }
     Component { id: spyComponent; SignalSpy {} }
 
     function initTestCase() {
@@ -41,5 +42,20 @@ TestCase {
         const spy = createTemporaryObject(spyComponent, test, { target: d, signalName: "dismissed" })
         mouseClick(findChild(d.footer, "dismiss"))
         compare(spy.count, 1)
+    }
+
+    function test_inUseDialogOffersTakeOverAndQuit() {
+        const d = createTemporaryObject(inUse, test, { error: "" })
+        d.open()
+        waitForRendering(test)
+        verify(!findChild(d.contentItem, "inUseError").visible)
+        const take = createTemporaryObject(spyComponent, test, { target: d, signalName: "takeOver" })
+        const quit = createTemporaryObject(spyComponent, test, { target: d, signalName: "quitClicked" })
+        mouseClick(findChild(d.footer, "takeOver"))
+        compare(take.count, 1)
+        d.error = "No luck"
+        verify(findChild(d.contentItem, "inUseError").visible)
+        mouseClick(findChild(d.footer, "quit"))
+        compare(quit.count, 1)
     }
 }

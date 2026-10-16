@@ -36,6 +36,9 @@ public:
         // No polkit prompt, no helper: set by the developer screenshot tour
         // (SYNBENCH_TOUR) and by smoke runs, so neither ever asks for a password.
         bool noElevation = false;
+        // How long a start waits for a running copy to answer a focus request
+        // before offering the "take over" dialog.
+        int focusWaitMs = 1500;
         QString settingsFile;  // empty = the per-user settings.ini
         QString dataFolder;    // empty = from the settings
     };
@@ -56,6 +59,7 @@ public:
     bool claimInstance();
     // The copy that was already running was asked to raise its window.
     bool redirectedToRunningInstance() const { return m_redirected; }
+    void refreshInstanceSocket();
     SingleInstance &instance() { return m_instance; }
     void start();
 

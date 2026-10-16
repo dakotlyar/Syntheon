@@ -34,6 +34,20 @@ ApplicationWindow {
             text: AppController.emulationText
         }
 
+        // Quiet notices: a socket that couldn't be made, recovery that takes a while.
+        Banner {
+            objectName: "instanceBanner"
+            visible: Startup.instanceWarning.length > 0
+            Layout.fillWidth: true
+            text: Startup.instanceWarning
+        }
+        Banner {
+            objectName: "recoveryBanner"
+            visible: Startup.recoverySlow
+            Layout.fillWidth: true
+            text: qsTr("Checking earlier runs…")
+        }
+
         AppShell {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -55,12 +69,17 @@ ApplicationWindow {
     // Launch gates, in order: the history must open, then administrator
     // access. Both block; neither has a limited mode.
     StorageProblemDialog {
-        visible: StorageController.startupKind !== "none"
+        visible: StorageController.startupKind !== "none" && StorageController.startupKind !== "inuse"
         newerVersion: StorageController.startupKind === "newer"
         message: StorageController.startupMessage
         onUseDefault: error = StorageController.useDefaultLocation()
         onChooseFolder: path => error = StorageController.openHistoryIn(path)
         onQuitClicked: AppController.quit()
+    }
+    InUseDialog {
+        visible: StorageController.startupKind === "inuse"
+        onTakeOver: error = StorageController.takeOver()
+        onQuitClicked: AppController.quitFailed(qsTr("SynBench is already running with this history."))
     }
     AuthDialog {
         visible: StorageController.startupKind === "none" && AppController.authStateName !== "ready"

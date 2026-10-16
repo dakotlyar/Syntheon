@@ -28,6 +28,9 @@ class Registry;
 class StartupController : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QString instanceWarning READ instanceWarning NOTIFY instanceWarningChanged)
+    // Recovery is still running after a second: worth a quiet "Checking earlier runs…".
+    Q_PROPERTY(bool recoverySlow READ recoverySlow NOTIFY recoveringChanged)
     Q_PROPERTY(bool recovering READ recovering NOTIFY recoveringChanged)
     Q_PROPERTY(QString recoveryNotice READ recoveryNotice NOTIFY noticeChanged)
     Q_PROPERTY(bool recoveryPending READ recoveryPending NOTIFY noticeChanged)
@@ -48,6 +51,9 @@ public:
     // to report": it stays until the user dismisses it.
     void recover();
     bool recovering() const { return m_thread != nullptr; }
+    bool recoverySlow() const { return m_thread != nullptr && m_slow; }
+    QString instanceWarning() const { return m_instanceWarning; }
+    void setInstanceWarning(const QString &w);
     // Applies a finished pass (the worker thread queues this; tests call it).
     void finishRecovery(const RecoveryReport &report);
     // Blocks until recovery has finished (tests, shutdown).
@@ -63,9 +69,11 @@ public:
     Q_INVOKABLE void finishFirstRun();
 
     static QString hoursMinutes(qint64 ms);
+    static constexpr int kSlowRecoveryMs = 1000;
 
 signals:
     void recoveringChanged();
+    void instanceWarningChanged();
     void recoveryFinished();
     void noticeChanged();
     void firstRunChanged();
@@ -76,6 +84,8 @@ private:
     StorageController &m_storage;
     SettingsController &m_settings;
     QString m_notice;
+    QString m_instanceWarning;
+    bool m_slow = false;
     QSet<QString> m_seenProblems;
     QThread *m_thread = nullptr;
     bool m_again = false;

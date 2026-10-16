@@ -23,9 +23,10 @@ public:
     static QString nameFor(const QString &dataDir);
 
     // Starts (or moves) listening for `dataDir`. Returns false if the socket
-    // couldn't be created; the app still works, a second launch just can't be
-    // told to raise the window.
+    // couldn't be created (see error()); the app still works, a second launch
+    // just can't be told to raise the window.
     bool listen(const QString &dataDir);
+    QString error() const { return m_error; }
 
     // Asks the copy running on `dataDir` to raise its window. True if it
     // answered. Blocks up to `timeoutMs` and needs no event loop of its own
@@ -34,13 +35,13 @@ public:
     static bool requestFocus(const QString &dataDir, int timeoutMs = 3000);
 
 signals:
-    // Another launch asked for the window. `activationToken` is the token the
-    // second launch was started with (Wayland XDG_ACTIVATION_TOKEN, X11
-    // DESKTOP_STARTUP_ID), empty if none.
+    // Another launch asked for the window (the argument is unused: no
+    // activation token is passed, flashing is fine on Wayland).
     void focusRequested(const QString &activationToken);
 
 private:
     QLocalServer *m_server = nullptr;
+    QString m_error;
 };
 
 } // namespace sb

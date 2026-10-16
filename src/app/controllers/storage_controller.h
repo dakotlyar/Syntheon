@@ -89,6 +89,8 @@ public:
     // Switch to the history already in `folder`, leaving the current one.
     Q_INVOKABLE QString openHistoryIn(const QString &folder);
     Q_INVOKABLE QString useDefaultLocation();
+    // The "may already be open" dialog's Take over: "" on success, else why not.
+    Q_INVOKABLE QString takeOver();
     Q_INVOKABLE QString clearHistory();
     // file:// URL from a dialog -> path.
     Q_INVOKABLE QString urlToPath(const QUrl &url) const;

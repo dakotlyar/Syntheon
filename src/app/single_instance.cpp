@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/single_instance.h"
 
-#include <QCryptographicHash>
-#include <QDir>
-#include <QFileInfo>
+#include "storage/instance_paths.h"
+
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QLoggingCategory>
@@ -25,9 +24,7 @@ SingleInstance::SingleInstance(QObject *parent) : QObject(parent) {}
 
 QString SingleInstance::nameFor(const QString &dataDir)
 {
-    const QString canonical = QDir::cleanPath(QFileInfo(dataDir).absoluteFilePath());
-    const QByteArray h = QCryptographicHash::hash(canonical.toUtf8(), QCryptographicHash::Sha1).toHex().left(16);
-    return QStringLiteral("synbench-") + QString::fromLatin1(h);
+    return instance::socketName(dataDir);
 }
 
 bool SingleInstance::listen(const QString &dataDir)
@@ -35,14 +32,24 @@ bool SingleInstance::listen(const QString &dataDir)
     if (m_server) {
         m_server->close();
         m_server->deleteLater();
+        m_server = nullptr;
+    }
+    m_error.clear();
+    const QString name = nameFor(dataDir);
+    if (name.isEmpty()) {
+        m_error = tr("No private folder is available for SynBench's runtime files.");
+        qCWarning(lcInstance) << m_error;
+        return false;
     }
     m_server = new QLocalServer(this);
     m_server->setSocketOptions(QLocalServer::UserAccessOption);
-    const QString name = nameFor(dataDir);
-    // We hold the history's lock, so any socket left under this name is stale.
+    // We hold the history's lock, so any socket left under this name is stale
+    // (and it is in our own 0700 directory: nobody else can have put it there).
     QLocalServer::removeServer(name);
     if (!m_server->listen(name)) {
-        qCWarning(lcInstance) << "can't listen for a second launch:" << m_server->errorString();
+        m_error = tr("Can't listen for a second launch (%1). Opening SynBench again won't bring this window forward.")
+                      .arg(m_server->errorString());
+        qCWarning(lcInstance) << m_error;
         return false;
     }
     connect(m_server, &QLocalServer::newConnection, this, [this] {
@@ -52,11 +59,10 @@ bool SingleInstance::listen(const QString &dataDir)
                 const QList<QByteArray> lines = s->readAll().split('\n');
                 if (lines.isEmpty() || lines.first() != kRequest)
                     return;
-                const QString token = lines.size() > 1 ? QString::fromUtf8(lines[1]) : QString();
                 s->write(kAnswer);
                 s->flush();
                 qCInfo(lcInstance) << "another launch asked for this window";
-                emit focusRequested(token);
+                emit focusRequested(QString());
             });
         }
     });
@@ -74,11 +80,9 @@ bool SingleInstance::requestFocus(const QString &dataDir, int timeoutMs)
     socket.connectToServer(nameFor(dataDir));
     if (!socket.waitForConnected(timeoutMs))
         return false;
-    QByteArray msg = QByteArray(kRequest) + '\n';
-    msg += qgetenv("XDG_ACTIVATION_TOKEN");
-    if (msg.endsWith('\n') == false)
-        msg += '\n';
-    socket.write(msg);
+    // Wayland may only flash the window instead of raising it; flash is the
+    // accepted outcome there, so no activation token is passed along.
+    socket.write(QByteArray(kRequest) + '\n');
     if (!socket.waitForBytesWritten(timeoutMs) || !socket.waitForReadyRead(timeoutMs))
         return false;
     return socket.readAll().startsWith(kAnswer);

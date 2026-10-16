@@ -88,6 +88,7 @@ qt_add_qml_module(synbench_ui
         qml/screens/SettingsScreen.qml
         qml/dialogs/AuthDialog.qml
         qml/dialogs/FirstRunDialog.qml
+        qml/dialogs/InUseDialog.qml
         qml/dialogs/RecoveryNoticeDialog.qml
         qml/dialogs/StorageProblemDialog.qml
 )

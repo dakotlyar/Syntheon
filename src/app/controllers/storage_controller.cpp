@@ -133,6 +133,12 @@ void StorageController::setLocked(bool locked, const QString &reason)
         unlock(QStringLiteral("run"));
 }
 
+QString StorageController::takeOver()
+{
+    const Storage::OpenResult r = m_storage.takeOverLock();
+    return apply(r);
+}
+
 QString StorageController::urlToPath(const QUrl &url) const
 {
     return url.isLocalFile() ? url.toLocalFile() : url.toString();

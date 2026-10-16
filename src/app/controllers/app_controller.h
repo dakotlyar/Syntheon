@@ -115,6 +115,8 @@ public:
 
     Q_INVOKABLE void retryAuth();
     Q_INVOKABLE void quit();
+    // Exit with code 1 and `message` on stderr (the "may already be open" dialog's Quit).
+    Q_INVOKABLE void quitFailed(const QString &message);
 
 signals:
     void authChanged();

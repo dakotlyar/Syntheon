@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "storage/storage.h"
 
+#include "storage/instance_paths.h"
 #include "storage/run_repository.h"
 #include "storage/settings_store.h"
 
@@ -139,12 +140,20 @@ Storage::OpenResult Storage::openAt(const QString &folder, bool createFolder)
     // that's been open for hours must never look stale.
     std::unique_ptr<QLockFile> newLock;
     if (!(m_lock && m_lockDir == folder)) {
-        newLock = std::make_unique<QLockFile>(QDir(folder).filePath(QStringLiteral("synbench.lock")));
+        // The lock lives in a per-user state directory, not in the (possibly
+        // synced) history folder, keyed by the folder's canonical path.
+        const QString lockPath = instance::lockFilePath(folder);
+        if (lockPath.isEmpty()) {
+            r.status = OpenStatus::Failed;
+            r.error = QStringLiteral("Couldn't make a private folder for SynBench's lock file.");
+            return r;
+        }
+        newLock = std::make_unique<QLockFile>(lockPath);
         newLock->setStaleLockTime(0);
         if (!newLock->tryLock(0)) {
-            r.status = newLock->error() == QLockFile::LockFailedError ? OpenStatus::InUse : OpenStatus::LocationUnavailable;
+            r.status = newLock->error() == QLockFile::LockFailedError ? OpenStatus::InUse : OpenStatus::Failed;
             r.error = r.status == OpenStatus::InUse ? QStringLiteral("SynBench is already running with this history.")
-                                                    : QStringLiteral("Couldn't lock the folder %1.").arg(folder);
+                                                    : QStringLiteral("Couldn't take SynBench's lock (%1).").arg(lockPath);
             return r;
         }
     }
@@ -181,6 +190,18 @@ Storage::OpenResult Storage::open()
     if (configured.isEmpty())
         return openAt(defaultDataDir(), true);
     return openAt(normalized(configured), false);
+}
+
+Storage::OpenResult Storage::takeOverLock()
+{
+    // The user said no other copy is really running (a crash left the lock, or
+    // a copy is hung): remove the lock file and open normally.
+    const QString configured = m_settings.dataLocation();
+    const QString folder = configured.isEmpty() ? defaultDataDir() : normalized(configured);
+    const QString lockPath = instance::lockFilePath(folder);
+    if (!lockPath.isEmpty())
+        QFile::remove(lockPath);
+    return open();
 }
 
 Storage::OpenResult Storage::useDefaultLocation()

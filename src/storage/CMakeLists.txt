@@ -6,6 +6,7 @@ qt_add_library(synbench_storage STATIC
     storage.h storage.cpp
     sqlite_run_sink.h sqlite_run_sink.cpp
     recovery.h recovery.cpp
+    instance_paths.h instance_paths.cpp
 )
 
 qt_add_resources(synbench_storage "synbench_migrations"

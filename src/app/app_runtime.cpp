@@ -2,6 +2,8 @@
 #include "app/app_runtime.h"
 
 #include <QDir>
+#include <QElapsedTimer>
+#include <QThread>
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(lcRuntime, "synbench.runtime")
@@ -76,17 +78,35 @@ bool AppRuntime::claimInstance()
         return false;
     m_storageController->open();
     if (m_storageController->startupKind() == QLatin1StringView("inuse")) {
-        m_redirected = true;
-        const bool answered = SingleInstance::requestFocus(m_storage->dataDir());
-        qCInfo(lcRuntime) << "another SynBench has this history; asked it to come to the front:" << answered;
-        return false;
+        // Somebody holds the lock. Believe it only once it answers: a copy
+        // that is just starting needs a moment to open its socket.
+        QElapsedTimer waited;
+        waited.start();
+        do {
+            if (SingleInstance::requestFocus(m_storage->dataDir(), 300)) {
+                m_redirected = true;
+                qCInfo(lcRuntime) << "another SynBench has this history and answered; this copy exits";
+                return false;
+            }
+            QThread::msleep(100);
+        } while (waited.elapsed() < m_options.focusWaitMs);
+        // Nobody answered: a crash left the lock (or the copy is hung). The UI
+        // offers Take over / Quit (start() waits for it).
+        qCWarning(lcRuntime) << "the history is locked but no copy answered";
     }
     m_claimed = true;
-    m_instance.listen(m_storage->dataDir());
     // The socket follows the history folder, like the lock does.
-    connect(m_storageController.get(), &StorageController::locationChanged, this,
-            [this] { m_instance.listen(m_storage->dataDir()); });
+    connect(m_storageController.get(), &StorageController::locationChanged, this, [this] { refreshInstanceSocket(); });
+    refreshInstanceSocket();
     return true;
+}
+
+void AppRuntime::refreshInstanceSocket()
+{
+    if (!m_storage->isOpen())
+        return;
+    const bool ok = m_instance.listen(m_storage->dataDir());
+    m_startup->setInstanceWarning(ok ? QString() : m_instance.error());
 }
 
 void AppRuntime::start()

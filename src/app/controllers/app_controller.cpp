@@ -11,6 +11,8 @@
 #include <QLoggingCategory>
 #include <QThreadPool>
 
+#include <cstdio>
+
 #ifdef Q_OS_WIN
 #include "privileged/win_inproc/windows_inprocess_ops.h"
 #endif
@@ -201,6 +203,12 @@ void AppController::retryAuth()
     if (m_authState != AuthState::Failed)
         return;
     startHelper();
+}
+
+void AppController::quitFailed(const QString &message)
+{
+    std::fputs((message.toLocal8Bit() + "\n").constData(), stderr);
+    QCoreApplication::exit(1);
 }
 
 void AppController::quit()
