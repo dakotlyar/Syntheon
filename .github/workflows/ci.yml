@@ -386,7 +386,7 @@ jobs:
 
       - name: Silent install, launch, uninstall (Inno and MSI) and the upgrade over v0.2.3
         shell: pwsh
-        timeout-minutes: 15
+        timeout-minutes: 10
         run: |
           ./packaging/windows/test-install.ps1 `
             -Inno "out\SynBench-$env:SYNBENCH_VERSION-windows-x64-setup.exe" `

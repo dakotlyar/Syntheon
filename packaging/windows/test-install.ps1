@@ -36,9 +36,35 @@ New-Item -ItemType Directory -Force $logs | Out-Null
 function Step($text) { Write-Host "::group::$text" }
 function EndStep { Write-Host '::endgroup::' }
 
+# Every process is waited for with a timeout: a hung installer (a message box
+# nobody can click, a lock) must fail the test with its log, never hang the job.
+$script:timeoutSeconds = 120
+
+function Show-Logs {
+    Write-Host '::group::installer logs (last 60 lines of each)'
+    Get-ChildItem $logs -File -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "----- $($_.Name)"
+        Get-Content $_.FullName -Tail 60 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+    }
+    Write-Host '::endgroup::'
+}
+
+# Starts a process and waits at most $timeoutSeconds; returns the exit code.
+# On a timeout the whole process tree is killed and the test fails.
+function Start-Waited([string]$file, [string[]]$arguments) {
+    Write-Host "> $file $($arguments -join ' ')"
+    $p = Start-Process -FilePath $file -ArgumentList $arguments -PassThru
+    $null = $p.Handle   # keeps the process handle, or ExitCode can come back empty
+    if (-not $p.WaitForExit($script:timeoutSeconds * 1000)) {
+        & taskkill.exe /PID $p.Id /T /F | Out-Null
+        throw "timed out after $($script:timeoutSeconds) s: $file $($arguments -join ' ')"
+    }
+    return $p.ExitCode
+}
+
 function Run([string]$file, [string[]]$arguments) {
-    $p = Start-Process -FilePath $file -ArgumentList $arguments -Wait -PassThru
-    if ($p.ExitCode -ne 0) { throw "$file $arguments exited with $($p.ExitCode)" }
+    $code = Start-Waited $file $arguments
+    if ($code -ne 0) { throw "$file $arguments exited with $code" }
 }
 
 # Starts the installed app and checks it keeps running (a packaged build has no
@@ -73,56 +99,62 @@ function Assert-Version {
     if ($v -ne $Version) { throw "installed ProductVersion is $v, expected $Version" }
 }
 
-# 1. Inno: install, launch, uninstall
-Step 'Inno: install / launch / uninstall'
-Run $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-install.log")
-if (-not (Test-Path $exe)) { throw 'SynBench.exe missing after the Inno install' }
-Assert-Version
-Test-Launch
-Run (Get-InnoUninstaller) @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
-Wait-Gone
-EndStep
-
-# 2. MSI: install, launch, uninstall (msiexec returns when it is done)
-Step 'MSI: install / launch / uninstall'
-Run 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-install.log")
-if (-not (Test-Path $exe)) { throw 'SynBench.exe missing after the MSI install' }
-Test-Launch
-Run 'msiexec.exe' @('/x', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-uninstall.log")
-Wait-Gone
-EndStep
-
-# 3. Inno and MSI refuse each other
-Step 'Inno and MSI do not coexist'
-Run 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-install-2.log")
-$p = Start-Process -FilePath $Inno -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-refused.log") -Wait -PassThru
-if ($p.ExitCode -eq 0) { throw 'the Inno installer installed over an MSI install' }
-Write-Host "Inno refused with exit code $($p.ExitCode), as it should"
-Run 'msiexec.exe' @('/x', $Msi, '/qn', '/norestart')
-Wait-Gone
-EndStep
-
-# 4. Upgrade over the real Python v0.2.3 install (D10)
-if ($OldInstaller) {
-    Step 'Upgrade over the Python v0.2.3 install'
-    Run $OldInstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\old-install.log")
-    if (-not (Test-Path (Join-Path $app '_internal'))) { throw 'the old install has no _internal: not the Python build?' }
-    New-Item -ItemType Directory -Force (Join-Path $app 'python-embed') | Out-Null
-    New-Item -ItemType Directory -Force (Join-Path $app 'synbench_plugins') | Out-Null
-    Run $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-upgrade.log")
-    foreach ($leftover in '_internal', 'python-embed', 'synbench_plugins', 'SynBench-CLI.exe') {
-        if (Test-Path (Join-Path $app $leftover)) { throw "Python leftover $leftover survived the upgrade" }
-    }
+try {
+    # 1. Inno: install, launch, uninstall
+    Step 'Inno: install / launch / uninstall'
+    Run $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-install.log")
+    if (-not (Test-Path $exe)) { throw 'SynBench.exe missing after the Inno install' }
     Assert-Version
     Test-Launch
-    # One entry in Apps & Features, not two (same AppId).
-    $roots = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
-    $entries = foreach ($root in $roots) {
-        Get-ChildItem $root -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like '{14A62E4F-2EF1-40BC-82D9-2418EC833479}*' }
-    }
-    if (@($entries).Count -ne 1) { throw "expected one uninstall entry for the shared AppId, found $(@($entries).Count)" }
     Run (Get-InnoUninstaller) @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
     Wait-Gone
     EndStep
+
+    # 2. MSI: install, launch, uninstall (msiexec returns when it is done)
+    Step 'MSI: install / launch / uninstall'
+    Run 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-install.log")
+    if (-not (Test-Path $exe)) { throw 'SynBench.exe missing after the MSI install' }
+    Test-Launch
+    Run 'msiexec.exe' @('/x', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-uninstall.log")
+    Wait-Gone
+    EndStep
+
+    # 3. Inno and MSI refuse each other
+    Step 'Inno and MSI do not coexist'
+    Run 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-install-2.log")
+    $code = Start-Waited $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-refused.log")
+    if ($code -eq 0) { throw 'the Inno installer installed over an MSI install' }
+    Write-Host "Inno refused with exit code $code, as it should"
+    Run 'msiexec.exe' @('/x', $Msi, '/qn', '/norestart')
+    Wait-Gone
+    EndStep
+
+    # 4. Upgrade over the real Python v0.2.3 install (D10)
+    if ($OldInstaller) {
+        Step 'Upgrade over the Python v0.2.3 install'
+        Run $OldInstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\old-install.log")
+        if (-not (Test-Path (Join-Path $app '_internal'))) { throw 'the old install has no _internal: not the Python build?' }
+        New-Item -ItemType Directory -Force (Join-Path $app 'python-embed') | Out-Null
+        New-Item -ItemType Directory -Force (Join-Path $app 'synbench_plugins') | Out-Null
+        Run $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-upgrade.log")
+        foreach ($leftover in '_internal', 'python-embed', 'synbench_plugins', 'SynBench-CLI.exe') {
+            if (Test-Path (Join-Path $app $leftover)) { throw "Python leftover $leftover survived the upgrade" }
+        }
+        Assert-Version
+        Test-Launch
+        # One entry in Apps & Features, not two (same AppId).
+        $roots = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+        $entries = foreach ($root in $roots) {
+            Get-ChildItem $root -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like '{14A62E4F-2EF1-40BC-82D9-2418EC833479}*' }
+        }
+        if (@($entries).Count -ne 1) { throw "expected one uninstall entry for the shared AppId, found $(@($entries).Count)" }
+        Run (Get-InnoUninstaller) @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+        Wait-Gone
+        EndStep
+    }
+    Write-Host 'install tests passed'
+} catch {
+    Write-Host "::error::$($_.Exception.Message)"
+    Show-Logs
+    throw
 }
-Write-Host 'install tests passed'

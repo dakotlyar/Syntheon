@@ -106,8 +106,13 @@ begin
   Result := True;
   if RegQueryStringValue(HKLM, 'Software\SynBench', 'Installer', Owner) and (Owner = 'msi') then
   begin
-    MsgBox('SynBench was installed with the MSI package. Uninstall it first (Settings > Apps), then run this installer.',
-           mbError, MB_OK);
+    // Never block a silent run on a message box: SuppressibleMsgBox answers
+    // with the default (OK) under /SUPPRESSMSGBOXES, and in a silent setup the
+    // box is skipped altogether. Returning False ends Setup with a non-zero exit code.
+    Log('SynBench is installed with the MSI package; refusing to install over it.');
+    if not WizardSilent then
+      SuppressibleMsgBox('SynBench was installed with the MSI package. Uninstall it first (Settings > Apps), then run this installer.',
+                         mbError, MB_OK, IDOK);
     Result := False;
   end;
 end;
