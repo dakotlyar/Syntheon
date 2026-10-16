@@ -314,6 +314,7 @@ jobs:
         uses: actions/upload-artifact@v6
         continue-on-error: true
         with:
+          retention-days: 3
           name: SynBench-linux-x86_64-AppImage
           path: ${{ env.APPIMAGE_FILE }}
           if-no-files-found: error
@@ -438,6 +439,7 @@ jobs:
         uses: actions/upload-artifact@v6
         continue-on-error: true
         with:
+          retention-days: 3
           name: install-logs-windows-x64
           path: ${{ runner.temp }}/install-logs
           if-no-files-found: ignore
@@ -446,6 +448,7 @@ jobs:
         uses: actions/upload-artifact@v6
         continue-on-error: true
         with:
+          retention-days: 3
           name: SynBench-windows-x64-installers
           path: out/*
           if-no-files-found: error
@@ -558,6 +561,7 @@ jobs:
         uses: actions/upload-artifact@v6
         continue-on-error: true
         with:
+          retention-days: 3
           name: SynBench-windows-arm64-installers
           path: out/*
           if-no-files-found: error
@@ -656,6 +660,7 @@ jobs:
         uses: actions/upload-artifact@v6
         continue-on-error: true
         with:
+          retention-days: 3
           name: SynBench-linux-aarch64-AppImage
           path: ${{ env.APPIMAGE_FILE }}
           if-no-files-found: error
