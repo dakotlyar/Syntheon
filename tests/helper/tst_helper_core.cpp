@@ -3,6 +3,7 @@
 
 #include <QFile>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -225,6 +226,12 @@ private slots:
         const auto h = decodeHello(f.payload);
         QVERIFY(h);
         QCOMPARE(h->euid, std::uint32_t(geteuid()));
+        // (d) hardening: no core dumps, not attachable.
+        QFile limits(QStringLiteral("/proc/%1/limits").arg(p.processId()));
+        if (limits.open(QIODevice::ReadOnly)) {
+            const QString text = QString::fromUtf8(limits.readAll());
+            QVERIFY2(text.contains(QRegularExpression(QStringLiteral(R"(Max core file size\s+0\s+0)"))), qPrintable(text));
+        }
         p.closeWriteChannel();  // EOF
         QVERIFY(p.waitForFinished(5000));
         QCOMPARE(p.exitStatus(), QProcess::NormalExit);

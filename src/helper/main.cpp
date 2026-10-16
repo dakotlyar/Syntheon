@@ -17,6 +17,7 @@
 #include <cstring>
 #include <string>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -48,6 +49,11 @@ int main(int argc, char **)
 {
     // Hardening.
     prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+    // (d) A crash of a root process must not leave a core dump (the SMBIOS
+    // table sits in memory) or let the user attach to it.
+    prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
+    const struct rlimit noCore = {0, 0};
+    setrlimit(RLIMIT_CORE, &noCore);
     umask(077);
     if (chdir("/") != 0)
         return 10;

@@ -9,6 +9,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QStringList>
+#include <QTimer>
 
 #include <chrono>
 #include <memory>
@@ -38,6 +39,7 @@ public:
         BadHello,        // first frame wasn't a valid HELLO
         BuildMismatch,   // a stale or foreign helper
         NotRoot,         // the helper isn't running as root
+        TimedOut,        // nobody answered the administrator prompt in time
     };
     Q_ENUM(Failure)
 
@@ -51,6 +53,10 @@ public:
         QString expectedBuildId;  // empty = don't check (tests only)
         bool requireRoot = true;
         std::chrono::milliseconds requestTimeout{15000};
+        // How long the polkit prompt may stay unanswered (Dave: 2 minutes).
+        // Then pkexec is stopped and the client fails with TimedOut; Retry
+        // starts a fresh prompt.
+        std::chrono::milliseconds authTimeout{120000};
     };
 
     // The pkexec command lines (no shell, P11). With $APPIMAGE set, root
@@ -111,6 +117,9 @@ private:
 
     void launch(const Command &command);
     void onReadyRead();
+    void onAuthTimeout();
+    void collectStderr();
+    Failure classifyEarlyExit(int exitCode, QString *message) const;
     void onFinished(int exitCode, QProcess::ExitStatus status);
     void onErrorOccurred(QProcess::ProcessError error);
     void handleHello(const proto::Frame &frame);
@@ -122,6 +131,9 @@ private:
     Options m_options;
     QProcess *m_process = nullptr;
     std::optional<Command> m_fallback;
+    QTimer m_authTimer;
+    QByteArray m_stderr;          // the tail of the current process' stderr
+    bool m_helperStarted = false; // saw the helper's own "started" banner
     proto::Decoder m_decoder{proto::kMaxResponseFrame};
 
     mutable QMutex m_mutex;  // guards the members below

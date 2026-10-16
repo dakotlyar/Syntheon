@@ -94,6 +94,8 @@ QString LinuxHelperClient::thisBuildId()
 
 LinuxHelperClient::LinuxHelperClient(Options options, QObject *parent) : QObject(parent), m_options(std::move(options))
 {
+    m_authTimer.setSingleShot(true);
+    connect(&m_authTimer, &QTimer::timeout, this, &LinuxHelperClient::onAuthTimeout);
 }
 
 LinuxHelperClient::~LinuxHelperClient()
@@ -181,21 +183,72 @@ void LinuxHelperClient::launch(const Command &command)
         m_process->deleteLater();
     }
     m_decoder = Decoder(kMaxResponseFrame);
+    m_stderr.clear();
+    m_helperStarted = false;
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::SeparateChannels);
     connect(m_process, &QProcess::readyReadStandardOutput, this, &LinuxHelperClient::onReadyRead);
-    connect(m_process, &QProcess::readyReadStandardError, this, [p = m_process] {
-        for (const QByteArray &line : p->readAllStandardError().split('\n')) {
-            if (!line.trimmed().isEmpty())
-                qCInfo(lcHelper, "%s", line.constData());
-        }
-    });
+    connect(m_process, &QProcess::readyReadStandardError, this, &LinuxHelperClient::collectStderr);
     connect(m_process, &QProcess::finished, this, &LinuxHelperClient::onFinished);
     connect(m_process, &QProcess::errorOccurred, this, &LinuxHelperClient::onErrorOccurred);
     setState(State::Authorising);
+    m_authTimer.start(m_options.authTimeout);
     qCInfo(lcHelper) << "starting" << command.program << command.arguments;
     // argv, no shell (P11).
     m_process->start(command.program, command.arguments, QIODevice::ReadWrite);
+}
+
+void LinuxHelperClient::collectStderr()
+{
+    const QByteArray data = m_process->readAllStandardError();
+    for (const QByteArray &line : data.split('\n')) {
+        if (line.trimmed().isEmpty())
+            continue;
+        qCInfo(lcHelper, "%s", line.constData());
+        if (line.startsWith("synbench-helper: started"))
+            m_helperStarted = true;
+    }
+    m_stderr = (m_stderr + data).right(4096);
+}
+
+// (e) pkexec exits 126 when the prompt was dismissed and 127 when
+// authorisation failed, but the program it runs can exit 126/127 too (the
+// AppImage when it can't exec, for instance). If the helper announced itself
+// the code is the helper's; otherwise pkexec's own words decide, and the code
+// only decides when pkexec said nothing.
+LinuxHelperClient::Failure LinuxHelperClient::classifyEarlyExit(int exitCode, QString *message) const
+{
+    const QString text = QString::fromLocal8Bit(m_stderr).trimmed();
+    const QString lower = text.toLower();
+    if (!m_helperStarted && (exitCode == 126 || exitCode == 127)) {
+        if (lower.contains(QLatin1StringView("dismissed")) || (text.isEmpty() && exitCode == 126)) {
+            *message = QStringLiteral("The administrator prompt was cancelled.");
+            return Failure::Cancelled;
+        }
+        if (lower.contains(QLatin1StringView("not authorized")) || lower.contains(QLatin1StringView("not authorised"))
+            || lower.contains(QLatin1StringView("authentication")) || text.isEmpty()) {
+            *message = QStringLiteral("Authorisation failed, or no authentication agent is running.");
+            return Failure::NotAuthorised;
+        }
+    }
+    return Failure::Exited;
+}
+
+void LinuxHelperClient::onAuthTimeout()
+{
+    if (state() != State::Authorising || !m_process)
+        return;
+    qCWarning(lcHelper) << "the administrator prompt timed out; stopping pkexec";
+    QProcess *p = m_process;
+    p->disconnect(this);
+    p->terminate();
+    // pkexec closes the polkit prompt when it goes away; escalate if it lingers.
+    QTimer::singleShot(3000, p, [p] {
+        if (p->state() != QProcess::NotRunning)
+            p->kill();
+    });
+    m_fallback.reset();
+    fail(Failure::TimedOut, QStringLiteral("The administrator prompt timed out."));
 }
 
 void LinuxHelperClient::stop()
@@ -220,6 +273,7 @@ void LinuxHelperClient::shutdown()
 
 void LinuxHelperClient::fail(Failure failure, const QString &message)
 {
+    m_authTimer.stop();
     State previous;
     {
         // AP5-R2-5: Failed is set under the same lock request() checks, so no
@@ -266,15 +320,15 @@ void LinuxHelperClient::onFinished(int exitCode, QProcess::ExitStatus status)
     const State s = state();
     if (s == State::Failed)
         return;
+    collectStderr();
     if (s == State::Authorising) {
-        if (status == QProcess::NormalExit && exitCode == 126) {
-            fail(Failure::Cancelled, QStringLiteral("The administrator prompt was cancelled."));
-            return;
-        }
-        if (status == QProcess::NormalExit && exitCode == 127) {
-            fail(Failure::NotAuthorised,
-                 QStringLiteral("Authorisation failed, or no authentication agent is running."));
-            return;
+        QString classified;
+        if (status == QProcess::NormalExit) {
+            const Failure f = classifyEarlyExit(exitCode, &classified);
+            if (f != Failure::Exited) {
+                fail(f, classified);
+                return;
+            }
         }
         // The AppImage couldn't be re-run as root (FUSE): one automatic retry
         // with --appimage-extract-and-run.
@@ -349,6 +403,7 @@ void LinuxHelperClient::handleHello(const Frame &frame)
         return;
     }
     m_fallback.reset();
+    m_authTimer.stop();
     qCInfo(lcHelper) << "helper ready:" << buildId << "euid" << hello->euid;
     setState(State::Ready);
     emit ready();

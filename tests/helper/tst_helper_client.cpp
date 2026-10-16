@@ -284,7 +284,66 @@ private slots:
         QCOMPARE(c.failure(), LinuxHelperClient::Failure::None);
     }
 
+    // (e) The helper's own exit code 126/127 isn't pkexec's "dismissed" /
+    // "not authorised"; only pkexec's own words (or silence) are.
+    void exitCodeClassification_data()
+    {
+        QTest::addColumn<QString>("body");
+        QTest::addColumn<int>("failure");
+        const int c = int(LinuxHelperClient::Failure::Cancelled), n = int(LinuxHelperClient::Failure::NotAuthorised),
+                  e = int(LinuxHelperClient::Failure::Exited);
+        QTest::newRow("pkexec: dismissed") << "echo 'Error executing command as another user: Request dismissed' >&2; exit 126" << c;
+        QTest::newRow("pkexec: not authorized") << "echo 'Error executing command as another user: Not authorized' >&2; exit 127" << n;
+        QTest::newRow("silent 126") << "exit 126" << c;
+        QTest::newRow("silent 127") << "exit 127" << n;
+        QTest::newRow("AppImage can't exec (126)") << "echo 'SynBench.AppImage: Permission denied' >&2; exit 126" << e;
+        QTest::newRow("AppImage not found (127)") << "echo 'exec: No such file or directory' >&2; exit 127" << e;
+        QTest::newRow("helper started, then 126") << "echo 'synbench-helper: started (euid 0) for uid 1000' >&2; exit 126" << e;
+        QTest::newRow("helper started, then 127") << "echo 'synbench-helper: started (euid 0) for uid 1000' >&2; exit 127" << e;
+    }
+
+    void exitCodeClassification()
+    {
+        QFETCH(QString, body);
+        QFETCH(int, failure);
+        LinuxHelperClient c(options());
+        QSignalSpy failed(&c, &LinuxHelperClient::failed);
+        c.start({{script(QStringLiteral("classify.sh"), body), {}}, std::nullopt});
+        QVERIFY(failed.wait(10000));
+        QCOMPARE(int(c.failure()), failure);
+    }
+
+    // The unanswered prompt times out (Dave: 2 minutes; short here), pkexec
+    // is stopped, and Retry starts a fresh prompt.
+    void authorisationTimesOut()
+    {
+        LinuxHelperClient::Options o = options();
+        o.authTimeout = 400ms;
+        LinuxHelperClient c(o);
+        QSignalSpy failed(&c, &LinuxHelperClient::failed);
+        QElapsedTimer t;
+        t.start();
+        c.start({{script(QStringLiteral("waiting.sh"), QStringLiteral("exec sleep 60")), {}}, std::nullopt});
+        const qint64 pid = c.helperProcessId();
+        QCOMPARE(c.state(), LinuxHelperClient::State::Authorising);
+        QVERIFY(failed.wait(10000));
+        QCOMPARE(c.failure(), LinuxHelperClient::Failure::TimedOut);
+        QVERIFY(c.failureMessage().contains(QLatin1StringView("timed out")));
+        QVERIFY2(t.elapsed() >= 350 && t.elapsed() < 5000, qPrintable(QString::number(t.elapsed())));
+        // The pending pkexec process is gone.
+        QTRY_VERIFY_WITH_TIMEOUT(::kill(pid_t(pid), 0) != 0, 8000);
+
+        QSignalSpy ready(&c, &LinuxHelperClient::ready);
+        c.start(testHelper());
+        QVERIFY(ready.wait(10000));
+        QCOMPARE(c.failure(), LinuxHelperClient::Failure::None);
+        // And a prompt that is answered in time doesn't time out later.
+        QTest::qWait(600);
+        QCOMPARE(c.state(), LinuxHelperClient::State::Ready);
+    }
+
     void launchFailure()
+
     {
         LinuxHelperClient c(options());
         QSignalSpy failed(&c, &LinuxHelperClient::failed);
