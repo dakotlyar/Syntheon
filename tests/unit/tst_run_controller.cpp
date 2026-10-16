@@ -48,6 +48,28 @@ private:
     }
 
 private slots:
+    // Zeb #4: the live log shows the test in its own column, so its message
+    // drops a leading "<name>: " (only that; anything else is left alone).
+    void logBodyDropsTheTestNamePrefix()
+    {
+        QCOMPARE(LogModel::withoutNamePrefix(QStringLiteral("GPU: Native 2D"), QStringLiteral("GPU")), QStringLiteral("Native 2D"));
+        QCOMPARE(LogModel::withoutNamePrefix(QStringLiteral("AI inference: LLM text generation"), QStringLiteral("AI inference")),
+                 QStringLiteral("LLM text generation"));
+        QCOMPARE(LogModel::withoutNamePrefix(QStringLiteral("Starting AI inference"), QStringLiteral("AI inference")),
+                 QStringLiteral("Starting AI inference"));
+        QCOMPARE(LogModel::withoutNamePrefix(QStringLiteral("GPU: "), QStringLiteral("GPU")), QStringLiteral("GPU: "));
+        QCOMPARE(LogModel::withoutNamePrefix(QStringLiteral("x"), QString()), QStringLiteral("x"));
+        LogModel m;
+        m.setNameResolver([](const QString &) { return QStringLiteral("GPU"); });
+        m.setColorResolver([](const QString &) { return QStringLiteral("t-gpu"); });
+        LogLine l;
+        l.testId = QStringLiteral("gpu");
+        l.message = QStringLiteral("GPU: Vulkan 3D");
+        m.append(l);
+        QCOMPARE(m.data(m.index(0), LogModel::BodyRole).toString(), QStringLiteral("Vulkan 3D"));
+        QCOMPARE(m.data(m.index(0), LogModel::MessageRole).toString(), QStringLiteral("GPU: Vulkan 3D"));  // stored as is
+        QCOMPARE(m.data(m.index(0), LogModel::TestColorRole).toString(), QStringLiteral("t-gpu"));
+    }
     // AP-5 #11: a ticked MultiSelect entry that has gone away or been disabled
     // is dropped from the value when the schema is refreshed (SingleSelect
     // already was).

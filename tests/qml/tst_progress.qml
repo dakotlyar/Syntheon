@@ -54,6 +54,22 @@ TestCase {
         tryVerify(function() { return RunController.log.count > 2 }, 20000)
         verify(findChild(screen, "logView").count > 0)
 
+        // Zeb #4: the test name has its own column and isn't repeated in the message.
+        const view = findChild(screen, "logView")
+        waitForRendering(screen)
+        let checked = 0
+        for (let i = 0; i < view.contentItem.children.length; ++i) {
+            const row = view.contentItem.children[i]
+            const name = findChild(row, "logTest")
+            const body = findChild(row, "logBody")
+            if (!name || !body || name.text.length === 0)
+                continue
+            verify(body.x >= name.x + name.width, "message overlaps the name column")
+            verify(body.text.indexOf(name.text + ":") !== 0, "the message repeats the test name: " + body.text)
+            ++checked
+        }
+        verify(checked > 0, "no log line with a test name was rendered")
+
         finished.wait(60000)
         compare(finished.count, 1)
         verify(!RunController.running)

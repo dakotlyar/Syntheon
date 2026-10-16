@@ -194,19 +194,52 @@ ScreenFrame {
                     property bool atEnd: true
                     onMovementEnded: atEnd = atYEnd
                     onCountChanged: if (atEnd) Qt.callLater(positionViewAtEnd)
-                    delegate: SbText {
+                    // Three real columns: time, the test (colour dot + name, elided to a
+                    // fixed width), then the message without the test name it would
+                    // otherwise repeat ("GPU  GPU: Native 2D" -> "GPU  Native 2D").
+                    delegate: Item {
+                        id: logLine
                         required property string time
                         required property string testName
-                        required property string message
+                        required property string testColor
+                        required property string body
                         required property string level
+                        readonly property color tint: level === "error" ? Theme.bad : level === "warning" ? Theme.warn : Theme.ink
                         width: logView.width - 12
-                        textFormat: Text.PlainText
-                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                        text: time + "  " + (testName.length > 0 ? testName.padEnd(8) : "        ") + message
-                        kind: "data"
-                        font.pixelSize: 12
-                        lineHeight: 1.3
-                        color: level === "error" ? Theme.bad : level === "warning" ? Theme.warn : Theme.ink
+                        height: Math.max(lineBody.implicitHeight, lineTime.implicitHeight) + 3
+                        SbText {
+                            id: lineTime
+                            objectName: "logTime"
+                            width: 62
+                            text: logLine.time
+                            kind: "data"; font.pixelSize: 12
+                            color: Theme.muted
+                        }
+                        Rectangle {
+                            x: 66; y: 5
+                            width: 6; height: 6; radius: 3
+                            visible: logLine.testName.length > 0
+                            color: Theme.testColor(logLine.testColor)
+                        }
+                        SbText {
+                            objectName: "logTest"
+                            x: 76; width: 104
+                            text: logLine.testName
+                            elide: Text.ElideRight
+                            kind: "data"; font.pixelSize: 12
+                            color: logLine.tint
+                        }
+                        SbText {
+                            id: lineBody
+                            objectName: "logBody"
+                            x: 184; width: parent.width - x
+                            text: logLine.body
+                            textFormat: Text.PlainText
+                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                            kind: "data"; font.pixelSize: 12
+                            lineHeight: 1.3
+                            color: logLine.tint
+                        }
                     }
                 }
             }

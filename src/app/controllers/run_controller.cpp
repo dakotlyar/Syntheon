@@ -79,6 +79,7 @@ RunController::RunController(Storage &storage, StorageController &storageControl
       m_log(std::make_unique<LogModel>(5000))
 {
     m_log->setNameResolver([this](const QString &id) { return testName(id); });
+    m_log->setColorResolver([this](const QString &id) { return testColor(id); });
     for (const auto &t : m_registry.tests())
         m_state.emplace(t->info().id, std::make_unique<TestState>());
 

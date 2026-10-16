@@ -18,7 +18,18 @@ class LogModel : public QAbstractListModel
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
 
 public:
-    enum Role { TimeRole = Qt::UserRole + 1, TestIdRole, TestNameRole, MessageRole, LevelRole, TextRole };
+    enum Role {
+        TimeRole = Qt::UserRole + 1,
+        TestIdRole,
+        TestNameRole,
+        MessageRole,
+        LevelRole,
+        TextRole,
+        BodyRole,       // the message without a leading "<test name>: ", for a view that shows the name in its own column
+        TestColorRole,  // the test's colour token, "" for the run's own lines
+    };
+    // "GPU: Native 2D" -> "Native 2D" when the name is GPU; anything else unchanged.
+    static QString withoutNamePrefix(const QString &message, const QString &name);
 
     explicit LogModel(int capacity = 5000, QObject *parent = nullptr);
 
@@ -28,6 +39,7 @@ public:
 
     // Maps a test id to its display name (the registry's).
     void setNameResolver(std::function<QString(const QString &)> resolver) { m_names = std::move(resolver); }
+    void setColorResolver(std::function<QString(const QString &)> resolver) { m_colors = std::move(resolver); }
 
     void append(const LogLine &line);
     void setLines(const QVector<LogLine> &lines);  // replaces everything
@@ -47,6 +59,7 @@ private:
     QVector<LogLine> m_lines;
     int m_capacity;
     std::function<QString(const QString &)> m_names;
+    std::function<QString(const QString &)> m_colors;
 };
 
 } // namespace sb

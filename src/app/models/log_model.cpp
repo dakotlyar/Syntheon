@@ -12,6 +12,17 @@ int LogModel::rowCount(const QModelIndex &parent) const
     return parent.isValid() ? 0 : int(m_lines.size());
 }
 
+QString LogModel::withoutNamePrefix(const QString &message, const QString &name)
+{
+    if (name.isEmpty())
+        return message;
+    for (const QString &prefix : {name + QStringLiteral(": "), name + QStringLiteral(" - ")}) {
+        if (message.startsWith(prefix, Qt::CaseInsensitive) && message.size() > prefix.size())
+            return message.mid(prefix.size());
+    }
+    return message;
+}
+
 QString LogModel::timeText(const LogLine &l) const
 {
     return l.timestamp.toLocalTime().toString(QStringLiteral("HH:mm:ss"));
@@ -29,6 +40,8 @@ QVariant LogModel::data(const QModelIndex &index, int role) const
     case TestNameRole: return name;
     case MessageRole: return l.message;
     case LevelRole: return toKey(l.level);
+    case BodyRole: return withoutNamePrefix(l.message, name);
+    case TestColorRole: return l.testId.isEmpty() || !m_colors ? QString() : m_colors(l.testId);
     case TextRole:
         return QStringLiteral("%1  %2  %3").arg(timeText(l), name.leftJustified(8), l.message).trimmed();
     default: return {};
@@ -38,7 +51,8 @@ QVariant LogModel::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> LogModel::roleNames() const
 {
     return {{TimeRole, "time"},       {TestIdRole, "testId"}, {TestNameRole, "testName"},
-            {MessageRole, "message"}, {LevelRole, "level"},   {TextRole, "text"}};
+            {MessageRole, "message"}, {LevelRole, "level"},   {TextRole, "text"},
+            {BodyRole, "body"},       {TestColorRole, "testColor"}};
 }
 
 void LogModel::append(const LogLine &line)
