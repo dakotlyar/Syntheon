@@ -28,6 +28,7 @@ public:
         NewerVersion,         // made by a newer SynBench: Choose another location / Quit
         LocationUnavailable,  // missing or unwritable (removed USB drive): default / Choose… / Quit
         Failed,
+        Damaged,              // not a readable SynBench history; the file was left untouched
         InUse,                // another SynBench has this history open (single instance)
     };
     struct OpenResult {

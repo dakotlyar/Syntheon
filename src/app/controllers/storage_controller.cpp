@@ -38,9 +38,16 @@ void StorageController::open()
         m_problem = StartupProblem::InUse;
         m_message = QStringLiteral("SynBench is already running with this history.");
         break;
+    case Storage::OpenStatus::Damaged:
+        m_problem = StartupProblem::Failed;
+        m_message = QStringLiteral("The history file at %1 is damaged or isn't a SynBench history (%2). "
+                                   "It was left untouched: use another location, or move the file away and start again.")
+                        .arg(QDir::toNativeSeparators(m_storage.dbPath()), r.error.isEmpty() ? QStringLiteral("unknown error") : r.error);
+        break;
     case Storage::OpenStatus::Failed:
         m_problem = StartupProblem::Failed;
-        m_message = QStringLiteral("The saved runs couldn't be opened.\n%1").arg(r.error);
+        m_message = QStringLiteral("The history at %1 couldn't be opened (%2).")
+                        .arg(QDir::toNativeSeparators(m_storage.dbPath()), r.error.isEmpty() ? QStringLiteral("unknown error") : r.error);
         break;
     }
     emit startupProblemChanged();
@@ -72,6 +79,8 @@ QString StorageController::apply(const Storage::OpenResult &r)
     }
     if (r.status == Storage::OpenStatus::NewerVersion)
         return QStringLiteral("The saved runs there were made by a newer SynBench.");
+    if (r.status == Storage::OpenStatus::Damaged)
+        return QStringLiteral("The history file there is damaged or isn't a SynBench history (%1). It was left untouched.").arg(r.error);
     if (r.status == Storage::OpenStatus::InUse)
         return QStringLiteral("That history is open in another SynBench. Close it there first.");
     return r.error.isEmpty() ? QStringLiteral("That folder can't be used.") : r.error;

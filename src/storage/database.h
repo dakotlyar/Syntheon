@@ -19,6 +19,7 @@ struct MigrateResult {
     enum class Status {
         Ok,
         NewerVersion,  // made by a newer SynBench: refused, file untouched
+        Damaged,       // not readable as a SQLite database (or not ours): refused, file untouched
         Failed,
     };
     Status status = Status::Failed;

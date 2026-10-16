@@ -115,6 +115,9 @@ Storage::OpenResult Storage::fromMigrate(const Database::MigrateResult &m)
     case Database::MigrateResult::Status::NewerVersion:
         r.status = OpenStatus::NewerVersion;
         break;
+    case Database::MigrateResult::Status::Damaged:
+        r.status = OpenStatus::Damaged;
+        break;
     case Database::MigrateResult::Status::Failed:
         r.status = OpenStatus::Failed;
         break;

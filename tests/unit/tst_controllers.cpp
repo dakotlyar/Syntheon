@@ -322,6 +322,38 @@ private slots:
         QCOMPARE(spy.count(), 1);
     }
 
+    // Zeb #3: a damaged history file says where it is and why, and stays untouched.
+    void damagedHistorySaysWhereAndWhyAndIsLeftAlone()
+    {
+        QTemporaryDir dir;
+        const QString data = dir.filePath(QStringLiteral("data"));
+        QDir().mkpath(data);
+        const QString db = QDir(data).filePath(QStringLiteral("synbench.db"));
+        const QByteArray garbage = QByteArray("this is not an SQLite database, just text ").repeated(200);
+        {
+            QFile f(db);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(garbage);
+        }
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = data;
+        AppRuntime rt(o);
+        StorageController &c = rt.storageController();
+        c.open();
+        QCOMPARE(c.startupKind(), QStringLiteral("failed"));
+        const QString msg = c.startupMessage();
+        QVERIFY2(msg.contains(QDir::toNativeSeparators(db)), qPrintable(msg));
+        QVERIFY2(msg.contains(QStringLiteral("damaged or isn't a SynBench history")), qPrintable(msg));
+        QVERIFY2(msg.contains(QStringLiteral("not a database")), qPrintable(msg));  // SQLite's own reason
+        QVERIFY2(msg.contains(QStringLiteral("left untouched")), qPrintable(msg));
+        QFile f(db);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QCOMPARE(f.readAll(), garbage);  // byte for byte
+        QVERIFY(!QFile::exists(db + QStringLiteral("-wal")));
+        QVERIFY(QDir(data).entryList({QStringLiteral("synbench.db.bak*")}).isEmpty());
+    }
+
     void storageControllerBasics()
     {
         QTemporaryDir dir;

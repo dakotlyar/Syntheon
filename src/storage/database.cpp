@@ -51,10 +51,13 @@ bool exec(QSqlDatabase &db, const QString &sql, QString *error)
     return false;
 }
 
-int userVersion(QSqlDatabase &db, bool *ok)
+int userVersion(QSqlDatabase &db, bool *ok, QString *error = nullptr)
 {
     QSqlQuery q(db);
     *ok = q.exec(QStringLiteral("PRAGMA user_version")) && q.next();
+    // The reason is on the query ("file is not a database"), not on the connection.
+    if (!*ok && error)
+        *error = q.lastError().text().trimmed();
     return *ok ? q.value(0).toInt() : 0;
 }
 
@@ -234,9 +237,13 @@ MigrateResult migrate(const QString &path, const QString &migrationsDir)
     QSqlDatabase &db = conn.db();
 
     bool ok = false;
-    const int current = userVersion(db, &ok);
+    QString why;
+    const int current = userVersion(db, &ok, &why);
     if (!ok) {
-        result.error = db.lastError().text();
+        // Nothing has been written yet (the version is read before the journal
+        // mode or anything else changes), so the file is as it was.
+        result.status = MigrateResult::Status::Damaged;
+        result.error = why.isEmpty() ? db.lastError().text().trimmed() : why;
         return result;
     }
     result.fromVersion = current;
