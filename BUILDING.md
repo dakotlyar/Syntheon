@@ -54,7 +54,7 @@ system libraries in `packaging/linux/excludelist.txt`. `AppRun` runs
 `usr/libexec/synbench-helper` when started with `--synbench-helper` (root
 re-executes the AppImage through `pkexec`). `elf-check.py` checks the machine
 type, that every library is bundled or a system library, and that no symbol is
-newer than glibc 2.35 / jammy's libstdc++. The tools are downloaded by
+newer than the architecture's floor: glibc 2.35 and jammy's libstdc++ on x64, glibc 2.39 and noble's on ARM64. The tools are downloaded by
 `make-appimage.sh` and checked against pinned SHA-256 sums.
 
 ## Windows x64
@@ -102,11 +102,16 @@ hand on a Snapdragon machine, and the Linux ARM64 AppImage is a CI artifact only
 4. The Inno and MSI steps are the x64 ones with `/DArch=arm64` and `-arch arm64`
    (and the other `UpgradeCode`); both tools are x64 programs.
 
-### Linux ARM64 (on Ubuntu 22.04)
+### Linux ARM64 (on Ubuntu 24.04)
+
+**Floor: glibc 2.39 (Ubuntu 24.04 or newer).** The official Qt 6.12 `gcc_arm64`
+build needs glibc 2.38 and libstdc++ 3.4.32, so it cannot link against Ubuntu
+22.04; the ARM64 sysroot is therefore 24.04 "noble", with GCC 13 (the same
+libstdc++). Linux x64 stays on 22.04 / glibc 2.35.
 
 ```sh
 sudo apt-get install g++-aarch64-linux-gnu binutils-aarch64-linux-gnu mmdebstrap
-bash packaging/linux/make-sysroot.sh sysroot-arm64          # jammy arm64 -dev packages, no qemu
+bash packaging/linux/make-sysroot.sh sysroot-arm64          # noble arm64 -dev packages, no qemu (runs mmdebstrap via sudo)
 aqt install-qt linux desktop 6.12.0 linux_gcc_64             # host Qt
 aqt install-qt linux_arm64 desktop 6.12.0 linux_gcc_arm64   # target Qt
 cmake --preset linux-arm64-cross -DSYNBENCH_SYSROOT=$PWD/sysroot-arm64 -DSYNBENCH_TARGET_QT=<target Qt> \
@@ -119,9 +124,9 @@ python3 packaging/checks/elf-check.py AppDir --arch aarch64 --cross-prefix aarch
 bash packaging/linux/make-appimage.sh AppDir SynBench-aarch64.AppImage aarch64
 ```
 
-The sysroot is the glibc 2.35 floor; it is cached in CI by a hash of
-`packaging/linux/linux-arm64-sysroot.txt`. If the prebuilt arm64 Qt needs newer
-libstdc++ symbols than jammy has, `elf-check.py` says so (design risk R3).
+The sysroot is cached in CI by a hash of `packaging/linux/linux-arm64-sysroot.txt`
+and the scripts. `elf-check.py` takes its limits per architecture (x86_64:
+glibc 2.35; aarch64: glibc 2.39, GLIBCXX_3.4.33, CXXABI_1.3.15).
 
 ## CI
 

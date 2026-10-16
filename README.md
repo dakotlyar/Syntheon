@@ -20,6 +20,7 @@ Download an installer or the AppImage from a release:
 | Windows x64 | `SynBench-<version>-windows-x64-setup.exe` or `SynBench-<version>-windows-x64.msi` |
 | Windows ARM64 | `SynBench-<version>-windows-arm64-setup.exe` or `...-arm64.msi` |
 | Linux x64 | `SynBench-<version>-x86_64.AppImage` (needs glibc 2.35+: Ubuntu 22.04, Debian 12, Fedora 36 or newer) |
+| Linux ARM64 | not released yet: built in CI as an untested artifact. It needs **glibc 2.39 (Ubuntu 24.04 or newer)**, because the official Qt for ARM64 Linux requires it |
 
 SynBench asks for administrator access **once, when it starts**, to read
 firmware details such as the memory modules. On Windows that is the UAC prompt
