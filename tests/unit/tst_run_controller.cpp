@@ -48,6 +48,33 @@ private:
     }
 
 private slots:
+    // AP-5 #11: a ticked MultiSelect entry that has gone away or been disabled
+    // is dropped from the value when the schema is refreshed (SingleSelect
+    // already was).
+    void multiSelectIsPrunedWhenAnItemGoesAway()
+    {
+        OptionDef d;
+        d.key = QStringLiteral("runtimes");
+        d.kind = OptionKind::MultiSelect;
+        d.items = {{QStringLiteral("a"), QStringLiteral("A")}, {QStringLiteral("b"), QStringLiteral("B")}, {QStringLiteral("c"), QStringLiteral("C")}};
+        d.defaultValue = QStringList{QStringLiteral("a")};
+        OptionSchema first;
+        first.options = {d};
+        OptionValues values;
+        OptionsModel model(first, &values);
+        model.setSchema(first);
+        model.setValue(QStringLiteral("runtimes"), QStringList{QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c")});
+        QCOMPARE(values.value(QStringLiteral("runtimes")).toStringList(), (QStringList{QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c")}));
+
+        OptionDef d2 = d;
+        d2.items[1].enabled = false;        // b: now disabled
+        d2.items.removeAt(2);               // c: gone
+        OptionSchema second;
+        second.options = {d2};
+        model.setSchema(second);
+        QCOMPARE(values.value(QStringLiteral("runtimes")).toStringList(), (QStringList{QStringLiteral("a")}));
+    }
+
     // AP-5 #5: a refused Start says why (and the reason clears on the next edit).
     void refusedStartExposesItsReason()
     {

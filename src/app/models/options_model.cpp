@@ -116,6 +116,23 @@ void OptionsModel::setSchema(OptionSchema schema)
             const OptionItem *item = d.item(m_values->value(d.key).toString());
             if (!item || !item->enabled)
                 m_values->insert(d.key, d.defaultValue);  // e.g. a drive that went away
+        } else if (d.kind == OptionKind::MultiSelect) {
+            // Likewise a ticked entry that has gone away or is now disabled
+            // (a runtime that was uninstalled): drop it from the value.
+            const QVariant v = m_values->value(d.key);
+            QStringList chosen = v.typeId() == QMetaType::QStringList ? v.toStringList() : QStringList();
+            if (v.typeId() == QMetaType::QVariantList) {
+                for (const QVariant &e : v.toList())
+                    chosen.append(e.toString());
+            }
+            QStringList kept;
+            for (const QString &c : std::as_const(chosen)) {
+                const OptionItem *item = d.item(c);
+                if (item && item->enabled)
+                    kept.append(c);
+            }
+            if (kept != chosen)
+                m_values->insert(d.key, kept);
         }
     }
     endResetModel();

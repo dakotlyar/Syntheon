@@ -128,6 +128,7 @@ StubSpec makeSpec()
         const double minutes = vary(rng, profileMinutes(profile));
         const double stepMs = 30000.0 * stubTimeScale() / kSamples;
         QVector<QPointF> samples;
+        const auto start = std::chrono::steady_clock::now();  // one start time: no drift per sample
         ctx.log(LogLevel::Info, QStringLiteral("Battery: %1 profile; display brightness locked and sleep blocked (simulated)").arg(profile));
         for (int n = 0; n <= kSamples; ++n) {
             const double t = minutes * n / kSamples;
@@ -145,7 +146,7 @@ StubSpec makeSpec()
                 ctx.log(LogLevel::Error, QStringLiteral("Simulated error"));
                 return TestResult::error(QStringLiteral("Simulated error while draining"));
             }
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(qint64(stepMs * 1000.0));
+            const auto deadline = start + std::chrono::microseconds(qint64(stepMs * (n + 1) * 1000.0));
             for (;;) {
                 if (ctx.cancelled())
                     return TestResult::withStatus(Status::Cancelled);
@@ -155,6 +156,8 @@ StubSpec makeSpec()
                 QThread::msleep(std::min<unsigned long>(20, static_cast<unsigned long>(left.count())));
             }
         }
+        if (ctx.cancelled())  // a Stop during the last sample is not a finished run
+            return TestResult::withStatus(Status::Cancelled);
         TestResult r;
         const double health = snapshotNumber(ctx.system(), "battery", "health_pct", 94.0);
         const double design = snapshotNumber(ctx.system(), "battery", "design_wh", 90.0);

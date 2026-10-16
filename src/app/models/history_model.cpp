@@ -73,7 +73,7 @@ QHash<int, QByteArray> HistoryModel::roleNames() const
 
 bool HistoryModel::canFetchMore(const QModelIndex &parent) const
 {
-    return !parent.isValid() && m_rows.size() < m_total;
+    return !parent.isValid() && m_fetched < m_total;
 }
 
 void HistoryModel::fetchMore(const QModelIndex &parent)
@@ -81,14 +81,26 @@ void HistoryModel::fetchMore(const QModelIndex &parent)
     if (parent.isValid() || !m_storage.isOpen())
         return;
     RunRepository repo(m_storage.connection());
-    const auto page = repo.listRuns(int(m_rows.size()), kPageSize);
+    const auto page = repo.listRuns(m_fetched, kPageSize);
     if (page.isEmpty()) {
-        m_total = int(m_rows.size());  // the history shrank under us
+        m_total = m_fetched;  // the history shrank under us
         emit totalChanged();
         return;
     }
-    beginInsertRows({}, int(m_rows.size()), int(m_rows.size() + page.size() - 1));
-    m_rows += page;
+    m_fetched += int(page.size());
+    // A run saved since the first page shifts the offsets: drop rows already shown.
+    QSet<QUuid> shown;
+    for (const RunRepository::RunSummary &s : std::as_const(m_rows))
+        shown.insert(s.uuid);
+    QVector<RunRepository::RunSummary> fresh;
+    for (const RunRepository::RunSummary &s : page) {
+        if (!shown.contains(s.uuid))
+            fresh.append(s);
+    }
+    if (fresh.isEmpty())
+        return;
+    beginInsertRows({}, int(m_rows.size()), int(m_rows.size() + fresh.size() - 1));
+    m_rows += fresh;
     endInsertRows();
 }
 
@@ -97,10 +109,12 @@ void HistoryModel::reload()
     beginResetModel();
     m_rows.clear();
     m_total = 0;
+    m_fetched = 0;
     if (m_storage.isOpen()) {
         RunRepository repo(m_storage.connection());
         m_total = std::max(0, repo.runCount());
         m_rows = repo.listRuns(0, kPageSize);
+        m_fetched = int(m_rows.size());
     }
     // Drop ticks of runs that no longer exist.
     QSet<QString> alive;

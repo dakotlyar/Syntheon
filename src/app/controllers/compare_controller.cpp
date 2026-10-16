@@ -63,7 +63,11 @@ CompareController::CompareController(RunController &run, Storage &storage, Stora
 
 QString CompareController::changeText(double pct, bool lowerIsBetter)
 {
-    const long long r = std::llround(pct);
+    if (!std::isfinite(pct))
+        return {};  // NaN / inf: nothing sensible to say
+    // llround of a huge double is undefined: cap what's displayed.
+    constexpr double kCap = 99999;
+    const long long r = std::llround(std::clamp(pct, -kCap, kCap));
     if (r == 0)
         return QStringLiteral("0%");
     QString text = QStringLiteral("%1%2%").arg(r > 0 ? QStringLiteral("+") : QString()).arg(r);
@@ -200,8 +204,10 @@ void CompareController::rebuild()
             }
             if (i != m_baseline && t && b && t->score && b->score && *b->score != 0) {
                 const double pct = (*t->score - *b->score) / *b->score * 100.0;
-                cell.insert(QStringLiteral("changeText"), changeText(pct, false));
-                cell.insert(QStringLiteral("direction"), dir(pct, false, false));
+                if (std::isfinite(pct)) {
+                    cell.insert(QStringLiteral("changeText"), changeText(pct, false));
+                    cell.insert(QStringLiteral("direction"), dir(pct, false, false));
+                }
             }
             cells.append(cell);
             bars.append(t && t->score && maxScore > 0 ? *t->score / maxScore : 0.0);
@@ -237,8 +243,10 @@ void CompareController::rebuild()
             const bool partialPair = isPartialRun(r.status) || isPartialRun(baseRun.status);
             if (i != m_baseline && r.overall && baseRun.overall && *baseRun.overall != 0 && !partialPair) {
                 const double pct = (*r.overall - *baseRun.overall) / *baseRun.overall * 100.0;
-                cell.insert(QStringLiteral("changeText"), changeText(pct, false));
-                cell.insert(QStringLiteral("direction"), dir(pct, false, false));
+                if (std::isfinite(pct)) {
+                    cell.insert(QStringLiteral("changeText"), changeText(pct, false));
+                    cell.insert(QStringLiteral("direction"), dir(pct, false, false));
+                }
             }
             cells.append(cell);
             bars.append(r.overall && maxOverall > 0 ? *r.overall / maxOverall : 0.0);
@@ -326,8 +334,10 @@ void CompareController::rebuildRaw()
             if (i != m_baseline && m && bm && m->isNumeric() && bm->isNumeric() && std::get<double>(bm->value) != 0) {
                 const double b = std::get<double>(bm->value);
                 const double pct = (std::get<double>(m->value) - b) / std::fabs(b) * 100.0;
-                cell.insert(QStringLiteral("changeText"), changeText(pct, lower));
-                cell.insert(QStringLiteral("direction"), dir(pct, lower, neutral));
+                if (std::isfinite(pct)) {  // a NaN metric gets no change %
+                    cell.insert(QStringLiteral("changeText"), changeText(pct, lower));
+                    cell.insert(QStringLiteral("direction"), dir(pct, lower, neutral));
+                }
             }
             cells.append(cell);
         }

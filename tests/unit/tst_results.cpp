@@ -11,6 +11,7 @@
 #include "tests/common/stub_clock.h"
 
 #include <QSignalSpy>
+#include <limits>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -522,6 +523,36 @@ private slots:
         h.fetchMore({});
         QCOMPARE(h.rowCount(), 205);
         QVERIFY(!h.canFetchMore({}));
+    }
+
+    // AP-5 #13: a run saved between two pages shifts the offsets; the boundary
+    // row must not show twice, and paging must still end.
+    void historyPagingDoesNotDuplicateTheBoundaryRow()
+    {
+        startRuntime();
+        const QDateTime t0 = QDateTime(QDate(2026, 1, 1), QTime(0, 0), QTimeZone::UTC);
+        for (int i = 0; i < 205; ++i)
+            seed(RunStatus::Completed, t0.addSecs(i * 60), {cpuResult(900 + i)});
+        HistoryModel &h = m_rt->history();
+        h.reload();
+        QCOMPARE(h.rowCount(), 200);
+        seed(RunStatus::Completed, t0.addDays(5), {cpuResult(1)});  // newer than everything: shifts the offsets by one
+        while (h.canFetchMore({}))
+            h.fetchMore({});
+        QSet<QString> ids;
+        for (int i = 0; i < h.rowCount(); ++i)
+            ids.insert(h.data(h.index(i), HistoryModel::UuidRole).toString());
+        QCOMPARE(ids.size(), h.rowCount());  // no duplicates
+        QCOMPARE(h.rowCount(), 205);         // the new run isn't in this view until a reload
+    }
+
+    // AP-5 #13: odd percentages and NaN never reach llround undefined.
+    void changeTextHandlesHugeAndNonFinite()
+    {
+        QCOMPARE(CompareController::changeText(1e300, false), QStringLiteral("+99999%"));
+        QCOMPARE(CompareController::changeText(-1e300, false), QStringLiteral("-99999%"));
+        QCOMPARE(CompareController::changeText(std::nan(""), false), QString());
+        QCOMPARE(CompareController::changeText(std::numeric_limits<double>::infinity(), true), QString());
     }
 
     void historyDropsTicksOfClearedRuns()

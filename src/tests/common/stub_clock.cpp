@@ -10,6 +10,15 @@
 
 namespace sb::tests {
 
+std::optional<double> parseStubScale(const QString &text)
+{
+    bool ok = false;
+    const double s = text.trimmed().toDouble(&ok);
+    if (ok && std::isfinite(s) && s > 0 && s <= 100)
+        return s;
+    return std::nullopt;
+}
+
 namespace {
 
 std::atomic<double> &override()
@@ -26,10 +35,8 @@ double fromEnvironment()
 {
 #ifdef SYNBENCH_DEV_HOOKS
     static const double v = [] {
-        bool ok = false;
-        const double s = qEnvironmentVariable("SYNBENCH_STUB_SCALE").toDouble(&ok);
-        if (ok && std::isfinite(s) && s > 0 && s <= 100)
-            return s;
+        if (const auto s = parseStubScale(qEnvironmentVariable("SYNBENCH_STUB_SCALE")))
+            return *s;
         return qEnvironmentVariableIntValue("SYNBENCH_SMOKE") != 0 ? 0.03 : 1.0;
     }();
     return v;

@@ -277,6 +277,68 @@ private slots:
         QVERIFY(!o2.start({{QStringLiteral("cpu"), {{QStringLiteral("simulate"), QStringLiteral("explode")}}}}, {}).ok);
     }
 
+    // AP-5 #12: odd stub-scale text and seed values are handled, not undefined.
+    void scaleAndSeedAreSanitised()
+    {
+        QCOMPARE(tests::parseStubScale(QStringLiteral("0.05")), std::optional<double>(0.05));
+        for (const char *bad : {"inf", "-inf", "nan", "1e308", "1e400", "-1", "0", "", "abc", "100.5"})
+            QVERIFY2(!tests::parseStubScale(QString::fromLatin1(bad)), bad);
+        QCOMPARE(tests::parseStubScale(QStringLiteral("100")), std::optional<double>(100.0));
+        // A seed from the UI can be anything a number box lets through.
+        tests::setStubTimeScale(0.02);
+        for (double seed : {-5.0, 1e300, 4294967296.0 * 3})
+            QCOMPARE(runOne(QStringLiteral("cpu"), {{QStringLiteral("seed"), seed}}).tests[0].status, Status::Ok);
+        tests::setStubTimeScale(0.02);
+    }
+
+    // AP-5 #12: a Stop that arrives during the last slice is Cancelled, never
+    // Ok. Deterministic: the context turns "cancelled" on once the stub has
+    // reported 100% progress, i.e. exactly in its final slice.
+    void stopInTheFinalSliceIsNotOk()
+    {
+        struct LastSliceContext : RunContext {
+            bool stop = false;
+            SystemSnapshot snap;
+            UnavailablePrivilegedOps ops;
+            void progress(double fraction, const QString &) override { stop = stop || fraction >= 0.999; }
+            void log(LogLevel, const QString &) override {}
+            bool cancelled() const override { return stop; }
+            void subTestBegin(const QString &) override {}
+            void subTestEnd(const QString &, Status) override {}
+            void checkpoint(const QCborMap &) override {}
+            QString scratchDir() override { return {}; }
+            const SystemSnapshot &system() const override { return snap; }
+            PrivilegedOps &privileged() override { return ops; }
+        };
+        tests::setStubTimeScale(0.02);
+        for (const QString &id : {QStringLiteral("cpu"), QStringLiteral("ram"), QStringLiteral("battery")}) {
+            LastSliceContext ctx;
+            OptionValues o;
+            if (id == QLatin1StringView("battery"))
+                o.insert(QStringLiteral("override_preconditions"), true);
+            const TestResult r = m_registry.find(id)->run(ctx, o);
+            QCOMPARE(r.status, Status::Cancelled);
+        }
+    }
+
+    // AP-5 #12: a hung Battery stub (no time limit otherwise) has a way out.
+    void hungBatteryStubIsAbandonedByItsTimeLimit()
+    {
+        const ITest *battery = m_registry.find(QStringLiteral("battery"));
+        QCOMPARE(battery->timeLimit({}), std::chrono::seconds(0));
+        QVERIFY(battery->timeLimit({{QStringLiteral("simulate"), QStringLiteral("hang")}}) > std::chrono::seconds(0));
+        tests::setStubTimeLimitFloor(std::chrono::seconds(1));
+        Orchestrator o(m_registry, *m_sink, m_inhibitor, fastConfig());
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        QVERIFY(o.start({{QStringLiteral("battery"), {{QStringLiteral("simulate"), QStringLiteral("hang")},
+                                                      {QStringLiteral("override_preconditions"), true}}}}, {}).ok);
+        QVERIFY(finished.wait(30000));
+        QCOMPARE(o.state(), Orchestrator::State::Abandoned);
+        tests::releaseStubHangs();
+        QVERIFY(o.waitForWorkerExit(10s));
+        tests::resetStubTimeLimitFloor();
+    }
+
     // A slow machine must never turn a healthy stub into a timeout: the time
     // limit has a floor that doesn't shrink with the time scale.
     void timeLimitHasAFloorBelowRealTime()

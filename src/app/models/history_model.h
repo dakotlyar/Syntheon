@@ -72,6 +72,7 @@ private:
     QVector<RunRepository::RunSummary> m_rows;
     QSet<QString> m_checked;
     int m_total = 0;
+    int m_fetched = 0;  // rows read from the database so far (shown + dropped duplicates)
 };
 
 } // namespace sb

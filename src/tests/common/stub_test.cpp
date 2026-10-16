@@ -16,6 +16,16 @@ namespace {
 
 constexpr int kSliceMs = 20;
 
+// The seed option is a number from the UI; whatever arrives, convert it
+// without undefined behaviour (negative, huge, NaN, inf).
+std::uint32_t seedValue(const QVariant &v)
+{
+    const double d = v.toDouble();
+    if (!std::isfinite(d))
+        return 1;
+    return std::uint32_t(std::clamp(d, 0.0, 9999.0));
+}
+
 std::uint32_t fnv1a(const QString &s)
 {
     std::uint32_t h = 2166136261u;
@@ -31,13 +41,14 @@ QString simulateMode(const OptionValues &o)
     return o.value(QString(StubTest::kSimulateKey), QStringLiteral("normal")).toString();
 }
 
-// Sleeps until `ms` from now, polling for cancel every slice. Returns false if
-// cancelled. It works against a deadline, not by adding up short sleeps, so a
-// coarse timer (Windows ticks at ~16 ms) overshoots by one tick, not by a
-// multiple of the number of slices.
-bool sleepCancellable(RunContext &ctx, double ms)
+// Sleeps until `deadline`, polling for cancel every slice. Returns false if
+// cancelled. A stub keeps ONE start time and asks for absolute deadlines from
+// it, so a coarse timer (Windows ticks at ~16 ms) overshoots by one tick in
+// total, not once per slice.
+using Clock = std::chrono::steady_clock;
+
+bool sleepUntil(RunContext &ctx, Clock::time_point deadline)
 {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(qint64(ms * 1000.0));
     for (;;) {
         if (ctx.cancelled())
             return false;
@@ -234,8 +245,10 @@ std::chrono::seconds StubTest::estimate(const OptionValues &o) const
 
 std::chrono::seconds StubTest::timeLimit(const OptionValues &o) const
 {
-    if (m_spec.info.exclusivity == Exclusivity::RunsAlone)
-        return std::chrono::seconds(0);  // runs until the battery is empty (Phase 8)
+    // A battery run goes on until the battery is empty (Phase 8): no limit,
+    // except in the simulated hang, which must have a way out.
+    if (m_spec.info.exclusivity == Exclusivity::RunsAlone && simulateMode(o) != QLatin1StringView("hang"))
+        return std::chrono::seconds(0);
     const double scale = stubTimeScale();
     const double secs = std::max(20.0, 2.0 * estimate(o).count()) * scale;
     // Below real time the scaled budget is only a hint: never under the floor,
@@ -248,7 +261,7 @@ TestResult StubTest::run(RunContext &ctx, const OptionValues &optionsIn)
 {
     const OptionValues o = withDefaults(optionsIn);
     const QString mode = simulateMode(o);
-    std::mt19937 rng(std::uint32_t(o.value(QString(kSeedKey)).toDouble()) * 7919u + fnv1a(m_spec.info.id));
+    std::mt19937 rng(seedValue(o.value(QString(kSeedKey))) * 7919u + fnv1a(m_spec.info.id));
     const SystemSnapshot &system = ctx.system();
 
     if (mode == QLatin1StringView("na")) {
@@ -266,6 +279,8 @@ TestResult StubTest::run(RunContext &ctx, const OptionValues &optionsIn)
             steps = m_spec.stages.isEmpty() ? QStringList{QStringLiteral("Measuring")} : m_spec.stages;
         const double totalMs = double(estimate(o).count()) * 1000.0 * stubTimeScale();
         const double stepMs = totalMs / double(steps.size());
+        const Clock::time_point start = Clock::now();
+        double plannedMs = 0;
 
         for (int i = 0; i < steps.size(); ++i) {
             const bool isSub = !subs.isEmpty();
@@ -290,7 +305,8 @@ TestResult StubTest::run(RunContext &ctx, const OptionValues &optionsIn)
             }
             const int slices = std::max(1, int(stepMs / (kSliceMs * 5)));
             for (int s = 0; s < slices; ++s) {
-                if (!sleepCancellable(ctx, stepMs / slices)) {
+                plannedMs += stepMs / slices;
+                if (!sleepUntil(ctx, start + std::chrono::microseconds(qint64(plannedMs * 1000.0)))) {
                     if (isSub)
                         ctx.subTest(steps[i]).end(Status::Cancelled);
                     return TestResult::withStatus(Status::Cancelled);
@@ -306,6 +322,9 @@ TestResult StubTest::run(RunContext &ctx, const OptionValues &optionsIn)
             if (isSub)
                 ctx.subTest(steps[i]).end(Status::Ok);
         }
+        // A Stop that arrived during the last slice must not be reported as Ok.
+        if (ctx.cancelled())
+            return TestResult::withStatus(Status::Cancelled);
         for (const QString &id : subs)
             r.subResults.append({id, Status::Ok, {}, {}});
         r.status = Status::Ok;

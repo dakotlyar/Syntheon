@@ -3,7 +3,14 @@
 
 #include <chrono>
 
+#include <optional>
+
+class QString;
+
 namespace sb::tests {
+
+// A SYNBENCH_STUB_SCALE value: a plain finite number in (0, 100], else nothing.
+std::optional<double> parseStubScale(const QString &text);
 
 // Phase 1 stubs take about 10-30 s each (P20). SYNBENCH_STUB_SCALE (a factor,
 // e.g. 0.05) shortens that for tests; SYNBENCH_SMOKE=1 implies 0.03. The real
