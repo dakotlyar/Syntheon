@@ -6,7 +6,7 @@ name: ARM64 sysroot
 
 on:
   push:
-    branches: [v2]
+    branches: [main, 'phase-*']
     paths:
       - packaging/linux/linux-arm64-sysroot.txt
       - packaging/linux/make-sysroot.sh
