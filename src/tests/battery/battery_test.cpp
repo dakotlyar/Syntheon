@@ -7,6 +7,7 @@
 #include <QThread>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 namespace sb::tests {
@@ -144,13 +145,14 @@ StubSpec makeSpec()
                 ctx.log(LogLevel::Error, QStringLiteral("Simulated error"));
                 return TestResult::error(QStringLiteral("Simulated error while draining"));
             }
-            double left = stepMs;
-            while (left > 0) {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(qint64(stepMs * 1000.0));
+            for (;;) {
                 if (ctx.cancelled())
                     return TestResult::withStatus(Status::Cancelled);
-                const int slice = std::max(1, int(std::min(20.0, std::ceil(left))));
-                QThread::msleep(slice);
-                left -= slice;
+                const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+                if (left.count() <= 0)
+                    break;
+                QThread::msleep(std::min<unsigned long>(20, static_cast<unsigned long>(left.count())));
             }
         }
         TestResult r;

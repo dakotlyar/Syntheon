@@ -12,6 +12,7 @@
 #include "tests/common/stub_clock.h"
 
 #include <QCborMap>
+#include <QElapsedTimer>
 #include <QCborValue>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -255,7 +256,10 @@ private slots:
         const RunRecord na = runOne(QStringLiteral("gpu"), {{QStringLiteral("simulate"), QStringLiteral("na")}});
         QCOMPARE(na.tests[0].status, Status::NotAvailable);
 
-        // Hang ignores Stop and the time limit: the run is abandoned (R7).
+        // Hang ignores Stop and the time limit: the run is abandoned (R7). The
+        // limit floor (normally 15 s so slow CI never times a stub out) is
+        // lowered so this test is quick.
+        tests::setStubTimeLimitFloor(std::chrono::seconds(1));
         Orchestrator o(m_registry, *m_sink, m_inhibitor, fastConfig());
         QSignalSpy finished(&o, &Orchestrator::runFinished);
         QVERIFY(o.start({{QStringLiteral("ram"), {{QStringLiteral("simulate"), QStringLiteral("hang")}}}}, {}).ok);
@@ -266,10 +270,39 @@ private slots:
         QCOMPARE(o.state(), Orchestrator::State::Abandoned);
         tests::releaseStubHangs();  // let the hung stub finish so it can be joined
         QVERIFY(o.waitForWorkerExit(10s));
+        tests::resetStubTimeLimitFloor();
 
         // Unknown modes are rejected up front.
         Orchestrator o2(m_registry, *m_sink, m_inhibitor, fastConfig());
         QVERIFY(!o2.start({{QStringLiteral("cpu"), {{QStringLiteral("simulate"), QStringLiteral("explode")}}}}, {}).ok);
+    }
+
+    // A slow machine must never turn a healthy stub into a timeout: the time
+    // limit has a floor that doesn't shrink with the time scale.
+    void timeLimitHasAFloorBelowRealTime()
+    {
+        const ITest *cpu = m_registry.find(QStringLiteral("cpu"));
+        tests::setStubTimeScale(0.03);
+        QVERIFY(cpu->timeLimit({}) >= std::chrono::seconds(15));
+        tests::setStubTimeScale(1.0);
+        QCOMPARE(cpu->timeLimit({}), std::chrono::seconds(48));  // 2 x 24 s, as before
+        tests::setStubTimeLimitFloor(std::chrono::seconds(3));
+        tests::setStubTimeScale(0.03);
+        QCOMPARE(cpu->timeLimit({}), std::chrono::seconds(3));
+        tests::resetStubTimeLimitFloor();
+        QCOMPARE(m_registry.find(QStringLiteral("battery"))->timeLimit({}), std::chrono::seconds(0));
+        tests::setStubTimeScale(0.02);
+    }
+
+    // The stubs take about their nominal time, whatever the sleep granularity.
+    void stubsRunInAboutTheirNominalTime()
+    {
+        QElapsedTimer t;
+        t.start();
+        const RunRecord run = runOne(QStringLiteral("cpu"));
+        const qint64 ms = t.elapsed();
+        QCOMPARE(run.tests[0].status, Status::Ok);
+        QVERIFY2(ms >= 24 * 20 - 30 && ms < 24 * 20 + 1500, qPrintable(QString::number(ms)));  // 24 s x 0.02 = 480 ms
     }
 
     void stopCancelsAStub()

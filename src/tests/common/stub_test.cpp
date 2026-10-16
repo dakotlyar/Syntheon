@@ -7,6 +7,7 @@
 #include <QThread>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 namespace sb::tests {
@@ -30,18 +31,21 @@ QString simulateMode(const OptionValues &o)
     return o.value(QString(StubTest::kSimulateKey), QStringLiteral("normal")).toString();
 }
 
-// Sleeps `ms`, polling for cancel every slice. Returns false if cancelled.
+// Sleeps until `ms` from now, polling for cancel every slice. Returns false if
+// cancelled. It works against a deadline, not by adding up short sleeps, so a
+// coarse timer (Windows ticks at ~16 ms) overshoots by one tick, not by a
+// multiple of the number of slices.
 bool sleepCancellable(RunContext &ctx, double ms)
 {
-    double left = ms;
-    while (left > 0) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(qint64(ms * 1000.0));
+    for (;;) {
         if (ctx.cancelled())
             return false;
-        const int slice = std::max(1, int(std::min<double>(kSliceMs, std::ceil(left))));
-        QThread::msleep(slice);
-        left -= slice;
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        if (left.count() <= 0)
+            return true;
+        QThread::msleep(std::min<unsigned long>(kSliceMs, static_cast<unsigned long>(left.count())));
     }
-    return !ctx.cancelled();
 }
 
 } // namespace
@@ -232,8 +236,12 @@ std::chrono::seconds StubTest::timeLimit(const OptionValues &o) const
 {
     if (m_spec.info.exclusivity == Exclusivity::RunsAlone)
         return std::chrono::seconds(0);  // runs until the battery is empty (Phase 8)
-    const double secs = std::max(20.0, 2.0 * estimate(o).count()) * stubTimeScale();
-    return std::chrono::seconds(std::max<long long>(1, std::llround(secs)));
+    const double scale = stubTimeScale();
+    const double secs = std::max(20.0, 2.0 * estimate(o).count()) * scale;
+    // Below real time the scaled budget is only a hint: never under the floor,
+    // because slow machines make real time stretch, not shrink.
+    const long long floor = scale < 1.0 ? stubTimeLimitFloor().count() : 0;
+    return std::chrono::seconds(std::max<long long>({1, floor, std::llround(secs)}));
 }
 
 TestResult StubTest::run(RunContext &ctx, const OptionValues &optionsIn)

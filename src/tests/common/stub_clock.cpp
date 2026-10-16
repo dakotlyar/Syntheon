@@ -48,6 +48,28 @@ static std::atomic<unsigned> &hangGeneration()
     return g;
 }
 
+static std::atomic<long long> &limitFloor()
+{
+    static std::atomic<long long> f{-1};  // -1 = the default
+    return f;
+}
+
+std::chrono::seconds stubTimeLimitFloor()
+{
+    const long long f = limitFloor().load();
+    return std::chrono::seconds(f >= 0 ? f : 15);
+}
+
+void setStubTimeLimitFloor(std::chrono::seconds floor)
+{
+    limitFloor() = floor.count();
+}
+
+void resetStubTimeLimitFloor()
+{
+    limitFloor() = -1;
+}
+
 void releaseStubHangs()
 {
     hangGeneration()++;
