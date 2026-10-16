@@ -335,12 +335,15 @@ jobs:
           cmake --install build/windows-x64-package --prefix stage
           ./packaging/windows/deploy.ps1 -Stage stage -HostQt $env:QT_ROOT_DIR
 
-      - name: The packaged binaries carry no developer hooks, no test binaries, and are all x64
+      - name: Static checks on the stage tree (hooks, test binaries, architecture, dependencies, runtime)
         shell: pwsh
-        run: |
-          ./packaging/checks/no-dev-hooks.ps1 -Tree stage
-          bash packaging/checks/no-test-binaries.sh stage
-          ./packaging/checks/pe-check.ps1 -Tree stage -Arch x64
+        run: ./packaging/checks/windows-static-checks.ps1 -Tree stage -Arch x64
+
+      # A check that cannot fail proves nothing: plant defects in a copy and
+      # require the checks to reject each one.
+      - name: Negative control, the static checks fail on planted defects
+        shell: pwsh
+        run: ./packaging/checks/test-windows-static-checks.ps1 -Tree stage -Arch x64
 
       - name: Versions
         shell: pwsh
@@ -473,12 +476,13 @@ jobs:
           cmake --install build/windows-arm64-cross --prefix stage
           ./packaging/windows/deploy.ps1 -Stage stage -HostQt $env:HOST_QT -TargetQt $env:TARGET_QT
 
-      - name: Static checks (P27) - every file is ARM64, every dependency is present
+      - name: Static checks (P27) - hooks, test binaries, ARM64 only, every dependency, the runtime
         shell: pwsh
-        run: |
-          ./packaging/checks/no-dev-hooks.ps1 -Tree stage
-          bash packaging/checks/no-test-binaries.sh stage
-          ./packaging/checks/pe-check.ps1 -Tree stage -Arch arm64
+        run: ./packaging/checks/windows-static-checks.ps1 -Tree stage -Arch arm64
+
+      - name: Negative control, the static checks fail on planted defects
+        shell: pwsh
+        run: ./packaging/checks/test-windows-static-checks.ps1 -Tree stage -Arch arm64
 
       - name: Versions
         shell: pwsh
