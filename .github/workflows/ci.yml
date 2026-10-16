@@ -9,6 +9,10 @@ on:
   # release.yml runs the same jobs on a tag, then publishes their artifacts.
   workflow_call:
 
+# Least privilege: CI only reads the repository (release.yml's publish job has its own write grant).
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -34,7 +38,7 @@ jobs:
             libxkbcommon-dev libfontconfig1-dev
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
         with:
           version: ${{ env.QT_VERSION }}
           host: linux
@@ -107,12 +111,12 @@ jobs:
       # ilammy/msvc-dev-cmd has no Node 24 release yet (v1.13.0 runs on
       # Node 20), so this step still triggers the Node 20 deprecation notice.
       - name: Set up MSVC (x64)
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1 (= v1.13.0)
         with:
           arch: x64
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
         with:
           version: ${{ env.QT_VERSION }}
           host: windows
@@ -211,7 +215,7 @@ jobs:
             desktop-file-utils appstream
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
         with:
           version: ${{ env.QT_VERSION }}
           host: linux
@@ -310,12 +314,12 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Set up MSVC (x64)
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1 (= v1.13.0)
         with:
           arch: x64
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
         with:
           version: ${{ env.QT_VERSION }}
           host: windows
@@ -371,6 +375,12 @@ jobs:
           "SYNBENCH_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
           "SYNBENCH_MSI_VERSION=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      # Trust: Inno Setup is normally preinstalled on the runner image; otherwise it
+      # comes from Chocolatey, whose package carries the installer's checksum and
+      # verifies it. WiX is a dotnet tool at an exact version (5.0.2), installed from
+      # nuget.org, whose repository signature the NuGet client checks. Neither has a
+      # hash pinned here: a SHA-256 for either would have to be copied from the
+      # publisher's own site, which proves no more than those two checks.
       - name: Install Inno Setup and WiX
         shell: pwsh
         run: |
@@ -438,12 +448,12 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Set up MSVC (x64 -> ARM64 cross tools)
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1 (= v1.13.0)
         with:
           arch: amd64_arm64
 
       - name: Install the host Qt (x64)
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
         with:
           version: ${{ env.QT_VERSION }}
           host: windows
@@ -509,6 +519,12 @@ jobs:
           "SYNBENCH_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
           "SYNBENCH_MSI_VERSION=$($p[0].Substring(2)).$($p[1]).$($p[2])" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      # Trust: Inno Setup is normally preinstalled on the runner image; otherwise it
+      # comes from Chocolatey, whose package carries the installer's checksum and
+      # verifies it. WiX is a dotnet tool at an exact version (5.0.2), installed from
+      # nuget.org, whose repository signature the NuGet client checks. Neither has a
+      # hash pinned here: a SHA-256 for either would have to be copied from the
+      # publisher's own site, which proves no more than those two checks.
       - name: Install Inno Setup and WiX
         shell: pwsh
         run: |
@@ -566,7 +582,7 @@ jobs:
         run: bash packaging/linux/make-sysroot.sh "$SYSROOT"
 
       - name: Install the host Qt (x64)
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
         with:
           version: ${{ env.QT_VERSION }}
           host: linux
@@ -641,7 +657,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends shellcheck desktop-file-utils appstream
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          # Pinned release, checked against its SHA-256 before it is unpacked or run.
+          curl -fsSL -o actionlint.tar.gz https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+          echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
           sudo mv actionlint /usr/local/bin/
 
       - name: Workflows (actionlint)
@@ -659,7 +678,7 @@ jobs:
           appstreamcli validate --no-net packaging/linux/io.github.dakotlyar.SynBench.metainfo.xml || true
 
       - name: Install Qt (for qmllint)
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
         with:
           version: ${{ env.QT_VERSION }}
           host: linux

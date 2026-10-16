@@ -13,6 +13,9 @@ on:
       - packaging/linux/fix-sysroot-symlinks.py
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   sysroot:
     runs-on: ubuntu-24.04
