@@ -55,9 +55,13 @@ int userVersion(QSqlDatabase &db, bool *ok, QString *error = nullptr)
 {
     QSqlQuery q(db);
     *ok = q.exec(QStringLiteral("PRAGMA user_version")) && q.next();
-    // The reason is on the query ("file is not a database"), not on the connection.
-    if (!*ok && error)
-        *error = q.lastError().text().trimmed();
+    // The reason is on the query, not on the connection. Only SQLite's own
+    // (primary) reason, e.g. "file is not a database": QSqlError::text() runs it
+    // together with Qt's "Unable to fetch row".
+    if (!*ok && error) {
+        const QSqlError e = q.lastError();
+        *error = (e.databaseText().isEmpty() ? e.driverText() : e.databaseText()).trimmed();
+    }
     return *ok ? q.value(0).toInt() : 0;
 }
 

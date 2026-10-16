@@ -345,7 +345,8 @@ private slots:
         const QString msg = c.startupMessage();
         QVERIFY2(msg.contains(QDir::toNativeSeparators(db)), qPrintable(msg));
         QVERIFY2(msg.contains(QStringLiteral("damaged or isn't a SynBench history")), qPrintable(msg));
-        QVERIFY2(msg.contains(QStringLiteral("not a database")), qPrintable(msg));  // SQLite's own reason
+        QVERIFY2(msg.contains(QStringLiteral("(file is not a database)")), qPrintable(msg));  // SQLite's own reason, alone
+        QVERIFY2(!msg.contains(QStringLiteral("Unable to fetch row")), qPrintable(msg));
         QVERIFY2(msg.contains(QStringLiteral("left untouched")), qPrintable(msg));
         QFile f(db);
         QVERIFY(f.open(QIODevice::ReadOnly));
