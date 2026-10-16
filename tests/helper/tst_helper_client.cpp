@@ -160,10 +160,16 @@ private slots:
             QCOMPARE(launch->primary.arguments, QStringList{QFileInfo(t.filePath(QStringLiteral("mount_abc/usr/bin/synbench-helper"))).canonicalFilePath()});
             QVERIFY(!launch->fallback);
         }
-        // A runtime that reports no path as the source ("AppImage") is still a real FUSE mount.
-        LinuxHelperClient::Environment bareSource = appImage;
-        bareSource.mountInfo = mountTable(QStringLiteral("fuse.AppImage"), QStringLiteral("AppImage"), appImage.appDir);
-        QVERIFY(LinuxHelperClient::defaultLaunch(bareSource)->fallback.has_value());
+        // What the real type-2 runtime reports (observed on a real AppImage):
+        // fs type "fuse.<file name>", source "<file name>" (no directory).
+        const QString name = QFileInfo(image).fileName();
+        LinuxHelperClient::Environment realistic = appImage;
+        realistic.mountInfo = mountTable(QStringLiteral("fuse.") + name, name, appImage.appDir);
+        QVERIFY(LinuxHelperClient::defaultLaunch(realistic)->fallback.has_value());
+        // ...but a name that isn't this image's is refused.
+        LinuxHelperClient::Environment otherName = appImage;
+        otherName.mountInfo = mountTable(QStringLiteral("fuse.Other.AppImage"), QStringLiteral("Other.AppImage"), appImage.appDir);
+        QVERIFY(!LinuxHelperClient::defaultLaunch(otherName)->fallback.has_value());
 
         // A stray or forged $APPIMAGE is ignored: binary not inside $APPDIR,
         // no $APPDIR, or a relative/non-executable image.

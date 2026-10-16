@@ -1,0 +1,72 @@
+# Libraries that are NOT bundled in the AppImage: they belong to the system
+# (glibc and its friends, the graphics/windowing stack the driver must match).
+# One soname prefix per line ("libX11.so" matches libX11.so.6). Shared by the
+# x64 and ARM64 builds (R4). Based on the AppImage project's excludelist,
+# trimmed to what SynBench's binaries and Qt's plugins can pull in.
+#
+# glibc and the loader
+ld-linux
+ld64.so
+libc.so
+libm.so
+libdl.so
+libpthread.so
+librt.so
+libutil.so
+libresolv.so
+libnsl.so
+libanl.so
+# the C++ runtime stays the system's: bundling an old one next to a new Mesa breaks drivers
+libstdc++.so
+libgcc_s.so
+# graphics drivers and loaders
+libGL.so
+libGLX.so
+libGLdispatch.so
+libEGL.so
+libOpenGL.so
+libGLESv2.so
+libvulkan.so
+libdrm.so
+libgbm.so
+# windowing system core
+libX11.so
+libX11-xcb.so
+libxcb.so
+libXau.so
+libXdmcp.so
+libXext.so
+libXrender.so
+libXi.so
+libwayland-client.so
+libwayland-cursor.so
+libwayland-egl.so
+libwayland-server.so
+# fonts and text: matching the system's fontconfig matters more than bundling
+libfontconfig.so
+libfreetype.so
+libharfbuzz.so
+libexpat.so
+# desktop integration and system services
+libdbus-1.so
+libsystemd.so
+libudev.so
+libglib-2.0.so
+libgobject-2.0.so
+libgio-2.0.so
+libgmodule-2.0.so
+libgthread-2.0.so
+libz.so
+libselinux.so
+libpcre
+libffi.so
+libmount.so
+libblkid.so
+libuuid.so
+libcap.so
+libgpg-error.so
+libp11-kit.so
+libasound.so
+libxkbcommon.so
+libxkbcommon-x11.so
+# the privileged helper's and the app's own plugin loader sonames are resolved by the AppDir

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component type="desktop-application">
+  <id>io.github.dakotlyar.SynBench</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>SynBench</name>
+  <summary>Synthetic system benchmark</summary>
+  <description>
+    <p>SynBench measures CPU, memory, storage, graphics, AI inference and battery life, saves every run on this
+    computer and compares runs side by side. It asks for administrator access once, when it starts.</p>
+  </description>
+  <launchable type="desktop-id">io.github.dakotlyar.SynBench.desktop</launchable>
+  <provides><binary>SynBench</binary></provides>
+  <categories>
+    <category>System</category>
+    <category>Monitor</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2026.11.0" date="2026-11-01"/>
+  </releases>
+</component>

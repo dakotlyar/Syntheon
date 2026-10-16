@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later
+     SynBench MSI (WiX v5, D9/D12). Built per architecture:
+       wix build -arch x64|arm64 -d Version=26.11.0 -d SourceDir=<stage> -d Arch=x64 -d UpgradeCode={...}
+                 -o SynBench-<ver>-windows-<arch>.msi packaging\windows\wix\Package.wxs
+     Version is the MSI form of the app version (26.11.N: MSI's first field is
+     limited to 255, so the year is YY). Each architecture has its own stable UpgradeCode,
+     so an upgrade replaces only its own. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="SynBench" Manufacturer="SynBench" Version="$(Version)" UpgradeCode="$(UpgradeCode)"
+           Scope="perMachine" Language="1033" InstallerVersion="500">
+    <SummaryInformation Description="SynBench" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of SynBench is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Icon Id="SynBenchIcon" SourceFile="..\..\..\assets\synbench.ico" />
+    <Property Id="ARPPRODUCTICON" Value="SynBenchIcon" />
+
+    <!-- Inno and the MSI must not both own an install (each writes this value). -->
+    <Property Id="INNOINSTALLED">
+      <RegistrySearch Id="InnoOwner" Root="HKLM" Key="Software\SynBench" Name="Installer" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="INNOINSTALLED &lt;&gt; &quot;inno&quot;"
+            Message="SynBench was installed with the setup program. Uninstall it first (Settings &gt; Apps), then run this MSI." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="SynBench" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="StartMenuFolder" Name="SynBench" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="SynBench" Level="1" ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="OwnerMarker" />
+    </Feature>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component Id="MainExe" Bitness="always64">
+        <File Id="SynBenchExe" Source="$(SourceDir)\SynBench.exe" KeyPath="yes" />
+      </Component>
+      <Files Include="$(SourceDir)\**">
+        <Exclude Files="$(SourceDir)\SynBench.exe" />
+      </Files>
+    </ComponentGroup>
+
+    <Component Id="StartMenuShortcut" Directory="StartMenuFolder" Bitness="always64">
+      <Shortcut Id="SynBenchShortcut" Name="SynBench" Target="[INSTALLFOLDER]SynBench.exe" WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\SynBench" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="OwnerMarker" Directory="INSTALLFOLDER" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="Software\SynBench" Name="Installer" Type="string" Value="msi" KeyPath="yes" />
+    </Component>
+  </Package>
+</Wix>

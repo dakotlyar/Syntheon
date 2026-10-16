@@ -36,6 +36,8 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName(QStringLiteral("SynBench"));
     QGuiApplication::setApplicationDisplayName(QStringLiteral("SynBench"));
+    // Matches the .desktop file, so Wayland compositors show the right icon.
+    QGuiApplication::setDesktopFileName(QStringLiteral("io.github.dakotlyar.SynBench"));
     QGuiApplication::setApplicationVersion(QStringLiteral(SYNBENCH_DISPLAY_VERSION));
 
     sb::loadBundledFonts();

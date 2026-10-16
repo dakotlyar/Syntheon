@@ -64,8 +64,10 @@ QString unescapeMountField(const QString &s)
 
 // Is `appDir` really the mount point of an AppImage's FUSE mount, for this image?
 // Trusts the kernel's mount table, not $APPDIR/$APPIMAGE. The mount's source
-// is the image path for the type-2 runtime; if the source isn't an absolute
-// path (some runtimes report just "AppImage") only the mount itself is proof.
+// of the type-2 runtime (checked against a real AppImage, 2026-10-16) is the
+// image's file NAME as it was launched, not a full path, and the fs type is
+// "fuse.<file name>": both must match the image's name. An absolute source
+// (another runtime) must be the image itself.
 bool appImageMountIsReal(const QString &mountInfoPath, const QString &appDir, const QString &imagePath)
 {
     QFile f(mountInfoPath);
@@ -87,7 +89,9 @@ bool appImageMountIsReal(const QString &mountInfoPath, const QString &appDir, co
         const QString source = unescapeMountField(post[1]);
         if (QFileInfo(source).isAbsolute())
             return QFileInfo(source).canonicalFilePath() == imagePath;
-        return true;
+        const QString name = QFileInfo(imagePath).fileName();
+        // `source` is relative to where the AppImage was started; only its file name is known.
+        return QFileInfo(source).fileName() == name && post[0] == QStringLiteral("fuse.") + name;
     }
     return false;
 }

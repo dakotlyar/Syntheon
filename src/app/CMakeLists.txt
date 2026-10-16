@@ -109,3 +109,61 @@ target_link_libraries(synbench_app PRIVATE
 if(TARGET synbench-helper)
     add_dependencies(synbench_app synbench-helper)  # pkexec runs it from the same folder (dev builds)
 endif()
+
+# ---------------------------------------------------------------- Windows: manifest, version, icon
+if(WIN32)
+    # The exe's resources: icon, version info (file version 2026.11.N.0) and
+    # the manifest that asks for administrator rights (P12/D1). The linker's
+    # own manifest is turned off, since ours is embedded by the .rc file.
+    set(SYNBENCH_SOURCE_DIR "${PROJECT_SOURCE_DIR}")
+    configure_file(windows/synbench.rc.in "${CMAKE_CURRENT_BINARY_DIR}/synbench.rc" @ONLY)
+    target_sources(synbench_app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/synbench.rc")
+    set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/synbench.rc" PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/windows/SynBench.manifest;${PROJECT_SOURCE_DIR}/assets/synbench.ico")
+    if(MSVC)
+        target_link_options(synbench_app PRIVATE /MANIFEST:NO)
+    endif()
+endif()
+
+# ---------------------------------------------------------------- install tree (packaging)
+# `cmake --install <build> --prefix <dir>` produces what the installers /
+# AppImage pack:
+#   Windows:  <dir>/SynBench.exe + LICENSE.txt + the app-local VC++ and
+#             Universal CRT DLLs (P16); deploy.ps1 then adds Qt
+#   Linux:    <dir>/bin/SynBench, <dir>/libexec/synbench-helper, the desktop
+#             file, metainfo and icons; packaging/linux/make-appdir.py then
+#             bundles Qt into the AppDir
+# Test-only binaries are never installed (packaging/checks/no-test-binaries.sh).
+include(GNUInstallDirs)
+if(WIN32)
+    install(TARGETS synbench_app RUNTIME DESTINATION .)
+    install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" DESTINATION . RENAME LICENSE.txt)
+    # Qt's DLLs, plugins and QML imports are added by packaging/windows/deploy.ps1
+    # (windeployqt; for ARM64 it runs the host tool with --qtpaths of the target
+    # Qt, which is Qt's documented cross route), not by an install(SCRIPT), so
+    # the native and cross builds deploy the same way.
+    # App-local CRT: neither installer needs a VC++ redistributable step.
+    # CI hands in the redist folders for the TARGET architecture
+    # (packaging/windows/find-crt.ps1), which is the only reliable way to get
+    # the ARM64 ones in a cross build.
+    set(SYNBENCH_CRT_DIRS "" CACHE STRING "Folders with the target architecture's VC++ runtime and UCRT DLLs to ship app-local")
+    foreach(_dir IN LISTS SYNBENCH_CRT_DIRS)
+        file(GLOB _crt_dlls "${_dir}/*.dll")
+        install(FILES ${_crt_dlls} DESTINATION .)
+    endforeach()
+else()
+    # The AppDir keeps libraries in usr/lib next to usr/bin.
+    set_target_properties(synbench_app PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib")
+    install(TARGETS synbench_app RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    if(TARGET synbench-helper)
+        install(TARGETS synbench-helper RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}")
+    endif()
+    install(FILES "${PROJECT_SOURCE_DIR}/packaging/linux/io.github.dakotlyar.SynBench.desktop"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+    install(FILES "${PROJECT_SOURCE_DIR}/packaging/linux/io.github.dakotlyar.SynBench.metainfo.xml"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo")
+    install(FILES "${PROJECT_SOURCE_DIR}/assets/synbench.svg"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps" RENAME synbench.svg)
+    install(FILES "${PROJECT_SOURCE_DIR}/assets/synbench.png"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps" RENAME synbench.png)
+endif()
