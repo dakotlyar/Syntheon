@@ -30,6 +30,14 @@ QString toKey(Status);
 QString toKey(Direction);
 QString toKey(RunKind);
 QString toKey(RunStatus);
+// N2, the one rule: the overall of a run that didn't finish (still running,
+// Stopped, Interrupted) is only the sum of what did, so History, Results and
+// Compare all mark it "partial" and Compare doesn't compute a change from it.
+// Recovered is not partial: recovery produced a real result.
+inline bool isPartialRun(RunStatus s)
+{
+    return s == RunStatus::Running || s == RunStatus::Stopped || s == RunStatus::Interrupted;
+}
 QString toKey(LogLevel);
 QString toKey(Tone);
 

@@ -194,7 +194,7 @@ QString ResultsController::overallText() const
 bool ResultsController::overallPartial() const
 {
     // N2: a Stopped run's overall is only what finished.
-    return m_run && (m_run->status == RunStatus::Stopped || m_live) && overallValue().has_value();
+    return m_run && (m_live || isPartialRun(m_run->status)) && overallValue().has_value();
 }
 
 double ResultsController::scoredFraction() const

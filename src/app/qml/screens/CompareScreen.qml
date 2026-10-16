@@ -7,7 +7,7 @@ import SynBench
 // N runs, one column each, % change against a baseline the user picks
 // (default: the newest run) (D5). A "scoring changed" marker on a row whose
 // test or formula version differs between the runs, raw metrics still
-// compared (D6). A Stopped run's overall carries a "partial" marker (N2).
+// compared (D6). A Stopped or Interrupted run's overall carries a "partial" marker and no change % (N2).
 ScreenFrame {
     id: root
 

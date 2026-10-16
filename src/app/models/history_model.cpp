@@ -58,7 +58,7 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const
     case MachineRole: return s.machineLabel;
     case TestsRole: return testsText(s);
     case OverallRole: return overallText(s);
-    case PartialRole: return s.status == RunStatus::Stopped && s.overall.has_value();  // N2
+    case PartialRole: return isPartialRun(s.status) && s.overall.has_value();  // N2
     case StatusRole: return ResultsController::statusLabelFor(s.status);
     case CheckedRole: return m_checked.contains(s.uuid.toString(QUuid::WithoutBraces));
     default: return {};

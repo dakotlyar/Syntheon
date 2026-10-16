@@ -425,6 +425,54 @@ private slots:
         QCOMPARE(res.uuid(), otherId.toString(QUuid::WithoutBraces));
     }
 
+    // N2 (Dave): Stopped and Interrupted are partial everywhere, by one rule.
+    void stoppedAndInterruptedArePartialEverywhere()
+    {
+        startRuntime();
+        const QDateTime t0 = QDateTime(QDate(2026, 10, 1), QTime(12, 0), QTimeZone::UTC);
+        const auto stopped = seed(RunStatus::Stopped, t0, {cpuResult(1000)});
+        const auto interrupted = seed(RunStatus::Interrupted, t0.addDays(1), {cpuResult(1000)});
+        const auto recovered = seed(RunStatus::Recovered, t0.addDays(2), {cpuResult(1000)});
+        const auto done = seed(RunStatus::Completed, t0.addDays(3), {cpuResult(1000)});
+        QVERIFY(isPartialRun(RunStatus::Running));
+        QVERIFY(isPartialRun(RunStatus::Stopped));
+        QVERIFY(isPartialRun(RunStatus::Interrupted));
+        QVERIFY(!isPartialRun(RunStatus::Recovered));
+        QVERIFY(!isPartialRun(RunStatus::Completed));
+
+        HistoryModel &h = m_rt->history();
+        h.reload();  // newest first: done, recovered, interrupted, stopped
+        QCOMPARE(h.data(h.index(0), HistoryModel::PartialRole).toBool(), false);
+        QCOMPARE(h.data(h.index(1), HistoryModel::PartialRole).toBool(), false);
+        QCOMPARE(h.data(h.index(2), HistoryModel::PartialRole).toBool(), true);
+        QCOMPARE(h.data(h.index(3), HistoryModel::PartialRole).toBool(), true);
+
+        ResultsController &res = m_rt->results();
+        for (const auto &[run, partial, note] :
+             {std::tuple{stopped, true, "Partial: the run was stopped"}, std::tuple{interrupted, true, "Partial: the run was interrupted"},
+              std::tuple{recovered, false, ""}, std::tuple{done, false, ""}}) {
+            QVERIFY(res.openRun(run.uuid.toString(QUuid::WithoutBraces)));
+            QCOMPARE(res.overallPartial(), partial);
+            if (partial)
+                QCOMPARE(res.overallNote(), QString::fromLatin1(note));
+        }
+
+        // Compare: a partial run is marked, and its overall gets no change %,
+        // also when the partial run is the baseline.
+        CompareController &c = m_rt->compare();
+        QVERIFY(c.setRuns({done.uuid.toString(QUuid::WithoutBraces), interrupted.uuid.toString(QUuid::WithoutBraces)}));
+        auto overallCells = [&] {
+            for (const QVariant &v : c.scoreRows())
+                if (v.toMap().value(QStringLiteral("overall")).toBool())
+                    return v.toMap().value(QStringLiteral("cells")).toList();
+            return QVariantList{};
+        };
+        QVERIFY(overallCells().at(1).toMap().value(QStringLiteral("partial")).toBool());
+        QCOMPARE(overallCells().at(1).toMap().value(QStringLiteral("changeText")).toString(), QString());
+        c.setBaseline(interrupted.uuid.toString(QUuid::WithoutBraces));
+        QCOMPARE(overallCells().at(0).toMap().value(QStringLiteral("changeText")).toString(), QString());
+    }
+
     // --- History and Compare (task 16) ---
 
     void historyListsNewestFirstAndPages()
@@ -554,6 +602,9 @@ private slots:
         // N2: the Stopped run (index 2, newest first) is marked partial.
         QVERIFY(overall.value(QStringLiteral("cells")).toList().at(2).toMap().value(QStringLiteral("partial")).toBool());
         QVERIFY(!overall.value(QStringLiteral("cells")).toList().at(0).toMap().value(QStringLiteral("partial")).toBool());
+        // Dave's N2 decision: no change % on a partial overall (no scary red delta).
+        QCOMPARE(overall.value(QStringLiteral("cells")).toList().at(2).toMap().value(QStringLiteral("changeText")).toString(), QString());
+        QCOMPARE(overall.value(QStringLiteral("cells")).toList().at(2).toMap().value(QStringLiteral("direction")).toString(), QStringLiteral("none"));
         QCOMPARE(CompareController::changeText(52.4, true), QStringLiteral("+52% (worse)"));
         QCOMPARE(CompareController::changeText(-12.2, true), QStringLiteral("-12%"));
         QCOMPARE(CompareController::changeText(0.2, false), QStringLiteral("0%"));

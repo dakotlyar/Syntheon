@@ -231,8 +231,11 @@ void CompareController::rebuild()
                              {QStringLiteral("changeText"), QString()},
                              {QStringLiteral("direction"), QStringLiteral("none")},
                              {QStringLiteral("scoringChanged"), false},
-                             {QStringLiteral("partial"), r.status == RunStatus::Stopped || r.status == RunStatus::Interrupted}};
-            if (i != m_baseline && r.overall && baseRun.overall && *baseRun.overall != 0) {
+                             {QStringLiteral("partial"), isPartialRun(r.status) && r.overall.has_value()}};
+            // A partial overall isn't comparable to a full one: no change % at
+            // all (not a big red -63%), just the marker.
+            const bool partialPair = isPartialRun(r.status) || isPartialRun(baseRun.status);
+            if (i != m_baseline && r.overall && baseRun.overall && *baseRun.overall != 0 && !partialPair) {
                 const double pct = (*r.overall - *baseRun.overall) / *baseRun.overall * 100.0;
                 cell.insert(QStringLiteral("changeText"), changeText(pct, false));
                 cell.insert(QStringLiteral("direction"), dir(pct, false, false));
