@@ -130,11 +130,17 @@ ScreenFrame {
                         Item { Layout.fillHeight: true }
                         SbText { objectName: "runDay"; text: cell.modelData.day || ""; kind: "small"; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
                         SbText { objectName: "runTime"; text: cell.modelData.timeAndHost || ""; kind: "small"; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
+                        // Every run header reserves the marker's line, so the date and
+                        // time sit at the same height in all columns; only the baseline
+                        // column shows it.
                         Pill {
+                            objectName: "baselineMarker"
                             Layout.alignment: Qt.AlignRight
-                            visible: cell.modelData.baseline === true
+                            visible: cell.modelData.kind === "runhead"
+                            opacity: cell.modelData.baseline === true ? 1 : 0
                             text: qsTr("baseline")
                             tone: "acc"
+                            Accessible.ignored: cell.modelData.baseline !== true
                         }
                         Item { Layout.fillHeight: true }
                     }

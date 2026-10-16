@@ -70,6 +70,29 @@ TestCase {
         compare(Compare.runs.length, 2)
     }
 
+    function allNamed(item, name) {
+        let out = []
+        if (item.objectName === name && item.visible) out.push(item)
+        for (let i = 0; i < item.children.length; ++i) out = out.concat(allNamed(item.children[i], name))
+        return out
+    }
+
+    // Zeb re-check: the baseline column's header is as tall as the others and its
+    // date and time sit at the same height.
+    function test_3b_runHeadersLineUp() {
+        const c = createTemporaryObject(compareComponent, test)
+        tick()
+        const days = allNamed(c, "runDay")
+        const times = allNamed(c, "runTime")
+        verify(days.length >= 2, "run headers: " + days.length)
+        const y0 = days[0].mapToItem(c, 0, 0).y
+        const t0 = times[0].mapToItem(c, 0, 0).y
+        for (let i = 1; i < days.length; ++i) {
+            compare(days[i].mapToItem(c, 0, 0).y, y0)
+            compare(times[i].mapToItem(c, 0, 0).y, t0)
+        }
+    }
+
     function test_3_compareScreenShowsColumnsAndSwitchesBaseline() {
         const c = createTemporaryObject(compareComponent, test)
         tick()
