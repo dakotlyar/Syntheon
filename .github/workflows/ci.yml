@@ -378,7 +378,11 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download v0.2.3 --repo $env:GITHUB_REPOSITORY --pattern 'SynBench-Setup.exe' --dir old
+        run: |
+          gh release download v0.2.3 --repo $env:GITHUB_REPOSITORY --pattern 'SynBench-Setup.exe' --dir old
+          # The asset's published digest: a different file would make the upgrade test meaningless.
+          $hash = (Get-FileHash old\SynBench-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '58c5d4cd912513648b21d079969c773586becfd245fcd1bdcc7430dca549c3f8') { throw "SynBench-Setup.exe of v0.2.3 has sha256 $hash" }
 
       - name: Silent install, launch, uninstall (Inno and MSI) and the upgrade over v0.2.3
         shell: pwsh
