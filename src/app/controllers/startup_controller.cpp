@@ -4,9 +4,11 @@
 #include "app/controllers/run_controller.h"
 #include "app/controllers/settings_controller.h"
 #include "app/controllers/storage_controller.h"
+#include "storage/database.h"
 #include "storage/recovery.h"
 #include "storage/storage.h"
 
+#include <QCoreApplication>
 #include <QLocale>
 #include <QStringList>
 
@@ -27,18 +29,59 @@ QString StartupController::hoursMinutes(qint64 ms)
     return QStringLiteral("%1 h %2 m").arg(m / 60).arg(m % 60, 2, 10, QLatin1Char('0'));
 }
 
+StartupController::~StartupController()
+{
+    waitForRecovery();
+}
+
+void StartupController::waitForRecovery()
+{
+    // The worker queues its result to this object, so keep delivering events.
+    while (m_thread)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+}
+
 void StartupController::recover()
 {
-    if (!m_storage.storage().isOpen() || m_run.running() || m_run.hasRun())
+    if (m_thread) {
+        m_again = true;
         return;
-    m_storage.setLocked(true, tr("Finishing a run that was cut short"));
-    const RecoveryReport report = recoverRuns(m_storage.storage().connection(), m_run.registry(), m_run.scratchRoot());
-    m_storage.setLocked(false);
+    }
+    // Only a live run (or an abandoned one awaiting restart) has a 'running'
+    // row of its own; a finished one from earlier in the session doesn't.
+    if (!m_storage.storage().isOpen() || m_run.running() || m_run.needsRestart())
+        return;
+    m_again = false;
+    m_lock = std::make_unique<StorageController::ScopedLock>(m_storage, QStringLiteral("recovery"),
+                                                             tr("Checking earlier runs…"));
+    const QString dbPath = m_storage.storage().dbPath();
+    const Registry *registry = &m_run.registry();
+    const QString scratch = m_run.scratchRoot();
+    m_thread = QThread::create([this, dbPath, registry, scratch] {
+        RecoveryReport report;
+        {
+            Database::ScopedConnection conn(dbPath, QStringLiteral("recovery"));
+            if (conn.isOpen())
+                report = recoverRuns(conn.db(), *registry, scratch);
+            else
+                report.errors << conn.error();
+        }
+        QMetaObject::invokeMethod(this, [this, report] { finishRecovery(report); }, Qt::QueuedConnection);
+    });
+    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
+    m_thread->start();
+    emit recoveringChanged();
+}
+
+void StartupController::finishRecovery(const RecoveryReport &report)
+{
+    m_thread = nullptr;
+    m_lock.reset();  // unlocks, whatever happened
 
     QStringList lines;
     for (const RecoveryNotice &n : report.notices) {
         if (n.status == RunStatus::Recovered) {
-            QString what = n.recoveredTestIds.isEmpty() ? tr("Run") : m_run.testName(n.recoveredTestIds.first());
+            const QString what = n.recoveredTestIds.isEmpty() ? tr("Run") : m_run.testName(n.recoveredTestIds.first());
             lines << tr("%1 run recovered: %2").arg(what, hoursMinutes(n.recoveredDurationMs));
         } else {
             lines << tr("The run from %1 was interrupted").arg(QLocale().toString(n.startedAt.toLocalTime().time(), QLocale::ShortFormat));
@@ -46,13 +89,18 @@ void StartupController::recover()
     }
     if (!report.errors.isEmpty())
         lines << tr("Some leftovers couldn't be cleaned up; see the log.");
-    const QString text = lines.join(QLatin1Char('\n'));
-    if (text != m_notice) {
-        m_notice = text;
+    if (!lines.isEmpty()) {
+        // Append to a notice nobody has dismissed yet; never replace it with less.
+        const QString text = lines.join(QLatin1Char('\n'));
+        m_notice = m_notice.isEmpty() ? text : m_notice + QLatin1Char('\n') + text;
         emit noticeChanged();
     }
     if (!report.notices.isEmpty())
         emit m_storage.historyChanged();
+    emit recoveringChanged();
+    emit recoveryFinished();
+    if (m_again)
+        recover();
 }
 
 void StartupController::dismissRecoveryNotice()

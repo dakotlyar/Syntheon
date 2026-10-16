@@ -100,6 +100,9 @@ RunController::RunController(Storage &storage, StorageController &storageControl
             refreshProbes();
     });
     connect(&m_app, &AppController::powerChanged, this, &RunController::updatePreconditions);
+    // Start is offered only once probing and startup recovery are done.
+    connect(this, &RunController::probingChanged, this, &RunController::startabilityChanged);
+    connect(&m_storageController, &StorageController::lockedChanged, this, &RunController::startabilityChanged);
     // AP-5 #9a: the privileged helper dying mid-run stops the run (saved as
     // Stopped, D3); the Retry / Quit dialog (D1) then blocks the window.
     connect(&m_app, &AppController::authChanged, this, [this] {
@@ -110,7 +113,13 @@ RunController::RunController(Storage &storage, StorageController &storageControl
     });
 }
 
-RunController::~RunController() = default;
+RunController::~RunController()
+{
+    // Probe tasks hold `this`, the registry and the privileged ops; let them
+    // finish before any of those go away (their results are dropped with the
+    // object's queued events).
+    QThreadPool::globalInstance()->waitForDone();
+}
 
 RunController::TestState *RunController::stateOf(const QString &id) const
 {
@@ -528,7 +537,7 @@ QStringList RunController::problems() const
 
 bool RunController::canStart() const
 {
-    return selectedCount() > 0 && problems().isEmpty() && !probing();
+    return selectedCount() > 0 && problems().isEmpty() && !probing() && !m_storageController.lockedBy(QStringLiteral("recovery"));
 }
 
 void RunController::updatePreconditions()
@@ -573,6 +582,13 @@ QVariantList RunController::preconditions() const
 bool RunController::start()
 {
     m_startErrors.clear();
+    // Recovery treats every 'running' row as a leftover: never start (and so
+    // write one) until it has finished.
+    if (m_storageController.lockedBy(QStringLiteral("recovery"))) {
+        m_startErrors = {tr("SynBench is still checking earlier runs. Try again in a moment.")};
+        emit startRefused(m_startErrors);
+        return false;
+    }
     Plan plan;
     for (const QString &id : m_selection.selectedIds())
         plan.append({id, valuesFor(id)});
@@ -601,15 +617,17 @@ void RunController::runSmoke()
 {
     m_smoke = true;
     // Probe, then run everything once the probes are in.
-    connect(this, &RunController::probingChanged, this, [this] {
-        if (probing() || running() || m_smokeBatteryStarted || hasRun())
+    const auto begin = [this] {
+        if (probing() || running() || m_smokeBatteryStarted || hasRun() || m_storageController.lockedBy(QStringLiteral("recovery")))
             return;
         m_selection.selectAll();
         if (!start()) {
             qCCritical(lcRun) << "smoke: couldn't start:" << m_startErrors;
             QCoreApplication::exit(1);
         }
-    });
+    };
+    connect(this, &RunController::probingChanged, this, begin);
+    connect(&m_storageController, &StorageController::lockedChanged, this, begin);
     connect(this, &RunController::runFinished, this, [this](const QString &, const QString &status) {
         const RunRecord &run = currentRun();
         bool ok = status == QLatin1StringView("completed");

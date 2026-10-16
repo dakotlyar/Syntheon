@@ -34,6 +34,10 @@ void StorageController::open()
         m_message = QStringLiteral("The saved runs in %1 were made by a newer SynBench. This version can't open them "
                                    "and won't change them.").arg(m_storage.dataDir());
         break;
+    case Storage::OpenStatus::InUse:
+        m_problem = StartupProblem::InUse;
+        m_message = QStringLiteral("SynBench is already running with this history.");
+        break;
     case Storage::OpenStatus::Failed:
         m_problem = StartupProblem::Failed;
         m_message = QStringLiteral("The saved runs couldn't be opened.\n%1").arg(r.error);
@@ -51,6 +55,7 @@ QString StorageController::startupKind() const
     case StartupProblem::LocationUnavailable: return QStringLiteral("location");
     case StartupProblem::NewerVersion: return QStringLiteral("newer");
     case StartupProblem::Failed: return QStringLiteral("failed");
+    case StartupProblem::InUse: return QStringLiteral("inuse");
     }
     return {};
 }
@@ -67,6 +72,8 @@ QString StorageController::apply(const Storage::OpenResult &r)
     }
     if (r.status == Storage::OpenStatus::NewerVersion)
         return QStringLiteral("The saved runs there were made by a newer SynBench.");
+    if (r.status == Storage::OpenStatus::InUse)
+        return QStringLiteral("That history is open in another SynBench. Close it there first.");
     return r.error.isEmpty() ? QStringLiteral("That folder can't be used.") : r.error;
 }
 
@@ -97,17 +104,33 @@ QString StorageController::sizeText() const
 
 QString StorageController::lockedReason() const
 {
-    return m_lockReason;
+    // The run's reason first: it's the one the user can act on.
+    if (m_locks.contains(QStringLiteral("run")))
+        return m_locks.value(QStringLiteral("run"));
+    return m_locks.isEmpty() ? QString() : m_locks.constBegin().value();
+}
+
+void StorageController::lock(const QString &key, const QString &reason)
+{
+    m_locks.insert(key, reason);
+    m_storage.setBusy(true);
+    emit lockedChanged();
+}
+
+void StorageController::unlock(const QString &key)
+{
+    if (m_locks.remove(key) == 0)
+        return;
+    m_storage.setBusy(!m_locks.isEmpty());
+    emit lockedChanged();
 }
 
 void StorageController::setLocked(bool locked, const QString &reason)
 {
-    const bool before = this->locked();
-    m_lockReasons = locked ? 1 : 0;
-    m_lockReason = locked ? reason : QString();
-    m_storage.setBusy(locked);
-    if (before != this->locked())
-        emit lockedChanged();
+    if (locked)
+        lock(QStringLiteral("run"), reason);
+    else
+        unlock(QStringLiteral("run"));
 }
 
 QString StorageController::urlToPath(const QUrl &url) const

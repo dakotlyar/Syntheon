@@ -3,6 +3,7 @@
 
 #include "storage/storage.h"
 
+#include <QMap>
 #include <QObject>
 #include <QString>
 
@@ -28,7 +29,7 @@ class StorageController : public QObject
     Q_PROPERTY(QString lockedReason READ lockedReason NOTIFY lockedChanged)
 
 public:
-    enum class StartupProblem { None, LocationUnavailable, NewerVersion, Failed };
+    enum class StartupProblem { None, LocationUnavailable, NewerVersion, Failed, InUse };
     Q_ENUM(StartupProblem)
 
     StorageController(Storage &storage, SettingsStore &settings, QObject *parent = nullptr);
@@ -45,11 +46,37 @@ public:
     QString dbPath() const;
     int runCount() const;
     QString sizeText() const;
-    bool locked() const { return m_lockReasons > 0; }
+    bool locked() const { return !m_locks.isEmpty(); }
+    bool lockedBy(const QString &key) const { return m_locks.contains(key); }
     QString lockedReason() const;
 
     // A run or a pending recovery pins the location and Clear history (§3).
+    // Locks are keyed ("run", "recovery"): each key is held or not, so two
+    // holders can overlap and releasing one never frees the other.
+    void lock(const QString &key, const QString &reason);
+    void unlock(const QString &key);
+    // The run's lock (kept for the run controller).
     void setLocked(bool locked, const QString &reason = {});
+
+    // Holds a lock for a scope, released on every exit path.
+    class ScopedLock
+    {
+    public:
+        ScopedLock(StorageController &c, const QString &key, const QString &reason) : m_c(&c), m_key(key) { c.lock(key, reason); }
+        ~ScopedLock() { release(); }
+        void release()
+        {
+            if (m_c)
+                m_c->unlock(m_key);
+            m_c = nullptr;
+        }
+        ScopedLock(const ScopedLock &) = delete;
+        ScopedLock &operator=(const ScopedLock &) = delete;
+
+    private:
+        StorageController *m_c;
+        QString m_key;
+    };
 
     Storage &storage() { return m_storage; }
 
@@ -79,8 +106,7 @@ private:
     SettingsStore &m_settings;
     StartupProblem m_problem = StartupProblem::None;
     QString m_message;
-    int m_lockReasons = 0;
-    QString m_lockReason;
+    QMap<QString, QString> m_locks;  // key -> reason, in key order
 };
 
 } // namespace sb

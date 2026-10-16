@@ -3,6 +3,7 @@
 
 #include "app/controllers/app_controller.h"
 #include "app/controllers/compare_controller.h"
+#include "app/single_instance.h"
 #include "app/controllers/results_controller.h"
 #include "app/controllers/startup_controller.h"
 #include "app/controllers/run_controller.h"
@@ -48,6 +49,14 @@ public:
     // and StorageController (module SynBench).
     void registerQml();
     // Opens the history and starts the gates (storage, elevation).
+    // Takes the single-instance claim on the history folder: opens the history
+    // (and with it the lock). False if another SynBench has it: that copy has
+    // then been asked to come to the front and this one should exit with 0.
+    // Idempotent; start() calls it if nobody did.
+    bool claimInstance();
+    // The copy that was already running was asked to raise its window.
+    bool redirectedToRunningInstance() const { return m_redirected; }
+    SingleInstance &instance() { return m_instance; }
     void start();
 
     SettingsStore &settingsStore() { return *m_store; }
@@ -73,6 +82,8 @@ private:
     std::unique_ptr<RunController> m_run;
     std::unique_ptr<ResultsController> m_results;
     std::unique_ptr<StartupController> m_startup;
+    SingleInstance m_instance;
+    bool m_claimed = false, m_redirected = false, m_begun = false;
     std::unique_ptr<HistoryModel> m_history;
     std::unique_ptr<CompareController> m_compare;
 };

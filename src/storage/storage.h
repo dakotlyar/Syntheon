@@ -3,8 +3,11 @@
 
 #include "storage/database.h"
 
+#include <QLockFile>
 #include <QSqlDatabase>
 #include <QString>
+
+#include <memory>
 
 namespace sb {
 
@@ -25,6 +28,7 @@ public:
         NewerVersion,         // made by a newer SynBench: Choose another location / Quit
         LocationUnavailable,  // missing or unwritable (removed USB drive): default / Choose… / Quit
         Failed,
+        InUse,                // another SynBench has this history open (single instance)
     };
     struct OpenResult {
         OpenStatus status = OpenStatus::Failed;
@@ -93,6 +97,9 @@ private:
     SettingsStore &m_settings;
     QString m_dataDir;
     QString m_connectionName;
+    // One SynBench per history folder: held for as long as the folder is in use.
+    std::unique_ptr<QLockFile> m_lock;
+    QString m_lockDir;
     bool m_busy = false;
 };
 

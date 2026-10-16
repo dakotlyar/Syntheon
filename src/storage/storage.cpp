@@ -44,6 +44,7 @@ Storage::Storage(SettingsStore &settings) : m_settings(settings) {}
 Storage::~Storage()
 {
     closeConnection();
+    m_lock.reset();
 }
 
 QString Storage::defaultDataDir()
@@ -133,6 +134,21 @@ Storage::OpenResult Storage::openAt(const QString &folder, bool createFolder)
         return r;
     }
 
+    // The single-instance lock comes before anything touches the database
+    // (recovery included). Staleness is by dead owner only: a live SynBench
+    // that's been open for hours must never look stale.
+    std::unique_ptr<QLockFile> newLock;
+    if (!(m_lock && m_lockDir == folder)) {
+        newLock = std::make_unique<QLockFile>(QDir(folder).filePath(QStringLiteral("synbench.lock")));
+        newLock->setStaleLockTime(0);
+        if (!newLock->tryLock(0)) {
+            r.status = newLock->error() == QLockFile::LockFailedError ? OpenStatus::InUse : OpenStatus::LocationUnavailable;
+            r.error = r.status == OpenStatus::InUse ? QStringLiteral("SynBench is already running with this history.")
+                                                    : QStringLiteral("Couldn't lock the folder %1.").arg(folder);
+            return r;
+        }
+    }
+
     const QString path = dbFileIn(folder);
     r = fromMigrate(Database::migrate(path));
     if (!r.ok())
@@ -152,6 +168,10 @@ Storage::OpenResult Storage::openAt(const QString &folder, bool createFolder)
     closeConnection();
     m_connectionName = name;
     m_dataDir = folder;
+    if (newLock) {
+        m_lock = std::move(newLock);  // releases the previous folder's lock
+        m_lockDir = folder;
+    }
     return r;
 }
 

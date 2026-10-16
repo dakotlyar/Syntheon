@@ -2,6 +2,9 @@
 #include "app/app_runtime.h"
 
 #include <QDir>
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(lcRuntime, "synbench.runtime")
 #include <QtQml>
 
 namespace sb {
@@ -11,6 +14,11 @@ AppRuntime::Options AppRuntime::optionsFromEnvironment()
     Options o;
     o.smoke = qEnvironmentVariableIntValue("SYNBENCH_SMOKE") != 0;
     o.noElevation = o.smoke || !qEnvironmentVariable("SYNBENCH_TOUR").isEmpty();
+    // Developer hooks for tests that start the real executable.
+    o.settingsFile = qEnvironmentVariable("SYNBENCH_SETTINGS_FILE");
+    o.dataFolder = qEnvironmentVariable("SYNBENCH_DATA_DIR");
+    if (qEnvironmentVariableIntValue("SYNBENCH_NO_ELEVATION") != 0)
+        o.noElevation = true;
     return o;
 }
 
@@ -57,17 +65,53 @@ void AppRuntime::registerQml()
     qmlRegisterSingletonInstance("SynBench", 1, 0, "Compare", m_compare.get());
 }
 
+bool AppRuntime::claimInstance()
+{
+    if (m_claimed)
+        return true;
+    if (m_redirected)
+        return false;
+    m_storageController->open();
+    if (m_storageController->startupKind() == QLatin1StringView("inuse")) {
+        m_redirected = true;
+        const bool answered = SingleInstance::requestFocus(m_storage->dataDir());
+        qCInfo(lcRuntime) << "another SynBench has this history; asked it to come to the front:" << answered;
+        return false;
+    }
+    m_claimed = true;
+    m_instance.listen(m_storage->dataDir());
+    // The socket follows the history folder, like the lock does.
+    connect(m_storageController.get(), &StorageController::locationChanged, this,
+            [this] { m_instance.listen(m_storage->dataDir()); });
+    return true;
+}
+
 void AppRuntime::start()
 {
-    m_storageController->open();
-    m_startup->recover();  // before any UI: cut-short runs become interrupted or recovered
+    if (!claimInstance())
+        return;
     m_results->openRun({});  // the newest saved run, if any
     m_history->reload();
-    m_app->start();
-    if (m_options.smoke)
-        m_run->runSmoke();
-    else
-        m_run->refreshProbes();
+    // The storage gate comes first: no administrator prompt (and no helper)
+    // until the history has opened. Until then QML shows the storage dialog.
+    const auto begin = [this] {
+        if (m_begun)
+            return;
+        m_begun = true;
+        m_app->start();
+        if (m_options.smoke)
+            m_run->runSmoke();
+        else
+            m_run->refreshProbes();
+    };
+    if (m_storageController->startupKind() == QLatin1StringView("none")) {
+        begin();
+    } else {
+        connect(m_storageController.get(), &StorageController::startupProblemChanged, this, [this, begin] {
+            if (m_storageController->startupKind() == QLatin1StringView("none"))
+                begin();
+        });
+    }
 }
 
 } // namespace sb

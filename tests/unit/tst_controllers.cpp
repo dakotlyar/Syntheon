@@ -5,6 +5,7 @@
 #include "app/controllers/startup_controller.h"
 #include "app/controllers/storage_controller.h"
 #include "storage/database.h"
+#include "tests/common/stub_clock.h"
 #include "storage/run_repository.h"
 
 #include <QCborMap>
@@ -129,7 +130,12 @@ private slots:
         AppRuntime rt(o);
         rt.storageController().open();
         StartupController &st = rt.startup();
-        st.recover();
+        auto recoverNow = [&] {
+            st.recover();
+            st.waitForRecovery();
+            QVERIFY(!st.recovering());
+        };
+        recoverNow();
         QVERIFY(!st.recoveryPending());  // an empty history: nothing to report
 
         auto seed = [&](const QString &testId, RunKind kind) {
@@ -149,7 +155,7 @@ private slots:
         };
 
         const auto cut = seed(QStringLiteral("cpu"), RunKind::Standard);
-        st.recover();
+        recoverNow();
         QVERIFY(st.recoveryPending());
         QVERIFY(st.recoveryNotice().contains(QStringLiteral("was interrupted")));
         QVERIFY(!rt.storageController().locked());
@@ -159,7 +165,7 @@ private slots:
         }
         st.dismissRecoveryNotice();
         QVERIFY(!st.recoveryPending());
-        st.recover();  // nothing left to recover: the notice doesn't come back
+        recoverNow();  // nothing left to recover: the notice doesn't come back
         QVERIFY(!st.recoveryPending());
 
         const auto battery = seed(QStringLiteral("battery"), RunKind::Exclusive);
@@ -170,7 +176,7 @@ private slots:
                                            QCborValue(QCborMap{{QStringLiteral("t"), i * 100.0},
                                                                {QStringLiteral("charge"), 100.0 - i * 30}}).toCbor()));
         }
-        st.recover();
+        recoverNow();
         QVERIFY(st.recoveryPending());
         QVERIFY2(st.recoveryNotice().contains(QStringLiteral("recovered: 3 h 20 m")), qPrintable(st.recoveryNotice()));
         {
@@ -178,6 +184,100 @@ private slots:
             QCOMPARE(repo.load(battery.first)->status, RunStatus::Recovered);
         }
         QCOMPARE(StartupController::hoursMinutes((6 * 60 + 42) * 60000LL), QStringLiteral("6 h 42 m"));
+    }
+
+    // AP-5 #1: the notice must survive a normal start (open() triggers the
+    // pass; a second pass that finds nothing must not blank it).
+    void noticeSurvivesAFullStart()
+    {
+        QTemporaryDir dir;
+        const QString data = dir.filePath(QStringLiteral("data"));
+        QDir().mkpath(data);
+        {
+            QVERIFY(Database::migrate(QDir(data).filePath(QStringLiteral("synbench.db"))).ok());
+            Database::ScopedConnection c(QDir(data).filePath(QStringLiteral("synbench.db")), QStringLiteral("seed"));
+            RunRecord r;
+            r.uuid = QUuid::createUuid();
+            r.status = RunStatus::Running;
+            r.startedAt = QDateTime::currentDateTimeUtc().addSecs(-3600);
+            TestResult t = TestResult::withStatus(Status::NotRun, QStringLiteral("Queued"));
+            t.testId = QStringLiteral("cpu");
+            r.tests = {t};
+            QVERIFY(RunRepository(c.db()).saveRun(r));
+        }
+        AppRuntime::Options o;
+        o.noElevation = true;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = data;
+        AppRuntime rt(o);
+        QVERIFY(rt.claimInstance());
+        rt.start();
+        QTRY_VERIFY_WITH_TIMEOUT(rt.startup().recoveryPending(), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(!rt.startup().recovering(), 10000);
+        QCoreApplication::processEvents();
+        QVERIFY(rt.startup().recoveryPending());
+        QVERIFY(rt.startup().recoveryNotice().contains(QStringLiteral("was interrupted")));
+        QVERIFY(!rt.storageController().locked());
+    }
+
+    // AP-5 #4: a run earlier in the session must not switch recovery off.
+    void recoveryStillRunsAfterARunThisSession()
+    {
+        tests::setStubTimeScale(0.02);
+        QTemporaryDir dir;
+        AppRuntime::Options o;
+        o.noElevation = true;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = dir.filePath(QStringLiteral("a"));
+        AppRuntime rt(o);
+        QVERIFY(rt.claimInstance());
+        rt.start();
+        QTRY_VERIFY_WITH_TIMEOUT(!rt.run().probing(), 20000);
+        QTRY_VERIFY_WITH_TIMEOUT(!rt.startup().recovering(), 10000);
+        rt.run().toggle(QStringLiteral("cpu"));
+        QSignalSpy finished(&rt.run(), &RunController::runFinished);
+        QVERIFY(rt.run().start());
+        QVERIFY(finished.wait(60000));
+        QVERIFY(rt.run().hasRun());
+
+        const QString other = dir.filePath(QStringLiteral("b"));
+        QDir().mkpath(other);
+        {
+            const QString path = QDir(other).filePath(QStringLiteral("synbench.db"));
+            QVERIFY(Database::migrate(path).ok());
+            Database::ScopedConnection c(path, QStringLiteral("seed"));
+            RunRecord r;
+            r.uuid = QUuid::createUuid();
+            r.status = RunStatus::Running;
+            r.startedAt = QDateTime::currentDateTimeUtc().addSecs(-3600);
+            TestResult t = TestResult::withStatus(Status::NotRun, QStringLiteral("Queued"));
+            t.testId = QStringLiteral("ram");
+            r.tests = {t};
+            QVERIFY(RunRepository(c.db()).saveRun(r));
+        }
+        QCOMPARE(rt.storageController().openHistoryIn(other), QString());
+        QTRY_VERIFY_WITH_TIMEOUT(rt.startup().recoveryPending(), 10000);
+        tests::setStubTimeScale(0);
+    }
+
+    // The two holders of the history lock don't release each other's.
+    void storageLocksAreKeyed()
+    {
+        QTemporaryDir dir;
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = dir.filePath(QStringLiteral("a"));
+        AppRuntime rt(o);
+        StorageController &c = rt.storageController();
+        c.setLocked(true, QStringLiteral("run"));
+        {
+            StorageController::ScopedLock scoped(c, QStringLiteral("recovery"), QStringLiteral("checking"));
+            QVERIFY(c.lockedBy(QStringLiteral("recovery")));
+            c.setLocked(false);  // the run ends first
+            QVERIFY(c.locked());  // recovery still holds it
+        }
+        QVERIFY(!c.locked());
+        QVERIFY(!rt.storage().isBusy());
     }
 
     void firstRunDialogData()
@@ -210,6 +310,7 @@ private slots:
         AppRuntime rt(o);
         StorageController &c = rt.storageController();
         c.open();
+        rt.startup().waitForRecovery();
         QCOMPARE(c.startupKind(), QStringLiteral("none"));
         QCOMPARE(c.runCount(), 0);
         QVERIFY(c.dbPath().endsWith(QStringLiteral("synbench.db")));
@@ -245,6 +346,7 @@ private slots:
         AppRuntime rt(o);
         StorageController &c = rt.storageController();
         c.open();
+        rt.startup().waitForRecovery();
         RunRepository(rt.storage().connection()).saveRun(run());
 
         const QString b = dir.filePath(QStringLiteral("b"));
