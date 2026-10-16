@@ -56,7 +56,8 @@ ScreenFrame {
         SbText { text: qsTr("Compare against"); kind: "label" }
         SbCombo {
             objectName: "baselinePicker"
-            Layout.preferredWidth: 340
+            Layout.preferredWidth: Math.min(460, root.width - 180)
+            popupMinimumWidth: 520
             items: root.runs.map(function(r, i) {
                 return { value: r.uuid, label: root.runLabel(r) + (i === 0 ? qsTr(" (newest)") : ""), detail: "" }
             })
@@ -75,7 +76,7 @@ ScreenFrame {
         readonly property var flat: {
             const out = [{ kind: "head", text: qsTr("Test") }]
             for (const r of root.runs)
-                out.push({ kind: "runhead", date: r.date, machine: r.machine, status: r.status, baseline: r.baseline })
+                out.push({ kind: "runhead", date: r.date, machine: r.machine, day: r.day, timeAndHost: r.timeAndHost, status: r.status, baseline: r.baseline })
             out.push({ kind: "head", text: qsTr("Relative") })
             for (const row of Compare.scoreRows) {
                 out.push({ kind: "name", name: row.name, colorToken: row.colorToken, scoringChanged: row.scoringChanged, overall: row.overall, testId: row.testId })
@@ -127,8 +128,8 @@ ScreenFrame {
                         anchors.leftMargin: 14; anchors.rightMargin: 14
                         spacing: 0
                         Item { Layout.fillHeight: true }
-                        SbText { text: cell.modelData.date || ""; kind: "small"; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
-                        SbText { text: cell.modelData.machine || ""; kind: "small"; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
+                        SbText { objectName: "runDay"; text: cell.modelData.day || ""; kind: "small"; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
+                        SbText { objectName: "runTime"; text: cell.modelData.timeAndHost || ""; kind: "small"; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
                         Pill {
                             Layout.alignment: Qt.AlignRight
                             visible: cell.modelData.baseline === true
@@ -137,6 +138,10 @@ ScreenFrame {
                         }
                         Item { Layout.fillHeight: true }
                     }
+                    // The full date and machine on hover, whatever the column width.
+                    HoverHandler { id: headHover; enabled: cell.modelData.kind === "runhead" }
+                    ToolTip.visible: headHover.hovered && cell.modelData.kind === "runhead"
+                    ToolTip.text: cell.modelData.kind === "runhead" ? cell.modelData.date + "\n" + cell.modelData.machine : ""
                     RowLayout {
                         visible: cell.modelData.kind === "name"
                         anchors.fill: parent
@@ -248,7 +253,7 @@ ScreenFrame {
                 Repeater {
                     model: {
                         const out = [{ kind: "head", text: qsTr("Metric") }]
-                        for (const r of root.runs) out.push({ kind: "head", text: r.date })
+                        for (const r of root.runs) out.push({ kind: "head", text: r.day + "\n" + r.timeAndHost, tip: r.date + "\n" + r.machine })
                         for (const row of Compare.rawRows) {
                             out.push({ kind: "label", text: row.label })
                             for (const c of row.cells) out.push({ kind: "value", cell: c })
@@ -260,7 +265,10 @@ ScreenFrame {
                         required property var modelData
                         Layout.fillWidth: true
                         Layout.preferredWidth: modelData.kind === "label" || modelData.text === qsTr("Metric") ? 2 : 1
-                        implicitHeight: modelData.kind === "head" ? 32 : 46
+                        implicitHeight: modelData.kind === "head" ? 44 : 46
+                        HoverHandler { id: rawHover; enabled: rcell.modelData.tip !== undefined }
+                        ToolTip.visible: rawHover.hovered && rcell.modelData.tip !== undefined
+                        ToolTip.text: rcell.modelData.tip || ""
                         clip: true
                         Rectangle { anchors.fill: parent; color: modelData.kind === "head" ? Theme.sunk : "transparent" }
                         Rectangle {

@@ -599,6 +599,22 @@ private slots:
         QCOMPARE(h.checkedCount(), 0);
     }
 
+    // Zeb #5: two runs on the same day are told apart by the short header lines.
+    void compareHeadersTellSameDayRunsApart()
+    {
+        startRuntime();
+        const QDateTime morning = QDateTime(QDate(2026, 10, 13), QTime(9, 5), QTimeZone::UTC);
+        const auto a = seed(RunStatus::Completed, morning, {cpuResult(1000)});
+        const auto b = seed(RunStatus::Completed, morning.addSecs(3600 * 4), {cpuResult(1100)});
+        CompareController &c = m_rt->compare();
+        QVERIFY(c.setRuns({a.uuid.toString(QUuid::WithoutBraces), b.uuid.toString(QUuid::WithoutBraces)}));
+        const QVariantMap first = c.runs().at(0).toMap(), second = c.runs().at(1).toMap();
+        QCOMPARE(first.value(QStringLiteral("day")), second.value(QStringLiteral("day")));      // same day
+        QVERIFY(first.value(QStringLiteral("timeAndHost")) != second.value(QStringLiteral("timeAndHost")));  // different line 2
+        QVERIFY(first.value(QStringLiteral("timeAndHost")).toString().endsWith(QStringLiteral(" · Knowhere")));  // the host, not the whole label
+        QVERIFY(first.value(QStringLiteral("date")).toString().contains(QStringLiteral("2026")));  // the full text stays for the tooltip
+    }
+
     void compareTwoRunsWithBaselineSwitch()
     {
         startRuntime();

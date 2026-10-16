@@ -9,6 +9,8 @@ ComboBox {
     id: root
 
     property var items: []
+    // The list can be wider than the closed combo (long labels aren't cut there).
+    property real popupMinimumWidth: 0
     property string current
     signal chosen(string value)
 
@@ -50,7 +52,7 @@ ComboBox {
         id: row
         required property var modelData
         required property int index
-        width: root.width
+        width: root.popup.width
         height: 38
         enabled: modelData.enabled !== false
         highlighted: root.highlightedIndex === index
@@ -76,7 +78,7 @@ ComboBox {
     }
     popup: Popup {
         y: root.height + 2
-        width: root.width
+        width: Math.max(root.width, root.popupMinimumWidth)
         implicitHeight: Math.min(contentItem.implicitHeight + 2, 280)
         padding: 1
         contentItem: ListView {

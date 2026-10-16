@@ -9,6 +9,8 @@
 #include "storage/run_repository.h"
 #include "storage/storage.h"
 
+#include <QLocale>
+
 #include <algorithm>
 #include <cmath>
 
@@ -160,6 +162,12 @@ void CompareController::rebuild()
             {QStringLiteral("uuid"), r.uuid.toString(QUuid::WithoutBraces)},
             {QStringLiteral("date"), ResultsController::formatDate(r.startedAt)},
             {QStringLiteral("machine"), r.system.machineLabel},
+            // Two short header lines that tell same-day runs apart: the day, then
+            // the time and the machine's host name ("13:38 · Knowhere").
+            {QStringLiteral("day"), QLocale(QLocale::English).toString(r.startedAt.toLocalTime(), QStringLiteral("d MMM yyyy"))},
+            {QStringLiteral("timeAndHost"),
+             QLocale(QLocale::English).toString(r.startedAt.toLocalTime(), QStringLiteral("HH:mm"))
+                 + (r.system.machineLabel.isEmpty() ? QString() : QStringLiteral(" · ") + r.system.machineLabel.section(QStringLiteral(" · "), 0, 0))},
             {QStringLiteral("status"), ResultsController::statusLabelFor(r.status)},
             {QStringLiteral("baseline"), i == m_baseline},
         });
