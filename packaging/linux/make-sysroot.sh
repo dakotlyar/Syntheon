@@ -33,8 +33,15 @@ out=$(mkdir -p "$(dirname "$out")" && cd "$(dirname "$out")" && pwd)/$(basename 
 # shellcheck disable=SC2086  # $priv is "sudo" or empty on purpose
 $priv rm -rf "$out"
 # shellcheck disable=SC2086
-$priv mmdebstrap --variant=extract --architectures=arm64 --include="$packages" \
-    jammy "$out" "http://ports.ubuntu.com/ubuntu-ports"
+# main AND universe (libxcb-cursor-dev and libxcb-cursor0 are universe-only), from
+# the release pocket plus updates and security, so the sysroot matches what a
+# current 22.04 has. ports.ubuntu.com is the arm64 archive.
+mirror=http://ports.ubuntu.com/ubuntu-ports
+$priv mmdebstrap --variant=extract --architectures=arm64 --components=main,universe --include="$packages" \
+    jammy "$out" \
+    "deb $mirror jammy main universe" \
+    "deb $mirror jammy-updates main universe" \
+    "deb $mirror jammy-security main universe"
 if [[ -n $priv ]]; then
     $priv chown -R "$(id -u):$(id -g)" "$out"
 fi
