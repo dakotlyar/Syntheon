@@ -95,6 +95,8 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 [Registry]
 ; Tells the MSI which installer owns this machine (see Package.wxs).
 Root: HKLM; Subkey: "Software\SynBench"; ValueType: string; ValueName: "Installer"; ValueData: "inno"; Flags: uninsdeletevalue uninsdeletekeyifempty
+; ...and which architecture (x64 / arm64), so the other one's MSI or setup can refuse.
+Root: HKLM; Subkey: "Software\SynBench"; ValueType: string; ValueName: "Arch"; ValueData: "{#Arch}"; Flags: uninsdeletevalue uninsdeletekeyifempty
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
@@ -122,6 +124,18 @@ begin
     Exit;
   end;
 
+#if Arch == "x64"
+  // N3: ARM64 over x64 is allowed (it replaces it); x64 over an ARM64 install is not.
+  // An x64 setup must not silently replace the native ARM64 build.
+  if RegQueryStringValue(HKLM, 'Software\SynBench', 'Arch', Owner) and (Owner = 'arm64') then
+  begin
+    Log('The ARM64 version is installed; refusing the x64 setup.');
+    if not WizardSilent then
+      SuppressibleMsgBox('The ARM64 version of SynBench is installed. Use the ARM64 setup (or uninstall it first).', mbError, MB_OK, IDOK);
+    Result := False;
+    Exit;
+  end;
+#endif
   if RegQueryStringValue(HKLM, 'Software\SynBench', 'Installer', Owner) and (Owner = 'msi') then
   begin
     // Never block a silent run on a message box: SuppressibleMsgBox answers

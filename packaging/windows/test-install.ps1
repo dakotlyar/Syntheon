@@ -129,6 +129,22 @@ try {
     Wait-Gone
     EndStep
 
+    # 3a. One architecture per machine. The x64 runner can't install ARM64 binaries,
+    # so the other architecture is SIMULATED with its registry marker: that is
+    # exactly what each installer's refusal reads. (Untestable here: a real ARM64
+    # install, and ARM64 setup replacing an x64 install on a Snapdragon, N3.)
+    Step 'The other architecture blocks the installers'
+    $key = 'HKLM:\SOFTWARE\SynBench'
+    New-Item -Path $key -Force | Out-Null
+    Set-ItemProperty -Path $key -Name 'Arch' -Value 'arm64'
+    $code = Start-Waited $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-otherarch.log")
+    if ($code -eq 0) { throw 'the x64 setup went over an ARM64 install' }
+    $code = Start-Waited 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-otherarch.log")
+    if ($code -eq 0) { throw 'the x64 MSI went over an ARM64 install' }
+    if (Test-Path $exe) { throw 'a refused install still put SynBench.exe in place' }
+    Remove-Item -Path $key -Recurse -Force
+    EndStep
+
     # 3b. The install folder is locked to Program Files (Dave): a custom folder is refused
     Step 'A custom install folder is refused'
     $custom = Join-Path $tempRoot 'custom-install-dir'

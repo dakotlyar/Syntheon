@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later
      SynBench MSI (WiX v5, D9/D12). Built per architecture:
-       wix build -arch x64|arm64 -d Version=26.11.0 -d SourceDir=<stage> -d IconPath=<repo>\assets\synbench.ico -d UpgradeCode={...}
+       wix build -arch x64|arm64 -d Version=26.11.0 -d SourceDir=<stage> -d Arch=x64|arm64 -d IconPath=<repo>\assets\synbench.ico -d UpgradeCode={...}
                  -o SynBench-<ver>-windows-<arch>.msi packaging\windows\wix\Package.wxs
      Version is the MSI form of the app version (26.11.N: MSI's first field is
      limited to 255, so the year is YY). Each architecture has its own stable UpgradeCode,
@@ -21,6 +21,14 @@
     </Property>
     <Launch Condition="INNOINSTALLED &lt;&gt; &quot;inno&quot;"
             Message="SynBench was installed with the setup program. Uninstall it first (Settings &gt; Apps), then run this MSI." />
+
+    <!-- One architecture of SynBench per machine: the other architecture's MSI
+         (or setup) must be uninstalled first. Each install records its own. -->
+    <Property Id="INSTALLEDARCH">
+      <RegistrySearch Id="ArchOwner" Root="HKLM" Key="Software\SynBench" Name="Arch" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="NOT INSTALLEDARCH OR INSTALLEDARCH = &quot;$(Arch)&quot;"
+            Message="The other architecture of SynBench is installed. Uninstall it first (Settings &gt; Apps), then run this MSI." />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="InstallFolder" Name="SynBench" />
@@ -52,6 +60,7 @@
 
     <Component Id="OwnerMarker" Directory="InstallFolder" Bitness="always64">
       <RegistryValue Root="HKLM" Key="Software\SynBench" Name="Installer" Type="string" Value="msi" KeyPath="yes" />
+      <RegistryValue Root="HKLM" Key="Software\SynBench" Name="Arch" Type="string" Value="$(Arch)" />
     </Component>
   </Package>
 </Wix>
