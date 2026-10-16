@@ -200,5 +200,9 @@ try {
 } catch {
     Write-Host "::error::$($_.Exception.Message)"
     Show-Logs
-    throw
+    exit 1
 }
+# Several steps above ran native commands that were SUPPOSED to fail: reset, or the
+# CI step takes the last one's exit code.
+$global:LASTEXITCODE = 0
+exit 0

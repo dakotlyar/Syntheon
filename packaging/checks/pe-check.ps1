@@ -47,3 +47,5 @@ if ($problems) {
     exit 1
 }
 Write-Host "OK: $($files.Count) files, all $Arch, every dependency accounted for"
+$global:LASTEXITCODE = 0
+exit 0

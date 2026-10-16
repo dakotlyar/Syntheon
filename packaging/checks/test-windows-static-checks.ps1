@@ -25,40 +25,49 @@ function Assert-Fails([string]$what) {
     Write-Host "ok: the checks reject $what"
 }
 
-# 0. the real tree passes (so the failures below are caused by the plants)
-$null = & pwsh -NoProfile -File $checks -Tree $Tree -Arch $Arch 2>&1
-if ($LASTEXITCODE -ne 0) { throw 'the unmodified tree does not pass the static checks' }
+try {
+    # 0. the real tree passes (so the failures below are caused by the plants)
+    $null = & pwsh -NoProfile -File $checks -Tree $Tree -Arch $Arch 2>&1
+    if ($LASTEXITCODE -ne 0) { throw 'the unmodified tree does not pass the static checks' }
 
-# 1. a developer hook name inside a binary (8-bit and UTF-16)
-Fresh-Copy
-[IO.File]::AppendAllText((Join-Path $work 'SynBench.exe'), 'SYNBENCH_SMOKE', [Text.Encoding]::ASCII)
-Assert-Fails 'a SYNBENCH_ string (8-bit) in SynBench.exe'
-Fresh-Copy
-$bytes = [Text.Encoding]::Unicode.GetBytes('SYNBENCH_TOUR')
-$fs = [IO.File]::Open((Join-Path $work 'SynBench.exe'), 'Append'); $fs.Write($bytes, 0, $bytes.Length); $fs.Close()
-Assert-Fails 'a SYNBENCH_ string (UTF-16) in SynBench.exe'
+    # 1. a developer hook name inside a binary (8-bit and UTF-16)
+    Fresh-Copy
+    [IO.File]::AppendAllText((Join-Path $work 'SynBench.exe'), 'SYNBENCH_SMOKE', [Text.Encoding]::ASCII)
+    Assert-Fails 'a SYNBENCH_ string (8-bit) in SynBench.exe'
+    Fresh-Copy
+    $bytes = [Text.Encoding]::Unicode.GetBytes('SYNBENCH_TOUR')
+    $fs = [IO.File]::Open((Join-Path $work 'SynBench.exe'), 'Append'); $fs.Write($bytes, 0, $bytes.Length); $fs.Close()
+    Assert-Fails 'a SYNBENCH_ string (UTF-16) in SynBench.exe'
 
-# 2. a test-only binary
-Fresh-Copy
-Set-Content (Join-Path $work 'synbench-helper-test.exe') 'x'
-Assert-Fails 'a synbench-helper-test binary'
+    # 2. a test-only binary
+    Fresh-Copy
+    Set-Content (Join-Path $work 'synbench-helper-test.exe') 'x'
+    Assert-Fails 'a synbench-helper-test binary'
 
-# 3. a DLL of the wrong architecture
-Fresh-Copy
-$other = if ($Arch -eq 'x64') { 'arm64' } else { 'x64' }
-$sys = Join-Path $env:SystemRoot 'System32\kernel32.dll'   # the runner's own (x64) DLL
-if ($Arch -eq 'arm64') { Copy-Item $sys (Join-Path $work 'wrongarch.dll'); Assert-Fails 'an x64 DLL in the ARM64 tree' }
-else { Write-Host "skip: no $other DLL is available on this runner to plant in the x64 tree" }
+    # 3. a DLL of the wrong architecture
+    Fresh-Copy
+    $other = if ($Arch -eq 'x64') { 'arm64' } else { 'x64' }
+    $sys = Join-Path $env:SystemRoot 'System32\kernel32.dll'   # the runner's own (x64) DLL
+    if ($Arch -eq 'arm64') { Copy-Item $sys (Join-Path $work 'wrongarch.dll'); Assert-Fails 'an x64 DLL in the ARM64 tree' }
+    else { Write-Host "skip: no $other DLL is available on this runner to plant in the x64 tree" }
 
-# 4. the app-local runtime is gone
-Fresh-Copy
-Remove-Item (Join-Path $work 'vcruntime140.dll')
-Assert-Fails 'vcruntime140.dll removed'
+    # 4. the app-local runtime is gone
+    Fresh-Copy
+    Remove-Item (Join-Path $work 'vcruntime140.dll')
+    Assert-Fails 'vcruntime140.dll removed'
 
-# 5. a dependency nobody ships
-Fresh-Copy
-Remove-Item (Join-Path $work 'Qt6Core.dll')
-Assert-Fails 'Qt6Core.dll removed'
+    # 5. a dependency nobody ships
+    Fresh-Copy
+    Remove-Item (Join-Path $work 'Qt6Core.dll')
+    Assert-Fails 'Qt6Core.dll removed'
 
-Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+} catch {
+    Write-Host "::error::$($_.Exception.Message)"
+    exit 1
+}
+# The last native command above was a check that was SUPPOSED to fail; in a CI
+# step the step's exit code is the last native exit code, so reset it.
+$global:LASTEXITCODE = 0
 Write-Host 'the negative controls all failed as they should'
+exit 0
