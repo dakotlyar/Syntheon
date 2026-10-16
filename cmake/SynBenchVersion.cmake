@@ -27,29 +27,12 @@ endfunction()
 # synbench_generate_version_header() writes <build>/generated/synbench_version.h
 # and creates the INTERFACE target synbench_version that exposes it.
 #
-# Dev builds get "-dev+<sha>" appended to the display version. The sha is read at
-# configure time, so it goes stale until the next reconfigure; release builds
+# Dev builds get "-dev+<sha>" appended to the display version. The sha is read
+# at configure time AND again at every build (GenerateVersionHeader.cmake via the
+# synbench_version_header target), so it never goes stale; release builds
 # (SYNBENCH_RELEASE_BUILD=ON) don't carry it in the version string.
 function(synbench_generate_version_header)
-    set(_sha "unknown")
     find_package(Git QUIET)
-    if(GIT_FOUND)
-        execute_process(
-            COMMAND "${GIT_EXECUTABLE}" rev-parse --short=7 HEAD
-            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-            OUTPUT_VARIABLE _out OUTPUT_STRIP_TRAILING_WHITESPACE
-            RESULT_VARIABLE _rc ERROR_QUIET)
-        if(_rc EQUAL 0 AND _out)
-            set(_sha "${_out}")
-        endif()
-    endif()
-
-    if(SYNBENCH_RELEASE_BUILD)
-        set(_display "${SYNBENCH_VERSION}")
-    else()
-        set(_display "${SYNBENCH_VERSION}-dev+${_sha}")
-    endif()
-
     string(TOLOWER "${CMAKE_SYSTEM_NAME}" _os)
     string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _cpu)
     if(_cpu MATCHES "^(x86_64|amd64|x64)$")
@@ -59,13 +42,34 @@ function(synbench_generate_version_header)
     else()
         set(_arch "${_cpu}")
     endif()
-
-    set(SYNBENCH_DISPLAY_VERSION "${_display}")
-    set(SYNBENCH_GIT_SHA "${_sha}")
-    set(SYNBENCH_BUILD_ID "${_os}-${_arch} ${_sha}")
-    configure_file("${PROJECT_SOURCE_DIR}/cmake/synbench_version.h.in"
-                   "${PROJECT_BINARY_DIR}/generated/synbench_version.h" @ONLY)
+    if(SYNBENCH_RELEASE_BUILD)
+        set(_release ON)
+    else()
+        set(_release OFF)
+    endif()
+    set(_header "${PROJECT_BINARY_DIR}/generated/synbench_version.h")
+    set(_args
+        -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DOUTPUT=${_header}
+        -DTEMPLATE=${PROJECT_SOURCE_DIR}/cmake/synbench_version.h.in
+        -DVERSION=${SYNBENCH_VERSION}
+        -DFILE_VERSION=${SYNBENCH_FILE_VERSION}
+        -DMSI_VERSION=${SYNBENCH_MSI_VERSION}
+        -DRELEASE_BUILD=${_release}
+        -DOS=${_os}
+        -DARCH=${_arch}
+        "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}")
+    file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/generated")
+    # Once now, so the header exists for the first build...
+    execute_process(COMMAND "${CMAKE_COMMAND}" ${_args} -P "${PROJECT_SOURCE_DIR}/cmake/GenerateVersionHeader.cmake")
+    # ...and at every build (cheap; rewrites the file only when the sha changed).
+    add_custom_target(synbench_version_header ALL
+        COMMAND "${CMAKE_COMMAND}" ${_args} -P "${PROJECT_SOURCE_DIR}/cmake/GenerateVersionHeader.cmake"
+        BYPRODUCTS "${_header}"
+        COMMENT "Version stamp"
+        VERBATIM)
 
     add_library(synbench_version INTERFACE)
     target_include_directories(synbench_version INTERFACE "${PROJECT_BINARY_DIR}/generated")
+    add_dependencies(synbench_version synbench_version_header)
 endfunction()
