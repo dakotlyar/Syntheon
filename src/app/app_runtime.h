@@ -4,6 +4,7 @@
 #include "app/controllers/app_controller.h"
 #include "app/controllers/compare_controller.h"
 #include "app/controllers/results_controller.h"
+#include "app/controllers/startup_controller.h"
 #include "app/controllers/run_controller.h"
 #include "app/controllers/settings_controller.h"
 #include "app/controllers/storage_controller.h"
@@ -56,6 +57,7 @@ public:
     AppController &app() { return *m_app; }
     RunController &run() { return *m_run; }
     ResultsController &results() { return *m_results; }
+    StartupController &startup() { return *m_startup; }
     HistoryModel &history() { return *m_history; }
     CompareController &compare() { return *m_compare; }
     bool smoke() const { return m_options.smoke; }
@@ -70,6 +72,7 @@ private:
     std::unique_ptr<AppController> m_app;
     std::unique_ptr<RunController> m_run;
     std::unique_ptr<ResultsController> m_results;
+    std::unique_ptr<StartupController> m_startup;
     std::unique_ptr<HistoryModel> m_history;
     std::unique_ptr<CompareController> m_compare;
 };

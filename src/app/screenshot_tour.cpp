@@ -34,6 +34,10 @@ void ScreenshotTour::start()
 // picks the option tab to show.
 void ScreenshotTour::prepare()
 {
+    // The first-run dialog covers every screen; SYNBENCH_TOUR_SECTIONS=firstrun
+    // leaves it up (the tour then shows the Run screen behind it).
+    if (qEnvironmentVariable("SYNBENCH_TOUR_FIRSTRUN").isEmpty())
+        m_runtime.settings().setFirstRunDone(true);
     for (const QString &id : qEnvironmentVariable("SYNBENCH_TOUR_SELECT").split(QLatin1Char(','), Qt::SkipEmptyParts))
         m_runtime.run().selection().setSelected(id, true);
     const QString tab = qEnvironmentVariable("SYNBENCH_TOUR_TAB");

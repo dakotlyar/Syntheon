@@ -106,6 +106,11 @@ public:
     Q_INVOKABLE void stop();
     Q_INVOKABLE void refreshProbes();
     Q_INVOKABLE void setOption(const QString &testId, const QString &key, const QVariant &value);
+    // The first-run "hardware check": one row per test from its probe:
+    // {id, name, colorToken, state: good|partial|na, detail, hint}.
+    QVariantList hardwareCheck() const;
+    QString scratchRoot() const { return m_scratchRoot; }
+
     Q_INVOKABLE QStringList lastStartErrors() const { return m_startErrors; }
     // "~24 s" / "~2 min" for a picker row, from the test's own estimate.
     Q_INVOKABLE QString estimateOf(const QString &testId);
@@ -174,6 +179,7 @@ private:
     QStringList m_finishedIds;
     QString m_etaText;
     QStringList m_startErrors;
+    QString m_scratchRoot;
     bool m_smoke = false;
     bool m_smokeBatteryStarted = false;
 };

@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/app_runtime.h"
+#include "app/controllers/run_controller.h"
 #include "app/controllers/settings_controller.h"
+#include "app/controllers/startup_controller.h"
 #include "app/controllers/storage_controller.h"
 #include "storage/database.h"
 #include "storage/run_repository.h"
 
+#include <QCborMap>
+#include <QCborValue>
 #include <QDir>
 #include <QSignalSpy>
 #include <QSqlQuery>
@@ -111,6 +115,90 @@ private slots:
         QCOMPARE(a.batteryLines(), QStringList{QStringLiteral("No battery found")});
         QVERIFY(a.emulationText().isEmpty());
         QVERIFY(a.headerDetail().endsWith(QStringLiteral("no battery")));
+    }
+
+    // Startup recovery (design 3): a run left 'running' by a crash is finished
+    // off, a one-time notice is built, and the history stays locked only while
+    // that happens.
+    void startupRecoversCutShortRunsAndNotifiesOnce()
+    {
+        QTemporaryDir dir;
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = dir.filePath(QStringLiteral("a"));
+        AppRuntime rt(o);
+        rt.storageController().open();
+        StartupController &st = rt.startup();
+        st.recover();
+        QVERIFY(!st.recoveryPending());  // an empty history: nothing to report
+
+        auto seed = [&](const QString &testId, RunKind kind) {
+            RunRecord r;
+            r.uuid = QUuid::createUuid();
+            r.kind = kind;
+            r.status = RunStatus::Running;
+            r.startedAt = QDateTime::currentDateTimeUtc().addSecs(-7200);
+            r.appVersion = QStringLiteral("2026.11.0");
+            TestResult t = TestResult::withStatus(Status::NotRun, QStringLiteral("Queued"));
+            t.testId = testId;
+            r.tests = {t};
+            RunRepository repo(rt.storage().connection());
+            const auto id = repo.saveRun(r);
+            [&] { QVERIFY(id); }();
+            return std::make_pair(r.uuid, *id);
+        };
+
+        const auto cut = seed(QStringLiteral("cpu"), RunKind::Standard);
+        st.recover();
+        QVERIFY(st.recoveryPending());
+        QVERIFY(st.recoveryNotice().contains(QStringLiteral("was interrupted")));
+        QVERIFY(!rt.storageController().locked());
+        {
+            RunRepository repo(rt.storage().connection());
+            QCOMPARE(repo.load(cut.first)->status, RunStatus::Interrupted);
+        }
+        st.dismissRecoveryNotice();
+        QVERIFY(!st.recoveryPending());
+        st.recover();  // nothing left to recover: the notice doesn't come back
+        QVERIFY(!st.recoveryPending());
+
+        const auto battery = seed(QStringLiteral("battery"), RunKind::Exclusive);
+        {
+            RunRepository repo(rt.storage().connection());
+            for (int i = 0; i < 3; ++i)
+                QVERIFY(repo.addCheckpoint(battery.second, QStringLiteral("battery"), i,
+                                           QCborValue(QCborMap{{QStringLiteral("t"), i * 100.0},
+                                                               {QStringLiteral("charge"), 100.0 - i * 30}}).toCbor()));
+        }
+        st.recover();
+        QVERIFY(st.recoveryPending());
+        QVERIFY2(st.recoveryNotice().contains(QStringLiteral("recovered: 3 h 20 m")), qPrintable(st.recoveryNotice()));
+        {
+            RunRepository repo(rt.storage().connection());
+            QCOMPARE(repo.load(battery.first)->status, RunStatus::Recovered);
+        }
+        QCOMPARE(StartupController::hoursMinutes((6 * 60 + 42) * 60000LL), QStringLiteral("6 h 42 m"));
+    }
+
+    void firstRunDialogData()
+    {
+        QTemporaryDir dir;
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = dir.filePath(QStringLiteral("a"));
+        AppRuntime rt(o);
+        StartupController &st = rt.startup();
+        QVERIFY(st.firstRunNeeded());
+        // One row per test; before probing they say "Checking…", and no
+        // model-pack pointer exists yet (Phase 6).
+        const QVariantList rows = st.hardwareCheck();
+        QCOMPARE(rows.size(), 7);
+        for (const QVariant &r : rows)
+            QVERIFY(r.toMap().value(QStringLiteral("hint")).toString().isEmpty());
+        QSignalSpy spy(&st, &StartupController::firstRunChanged);
+        st.finishFirstRun();
+        QVERIFY(!st.firstRunNeeded());
+        QCOMPARE(spy.count(), 1);
     }
 
     void storageControllerBasics()

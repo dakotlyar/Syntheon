@@ -70,6 +70,7 @@ RunController::RunController(Storage &storage, StorageController &storageControl
       m_storage(storage),
       m_storageController(storageController),
       m_app(app),
+      m_scratchRoot(config.scratchRoot),
       m_selection(populated(m_registry)),
       m_sink([this] { return m_storage.dbPath(); }),
       m_inhibitor(createSystemPowerInhibitor()),
@@ -388,6 +389,41 @@ void RunController::onSelectionChanged()
     emit estimateChanged();
     emit startabilityChanged();
     updatePreconditions();
+}
+
+QVariantList RunController::hardwareCheck() const
+{
+    QVariantList out;
+    for (const QString &id : m_registry.ids()) {
+        const TestState *st = stateOf(id);
+        if (!st)
+            continue;
+        const Availability &a = st->availability;
+        QString state = QStringLiteral("good"), detail;
+        if (!st->probed) {
+            state = QStringLiteral("partial");
+            detail = tr("Checking…");
+        } else if (a.state == Availability::State::Unavailable) {
+            state = QStringLiteral("na");
+            detail = a.reason;
+        } else {
+            if (a.state == Availability::State::Partial)
+                state = QStringLiteral("partial");
+            QStringList caps;
+            for (const CapabilityItem &c : a.capabilities)
+                caps << c.label;
+            detail = caps.isEmpty() ? a.reason : caps.join(QStringLiteral(", "));
+            if (a.state == Availability::State::Partial && !a.reason.isEmpty() && !detail.contains(a.reason))
+                detail += detail.isEmpty() ? a.reason : QStringLiteral(" (%1)").arg(a.reason);
+        }
+        out.append(QVariantMap{{QStringLiteral("id"), id},
+                               {QStringLiteral("name"), testName(id)},
+                               {QStringLiteral("colorToken"), testColor(id)},
+                               {QStringLiteral("state"), state},
+                               {QStringLiteral("detail"), detail},
+                               {QStringLiteral("hint"), a.hint ? a.hint->text : QString()}});
+    }
+    return out;
 }
 
 QVariantList RunController::tabs() const

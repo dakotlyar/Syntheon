@@ -69,4 +69,16 @@ ApplicationWindow {
         onRetryClicked: AppController.retryAuth()
         onQuitClicked: AppController.quit()
     }
+    // After the gates: the one-time recovery notice, then the first-run dialog.
+    RecoveryNoticeDialog {
+        visible: StorageController.startupKind === "none" && AppController.authStateName === "ready"
+                 && Startup.recoveryPending
+        message: Startup.recoveryNotice
+        onDismissed: Startup.dismissRecoveryNotice()
+    }
+    FirstRunDialog {
+        visible: StorageController.startupKind === "none" && AppController.authStateName === "ready"
+                 && !Startup.recoveryPending && Startup.firstRunNeeded
+        onFinished: Startup.finishFirstRun()
+    }
 }

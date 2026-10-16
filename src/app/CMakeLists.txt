@@ -11,6 +11,7 @@ qt_add_library(synbench_appcore STATIC
     controllers/run_controller.h controllers/run_controller.cpp
     controllers/results_controller.h controllers/results_controller.cpp
     controllers/compare_controller.h controllers/compare_controller.cpp
+    controllers/startup_controller.h controllers/startup_controller.cpp
     models/history_model.h models/history_model.cpp
     models/detail_blocks.h models/detail_blocks.cpp
     models/log_filter_model.h models/log_filter_model.cpp
@@ -83,6 +84,8 @@ qt_add_qml_module(synbench_ui
         qml/screens/SystemInfoScreen.qml
         qml/screens/SettingsScreen.qml
         qml/dialogs/AuthDialog.qml
+        qml/dialogs/FirstRunDialog.qml
+        qml/dialogs/RecoveryNoticeDialog.qml
         qml/dialogs/StorageProblemDialog.qml
 )
 target_link_libraries(synbench_ui PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::QuickShapes)
