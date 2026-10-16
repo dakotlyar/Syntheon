@@ -7,6 +7,7 @@
 #include "storage/settings_store.h"
 #include "storage/storage.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QProcess>
@@ -17,7 +18,9 @@
 
 #include <future>
 
+#ifdef Q_OS_UNIX
 #include <unistd.h>
+#endif
 
 using namespace sb;
 
@@ -138,19 +141,30 @@ private slots:
         QVERIFY(st.open().ok());
         QVERIFY(!QDir(folder).entryList({QStringLiteral("*.lock")}).contains(QStringLiteral("synbench.lock")));
         QVERIFY(QFile::exists(instance::lockFilePath(folder)));
+        SingleInstance si;
+        QVERIFY(si.listen(folder));
+#ifdef Q_OS_UNIX
+        // Linux: $XDG_RUNTIME_DIR/synbench (0700, ours), the socket is a file in it.
         QVERIFY(instance::lockFilePath(folder).startsWith(m_runtime.path()));
         const QFileInfo state(instance::stateDir());
         QCOMPARE(state.ownerId(), uint(geteuid()));
         QVERIFY(!(state.permissions() & (QFile::ReadGroup | QFile::ReadOther | QFile::WriteGroup | QFile::WriteOther)));
-        SingleInstance si;
-        QVERIFY(si.listen(folder));
         QVERIFY(SingleInstance::nameFor(folder).startsWith(m_runtime.path()));
         QVERIFY(QFile::exists(SingleInstance::nameFor(folder)));
+#else
+        // Windows: a lock file under %LOCALAPPDATA% and a named pipe (a name, not a file).
+        QVERIFY(instance::lockFilePath(folder).contains(QStringLiteral("SynBench")));
+        QVERIFY(SingleInstance::nameFor(folder).startsWith(QStringLiteral("synbench-")));
+        QVERIFY(!SingleInstance::nameFor(folder).contains(QLatin1Char('\\')));
+#endif
     }
 
     // A symlinked path is the same history: same key, same lock.
     void symlinkedPathIsTheSameInstance()
     {
+#ifdef Q_OS_WIN
+        QSKIP("QFile::link makes a .lnk shortcut on Windows, not a symbolic link");
+#endif
         QTemporaryDir dir;
         const QString real = dir.filePath(QStringLiteral("real"));
         const QString link = dir.filePath(QStringLiteral("link"));
@@ -177,7 +191,7 @@ private slots:
         s.setDataLocation(folder);
         QFile lock(instance::lockFilePath(folder));
         QVERIFY(lock.open(QIODevice::WriteOnly));
-        lock.write(QByteArray::number(qint64(getpid())) + "\nSynBench\nsome-other-host\n");  // a live pid, another host
+        lock.write(QByteArray::number(QCoreApplication::applicationPid()) + "\nSynBench\nsome-other-host\n");  // a live pid, another host
         lock.close();
         Storage st(s);
         QCOMPARE(st.open().status, Storage::OpenStatus::InUse);
@@ -190,6 +204,12 @@ private slots:
     // the problem for the dialog, and Take over continues.
     void heldLockWithoutAnAnswerOffersTakeOver()
     {
+#ifdef Q_OS_WIN
+        // Windows won't delete a lock file its own holder still has open; a real
+        // stale lock (the holder crashed) isn't held, which the stale-lock and
+        // foreign-host tests cover.
+        QSKIP("the holder here is in the same process and keeps the lock file open");
+#endif
         QTemporaryDir dir;
         const QString folder = dir.filePath(QStringLiteral("data"));
         QDir().mkpath(folder);
@@ -214,7 +234,9 @@ private slots:
         QCOMPARE(rt.storageController().takeOver(), QString());
         QCOMPARE(rt.storageController().startupKind(), QStringLiteral("none"));
         QVERIFY(rt.storage().isOpen());
+#ifdef Q_OS_UNIX
         QVERIFY(QFile::exists(SingleInstance::nameFor(folder)));  // and it now answers a second launch
+#endif
     }
 
     // A socket that can't be created is a visible warning, not just a log line.
@@ -222,6 +244,9 @@ private slots:
     // the lock file still works.)
     void socketFailureIsReportedToTheUser()
     {
+#ifdef Q_OS_WIN
+        QSKIP("a too-long Unix socket path is the Unix-only way to make listen() fail");
+#endif
         QTemporaryDir dir;
         const QString deep = QDir(dir.path()).filePath(QString(120, QLatin1Char('d')));
         QVERIFY(QDir().mkpath(deep));
@@ -296,7 +321,10 @@ private slots:
     // the first gets the request; a different folder starts normally.
     void secondProcessExitsCleanlyAndTheFirstIsToldToRaise()
     {
-#ifdef SYNBENCH_EXE
+#if defined(SYNBENCH_EXE) && !defined(Q_OS_WIN)
+        // (Windows: SynBench.exe is a GUI-subsystem program with no stderr to read
+        // the "listening" / "asked for this window" log lines from, and it asks
+        // for administrator rights. The in-process tests above cover the logic.)
         QTemporaryDir dir;
         auto launch = [&](QProcess &p, const QString &folder, const QString &ini) {
             QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
