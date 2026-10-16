@@ -1,6 +1,6 @@
 name: ARM64 sysroot
 
-# Pre-warms the cache for the Linux ARM64 cross job (P26) whenever the package
+# Pre-warms the cache (Ubuntu 24.04 "noble" sysroot: the Linux ARM64 floor) for the Linux ARM64 cross job (P26) whenever the package
 # list or the scripts that build the sysroot change. The cross job also builds
 # the sysroot itself on a cache miss, so this workflow is an optimisation.
 
@@ -15,7 +15,7 @@ on:
 
 jobs:
   sysroot:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -24,7 +24,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: sysroot-arm64
-          key: sysroot-arm64-${{ hashFiles('packaging/linux/linux-arm64-sysroot.txt', 'packaging/linux/make-sysroot.sh', 'packaging/linux/fix-sysroot-symlinks.py') }}
+          key: sysroot-arm64-noble-${{ hashFiles('packaging/linux/linux-arm64-sysroot.txt', 'packaging/linux/make-sysroot.sh', 'packaging/linux/fix-sysroot-symlinks.py') }}
 
       - name: Build the sysroot
         if: steps.cache.outputs.cache-hit != 'true'

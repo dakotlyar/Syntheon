@@ -512,12 +512,15 @@ jobs:
           if-no-files-found: error
 
   linux-arm64-cross:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       SYSROOT: ${{ github.workspace }}/sysroot-arm64
     steps:
       - uses: actions/checkout@v5
 
+      # Linux ARM64 requires glibc 2.39 (Ubuntu 24.04+): the official Qt arm64
+      # build needs glibc 2.38 / libstdc++ 3.4.32. Runner, compiler (GCC 13) and
+      # sysroot (noble) are all 24.04, so their libstdc++ agree.
       - name: Install the cross compiler and build tools
         run: |
           sudo apt-get update
@@ -531,7 +534,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: sysroot-arm64
-          key: sysroot-arm64-${{ hashFiles('packaging/linux/linux-arm64-sysroot.txt', 'packaging/linux/make-sysroot.sh', 'packaging/linux/fix-sysroot-symlinks.py') }}
+          key: sysroot-arm64-noble-${{ hashFiles('packaging/linux/linux-arm64-sysroot.txt', 'packaging/linux/make-sysroot.sh', 'packaging/linux/fix-sysroot-symlinks.py') }}
 
       - name: Build the sysroot
         if: steps.sysroot.outputs.cache-hit != 'true'
@@ -578,7 +581,7 @@ jobs:
             --qml-root src/app/qml --qml-scanner "$HOST_QT/libexec/qmlimportscanner" \
             --cross-prefix aarch64-linux-gnu- --sysroot "$SYSROOT"
 
-      - name: Static checks (P27)
+      - name: Static checks (P27, the aarch64 floor is glibc 2.39)
         run: |
           python3 packaging/checks/elf-check.py AppDir --arch aarch64 --cross-prefix aarch64-linux-gnu-
           bash packaging/checks/no-dev-hooks.sh AppDir

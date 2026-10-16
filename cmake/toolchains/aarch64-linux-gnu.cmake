@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Linux ARM64 cross build (design 8, P26): Ubuntu 22.04's aarch64 GCC, the
-# arm64 sysroot (packaging/linux/make-sysroot.sh) and the arm64 Qt.
+# Linux ARM64 cross build (design 8, P26): Ubuntu 24.04's aarch64 GCC 13,
+# the noble arm64 sysroot (packaging/linux/make-sysroot.sh: glibc 2.39, its
+# libstdc++-13-dev matches the compiler) and the official arm64 Qt, which needs
+# glibc 2.38 / libstdc++ 3.4.32 and so cannot link against anything older.
 #
 #   cmake --preset linux-arm64-cross -DSYNBENCH_SYSROOT=<sysroot> -DQT_HOST_PATH=<host Qt> \
 #         -DSYNBENCH_TARGET_QT=<target Qt>
