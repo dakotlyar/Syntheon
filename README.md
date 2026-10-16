@@ -80,9 +80,26 @@ is what that means in practice.
   under that name, so the check narrows the risk rather than removing it. If that is
   not acceptable for you, do not elevate: SynBench has no limited mode, so it
   will not run.
+- **`--synbench-selfcheck`**: `SynBench.AppImage --synbench-selfcheck` is a tiny,
+  read-only, unprivileged mode (no root, no polkit prompt, no window; it changes
+  nothing). It runs the same decision the real launch uses on the live
+  environment and prints the mount it saw plus `PASS` or `FAIL` and the reason
+  (exit status 0 or 1). In an AppImage it passes only if the image's mount is
+  verified; CI runs it on the real AppImage. If it says FAIL, SynBench will not be
+  able to ask for administrator access from that copy.
 - Only one SynBench runs per history folder; a second launch brings the first
   window forward. Its lock and socket live in your own runtime directory, not
   in the (possibly synced) history folder.
+
+## Known harmless messages
+
+When started from a terminal on KDE/GNOME you may see
+`qt.qpa.services: Failed to register with host portal ... App info not found for
+'io.github.dakotlyar.SynBench'`. Qt tries to register the app with the desktop
+portal, which only knows installed apps (a `.desktop` file in
+`~/.local/share/applications`). It changes nothing in SynBench and is left
+visible on purpose: the only switch that silences it (`QT_NO_XDG_DESKTOP_PORTAL`)
+would also turn off the portal's light/dark preference and file dialogs.
 
 ## Building it
 
