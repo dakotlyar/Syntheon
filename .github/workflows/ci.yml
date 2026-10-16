@@ -53,15 +53,15 @@ jobs:
         shell: bash
         run: |
           cmake --install build/linux-x64-release --prefix stage
-          packaging/checks/no-test-binaries.sh stage
+          bash packaging/checks/no-test-binaries.sh stage
 
       - name: Unit tests
-        run: ctest --preset linux-x64-release
+        run: ctest --preset linux-x64-release --output-on-failure
 
       # The live system snapshot on this runner, printed for review (ctest
       # hides test output on success).
       - name: System snapshot
-        run: ctest --preset linux-x64-release -R tst_sysinfo_live -V
+        run: ctest --preset linux-x64-release -R tst_sysinfo_live -V --output-on-failure
 
   windows-x64:
     runs-on: windows-2022
@@ -97,12 +97,12 @@ jobs:
         shell: bash
         run: |
           cmake --install build/windows-x64-release --prefix stage
-          packaging/checks/no-test-binaries.sh stage
+          bash packaging/checks/no-test-binaries.sh stage
 
       - name: Unit tests
-        run: ctest --preset windows-x64-release
+        run: ctest --preset windows-x64-release --output-on-failure
 
       # The live system snapshot on this runner, printed for review (ctest
       # hides test output on success).
       - name: System snapshot
-        run: ctest --preset windows-x64-release -R tst_sysinfo_live -V
+        run: ctest --preset windows-x64-release -R tst_sysinfo_live -V --output-on-failure
