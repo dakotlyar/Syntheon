@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 synbench_add_unit_test(tst_units SOURCES tst_units.cpp LIBS synbench_core)
+synbench_add_unit_test(tst_third_party SOURCES tst_third_party.cpp LIBS synbench::zlib synbench::zstd synbench::lz4 synbench::lzma Qt6::Core)
 synbench_add_unit_test(tst_options SOURCES tst_options.cpp LIBS synbench_core)
 synbench_add_unit_test(tst_result SOURCES tst_result.cpp LIBS synbench_core)
 synbench_add_unit_test(tst_registry SOURCES tst_registry.cpp fake_test.h LIBS synbench_builtin_tests)

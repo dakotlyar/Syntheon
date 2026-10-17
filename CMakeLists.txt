@@ -8,7 +8,7 @@ synbench_read_version("${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
 project(SynBench
     VERSION ${SYNBENCH_VERSION}
     DESCRIPTION "Synthetic system benchmark"
-    LANGUAGES CXX)
+    LANGUAGES C CXX)
 
 option(SYNBENCH_BUILD_TESTS "Build the unit tests" ON)
 # Developer hooks: the SYNBENCH_SMOKE / SYNBENCH_TOUR* / SYNBENCH_STUB_SCALE /
@@ -36,6 +36,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 include(CompilerFlags)
+# After the compiler flags: the third-party libraries get the same baseline.
+include(ThirdParty)
 
 set(_synbench_qt_components Core Gui Network Qml Quick QuickControls2 QuickShapes Sql)
 if(SYNBENCH_BUILD_TESTS)
@@ -50,6 +52,16 @@ qt_standard_project_setup(REQUIRES 6.12)
 synbench_generate_version_header()
 
 add_subdirectory(src)
+
+# THIRD-PARTY-NOTICES.txt: the libraries above (cmake/ThirdParty.cmake), Qt
+# (LGPL-3.0, linked dynamically) and the bundled fonts (OFL-1.1).
+synbench_add_notice(NAME "Qt" VERSION ${Qt6_VERSION} LICENCE "LGPL-3.0-only"
+    FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/LGPL-3.0.txt"
+    NOTE "SynBench links the Qt libraries dynamically: you may replace them with your own build.\nQt's source code: https://download.qt.io/official_releases/qt/ and https://code.qt.io\nThe LGPL-3.0 adds to the GPL-3.0, whose text is in LICENSE.txt.")
+synbench_add_notice(NAME "Archivo font" LICENCE "OFL-1.1" FILE "${PROJECT_SOURCE_DIR}/assets/fonts/OFL-Archivo.txt")
+synbench_add_notice(NAME "IBM Plex Sans and IBM Plex Mono fonts" LICENCE "OFL-1.1"
+    FILE "${PROJECT_SOURCE_DIR}/assets/fonts/OFL-IBMPlex.txt")
+synbench_write_third_party_notices()
 
 if(SYNBENCH_BUILD_TESTS)
     enable_testing()

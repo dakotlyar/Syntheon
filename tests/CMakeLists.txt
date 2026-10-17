@@ -36,6 +36,12 @@ if(UNIX AND SYNBENCH_PYTHON3 AND TARGET Qt6::qmllint)
                 "$<TARGET_FILE:Qt6::qmllint>" "${PROJECT_SOURCE_DIR}/packaging/checks/qmllint-gate.py")
 endif()
 
+# THIRD-PARTY-NOTICES.txt covers everything shipped (D11), each with its text.
+add_test(NAME third_party_notices
+    COMMAND "${CMAKE_COMMAND}" "-DNOTICES=${PROJECT_BINARY_DIR}/THIRD-PARTY-NOTICES.txt"
+            "-DEXPECT=zlib ${SYNBENCH_ZLIB_VERSION}|This software is provided 'as-is';Zstandard (zstd) ${SYNBENCH_ZSTD_VERSION}|Redistribution and use in source and binary forms;LZ4 (library) ${SYNBENCH_LZ4_VERSION}|Redistribution and use in source and binary forms;XZ Utils (liblzma) ${SYNBENCH_XZ_VERSION}|Permission to use, copy, modify, and/or distribute;Qt ${Qt6_VERSION}|GNU LESSER GENERAL PUBLIC LICENSE;Archivo font|SIL OPEN FONT LICENSE Version 1.1;IBM Plex Sans and IBM Plex Mono fonts|SIL OPEN FONT LICENSE Version 1.1"
+            -P "${PROJECT_SOURCE_DIR}/cmake/CheckThirdPartyNotices.cmake")
+
 # Every tracked path must be checkout-able on Windows.
 add_test(NAME windows_safe_paths
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckWindowsPaths.cmake")

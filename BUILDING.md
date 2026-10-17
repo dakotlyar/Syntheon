@@ -4,6 +4,13 @@ Requirements: CMake 3.25+, Ninja, a C++20 compiler (MSVC 2022 or GCC 11+),
 Python 3 (packaging scripts) and **Qt 6.12.0** (pinned in `CMakePresets.json`;
 the official binaries from `aqtinstall` are what CI uses).
 
+The first configure downloads the pinned compression libraries (zlib, zstd,
+LZ4, liblzma; `cmake/ThirdParty.cmake` has the versions, URLs and SHA-256
+hashes) into the build tree (`_deps/`), so it needs network access once per
+build tree. `FETCHCONTENT_BASE_DIR` moves that folder elsewhere; it holds the
+libraries' build folders too, so give each build tree its own. The configure
+also writes `<build>/THIRD-PARTY-NOTICES.txt` (`cmake/ThirdPartyNotices.cmake`).
+
 ## Presets
 
 `CMakePresets.json` has two families:
