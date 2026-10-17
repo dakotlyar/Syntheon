@@ -35,19 +35,75 @@ if(LIBRARY AND WINCTX)
     if(NOT cflags MATCHES "[= ][-/]DOSSL_WINCTX=${WINCTX}( |\n|$)")
         list(APPEND problems "OpenSSL's makefile CPPFLAGS lack -DOSSL_WINCTX=${WINCTX}")
     endif()
-    # 2. defaults.c was compiled with it: its registry key, a wide (UTF-16LE)
-    #    string because OpenSSL's Windows builds define UNICODE. Not
-    #    OpenSSL_version(OPENSSL_WINCTX): in 3.5.9 cversion.c stringizes the
-    #    macro's name (TOSTR without a second expansion level), so that string
-    #    reads OSSL_WINCTX: "OSSL_WINCTX" whatever the context is.
-    file(STRINGS "${LIBRARY}" key ENCODING UTF-16LE REGEX "WOW6432Node\\\\OpenSSL-[0-9]+\\.[0-9]+-${WINCTX}$")
-    if(NOT key)
-        file(STRINGS "${LIBRARY}" seen REGEX "OSSL_WINCTX|OpenSSL-[0-9]+\\.[0-9]+-")
-        file(STRINGS "${LIBRARY}" seen16 ENCODING UTF-16LE REGEX "OpenSSL-[0-9]+\\.[0-9]+-")
-        list(APPEND problems "${LIBRARY} has no registry key ...\\OpenSSL-<major>.<minor>-${WINCTX} (OSSL_WINCTX=${WINCTX})"
-                             "  ASCII seen: ${seen}" "  UTF-16LE seen: ${seen16}")
+    # 2. defaults.c was compiled with it: its registry key,
+    #    "SOFTWARE\\WOW6432Node\\OpenSSL" "-" MAKESTR(major) "." MAKESTR(minor)
+    #    "-" MAKESTR(OSSL_WINCTX) under TEXT(), i.e. one wide (UTF-16LE) literal
+    #    because OpenSSL's Windows builds define UNICODE. Searched as bytes at
+    #    any offset: file(STRINGS ... ENCODING UTF-16LE) reads 2-byte units
+    #    from the file's start and misses a wide string at an odd offset,
+    #    which a packed COFF member can put it at. Not OpenSSL_version(
+    #    OPENSSL_WINCTX): 3.5.9's cversion.c stringizes the macro's name (TOSTR
+    #    without a second expansion level), so it reads OSSL_WINCTX: "OSSL_WINCTX".
+    file(STRINGS "${ROOT}/include/openssl/opensslv.h" ver REGEX "define OPENSSL_VERSION_(MAJOR|MINOR) ")
+    string(REGEX MATCH "MAJOR +([0-9]+)" _m "${ver}")
+    set(major "${CMAKE_MATCH_1}")
+    string(REGEX MATCH "MINOR +([0-9]+)" _m "${ver}")
+    set(minor "${CMAKE_MATCH_1}")
+    set(key "OpenSSL-${major}.${minor}-${WINCTX}")
+    set(wide "")
+    set(narrow "")
+    string(LENGTH "${key}" klen)
+    math(EXPR klast "${klen} - 1")
+    foreach(i RANGE ${klast})
+        string(SUBSTRING "${key}" ${i} 1 ch)
+        string(HEX "${ch}" hx)
+        string(APPEND wide "${hx}00")
+        string(APPEND narrow "${hx}")
+    endforeach()
+    file(READ "${LIBRARY}" hex HEX)
+    # An even index in the hex text = a match at a byte boundary.
+    function(find_bytes hex pattern out)
+        set(found "")
+        set(base 0)
+        while(TRUE)
+            string(FIND "${hex}" "${pattern}" at)
+            if(at EQUAL -1)
+                break()
+            endif()
+            math(EXPR pos "${base} + ${at}")
+            math(EXPR odd "${pos} % 2")
+            if(odd EQUAL 0)
+                math(EXPR byte "${pos} / 2")
+                list(APPEND found ${byte})
+            endif()
+            math(EXPR skip "${at} + 1")
+            string(SUBSTRING "${hex}" ${skip} -1 hex)
+            math(EXPR base "${base} + ${skip}")
+        endwhile()
+        set(${out} "${found}" PARENT_SCOPE)
+    endfunction()
+    find_bytes("${hex}" "${wide}" at16)
+    if(at16)
+        list(GET at16 0 first)
+        math(EXPR parity "${first} % 2")
+        if(parity)
+            set(parity "an odd")
+        else()
+            set(parity "an even")
+        endif()
+        message(STATUS "OSSL_WINCTX registry key ${key} found as UTF-16LE at byte offset(s) ${at16} "
+                       "(the first at ${parity} offset)")
     else()
-        message(STATUS "OSSL_WINCTX registry key: ${key}")
+        find_bytes("${hex}" "${narrow}" at8)
+        file(STRINGS "${LIBRARY}" seen REGEX "OSSL_WINCTX|compiler: ")
+        set(recorded "")
+        if(EXISTS "${ROOT}/synbench-openssl-cflags.txt")
+            file(READ "${ROOT}/synbench-openssl-cflags.txt" recorded)
+        endif()
+        list(APPEND problems "${LIBRARY} has no registry key ...\\${key} as UTF-16LE at any offset (OSSL_WINCTX=${WINCTX})"
+                             "  as ASCII at byte offsets: ${at8}"
+                             "  ASCII strings seen: ${seen}"
+                             "  OpenSSL's makefile (recorded at configure):\n${recorded}")
     endif()
 elseif(LIBRARY)
     file(STRINGS "${LIBRARY}" dirs REGEX "OPENSSLDIR: \"")
