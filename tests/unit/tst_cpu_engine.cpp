@@ -249,6 +249,27 @@ private slots:
             QCOMPARE(int(s.size()), int(kSeeds));
     }
 
+    // §6.1: the sink doesn't cancel when the same checksum repeats (it does
+    // for every kernel, once per 64 seeds; an XOR fold gave 0 for an even count).
+    void checksumSinkDoesNotCancel()
+    {
+        struct Same : Kernel {
+            std::string name() const override { return "Same"; }
+            double workPerUnit() const override { return 1; }
+            double maxWorkPerCyclePerThread() const override { return 1e9; }
+            std::unique_ptr<KernelThread> makeThread(int) const override
+            {
+                struct T : KernelThread {
+                    std::uint64_t unit(std::uint64_t) override { return 0x1234; }
+                };
+                return std::make_unique<T>();
+            }
+        } k;
+        WorkerPool pool({2, {}});
+        for (int i = 0; i < 5; ++i)
+            QVERIFY(pool.measure(k, {5ms, 10ms, 2}, [] { return false; }).checksum != 0);
+    }
+
     void progressPerWindow()
     {
         WorkerPool pool({1, {}});

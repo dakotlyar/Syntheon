@@ -22,8 +22,10 @@
 // large inputs such as the 32 MiB corpus; share them read-only).
 //
 // Every unit's checksum goes to the kernel's golden check (a mismatch is an
-// Error and ends the measurement) and is XOR-folded into a per-thread sink
-// that ends in an atomic, so no result is dead code (§6.1).
+// Error and ends the measurement) and is folded (multiply-add, which, unlike
+// XOR, doesn't cancel when a kernel's checksums repeat every 64 seeds) into a
+// per-thread sink that ends in Measurement::checksum, so no result is dead
+// code (§6.1).
 //
 // Threads: one per logical CPU for the multi-thread groups, not pinned (P3;
 // on Windows with several processor groups, spread at group level); one
@@ -72,7 +74,7 @@ struct Measurement {
     std::vector<RepSample> reps;  // the repetitions that ran, in order
     double median = 0;            // work per second
     double spread = 0;            // (max - min) / median
-    std::uint64_t checksum = 0;   // XOR of every unit's checksum, all threads
+    std::uint64_t checksum = 0;   // every unit's checksum folded together, all threads
 
     bool ok() const { return outcome == Outcome::Ok; }
     // A spread over 10% is logged: "unstable: background activity or throttling" (§4.2).

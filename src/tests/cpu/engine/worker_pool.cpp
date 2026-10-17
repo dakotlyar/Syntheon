@@ -20,6 +20,9 @@ constexpr std::chrono::milliseconds kPoll{50};
 constexpr double kCeilingHz = 7e9;
 constexpr double kCeilingMargin = 1.5;
 
+// Folds unit checksums into a sink (odd, so no information is lost mod 2^64).
+constexpr std::uint64_t kSinkMultiplier = 0x9E3779B97F4A7C15ull;
+
 } // namespace
 
 double medianOf(std::vector<double> values)
@@ -134,7 +137,9 @@ void WorkerPool::workerMain(int index)
                     const std::uint64_t sum = w.state->unit(unitIndex);
                     last = Clock::now();
                     ++w.units;
-                    w.sink ^= sum;
+                    // Multiply-add, not XOR: a kernel's checksums repeat every
+                    // 64 seeds, and XOR would cancel them out to 0.
+                    w.sink = w.sink * kSinkMultiplier + sum;
                     const std::uint64_t seed = unitIndex % kSeeds;
                     if (const auto expected = m_kernel->golden(seed); expected && *expected != sum) {
                         w.failure = m_kernel->name() + " kernel produced a wrong result (seed " + std::to_string(seed)
@@ -222,7 +227,7 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
         bool unused = false;
         runJob(Job::Release, {}, {}, unused);
         for (const Worker &w : m_workers)
-            m.checksum ^= w.sink;
+            m.checksum = m.checksum * kSinkMultiplier + w.sink;
         m_kernel = nullptr;
         return m;
     };
