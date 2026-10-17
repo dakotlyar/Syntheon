@@ -214,7 +214,9 @@ ScreenFrame {
                                 required property real modelData
                                 required property int index
                                 height: 6; radius: 3
-                                width: Math.max(2, barColumn.width * modelData)
+                                // A missing value (0) draws nothing; the row keeps its height.
+                                objectName: "bar"
+                                width: modelData > 0 ? Math.max(2, barColumn.width * modelData) : 0
                                 color: root.runs[index] && root.runs[index].baseline ? Theme.accent : Theme.muted
                                 opacity: root.runs[index] && root.runs[index].baseline ? 1 : 0.55
                             }

@@ -106,6 +106,16 @@ TestCase {
         Compare.setBaseline(older)
         compare(Compare.baselineUuid, older)
         tick()
+        // Zeb: a run without a test's score draws no bar (it was a 2 px stub).
+        // One run has only CPU, the other only RAM: each test row has one empty.
+        const bars = allNamed(c, "bar")
+        verify(bars.length >= 4, "bars: " + bars.length)
+        let empty = 0
+        for (const b of bars) {
+            if (b.width === 0) ++empty
+            else verify(b.width >= 2)
+        }
+        verify(empty >= 2, "empty bars: " + empty)
     }
 
     function test_4_openShowsResults() {

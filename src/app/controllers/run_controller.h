@@ -162,6 +162,9 @@ private:
     Storage &m_storage;
     StorageController &m_storageController;
     AppController &m_app;
+    // Before m_orchestrator: it is copied from the config that m_orchestrator's
+    // initialiser then moves from.
+    QString m_scratchRoot;
     Registry m_registry;
     SelectionModel m_selection;
     SqliteRunSink m_sink;
@@ -184,7 +187,6 @@ private:
     QStringList m_finishedIds;
     QString m_etaText;
     QStringList m_startErrors;
-    QString m_scratchRoot;
     QThreadPool m_probePool;  // this controller's probe tasks only
     bool m_smoke = false;
     bool m_smokeBatteryStarted = false;
