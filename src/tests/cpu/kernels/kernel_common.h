@@ -9,7 +9,9 @@
 // the flags in compile_commands.json). GCC and Clang get that from the
 // command line. MSVC has no switch for either, so each kernel TU also starts
 // with `#pragma fp_contract(off)` (SB_KERNEL_TU below) and puts SB_NO_VECTOR
-// before its hot loops.
+// before its hot loops. MSVC's loop pragma only takes a classic for / while /
+// do loop, not a range-based for (error C3925): the cpu_kernel_flags CTest
+// fails on an SB_NO_VECTOR followed by anything else.
 //
 // Entry points are SB_NOINLINE, so a unit is one real call the optimiser
 // can't merge into the caller, and its inputs go through opaque().

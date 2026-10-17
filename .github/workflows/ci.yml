@@ -868,7 +868,7 @@ jobs:
         run: |
           sve=$(find build/linux-arm64-cross -name 'simd_sve.cpp.o' | head -1)
           neon=$(find build/linux-arm64-cross -name 'simd_neon.cpp.o' | head -1)
-          [ -n "$sve" ] && [ -n "$neon" ] || { echo "::error::simd_sve.cpp.o or simd_neon.cpp.o is not in the build"; exit 1; }
+          if [ -z "$sve" ] || [ -z "$neon" ]; then echo "::error::simd_sve.cpp.o or simd_neon.cpp.o is not in the build"; exit 1; fi
           python3 packaging/checks/simd-odr.py --nm aarch64-linux-gnu-nm "sve=$sve" "neon=$neon"
 
       # §11.2: the only proof the ARM64 build has the ARMv8 Crypto path (ARM

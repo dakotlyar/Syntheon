@@ -66,8 +66,8 @@ SB_NOINLINE void simdReferenceUnit(const simd::Input &in, simd::Output &out)
     opaque(a);
     opaque(b);
     SB_NO_VECTOR
-    for (float &c : out.c)
-        c = 0;
+    for (int i = 0; i < kGemmM * kGemmN; ++i)
+        out.c[i] = 0;
     SB_NO_VECTOR
     for (int r = 0; r < kGemmReps; ++r) {
         const float *br = b + (r % 16) * kGemmN;
