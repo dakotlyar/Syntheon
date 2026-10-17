@@ -127,6 +127,9 @@ public:
     // Worker threads alive in this process, all pools (tests: a pool's
     // threads are gone once it is destroyed).
     static int liveThreads();
+    // The workers' OS thread ids (currentThreadId()), in worker order; for
+    // tests (e.g. reading /proc/self/task/<tid>/schedstat).
+    std::vector<long> threadIds() const;
     // Workers whose placement failed (pinning, or a processor-group
     // assignment on Windows): they run where the OS puts them. For the log.
     int placementFailures() const { return m_placementFailures.load(); }
@@ -142,6 +145,7 @@ private:
         std::optional<double> ownRate;  // the kernel's own rate for the window (KernelThread::windowRate)
         std::uint64_t sink = 0;
         std::uint64_t nextUnit = 0;  // this thread's unit counter in the current measurement
+        long tid = 0;                // set by the worker before the constructor's first job returns
         std::optional<std::string> failure;
         bool wrongResult = false;    // the failure is a golden mismatch
     };

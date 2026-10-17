@@ -49,6 +49,14 @@ double plausibilityCeiling(double maxWorkPerCyclePerThread, int threads)
     return maxWorkPerCyclePerThread * kCeilingHz * std::max(1, threads) * kCeilingMargin;
 }
 
+std::vector<long> WorkerPool::threadIds() const
+{
+    std::vector<long> ids;
+    for (const Worker &w : m_workers)
+        ids.push_back(w.tid);
+    return ids;
+}
+
 int WorkerPool::liveThreads()
 {
     return g_liveThreads.load();
@@ -85,6 +93,7 @@ WorkerPool::~WorkerPool()
 void WorkerPool::workerMain(int index)
 {
     ++g_liveThreads;
+    m_workers[std::size_t(index)].tid = currentThreadId();
     const int count = int(m_workers.size());
     if (m_options.pinTo.ranked) {
         if (!pinCurrentThread(m_options.pinTo)) {

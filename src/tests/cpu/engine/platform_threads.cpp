@@ -8,6 +8,7 @@
 #if defined(__linux__)
 #include <pthread.h>
 #include <sched.h>
+#include <unistd.h>
 #elif defined(_WIN32)
 #define NOMINMAX
 #include <windows.h>
@@ -50,6 +51,17 @@ bool pinCurrentThread(const isa::CoreChoice &core)
     return SetThreadGroupAffinity(GetCurrentThread(), &affinity, nullptr) != 0;
 #else
     return false;
+#endif
+}
+
+long currentThreadId()
+{
+#if defined(__linux__)
+    return long(::gettid());
+#elif defined(_WIN32)
+    return long(GetCurrentThreadId());
+#else
+    return 0;
 #endif
 }
 

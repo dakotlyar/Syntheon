@@ -22,6 +22,9 @@ int logicalCpuCount();
 bool pinCurrentThread(const isa::CoreChoice &core);
 // The CPU the calling thread runs on right now (-1 if unknown); for tests.
 int currentCpu();
+// The calling thread's OS id (Linux: the tid of /proc/self/task/<tid>;
+// Windows: GetCurrentThreadId); for tests and the log.
+long currentThreadId();
 
 // Windows with more than one processor group (> 64 logical CPUs): worker
 // `index` of `count` gets a whole group, in proportion to the groups' sizes,
