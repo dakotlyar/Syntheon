@@ -71,7 +71,7 @@ struct WindowSpec {
 
 struct RepSample {
     double rate = 0;          // work per second, summed over threads
-    std::uint64_t units = 0;  // units finished, all threads
+    std::uint64_t units = 0;  // units finished, all threads (a collective kernel's shared unit counts once)
     double seconds = 0;       // the longest thread's E_t
 };
 

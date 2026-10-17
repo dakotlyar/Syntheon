@@ -391,7 +391,7 @@ private slots:
             WorkerPool pool({n, {}});
             const Measurement m = pool.measure(k, {10ms, 30ms, 2}, [] { return false; });
             QVERIFY2(m.ok(), qPrintable(QStringLiteral("%1 threads: %2").arg(n).arg(QString::fromStdString(m.error))));
-            QVERIFY(m.reps[0].units >= std::uint64_t(n));
+            QVERIFY(m.reps[0].units >= 1);  // shared episodes
             qInfo("n-body on %d threads: %.0f M interactions/s", n, m.median / 1e6);
         }
         // A kernel made for another thread count can't run.

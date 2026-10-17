@@ -679,13 +679,15 @@ private slots:
         QCOMPARE(k.seen[2], k.seen[0]);
         for (std::size_t i = 0; i < k.seen[0].size(); ++i)
             QCOMPARE(k.seen[0][i], std::uint64_t(i));
-        // Each repetition: the units divided by the threads is a whole number of
-        // shared units, and the rate counts each shared unit once.
+        // Each repetition counts each shared unit once (units and rate), and
+        // every thread ran all of them.
+        std::uint64_t total = 0;
         for (const RepSample &r : m.reps) {
-            QCOMPARE(r.units % kThreads, std::uint64_t(0));
-            const double shared = double(r.units / kThreads);
-            QVERIFY(r.rate <= shared * 3000 / 0.060 * 1.05);
+            QVERIFY(r.units > 0);
+            QVERIFY(r.rate <= double(r.units) * 3000 / 0.060 * 1.05);
+            total += r.units;
         }
+        QVERIFY(total < k.seen[0].size());  // the warm-up's units come first
         // A cancel ends all of them together.
         std::atomic<int> polls{0};
         QCOMPARE(pool.measure(k, {10000ms, 10000ms, 1}, [&] { return ++polls > 3; }).outcome,

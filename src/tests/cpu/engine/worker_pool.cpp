@@ -314,6 +314,10 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
             else if (w.seconds > 0)
                 s.rate += double(w.units) * work / w.seconds;
         }
+        // A collective kernel's threads all ran the same units (in a
+        // repetition that wasn't cancelled): each shared unit counts once.
+        if (m_unitBarrier)
+            s.units /= std::uint64_t(threads());
         m.reps.push_back(s);
         rates.push_back(s.rate);
     }
