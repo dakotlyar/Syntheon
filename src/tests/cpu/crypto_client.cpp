@@ -96,14 +96,15 @@ CryptoOutcome runWorker(const QStringList &args, bool software, int reps, std::c
     };
     const auto drain = [&] {
         pending += p.readAllStandardOutput();
-        // No line of ours is near this long (AP-5 L6): don't buffer junk.
-        if (CryptoClient::lineTooLong(pending))
-            garbage = true;
         qsizetype nl;
         while ((nl = pending.indexOf('\n')) >= 0) {
             handle(pending.left(nl));
             pending.remove(0, nl + 1);
         }
+        // What is left is an unfinished line: no line of ours is near this
+        // long (AP-5 L6), so don't buffer junk.
+        if (CryptoClient::lineTooLong(pending))
+            garbage = true;
     };
     const auto deadline = Clock::now() + timeout;
     for (;;) {
