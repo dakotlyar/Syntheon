@@ -7,14 +7,13 @@
 //
 // One unit, for a seed s in 0..63, is 64 records of 16 KiB (one TLS record
 // each), 1 MiB in all:
-//   AES-256-GCM  a key from the seed, set once per unit; per record a fresh
-//                IV (from the seed, with the record number in its last 4
-//                bytes), EVP_EncryptUpdate over the record, the final call and
-//                the 16-byte tag
+//   AES-256-GCM  one message (§5.5; Dave, 2026-10-17): a key and a 12-byte IV
+//                from the seed, then 64 EVP_EncryptUpdate calls of 16 KiB, the
+//                final call and the 16-byte tag
 //   SHA-256      per record a digest of a 16-byte header (seed, record number)
 //                followed by the record
 // The records are the same fixed 16 KiB of data on every thread (made in
-// makeThread). The unit's checksum folds the 64 tags or digests;
+// makeThread). The unit's checksum folds the tag or the 64 digests;
 // golden/crypto.inc (made by `synbench-cpucrypto --print-golden`, a
 // developer build only) holds it per seed. Every unit is checked against it,
 // on the hardware and the software path alike: two implementations agreeing.

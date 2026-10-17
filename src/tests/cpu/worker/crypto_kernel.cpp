@@ -58,35 +58,30 @@ std::vector<std::uint8_t> recordData()
     throw std::runtime_error(std::string("OpenSSL: ") + what + " failed");
 }
 
-// One AES-256-GCM unit (see crypto_kernel.h).
+// One AES-256-GCM unit (see crypto_kernel.h): one message.
 std::uint64_t aesUnit(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher, std::uint64_t seed, const std::uint8_t *data,
                       std::uint8_t *out)
 {
-    std::uint8_t key[32], iv[12];
+    std::uint8_t key[32], ivBytes[16];
     SplitMix64 sm(seed ^ 0x41455347434D4B59ull);  // "AESGCMKY"; one draw per statement
     for (int i = 0; i < 4; ++i)
         storeLe64(key + 8 * i, sm.next());
-    std::uint8_t ivBytes[16];
     storeLe64(ivBytes, sm.next());
     storeLe64(ivBytes + 8, sm.next());
-    std::memcpy(iv, ivBytes, 8);
-    if (EVP_EncryptInit_ex2(ctx, cipher, key, nullptr, nullptr) != 1)
-        openSslFailed("EVP_EncryptInit_ex2 (key)");
-    std::uint64_t sum = 0;
+    // The 12-byte IV: the first 12 of those 16 bytes.
+    if (EVP_EncryptInit_ex2(ctx, cipher, key, ivBytes, nullptr) != 1)
+        openSslFailed("EVP_EncryptInit_ex2");
     for (std::size_t r = 0; r < kRecordsPerUnit; ++r) {
-        for (int i = 0; i < 4; ++i)
-            iv[8 + i] = std::uint8_t(r >> (24 - 8 * i));
-        int n = 0, tail = 0;
-        std::uint8_t tag[16];
-        if (EVP_EncryptInit_ex2(ctx, nullptr, nullptr, iv, nullptr) != 1
-            || EVP_EncryptUpdate(ctx, out, &n, data, int(kRecordSize)) != 1
-            || EVP_EncryptFinal_ex(ctx, out + n, &tail) != 1
-            || EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, int(sizeof tag), tag) != 1)
-            openSslFailed("AES-256-GCM record");
-        sum = foldChecksum(sum, loadLe64(tag));
-        sum = foldChecksum(sum, loadLe64(tag + 8));
+        int n = 0;
+        if (EVP_EncryptUpdate(ctx, out, &n, data, int(kRecordSize)) != 1 || std::size_t(n) != kRecordSize)
+            openSslFailed("EVP_EncryptUpdate");
     }
-    return sum;
+    int tail = 0;
+    std::uint8_t tag[16];
+    if (EVP_EncryptFinal_ex(ctx, out, &tail) != 1
+        || EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, int(sizeof tag), tag) != 1)
+        openSslFailed("AES-256-GCM final / tag");
+    return foldChecksum(foldChecksum(0, loadLe64(tag)), loadLe64(tag + 8));
 }
 
 // One SHA-256 unit.
