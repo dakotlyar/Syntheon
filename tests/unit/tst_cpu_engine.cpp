@@ -169,7 +169,8 @@ double secondsOf(Clock::duration d)
 // - the repetition's length lies in the same bracket, and is at least the
 //   window (nobody stops early);
 // - per thread, at most one unit started after the coordinator set stop
-//   (RepSample::stopSet): the one racing with the store.
+//   (RepSample::stopSet): the one racing with the store; and stop was set
+//   within the poll interval + 200 ms of the deadline.
 QString checkRepetitions(const Measurement &m, const RecordingKernel &k, int threads, Clock::duration window)
 {
     const int reps = int(m.reps.size());
@@ -188,6 +189,14 @@ QString checkRepetitions(const Measurement &m, const RecordingKernel &k, int thr
         const Clock::time_point stopSet = s.stopSet;
         if (stopSet <= earliest)
             return QStringLiteral("repetition %1 has no stop time").arg(r);
+        // ...and the coordinator set it at the deadline: within one poll
+        // interval (50 ms) of it, plus 200 ms for a coordinator held off a
+        // loaded CPU (it held through 10 runs beside 6 busy loops on 4 CPUs).
+        if (stopSet - earliest > window + 50ms + 200ms)
+            return QStringLiteral("repetition %1: stop was set %2 ms after the window started (window %3 ms)")
+                .arg(r)
+                .arg(secondsOf(stopSet - earliest) * 1000, 0, 'f', 1)
+                .arg(secondsOf(window) * 1000, 0, 'f', 0);
         std::uint64_t units = 0;
         std::vector<Clock::time_point> ends;
         std::vector<std::uint64_t> counts;
