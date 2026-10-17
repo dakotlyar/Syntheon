@@ -162,12 +162,15 @@ jobs:
           Invoke-WebRequest -Uri https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-installer-x64.exe -OutFile $exe
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -ne '657e1252676cfb26a008835c20a760f731c8e0414469a4ed0f83f0fb059cdd35') { throw "NASM installer has sha256 $hash" }
-          # NSIS: silent, into a folder of our own (/D= last, unquoted).
-          $p = Start-Process -FilePath $exe -ArgumentList '/S', "/D=$env:RUNNER_TEMP\nasm" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "NASM installer exited $($p.ExitCode)" }
-          & "$env:RUNNER_TEMP\nasm\nasm.exe" -v
+          # Not run: the NSIS installer picks its own folder (a silent /D= run
+          # left nothing in it). nasm.exe is taken out of the verified
+          # installer with 7-Zip (on the runner image) instead.
+          $dir = "$env:RUNNER_TEMP\nasm"
+          & "$env:ProgramFiles\7-Zip\7z.exe" e $exe "-o$dir" nasm.exe -y
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip could not extract nasm.exe" }
+          & "$dir\nasm.exe" -v
           if ($LASTEXITCODE -ne 0) { throw "nasm does not run" }
-          "$env:RUNNER_TEMP\nasm" | Out-File -FilePath $env:GITHUB_PATH -Append
+          $dir | Out-File -FilePath $env:GITHUB_PATH -Append
 
       # OpenSSL (§11, R8): its build is cached, keyed on everything that goes into
       # it; cmake/OpenSSL.cmake checks the stamp in the folder and rebuilds on
@@ -431,12 +434,15 @@ jobs:
           Invoke-WebRequest -Uri https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-installer-x64.exe -OutFile $exe
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -ne '657e1252676cfb26a008835c20a760f731c8e0414469a4ed0f83f0fb059cdd35') { throw "NASM installer has sha256 $hash" }
-          # NSIS: silent, into a folder of our own (/D= last, unquoted).
-          $p = Start-Process -FilePath $exe -ArgumentList '/S', "/D=$env:RUNNER_TEMP\nasm" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "NASM installer exited $($p.ExitCode)" }
-          & "$env:RUNNER_TEMP\nasm\nasm.exe" -v
+          # Not run: the NSIS installer picks its own folder (a silent /D= run
+          # left nothing in it). nasm.exe is taken out of the verified
+          # installer with 7-Zip (on the runner image) instead.
+          $dir = "$env:RUNNER_TEMP\nasm"
+          & "$env:ProgramFiles\7-Zip\7z.exe" e $exe "-o$dir" nasm.exe -y
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip could not extract nasm.exe" }
+          & "$dir\nasm.exe" -v
           if ($LASTEXITCODE -ne 0) { throw "nasm does not run" }
-          "$env:RUNNER_TEMP\nasm" | Out-File -FilePath $env:GITHUB_PATH -Append
+          $dir | Out-File -FilePath $env:GITHUB_PATH -Append
 
       # OpenSSL (§11, R8): its build is cached, keyed on everything that goes into
       # it; cmake/OpenSSL.cmake checks the stamp in the folder and rebuilds on
@@ -605,11 +611,16 @@ jobs:
       # OpenSSL's VC-WIN64-CLANGASM-ARM target (N4) assembles its ARMv8 Crypto
       # code with clang-cl: Visual Studio's C++ Clang tools, else LLVM.
       - name: clang-cl on PATH (OpenSSL's ARM64 assembler)
+        id: clangcl
         shell: pwsh
         run: |
           $dir = @("$env:VCINSTALLDIR\Tools\Llvm\x64\bin", "$env:ProgramFiles\LLVM\bin") | Where-Object { Test-Path "$_\clang-cl.exe" } | Select-Object -First 1
           if (-not $dir) { throw "no clang-cl on this runner (Visual Studio's C++ Clang tools)" }
           & "$dir\clang-cl.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "clang-cl does not run" }
+          # Its version is in OpenSSL's stamp, so it is in the cache key too.
+          $v = (& "$dir\clang-cl.exe" --version | Select-Object -First 1) -replace '[^A-Za-z0-9.]+', '-'
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           $dir | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Find the ARM64 runtime DLLs
@@ -625,7 +636,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: openssl-root
-          key: openssl-VC-WIN64-CLANGASM-ARM-msvc${{ env.VCToolsVersion }}-${{ hashFiles('cmake/OpenSSL.cmake', 'cmake/openssl/**') }}
+          key: openssl-VC-WIN64-CLANGASM-ARM-msvc${{ env.VCToolsVersion }}-${{ steps.clangcl.outputs.version }}-${{ hashFiles('cmake/OpenSSL.cmake', 'cmake/openssl/**') }}
 
       - name: Configure (cross)
         shell: pwsh
