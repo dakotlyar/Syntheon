@@ -128,10 +128,14 @@ private slots:
         const double expected = 1000.0 / 0.001 + 1000.0 / 0.040;
         QVERIFY2(std::abs(m.median - expected) / expected < 0.05,
                  qPrintable(QStringLiteral("rate %1, expected %2").arg(m.median).arg(expected)));
-        // The slow thread finished its unit in progress at the deadline: a
-        // repetition lasts up to one long unit longer than its window.
+        // The slow thread finishes the unit it is in at the deadline: a
+        // repetition lasts at least its window and at most one long unit plus
+        // the coordinator's lateness past it (its 50 ms poll, rounded up to the
+        // scheduler's tick: 15.6 ms on Windows, more on a loaded runner).
+        const double window = 0.810, longUnit = 0.040, lateness = 0.050 + 0.050;
         for (const RepSample &s : m.reps)
-            QVERIFY(s.seconds >= 0.80 && s.seconds < 0.90);
+            QVERIFY2(s.seconds >= window - 0.002 && s.seconds < window + longUnit + lateness,
+                     qPrintable(QStringLiteral("repetition %1 s").arg(s.seconds)));
     }
 
     // Stop during a long repetition returns within 250 ms (§4.1), even with
@@ -209,12 +213,18 @@ private slots:
     }
 
     // AP-5 M5: every thread goes through every seed, also with 64 threads
-    // (interleaved indices gave each thread one seed there).
+    // (interleaved indices gave each thread one seed there). Driven by unit
+    // counts, not time: the measurement is stopped (as a cancel) once every
+    // thread has done 64 units, however slowly a loaded runner schedules 64
+    // threads.
     void everyThreadSeesEverySeed()
     {
+        constexpr int kThreads = 64;
         struct SeedKernel : Kernel {
             mutable std::mutex mutex;
             mutable std::vector<std::set<std::uint64_t>> seen;
+            mutable std::vector<std::atomic<int>> units;
+            SeedKernel() : seen(kThreads), units(kThreads) {}
             std::string name() const override { return "Seeds"; }
             double workPerUnit() const override { return 1; }
             double maxWorkPerCyclePerThread() const override { return 1e9; }
@@ -223,6 +233,7 @@ private slots:
                 struct T : KernelThread {
                     std::set<std::uint64_t> local;
                     std::set<std::uint64_t> *out;
+                    std::atomic<int> *count;
                     std::mutex *mutex;
                     ~T() override
                     {
@@ -232,19 +243,31 @@ private slots:
                     std::uint64_t unit(std::uint64_t index) override
                     {
                         local.insert(index % kSeeds);
+                        ++*count;
                         return index;
                     }
                 };
                 auto t = std::make_unique<T>();
                 std::lock_guard lock(mutex);
                 t->out = &seen[std::size_t(thread)];
+                t->count = &units[std::size_t(thread)];
                 t->mutex = &mutex;
                 return t;
             }
+            bool allDone() const
+            {
+                for (const std::atomic<int> &u : units) {
+                    if (u.load() < int(kSeeds))
+                        return false;
+                }
+                return true;
+            }
         } k;
-        k.seen.resize(64);
-        WorkerPool pool({64, {}});
-        QVERIFY(pool.measure(k, {50ms, 100ms, 1}, [] { return false; }).ok());
+        WorkerPool pool({kThreads, {}});
+        // A generous time limit only as a backstop; the stop comes from the counts.
+        const Measurement m = pool.measure(k, {60000ms, 60000ms, 1}, [&k] { return k.allDone(); });
+        QCOMPARE(m.outcome, Measurement::Outcome::Cancelled);
+        QVERIFY(k.allDone());
         for (const std::set<std::uint64_t> &s : k.seen)
             QCOMPARE(int(s.size()), int(kSeeds));
     }
