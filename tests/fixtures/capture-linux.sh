@@ -51,7 +51,7 @@ for f in online present possible; do copy /sys/devices/system/cpu/$f; done
 for f in /sys/devices/cpu_core/cpus /sys/devices/cpu_atom/cpus; do copy $f; done
 for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
     for f in topology/core_id topology/physical_package_id topology/die_id topology/cluster_id \
-             topology/thread_siblings_list topology/core_cpus_list cpu_capacity \
+             topology/thread_siblings_list topology/core_cpus_list cpu_capacity acpi_cppc/highest_perf \
              cpufreq/cpuinfo_max_freq cpufreq/cpuinfo_min_freq cpufreq/base_frequency \
              regs/identification/midr_el1; do
         copy "$cpu/$f"

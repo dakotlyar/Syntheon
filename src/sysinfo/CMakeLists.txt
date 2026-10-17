@@ -34,4 +34,4 @@ endif()
 # QtGui only for the OpenGL probe (common/opengl_probe.cpp, §1).
 target_link_libraries(synbench_sysinfo
     PUBLIC synbench_core
-    PRIVATE Qt6::Gui Vulkan::Headers synbench_version)
+    PRIVATE Qt6::Gui Vulkan::Headers synbench_version synbench_isa)
