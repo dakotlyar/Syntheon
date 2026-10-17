@@ -10,6 +10,8 @@
 
 #include <zlib.h>
 
+#include <algorithm>
+
 using namespace sb::cpu;
 
 class TestCpuData : public QObject
