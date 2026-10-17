@@ -479,11 +479,14 @@ jobs:
           $nm = (Get-Command llvm-nm -ErrorAction SilentlyContinue).Source
           if (-not $nm) { $nm = @("$env:VCINSTALLDIR\Tools\Llvm\x64\bin\llvm-nm.exe", "$env:ProgramFiles\LLVM\bin\llvm-nm.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1 }
           if (-not $nm) { throw "no llvm-nm on this runner" }
-          python packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.lib --arch x86_64 --nm $nm
+          # COFF has no symbol sizes: llvm-objdump (next to llvm-nm) gives sections and their sizes.
+          $objdump = Join-Path (Split-Path $nm) 'llvm-objdump.exe'
+          if (-not (Test-Path $objdump)) { throw "no llvm-objdump next to $nm" }
+          python packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.lib --arch x86_64 --nm $nm --objdump $objdump
           if ($LASTEXITCODE -ne 0) { throw "the hardware crypto check failed" }
           # zlib 1.3.2's static library is zs.lib. Both parts missing and the
           # file read (exit 0 here; 2 would mean nothing was checked).
-          python packaging/checks/crypto-symbols.py build/windows-x64-package/_deps/synbench_zlib-build/zs.lib --arch x86_64 --nm $nm --expect-missing all
+          python packaging/checks/crypto-symbols.py build/windows-x64-package/_deps/synbench_zlib-build/zs.lib --arch x86_64 --nm $nm --objdump $objdump --expect-missing all
           if ($LASTEXITCODE -ne 0) { throw "the negative control on zlib did not fail as it must" }
 
       # For diagnosis when the manifest check below fails: the real link command.
@@ -667,11 +670,14 @@ jobs:
           $nm = (Get-Command llvm-nm -ErrorAction SilentlyContinue).Source
           if (-not $nm) { $nm = @("$env:VCINSTALLDIR\Tools\Llvm\x64\bin\llvm-nm.exe", "$env:ProgramFiles\LLVM\bin\llvm-nm.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1 }
           if (-not $nm) { throw "no llvm-nm on this runner" }
-          python packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.lib --arch aarch64 --nm $nm
+          # COFF has no symbol sizes: llvm-objdump (next to llvm-nm) gives sections and their sizes.
+          $objdump = Join-Path (Split-Path $nm) 'llvm-objdump.exe'
+          if (-not (Test-Path $objdump)) { throw "no llvm-objdump next to $nm" }
+          python packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.lib --arch aarch64 --nm $nm --objdump $objdump
           if ($LASTEXITCODE -ne 0) { throw "the hardware crypto check failed" }
           # zlib 1.3.2's static library is zs.lib. Both parts missing and the
           # file read (exit 0 here; 2 would mean nothing was checked).
-          python packaging/checks/crypto-symbols.py build/windows-arm64-cross/_deps/synbench_zlib-build/zs.lib --arch aarch64 --nm $nm --expect-missing all
+          python packaging/checks/crypto-symbols.py build/windows-arm64-cross/_deps/synbench_zlib-build/zs.lib --arch aarch64 --nm $nm --objdump $objdump --expect-missing all
           if ($LASTEXITCODE -ne 0) { throw "the negative control on zlib did not fail as it must" }
 
       # For diagnosis when the manifest check below fails: the real link command.

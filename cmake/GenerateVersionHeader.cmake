@@ -6,6 +6,9 @@
 #
 # Inputs (-D): SOURCE_DIR, OUTPUT, TEMPLATE, VERSION, FILE_VERSION, MSI_VERSION,
 #              RELEASE_BUILD (ON/OFF), OS, ARCH, GIT_EXECUTABLE (may be empty)
+# Run with cmake -P: the policies of the project's minimum (a script gets
+# none from the project, and CMake 3.x would run it with OLD ones).
+cmake_minimum_required(VERSION 3.25)
 set(_sha "unknown")
 if(GIT_EXECUTABLE)
     execute_process(

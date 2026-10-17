@@ -10,6 +10,9 @@
 # applies). It fails loudly if the original text isn't there exactly once, so
 # an OpenSSL bump can't silently drop it (design R2).
 #   cmake -DSOURCE_DIR=<openssl source> -P patch-win-armcap.cmake
+# Run with cmake -P: the policies of the project's minimum (a script gets
+# none from the project, and CMake 3.x would run it with OLD ones).
+cmake_minimum_required(VERSION 3.25)
 set(file "${SOURCE_DIR}/crypto/armcap.c")
 file(READ "${file}" text)
 # The marker names this script's own hash (L3): a tree patched by another

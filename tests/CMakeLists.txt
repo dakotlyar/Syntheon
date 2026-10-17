@@ -48,6 +48,8 @@ add_test(NAME third_party_notices
 # with one part a stub or plain C (x86-64, GCC/Clang).
 if(WIN32)
     find_program(SYNBENCH_NM llvm-nm HINTS "$ENV{VCINSTALLDIR}/Tools/Llvm/x64/bin" "$ENV{ProgramFiles}/LLVM/bin")
+    # COFF has no symbol sizes: sections and their sizes come from llvm-objdump.
+    find_program(SYNBENCH_OBJDUMP llvm-objdump HINTS "$ENV{VCINSTALLDIR}/Tools/Llvm/x64/bin" "$ENV{ProgramFiles}/LLVM/bin")
 else()
     find_program(SYNBENCH_NM nm)
 endif()
@@ -60,6 +62,9 @@ if(SYNBENCH_PYTHON3 AND SYNBENCH_NM AND NOT CMAKE_CROSSCOMPILING)
     endif()
     set(_sb_crypto_check "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/crypto-symbols.py" --nm "${SYNBENCH_NM}"
         --arch ${_sb_crypto_arch})
+    if(SYNBENCH_OBJDUMP)
+        list(APPEND _sb_crypto_check --objdump "${SYNBENCH_OBJDUMP}")
+    endif()
     add_test(NAME crypto_symbols COMMAND ${_sb_crypto_check} "${SYNBENCH_OPENSSL_LIBRARY}")
     add_test(NAME crypto_symbols_rejects_other_library
         COMMAND ${_sb_crypto_check} "$<TARGET_FILE:zlibstatic>" --expect-missing all)
@@ -76,12 +81,17 @@ endif()
 # optimised (H2) and bakes in only the dummy directories (M4).
 add_test(NAME openssl_config
     COMMAND "${CMAKE_COMMAND}" "-DROOT=${SYNBENCH_OPENSSL_ROOT}" "-DLIBRARY=${SYNBENCH_OPENSSL_LIBRARY}"
-            "-DBAKED=${SYNBENCH_OPENSSL_BAKED_PREFIX}" -P "${PROJECT_SOURCE_DIR}/cmake/openssl/check-config.cmake")
+            "-DBAKED=${SYNBENCH_OPENSSL_BAKED_PREFIX}" "-DWINCTX=${SYNBENCH_OPENSSL_WINCTX}"
+            -P "${PROJECT_SOURCE_DIR}/cmake/openssl/check-config.cmake")
 
 # The CPU test's golden tables are what the reference implementations give on
 # this platform (§6.4): the same committed table must hold everywhere.
 add_test(NAME cpu_golden_tables
     COMMAND synbench-cpu-golden --check "${PROJECT_SOURCE_DIR}/src/tests/cpu/golden")
+
+# Every script the build runs with `cmake -P` pins its policies.
+add_test(NAME cmake_scripts_set_policies
+    COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckScriptPolicies.cmake")
 
 # Every tracked path must be checkout-able on Windows.
 add_test(NAME windows_safe_paths

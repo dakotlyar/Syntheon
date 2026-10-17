@@ -3,6 +3,9 @@
 # fail at checkout): the characters : * ? " < > |, a component ending in a
 # dot or space, or a reserved device name. Run as a CTest test:
 #   cmake -DSOURCE_DIR=<repo> -P cmake/CheckWindowsPaths.cmake
+# Run with cmake -P: the policies of the project's minimum (a script gets
+# none from the project, and CMake 3.x would run it with OLD ones).
+cmake_minimum_required(VERSION 3.25)
 find_package(Git QUIET)
 if(NOT GIT_FOUND OR NOT EXISTS "${SOURCE_DIR}/.git")
     message(STATUS "Not a git checkout; skipping the Windows path check")

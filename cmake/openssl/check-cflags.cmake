@@ -5,6 +5,9 @@
 # (nmake), and copies that line to OUT, which the install step puts into the
 # OpenSSL root (synbench-openssl-cflags.txt; the openssl_config CTest reads it).
 #   cmake -DMAKEFILE=<build>/Makefile|makefile -DWANT=-O3|/O2 -DOUT=<file> -P check-cflags.cmake
+# Run with cmake -P: the policies of the project's minimum (a script gets
+# none from the project, and CMake 3.x would run it with OLD ones).
+cmake_minimum_required(VERSION 3.25)
 file(STRINGS "${MAKEFILE}" lines REGEX "^CFLAGS=")
 list(LENGTH lines n)
 if(n EQUAL 0)

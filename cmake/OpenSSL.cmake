@@ -71,6 +71,14 @@ if(WIN32)
     # is a folder a standard user can't create; the real files are installed
     # with DESTDIR and copied into SYNBENCH_OPENSSL_ROOT.
     set(_ossl_baked "C:/Windows/System32/SynBench-no-OpenSSL-files")
+    # That path is only safe while Windows is on C:. OSSL_WINCTX (OpenSSL 3.4+,
+    # crypto/defaults.c in 3.5.9) makes libcrypto take OPENSSLDIR, ENGINESDIR
+    # and MODULESDIR from HKLM\SOFTWARE\WOW6432Node\OpenSSL-3.5-SynBench
+    # instead, an admin-only key nobody creates: the directories are then NULL
+    # and nothing can be loaded from any folder (NOTES-WINDOWS.md: "returns
+    # errors on module/conf load"). The baked path stays as the build default.
+    set(SYNBENCH_OPENSSL_WINCTX SynBench)
+    list(APPEND _ossl_args "-DOSSL_WINCTX=${SYNBENCH_OPENSSL_WINCTX}")
 else()
     find_program(SYNBENCH_PERL perl NO_CACHE REQUIRED)
     find_program(SYNBENCH_MAKE NAMES make gmake NO_CACHE REQUIRED)

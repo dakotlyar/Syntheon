@@ -3,7 +3,11 @@
 # config autoload, no DSO / engine loading), still has its assembly, was
 # compiled optimised, and points its compiled-in directories (OPENSSLDIR,
 # MODULESDIR, ENGINESDIR) at the fixed dummy, not at the build machine.
-#   cmake -DROOT=<SYNBENCH_OPENSSL_ROOT> -DLIBRARY=<libcrypto> -DBAKED=<dummy prefix> -P check-config.cmake
+#   cmake -DROOT=<SYNBENCH_OPENSSL_ROOT> -DLIBRARY=<libcrypto> -DBAKED=<dummy prefix> [-DWINCTX=<ctx>] -P check-config.cmake
+# (Windows, WINCTX: the library must carry OSSL_WINCTX instead.)
+# Run with cmake -P: the policies of the project's minimum (a script gets
+# none from the project, and CMake 3.x would run it with OLD ones).
+cmake_minimum_required(VERSION 3.25)
 set(CONFIG_H "${ROOT}/include/openssl/configuration.h")
 file(READ "${CONFIG_H}" text)
 set(problems "")
@@ -25,7 +29,13 @@ else()
     list(APPEND problems "no synbench-openssl-cflags.txt in ${ROOT}")
 endif()
 
-if(LIBRARY)
+if(LIBRARY AND WINCTX)
+    # Windows: the directories come from the registry context, not the build.
+    file(STRINGS "${LIBRARY}" ctx REGEX "OSSL_WINCTX: \"${WINCTX}\"")
+    if(NOT ctx)
+        list(APPEND problems "${LIBRARY} wasn't built with OSSL_WINCTX=${WINCTX}")
+    endif()
+elseif(LIBRARY)
     file(STRINGS "${LIBRARY}" dirs REGEX "OPENSSLDIR: \"")
     if(NOT dirs)
         list(APPEND problems "no OPENSSLDIR string in ${LIBRARY}")
