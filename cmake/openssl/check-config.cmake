@@ -95,7 +95,10 @@ if(LIBRARY AND WINCTX)
                        "(the first at ${parity} offset)")
     else()
         find_bytes("${hex}" "${narrow}" at8)
-        file(STRINGS "${LIBRARY}" seen REGEX "OSSL_WINCTX|compiler: ")
+        # ossl_get_wininstallcontext() in the same defaults.c returns the
+        # context as a narrow string, or "Undefined" when OSSL_WINCTX wasn't
+        # defined there.
+        file(STRINGS "${LIBRARY}" seen REGEX "OSSL_WINCTX|compiler: |^${WINCTX}$|^Undefined$")
         set(recorded "")
         if(EXISTS "${ROOT}/synbench-openssl-cflags.txt")
             file(READ "${ROOT}/synbench-openssl-cflags.txt" recorded)
