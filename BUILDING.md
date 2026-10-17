@@ -11,6 +11,15 @@ build tree. `FETCHCONTENT_BASE_DIR` moves that folder elsewhere; it holds the
 libraries' build folders too, so give each build tree its own. The configure
 also writes `<build>/THIRD-PARTY-NOTICES.txt` (`cmake/ThirdPartyNotices.cmake`).
 
+The build also compiles **OpenSSL 3.5.9** (libcrypto, static; `cmake/OpenSSL.cmake`)
+with its own Perl `Configure`, so it needs **Perl** (on Windows a native one,
+such as Strawberry Perl, not MSYS/Git's), `make` or `nmake`, and on Windows x64
+**NASM** on `PATH`, on Windows ARM64 **clang-cl** on `PATH` (Visual Studio's
+"C++ Clang tools", `<VS>/VC/Tools/Llvm/x64/bin`). It is installed into
+`SYNBENCH_OPENSSL_ROOT` (default `<build>/openssl`) with a stamp of everything
+that went into it; a later configure that finds a matching stamp reuses it
+(that is how CI caches it). Windows builds of OpenSSL are release-CRT (`/MD`) only.
+
 ## Presets
 
 `CMakePresets.json` has two families:

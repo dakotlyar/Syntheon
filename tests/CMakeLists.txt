@@ -39,8 +39,32 @@ endif()
 # THIRD-PARTY-NOTICES.txt covers everything shipped (D11), each with its text.
 add_test(NAME third_party_notices
     COMMAND "${CMAKE_COMMAND}" "-DNOTICES=${PROJECT_BINARY_DIR}/THIRD-PARTY-NOTICES.txt"
-            "-DEXPECT=zlib ${SYNBENCH_ZLIB_VERSION}|This software is provided 'as-is';Zstandard (zstd) ${SYNBENCH_ZSTD_VERSION}|Redistribution and use in source and binary forms;LZ4 (library) ${SYNBENCH_LZ4_VERSION}|Redistribution and use in source and binary forms;XZ Utils (liblzma) ${SYNBENCH_XZ_VERSION}|Permission to use, copy, modify, and/or distribute;Qt ${Qt6_VERSION}|GNU LESSER GENERAL PUBLIC LICENSE;Archivo font|SIL OPEN FONT LICENSE Version 1.1;IBM Plex Sans and IBM Plex Mono fonts|SIL OPEN FONT LICENSE Version 1.1"
+            "-DEXPECT=zlib ${SYNBENCH_ZLIB_VERSION}|This software is provided 'as-is';Zstandard (zstd) ${SYNBENCH_ZSTD_VERSION}|Redistribution and use in source and binary forms;LZ4 (library) ${SYNBENCH_LZ4_VERSION}|Redistribution and use in source and binary forms;XZ Utils (liblzma) ${SYNBENCH_XZ_VERSION}|Permission to use, copy, modify, and/or distribute;OpenSSL (libcrypto) ${SYNBENCH_OPENSSL_VERSION}|Apache License;Qt ${Qt6_VERSION}|GNU LESSER GENERAL PUBLIC LICENSE;Archivo font|SIL OPEN FONT LICENSE Version 1.1;IBM Plex Sans and IBM Plex Mono fonts|SIL OPEN FONT LICENSE Version 1.1"
             -P "${PROJECT_SOURCE_DIR}/cmake/CheckThirdPartyNotices.cmake")
+
+# The built libcrypto has the hardware AES and SHA-256 code (§11.2), and the
+# check fails without it: on a library that isn't libcrypto, and (self-test)
+# with the objects that provide each part removed.
+if(UNIX AND SYNBENCH_PYTHON3 AND NOT CMAKE_CROSSCOMPILING)
+    string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _sb_cpu)
+    if(_sb_cpu MATCHES "^(x86_64|amd64)$")
+        set(_sb_crypto_arch x86_64)
+    else()
+        set(_sb_crypto_arch aarch64)
+    endif()
+    add_test(NAME crypto_symbols
+        COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/crypto-symbols.py"
+                "${SYNBENCH_OPENSSL_LIBRARY}" --arch ${_sb_crypto_arch} --self-test)
+    add_test(NAME crypto_symbols_rejects_other_library
+        COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/crypto-symbols.py"
+                "$<TARGET_FILE:zlibstatic>" --arch ${_sb_crypto_arch})
+    set_tests_properties(crypto_symbols_rejects_other_library PROPERTIES WILL_FAIL TRUE)
+endif()
+
+# OpenSSL was configured with P17's options and kept its assembly.
+add_test(NAME openssl_config
+    COMMAND "${CMAKE_COMMAND}" "-DCONFIG_H=${SYNBENCH_OPENSSL_ROOT}/include/openssl/configuration.h"
+            -P "${PROJECT_SOURCE_DIR}/cmake/openssl/check-config.cmake")
 
 # Every tracked path must be checkout-able on Windows.
 add_test(NAME windows_safe_paths

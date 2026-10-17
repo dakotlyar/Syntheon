@@ -38,6 +38,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 include(CompilerFlags)
 # After the compiler flags: the third-party libraries get the same baseline.
 include(ThirdParty)
+include(OpenSSL)
 
 set(_synbench_qt_components Core Gui Network Qml Quick QuickControls2 QuickShapes Sql)
 if(SYNBENCH_BUILD_TESTS)

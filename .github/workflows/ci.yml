@@ -47,8 +47,20 @@ jobs:
           cache: true
           aqtsource: ${{ env.AQT_SOURCE }}
 
+      # OpenSSL (§11, R8): its build is cached, keyed on everything that goes into
+      # it; cmake/OpenSSL.cmake checks the stamp in the folder and rebuilds on
+      # any mismatch.
+      - name: Compiler version (OpenSSL cache key)
+        id: cc
+        run: echo "version=$(gcc -dumpfullversion)" >> "$GITHUB_OUTPUT"
+      - name: OpenSSL cache
+        uses: actions/cache@v4
+        with:
+          path: openssl-root
+          key: openssl-linux-x86_64-gcc${{ steps.cc.outputs.version }}-${{ hashFiles('cmake/OpenSSL.cmake', 'cmake/openssl/**') }}
+
       - name: Configure
-        run: cmake --preset linux-x64-release
+        run: cmake --preset linux-x64-release "-DSYNBENCH_OPENSSL_ROOT=$GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset linux-x64-release
@@ -139,8 +151,36 @@ jobs:
           cache: true
           aqtsource: ${{ env.AQT_SOURCE }}
 
+      # OpenSSL's x64 AES-NI / SHA-NI / VAES code is NASM source (§11.2). nasm.us
+      # publishes no checksums or signatures; this SHA-256 is the one winget's
+      # NASM.NASM 2.16.03 manifest records for the same file, and the download
+      # from nasm.us matched it on 2026-10-16.
+      - name: Install NASM 2.16.03
+        shell: pwsh
+        run: |
+          $exe = "$env:RUNNER_TEMP\nasm-2.16.03-installer-x64.exe"
+          Invoke-WebRequest -Uri https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-installer-x64.exe -OutFile $exe
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '657e1252676cfb26a008835c20a760f731c8e0414469a4ed0f83f0fb059cdd35') { throw "NASM installer has sha256 $hash" }
+          # NSIS: silent, into a folder of our own (/D= last, unquoted).
+          $p = Start-Process -FilePath $exe -ArgumentList '/S', "/D=$env:RUNNER_TEMP\nasm" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "NASM installer exited $($p.ExitCode)" }
+          & "$env:RUNNER_TEMP\nasm\nasm.exe" -v
+          if ($LASTEXITCODE -ne 0) { throw "nasm does not run" }
+          "$env:RUNNER_TEMP\nasm" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      # OpenSSL (§11, R8): its build is cached, keyed on everything that goes into
+      # it; cmake/OpenSSL.cmake checks the stamp in the folder and rebuilds on
+      # any mismatch. nmake builds it on one core: 10-15 minutes uncached.
+      - name: OpenSSL cache
+        uses: actions/cache@v4
+        with:
+          path: openssl-root
+          key: openssl-VC-WIN64A-msvc${{ env.VCToolsVersion }}-nasm2.16.03-${{ hashFiles('cmake/OpenSSL.cmake', 'cmake/openssl/**') }}
+
       - name: Configure
-        run: cmake --preset windows-x64-release
+        shell: pwsh
+        run: cmake --preset windows-x64-release "-DSYNBENCH_OPENSSL_ROOT=$env:GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset windows-x64-release
@@ -236,11 +276,32 @@ jobs:
           cache: true
           aqtsource: ${{ env.AQT_SOURCE }}
 
+      # OpenSSL (§11, R8): its build is cached, keyed on everything that goes into
+      # it; cmake/OpenSSL.cmake checks the stamp in the folder and rebuilds on
+      # any mismatch.
+      - name: Compiler version (OpenSSL cache key)
+        id: cc
+        run: echo "version=$(gcc -dumpfullversion)" >> "$GITHUB_OUTPUT"
+      - name: OpenSSL cache
+        uses: actions/cache@v4
+        with:
+          path: openssl-root
+          key: openssl-linux-x86_64-gcc${{ steps.cc.outputs.version }}-${{ hashFiles('cmake/OpenSSL.cmake', 'cmake/openssl/**') }}
+
       - name: Configure (packaging preset)
-        run: cmake --preset linux-x64-package
+        run: cmake --preset linux-x64-package "-DSYNBENCH_OPENSSL_ROOT=$GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset linux-x64-package
+
+      # §11.2: the hardware AES and SHA-256 code is in libcrypto; the check also
+      # has to fail without it (self-test, and on a library that isn't libcrypto).
+      - name: libcrypto has the hardware crypto path (AES-NI, SHA-NI)
+        run: |
+          python3 packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.a --arch x86_64 --self-test
+          if python3 packaging/checks/crypto-symbols.py build/linux-x64-package/_deps/synbench_zlib-build/libz.a --arch x86_64; then
+            echo "::error::crypto-symbols.py passed on zlib"; exit 1
+          fi
 
       - name: Install
         run: cmake --install build/linux-x64-package --prefix stage
@@ -359,12 +420,53 @@ jobs:
           $crt = ./packaging/windows/find-crt.ps1 -Arch x64
           "SYNBENCH_CRT_DIRS=$crt" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      # OpenSSL's x64 AES-NI / SHA-NI / VAES code is NASM source (§11.2). nasm.us
+      # publishes no checksums or signatures; this SHA-256 is the one winget's
+      # NASM.NASM 2.16.03 manifest records for the same file, and the download
+      # from nasm.us matched it on 2026-10-16.
+      - name: Install NASM 2.16.03
+        shell: pwsh
+        run: |
+          $exe = "$env:RUNNER_TEMP\nasm-2.16.03-installer-x64.exe"
+          Invoke-WebRequest -Uri https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-installer-x64.exe -OutFile $exe
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '657e1252676cfb26a008835c20a760f731c8e0414469a4ed0f83f0fb059cdd35') { throw "NASM installer has sha256 $hash" }
+          # NSIS: silent, into a folder of our own (/D= last, unquoted).
+          $p = Start-Process -FilePath $exe -ArgumentList '/S', "/D=$env:RUNNER_TEMP\nasm" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "NASM installer exited $($p.ExitCode)" }
+          & "$env:RUNNER_TEMP\nasm\nasm.exe" -v
+          if ($LASTEXITCODE -ne 0) { throw "nasm does not run" }
+          "$env:RUNNER_TEMP\nasm" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      # OpenSSL (§11, R8): its build is cached, keyed on everything that goes into
+      # it; cmake/OpenSSL.cmake checks the stamp in the folder and rebuilds on
+      # any mismatch. nmake builds it on one core: 10-15 minutes uncached.
+      - name: OpenSSL cache
+        uses: actions/cache@v4
+        with:
+          path: openssl-root
+          key: openssl-VC-WIN64A-msvc${{ env.VCToolsVersion }}-nasm2.16.03-${{ hashFiles('cmake/OpenSSL.cmake', 'cmake/openssl/**') }}
+
       - name: Configure (packaging preset)
         shell: pwsh
-        run: cmake --preset windows-x64-package "-DSYNBENCH_CRT_DIRS=$env:SYNBENCH_CRT_DIRS"
+        run: cmake --preset windows-x64-package "-DSYNBENCH_CRT_DIRS=$env:SYNBENCH_CRT_DIRS" "-DSYNBENCH_OPENSSL_ROOT=$env:GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset windows-x64-package
+
+      # §11.2: the hardware AES and SHA-256 code is in libcrypto; the check also
+      # has to fail without it (self-test, and on a library that isn't libcrypto).
+      - name: libcrypto has the hardware crypto path (AES-NI, SHA-NI)
+        shell: pwsh
+        run: |
+          $nm = (Get-Command llvm-nm -ErrorAction SilentlyContinue).Source
+          if (-not $nm) { $nm = @("$env:VCINSTALLDIR\Tools\Llvm\x64\bin\llvm-nm.exe", "$env:ProgramFiles\LLVM\bin\llvm-nm.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1 }
+          if (-not $nm) { throw "no llvm-nm on this runner" }
+          python packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.lib --arch x86_64 --nm $nm --self-test
+          if ($LASTEXITCODE -ne 0) { throw "the hardware crypto check failed" }
+          python packaging/checks/crypto-symbols.py build/windows-x64-package/_deps/synbench_zlib-build/zlibs.lib --arch x86_64 --nm $nm
+          if ($LASTEXITCODE -eq 0) { throw "crypto-symbols.py passed on zlib" }
+          $global:LASTEXITCODE = 0
 
       # For diagnosis when the manifest check below fails: the real link command.
       - name: Show how SynBench.exe was linked
@@ -500,20 +602,53 @@ jobs:
           "HOST_QT=$host_qt" | Out-File -FilePath $env:GITHUB_ENV -Append
           "TARGET_QT=$($target.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      # OpenSSL's VC-WIN64-CLANGASM-ARM target (N4) assembles its ARMv8 Crypto
+      # code with clang-cl: Visual Studio's C++ Clang tools, else LLVM.
+      - name: clang-cl on PATH (OpenSSL's ARM64 assembler)
+        shell: pwsh
+        run: |
+          $dir = @("$env:VCINSTALLDIR\Tools\Llvm\x64\bin", "$env:ProgramFiles\LLVM\bin") | Where-Object { Test-Path "$_\clang-cl.exe" } | Select-Object -First 1
+          if (-not $dir) { throw "no clang-cl on this runner (Visual Studio's C++ Clang tools)" }
+          & "$dir\clang-cl.exe" --version
+          $dir | Out-File -FilePath $env:GITHUB_PATH -Append
+
       - name: Find the ARM64 runtime DLLs
         shell: pwsh
         run: |
           $crt = ./packaging/windows/find-crt.ps1 -Arch arm64
           "SYNBENCH_CRT_DIRS=$crt" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      # OpenSSL (§11, R8): its build is cached, keyed on everything that goes into
+      # it; cmake/OpenSSL.cmake checks the stamp in the folder and rebuilds on
+      # any mismatch. nmake builds it on one core: 10-15 minutes uncached.
+      - name: OpenSSL cache
+        uses: actions/cache@v4
+        with:
+          path: openssl-root
+          key: openssl-VC-WIN64-CLANGASM-ARM-msvc${{ env.VCToolsVersion }}-${{ hashFiles('cmake/OpenSSL.cmake', 'cmake/openssl/**') }}
+
       - name: Configure (cross)
         shell: pwsh
         run: |
           cmake --preset windows-arm64-cross "-DQT_HOST_PATH=$env:HOST_QT" "-DCMAKE_PREFIX_PATH=$env:TARGET_QT" `
-            "-DSYNBENCH_CRT_DIRS=$env:SYNBENCH_CRT_DIRS"
+            "-DSYNBENCH_CRT_DIRS=$env:SYNBENCH_CRT_DIRS" "-DSYNBENCH_OPENSSL_ROOT=$env:GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset windows-arm64-cross
+
+      # §11.2: the hardware AES and SHA-256 code is in libcrypto; the check also
+      # has to fail without it (self-test, and on a library that isn't libcrypto).
+      - name: libcrypto has the hardware crypto path (ARMv8 Crypto; VC-WIN64-CLANGASM-ARM)
+        shell: pwsh
+        run: |
+          $nm = (Get-Command llvm-nm -ErrorAction SilentlyContinue).Source
+          if (-not $nm) { $nm = @("$env:VCINSTALLDIR\Tools\Llvm\x64\bin\llvm-nm.exe", "$env:ProgramFiles\LLVM\bin\llvm-nm.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1 }
+          if (-not $nm) { throw "no llvm-nm on this runner" }
+          python packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.lib --arch aarch64 --nm $nm --self-test
+          if ($LASTEXITCODE -ne 0) { throw "the hardware crypto check failed" }
+          python packaging/checks/crypto-symbols.py build/windows-arm64-cross/_deps/synbench_zlib-build/zlibs.lib --arch aarch64 --nm $nm
+          if ($LASTEXITCODE -eq 0) { throw "crypto-symbols.py passed on zlib" }
+          $global:LASTEXITCODE = 0
 
       # For diagnosis when the manifest check below fails: the real link command.
       - name: Show how SynBench.exe was linked
@@ -626,14 +761,36 @@ jobs:
           echo "HOST_QT=$QT_ROOT_DIR" >> "$GITHUB_ENV"
           echo "TARGET_QT=$RUNNER_TEMP/qt-arm64/$QT_VERSION/gcc_arm64" >> "$GITHUB_ENV"
 
+      # OpenSSL (§11, R8): its build is cached, keyed on everything that goes into
+      # it; cmake/OpenSSL.cmake checks the stamp in the folder and rebuilds on
+      # any mismatch.
+      - name: Compiler version (OpenSSL cache key)
+        id: cc
+        run: echo "version=$(aarch64-linux-gnu-gcc -dumpfullversion)" >> "$GITHUB_OUTPUT"
+      - name: OpenSSL cache
+        uses: actions/cache@v4
+        with:
+          path: openssl-root
+          key: openssl-linux-aarch64-gcc${{ steps.cc.outputs.version }}-${{ hashFiles('cmake/OpenSSL.cmake', 'cmake/openssl/**') }}
+
       - name: Configure (cross)
         run: |
           cmake --preset linux-arm64-cross \
             -DSYNBENCH_SYSROOT="$SYSROOT" -DSYNBENCH_TARGET_QT="$TARGET_QT" \
-            -DQT_HOST_PATH="$HOST_QT" -DCMAKE_PREFIX_PATH="$TARGET_QT"
+            -DQT_HOST_PATH="$HOST_QT" -DCMAKE_PREFIX_PATH="$TARGET_QT" \
+            -DSYNBENCH_OPENSSL_ROOT="$GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset linux-arm64-cross
+
+      # §11.2: the only proof the ARM64 build has the ARMv8 Crypto path (ARM
+      # never runs in CI); the check also has to fail without it.
+      - name: libcrypto has the hardware crypto path (ARMv8 Crypto)
+        run: |
+          python3 packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.a --arch aarch64 --nm aarch64-linux-gnu-nm --self-test
+          if python3 packaging/checks/crypto-symbols.py build/linux-arm64-cross/_deps/synbench_zlib-build/libz.a --arch aarch64 --nm aarch64-linux-gnu-nm; then
+            echo "::error::crypto-symbols.py passed on zlib"; exit 1
+          fi
 
       - name: Install
         run: cmake --install build/linux-arm64-cross --prefix stage
@@ -701,7 +858,7 @@ jobs:
         run: shellcheck packaging/checks/*.sh packaging/linux/*.sh
 
       - name: Python scripts compile
-        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py packaging/checks/qmllint-gate.py
+        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py packaging/checks/qmllint-gate.py packaging/checks/crypto-symbols.py
 
       - name: Desktop file and AppStream metadata
         run: |
