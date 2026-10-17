@@ -6,6 +6,9 @@
 #include "isa/cpu_features.h"
 #include "sysinfo/common/x86_cpu.h"
 
+#include <QDir>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QTest>
 
 using namespace sb::isa;
@@ -36,6 +39,26 @@ const char *const kKnowhereFeatures = "sse2,sse3,ssse3,sse4.1,sse4.2,popcnt,aes,
 QString fixture(const char *machine)
 {
     return QStringLiteral(SB_FIXTURES "/linux/") + QLatin1StringView(machine) + QStringLiteral("/sys");
+}
+
+std::vector<int> cpusOf(const std::vector<CoreCandidate> &candidates)
+{
+    std::vector<int> cpus;
+    for (const CoreCandidate &c : candidates)
+        cpus.push_back(c.core.cpu);
+    return cpus;
+}
+
+// A /proc/stat with the given idle and iowait jiffies per CPU (user, nice,
+// system and the rest are filler; the aggregate line comes first, as in the
+// real file).
+std::string procStat(const std::vector<std::pair<unsigned, unsigned>> &idleIowait)
+{
+    std::string text = "cpu  999999 0 999999 999999 999 0 0 0 0 0\n";
+    for (std::size_t i = 0; i < idleIowait.size(); ++i)
+        text += "cpu" + std::to_string(i) + " 1000 20 300 " + std::to_string(idleIowait[i].first) + " "
+                + std::to_string(idleIowait[i].second) + " 0 5 0 0 0\n";
+    return text + "intr 12345 0 0\nctxt 999\n";
 }
 
 } // namespace
@@ -263,6 +286,157 @@ private slots:
         QCOMPARE(c.cpu, 2);  // only the parked one is left
     }
 
+    // Decision D: the tie set is every CPU at the top value, with its SMT
+    // siblings (Knowhere: 0, 5, 12, 17 at 216; pairs 0/12 and 5/17).
+    void tieSetKnowhere()
+    {
+        const std::vector<CoreCandidate> top = linuxTopCandidates(fixture("knowhere").toStdString(), {});
+        QCOMPARE(cpusOf(top), (std::vector<int>{0, 5, 12, 17}));
+        QCOMPARE(top[0].smtKeys, (std::vector<int>{0, 12}));
+        QCOMPARE(top[1].smtKeys, (std::vector<int>{5, 17}));
+        QCOMPARE(top[2].smtKeys, (std::vector<int>{0, 12}));
+        QCOMPARE(top[3].smtKeys, (std::vector<int>{5, 17}));
+        for (const CoreCandidate &c : top) {
+            QVERIFY(c.core.ranked);
+            QCOMPARE(QString::fromStdString(c.core.source), QStringLiteral("acpi_cppc/highest_perf"));
+        }
+        // Only allowed CPUs: without 0, 5, 12, 17 the 211s (3 and 15) tie.
+        std::vector<int> allowed;
+        for (int i = 1; i < 24; ++i) {
+            if (i != 5 && i != 12 && i != 17)
+                allowed.push_back(i);
+        }
+        QCOMPARE(cpusOf(linuxTopCandidates(fixture("knowhere").toStdString(), allowed)), (std::vector<int>{3, 15}));
+        // A hybrid CPU's tie set is its fastest cores only (P-core threads 0-1).
+        QCOMPARE(cpusOf(linuxTopCandidates(fixture("intel-hybrid").toStdString(), {})), (std::vector<int>{0, 1}));
+        QVERIFY(linuxTopCandidates("/nonexistent-sysfs", {}).empty());
+    }
+
+    void procStatIdle()
+    {
+        const IdleSample s = parseProcStatIdle(procStat({{100, 5}, {200, 0}}) + "cpu7 1 2 3 40\n");
+        QCOMPARE(s.size(), std::size_t(3));  // the aggregate "cpu " line is skipped
+        QCOMPARE(s.at(0), std::uint64_t(105));  // idle + iowait
+        QCOMPARE(s.at(1), std::uint64_t(200));
+        QCOMPARE(s.at(7), std::uint64_t(40));  // an old kernel without iowait
+    }
+
+    // The busy-sibling tie-break on Knowhere's tie set with injected samples:
+    // a program on CPU 12 shares CPU 0's core, so CPU 5 wins, and the other
+    // way round; idle cores tie and the lowest number wins.
+    void busySiblingTieBreak()
+    {
+        const std::vector<CoreCandidate> top = linuxTopCandidates(fixture("knowhere").toStdString(), {});
+        const auto pick = [&](int busyCpu, unsigned busyIdle) {
+            std::vector<std::pair<unsigned, unsigned>> before(24, {1000, 10}), after(24, {1025, 10});
+            after[std::size_t(busyCpu)].first = 1000 + busyIdle;  // 25 jiffies = 250 ms all idle
+            return quietestCandidate(top, parseProcStatIdle(procStat(before)), parseProcStatIdle(procStat(after))).cpu;
+        };
+        QCOMPARE(pick(12, 5), 5);   // CPU 12 80% busy: core 0/12 is the busier one
+        QCOMPARE(pick(0, 5), 5);    // the top CPU itself busy
+        QCOMPARE(pick(17, 5), 0);   // core 5/17 busy: back to CPU 0
+        QCOMPARE(pick(5, 24), 0);
+        QCOMPARE(pick(3, 0), 0);    // a busy CPU outside the tie set changes nothing
+        // iowait counts as idle.
+        std::vector<std::pair<unsigned, unsigned>> before(24, {1000, 10}), after(24, {1025, 10});
+        after[12] = {1000, 35};
+        after[17] = {1010, 10};
+        QCOMPARE(quietestCandidate(top, parseProcStatIdle(procStat(before)), parseProcStatIdle(procStat(after))).cpu, 0);
+        // A key missing from a sample counts as never idle.
+        IdleSample b = parseProcStatIdle(procStat(before)), a = parseProcStatIdle(procStat(before));
+        for (auto &[cpu, idle] : a)
+            idle += 25;
+        a.erase(12);
+        QCOMPARE(quietestCandidate(top, b, a).cpu, 5);
+    }
+
+    // No SMT (no thread_siblings_list): each core is just itself.
+    void noSmt()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        for (int cpu = 0; cpu < 4; ++cpu) {
+            const QString d = dir.path() + QStringLiteral("/devices/system/cpu/cpu%1/cpufreq").arg(cpu);
+            QVERIFY(QDir().mkpath(d));
+            QFile f(d + QStringLiteral("/cpuinfo_max_freq"));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(cpu == 3 ? "3000000\n" : "3600000\n");
+        }
+        const std::vector<CoreCandidate> top = linuxTopCandidates(dir.path().toStdString(), {});
+        QCOMPARE(cpusOf(top), (std::vector<int>{0, 1, 2}));
+        for (const CoreCandidate &c : top)
+            QCOMPARE(c.smtKeys, std::vector<int>{c.core.cpu});
+        const IdleSample before{{0, 100}, {1, 100}, {2, 100}, {3, 100}};
+        QCOMPARE(quietestCandidate(top, before, {{0, 110}, {1, 125}, {2, 120}, {3, 125}}).cpu, 1);
+        QCOMPARE(quietestCandidate(top, before, {{0, 110}, {1, 110}, {2, 125}, {3, 125}}).cpu, 2);
+        // CPU 3 is the quietest but slower: never picked.
+        QCOMPARE(quietestCandidate(top, before, {{0, 101}, {1, 101}, {2, 101}, {3, 125}}).cpu, 0);
+    }
+
+    // One core at the top (the ARM fixture's single 1024-capacity core): it
+    // is the choice however busy it was.
+    void singleCoreTied()
+    {
+        const std::vector<CoreCandidate> top = linuxTopCandidates(fixture("arm64-biglittle").toStdString(), {});
+        QCOMPARE(cpusOf(top), std::vector<int>{7});
+        QCOMPARE(top[0].smtKeys, std::vector<int>{7});
+        IdleSample before, after;
+        for (int cpu = 0; cpu < 8; ++cpu) {
+            before[cpu] = 0;
+            after[cpu] = cpu == 7 ? 0 : 25;
+        }
+        const CoreChoice c = quietestCandidate(top, before, after);
+        QVERIFY(c.ranked);
+        QCOMPARE(c.cpu, 7);
+        QVERIFY(!quietestCandidate({}, before, after).ranked);
+    }
+
+    // Mocked Windows data: a hybrid CPU with two SMT P-cores (EfficiencyClass
+    // 1; group 0 processors 0/1 and 2/3) and two E-cores (0; processors 4, 5);
+    // idle cycles from QueryIdleProcessorCycleTimeEx keyed by windowsKey().
+    void windowsCpuSetTieBreak()
+    {
+        std::vector<CpuSetRecord> sets = {
+            {256, 0, 0, 1, 7}, {257, 0, 1, 1, 7}, {258, 0, 2, 1, 7}, {259, 0, 3, 1, 7},
+            {260, 0, 4, 0, 0}, {261, 0, 5, 0, 0},
+        };
+        const std::vector<std::vector<int>> cores = {{0, 1}, {2, 3}, {4}, {5}};
+        std::vector<CoreCandidate> top = windowsTopCandidates(sets, cores);
+        QCOMPARE(cpusOf(top), (std::vector<int>{0, 1, 2, 3}));  // the P-cores only
+        QCOMPARE(top[0].smtKeys, (std::vector<int>{0, 1}));
+        QCOMPARE(top[3].smtKeys, (std::vector<int>{2, 3}));
+        QCOMPARE(top[2].core.cpuSetId, 258u);
+        QCOMPARE(QString::fromStdString(top[0].core.source), QStringLiteral("EfficiencyClass/SchedulingClass"));
+        QCOMPARE(top.front().core.cpuSetId, rankWindowsCpuSets(sets).cpuSetId);
+
+        const IdleSample before{{0, 0}, {1, 0}, {2, 0}, {3, 0}, {4, 0}, {5, 0}};
+        const std::uint64_t idle = 1'000'000'000;  // 250 ms at 4 GHz
+        // Processor 1 busy: P-core 2/3 wins; the idle E-cores never do.
+        QCOMPARE(quietestCandidate(top, before, {{0, idle}, {1, idle / 10}, {2, idle}, {3, idle}, {4, idle}, {5, idle}}).cpu, 2);
+        QCOMPARE(quietestCandidate(top, before, {{0, idle}, {1, idle}, {2, idle}, {3, 0}, {4, idle}, {5, idle}}).cpu, 0);
+
+        // The preferred core (higher SchedulingClass) is a tie set of its own
+        // two threads.
+        sets[2].schedulingClass = sets[3].schedulingClass = 8;
+        top = windowsTopCandidates(sets, cores);
+        QCOMPARE(cpusOf(top), (std::vector<int>{2, 3}));
+        // A second processor group: keys don't collide, and an unknown core
+        // relation leaves a processor on its own.
+        sets.push_back({262, 1, 2, 1, 8});
+        top = windowsTopCandidates(sets, cores);
+        QCOMPARE(top.size(), std::size_t(3));
+        QCOMPARE(top[2].core.group, 1);
+        QCOMPARE(top[2].smtKeys, std::vector<int>{windowsKey(1, 2)});
+        IdleSample b2 = before, a2{{0, idle}, {1, idle}, {2, idle / 2}, {3, 0}, {4, idle}, {5, idle}};
+        b2[windowsKey(1, 2)] = 0;
+        a2[windowsKey(1, 2)] = idle;
+        const CoreChoice c = quietestCandidate(top, b2, a2);
+        QCOMPARE(c.group, 1);
+        QCOMPARE(c.cpu, 2);
+        QCOMPARE(c.cpuSetId, 262u);
+        QVERIFY(windowsTopCandidates({}, cores).empty());
+    }
+
     // The live machine: detection runs, and System info shows what the CPU
     // test dispatches on.
     void live()
@@ -279,6 +453,19 @@ private slots:
         qInfo("single-thread core: %s (%s)", c.ranked ? qPrintable(QString::number(c.cpu)) : "unranked", c.source.c_str());
         if (c.ranked)
             QVERIFY(c.cpu >= 0);
+        // The tie set starts with that choice, and every candidate's keys are
+        // in a live idle sample.
+        const std::vector<CoreCandidate> top = topCandidatesForSingleThread();
+        QCOMPARE(top.empty(), !c.ranked);
+        if (!top.empty()) {
+            QCOMPARE(top.front().core.cpu, c.cpu);
+            QCOMPARE(top.front().core.group, c.group);
+            const IdleSample idle = sampleIdle();
+            for (const CoreCandidate &k : top) {
+                for (const int key : k.smtKeys)
+                    QVERIFY2(idle.count(key), qPrintable(QStringLiteral("no idle sample for %1").arg(key)));
+            }
+        }
     }
 };
 

@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iterator>
 #include <set>
+#include <sstream>
 #include <tuple>
 
 #if defined(__linux__)
@@ -63,9 +64,26 @@ std::set<int> parseCpuList(const std::string &text)
     return cpus;
 }
 
-} // namespace
+#if defined(__linux__)
+// The CPUs this process may run on (sched_getaffinity: taskset, cgroups).
+std::vector<int> linuxAllowedCpus()
+{
+    std::vector<int> allowed;
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof(set), &set) == 0) {
+        for (int c = 0; c < CPU_SETSIZE; ++c) {
+            if (CPU_ISSET(c, &set))
+                allowed.push_back(c);
+        }
+    }
+    return allowed;
+}
+#endif
 
-CoreChoice rankLinuxCores(const std::string &sysfsRoot, const std::vector<int> &allowed)
+// The CPUs under <sysfsRoot>/devices/system/cpu tied at the top of the
+// ranking, lowest number first, and the source that ranked them.
+std::vector<int> linuxTopTies(const std::string &sysfsRoot, const std::vector<int> &allowed, std::string &source)
 {
     namespace fs = std::filesystem;
     const fs::path base = fs::path(sysfsRoot) / "devices" / "system" / "cpu";
@@ -96,29 +114,86 @@ CoreChoice rankLinuxCores(const std::string &sysfsRoot, const std::vector<int> &
         cpus = both;
     }
 
-    // The first source any of these CPUs has decides; the highest value wins,
-    // then the lowest CPU number (SMT siblings share a core's ranking).
+    // The first source any of these CPUs has decides; the highest value wins
+    // (SMT siblings share a core's ranking).
     static const char *const sources[][2] = {
         {"acpi_cppc/highest_perf", "acpi_cppc/highest_perf"},
         {"cpu_capacity", "cpu_capacity"},
         {"cpufreq/cpuinfo_max_freq", "cpuinfo_max_freq"},
     };
-    for (const auto &source : sources) {
-        CoreChoice best;
+    for (const auto &s : sources) {
+        std::vector<int> top;
         long long bestValue = -1;
         for (int cpu : cpus) {
-            const auto v = readNumber(base / ("cpu" + std::to_string(cpu)) / source[0]);
-            if (v && *v > bestValue) {
+            const auto v = readNumber(base / ("cpu" + std::to_string(cpu)) / s[0]);
+            if (!v || *v < bestValue)
+                continue;
+            if (*v > bestValue) {
                 bestValue = *v;
-                best.ranked = true;
-                best.cpu = cpu;
-                best.source = source[1];
+                top.clear();
             }
+            top.push_back(cpu);
         }
-        if (best.ranked)
-            return best;
+        if (!top.empty()) {
+            source = s[1];
+            return top;
+        }
     }
     return {};
+}
+
+} // namespace
+
+CoreChoice rankLinuxCores(const std::string &sysfsRoot, const std::vector<int> &allowed)
+{
+    // The lowest-numbered of the top CPUs.
+    const std::vector<CoreCandidate> top = linuxTopCandidates(sysfsRoot, allowed);
+    return top.empty() ? CoreChoice{} : top.front().core;
+}
+
+std::vector<CoreCandidate> linuxTopCandidates(const std::string &sysfsRoot, const std::vector<int> &allowed)
+{
+    namespace fs = std::filesystem;
+    std::string source;
+    std::vector<CoreCandidate> out;
+    for (const int cpu : linuxTopTies(sysfsRoot, allowed, source)) {
+        CoreCandidate c;
+        c.core.ranked = true;
+        c.core.cpu = cpu;
+        c.core.source = source;
+        std::ifstream in(fs::path(sysfsRoot) / "devices" / "system" / "cpu" / ("cpu" + std::to_string(cpu)) / "topology"
+                         / "thread_siblings_list");
+        std::string line;
+        std::set<int> siblings;
+        if (in && std::getline(in, line))
+            siblings = parseCpuList(line);
+        siblings.insert(cpu);
+        c.smtKeys.assign(siblings.begin(), siblings.end());
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+IdleSample parseProcStatIdle(const std::string &procStat)
+{
+    IdleSample idle;
+    std::istringstream in(procStat);
+    std::string line;
+    while (std::getline(in, line)) {
+        // "cpuN user nice system idle iowait irq softirq steal ..." (the
+        // aggregate "cpu " line has no number: skipped).
+        if (line.size() < 4 || line.compare(0, 3, "cpu") != 0 || line[3] < '0' || line[3] > '9')
+            continue;
+        std::istringstream fields(line.substr(3));
+        int cpu = -1;
+        unsigned long long user = 0, nice = 0, system = 0, idleTicks = 0, iowait = 0;
+        if (fields >> cpu >> user >> nice >> system >> idleTicks) {
+            if (!(fields >> iowait))
+                iowait = 0;
+            idle[cpu] = idleTicks + iowait;
+        }
+    }
+    return idle;
 }
 
 CoreChoice rankWindowsCpuSets(const std::vector<CpuSetRecord> &records)
@@ -144,20 +219,77 @@ CoreChoice rankWindowsCpuSets(const std::vector<CpuSetRecord> &records)
     return c;
 }
 
-CoreChoice bestCoreForSingleThread()
+std::vector<CoreCandidate> windowsTopCandidates(const std::vector<CpuSetRecord> &records,
+                                                const std::vector<std::vector<int>> &cores)
 {
-#if defined(__linux__)
-    std::vector<int> allowed;
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    if (sched_getaffinity(0, sizeof(set), &set) == 0) {
-        for (int c = 0; c < CPU_SETSIZE; ++c) {
-            if (CPU_ISSET(c, &set))
-                allowed.push_back(c);
+    const CoreChoice best = rankWindowsCpuSets(records);
+    if (!best.ranked)
+        return {};
+    const CpuSetRecord *top = nullptr;
+    for (const CpuSetRecord &r : records) {
+        if (!top && r.id == best.cpuSetId && r.group == best.group && r.logicalIndex == best.cpu)
+            top = &r;
+    }
+    std::vector<const CpuSetRecord *> tied;
+    for (const CpuSetRecord &r : records) {
+        if (r.allocatedElsewhere || r.realTime || !r.inProcessAffinity)
+            continue;
+        if (r.parked == top->parked && r.efficiencyClass == top->efficiencyClass
+            && r.schedulingClass == top->schedulingClass)
+            tied.push_back(&r);
+    }
+    std::sort(tied.begin(), tied.end(), [](const CpuSetRecord *a, const CpuSetRecord *b) {
+        return std::make_pair(a->group, a->logicalIndex) < std::make_pair(b->group, b->logicalIndex);
+    });
+    std::vector<CoreCandidate> out;
+    for (const CpuSetRecord *r : tied) {
+        CoreCandidate c;
+        c.core.ranked = true;
+        c.core.cpu = r->logicalIndex;
+        c.core.group = r->group;
+        c.core.cpuSetId = r->id;
+        c.core.source = best.source;
+        const int key = windowsKey(r->group, r->logicalIndex);
+        c.smtKeys = {key};
+        for (const std::vector<int> &core : cores) {
+            if (std::find(core.begin(), core.end(), key) != core.end()) {
+                c.smtKeys = core;
+                std::sort(c.smtKeys.begin(), c.smtKeys.end());
+                break;
+            }
+        }
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+CoreChoice quietestCandidate(const std::vector<CoreCandidate> &candidates, const IdleSample &before,
+                             const IdleSample &after)
+{
+    const CoreCandidate *best = nullptr;
+    std::uint64_t bestIdle = 0;
+    for (const CoreCandidate &c : candidates) {
+        std::uint64_t idle = 0;
+        for (const int key : c.smtKeys) {
+            const auto b = before.find(key);
+            const auto a = after.find(key);
+            if (b != before.end() && a != after.end() && a->second > b->second)
+                idle += a->second - b->second;
+        }
+        if (!best || idle > bestIdle) {
+            best = &c;
+            bestIdle = idle;
         }
     }
-    return rankLinuxCores("/sys", allowed);
-#elif defined(_WIN32)
+    return best ? best->core : CoreChoice{};
+}
+
+#if defined(_WIN32)
+namespace {
+
+// GetSystemCpuSetInformation for this process, as CpuSetRecords.
+std::vector<CpuSetRecord> windowsCpuSetRecords()
+{
     ULONG length = 0;
     GetSystemCpuSetInformation(nullptr, 0, &length, GetCurrentProcess(), 0);
     if (length == 0)
@@ -194,7 +326,87 @@ CoreChoice bestCoreForSingleThread()
         }
         offset += info->Size;
     }
-    return rankWindowsCpuSets(records);
+    return records;
+}
+
+// GetLogicalProcessorInformationEx(RelationProcessorCore): each physical
+// core's logical processors, as windowsKey()s.
+std::vector<std::vector<int>> windowsPhysicalCores()
+{
+    DWORD length = 0;
+    GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
+    if (length == 0)
+        return {};
+    std::vector<unsigned char> buffer(length);
+    if (!GetLogicalProcessorInformationEx(RelationProcessorCore,
+                                          reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buffer.data()),
+                                          &length))
+        return {};
+    std::vector<std::vector<int>> cores;
+    for (DWORD offset = 0; offset < length;) {
+        const auto *info = reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *>(buffer.data() + offset);
+        if (info->Size == 0)
+            break;
+        if (info->Relationship == RelationProcessorCore) {
+            std::vector<int> keys;
+            for (WORD g = 0; g < info->Processor.GroupCount; ++g) {
+                const GROUP_AFFINITY &ga = info->Processor.GroupMask[g];
+                for (int bit = 0; bit < int(sizeof(KAFFINITY) * 8); ++bit) {
+                    if ((ga.Mask >> bit) & 1u)
+                        keys.push_back(windowsKey(ga.Group, bit));
+                }
+            }
+            cores.push_back(std::move(keys));
+        }
+        offset += info->Size;
+    }
+    return cores;
+}
+
+} // namespace
+#endif
+
+std::vector<CoreCandidate> topCandidatesForSingleThread()
+{
+#if defined(__linux__)
+    return linuxTopCandidates("/sys", linuxAllowedCpus());
+#elif defined(_WIN32)
+    return windowsTopCandidates(windowsCpuSetRecords(), windowsPhysicalCores());
+#else
+    return {};
+#endif
+}
+
+IdleSample sampleIdle()
+{
+#if defined(__linux__)
+    std::ifstream in("/proc/stat");
+    std::ostringstream text;
+    text << in.rdbuf();
+    return parseProcStatIdle(text.str());
+#elif defined(_WIN32)
+    IdleSample idle;
+    const WORD groups = GetActiveProcessorGroupCount();
+    for (WORD g = 0; g < groups; ++g) {
+        std::vector<ULONG64> cycles(64);
+        ULONG size = ULONG(cycles.size() * sizeof(ULONG64));
+        if (!QueryIdleProcessorCycleTimeEx(g, &size, cycles.data()))
+            continue;
+        for (ULONG i = 0; i < size / sizeof(ULONG64); ++i)
+            idle[windowsKey(g, int(i))] = cycles[i];
+    }
+    return idle;
+#else
+    return {};
+#endif
+}
+
+CoreChoice bestCoreForSingleThread()
+{
+#if defined(__linux__)
+    return rankLinuxCores("/sys", linuxAllowedCpus());
+#elif defined(_WIN32)
+    return rankWindowsCpuSets(windowsCpuSetRecords());
 #else
     return {};
 #endif

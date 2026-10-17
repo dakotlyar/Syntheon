@@ -16,8 +16,17 @@
 //
 // The rankers are pure functions over a sysfs tree / CPU-set records, so the
 // tests feed them fixtures and mocked data.
+//
+// Several cores often tie at the top (Knowhere: CPUs 0, 5, 12 and 17 at
+// highest_perf 216). Decision D (2026-10-17): before each single-thread
+// repetition the engine samples idle time for 250 ms and pins to the tied
+// core whose physical core (both SMT threads, or the core itself without SMT)
+// was idle the most, so a background program on one of them doesn't share
+// the core with the measurement. The tie set and the choice are pure
+// functions too; only the samples are live.
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -56,5 +65,50 @@ CoreChoice rankWindowsCpuSets(const std::vector<CpuSetRecord> &records);
 
 // This machine: the platform's ranker on the live data.
 CoreChoice bestCoreForSingleThread();
+
+// --- The top tie set and the quietest core in it (decision D) ---
+
+// A core tied at the top of the ranking, and the logical CPUs of its
+// physical core (itself included), as keys into an IdleSample.
+struct CoreCandidate {
+    CoreChoice core;
+    std::vector<int> smtKeys;
+};
+
+// Cumulative idle time per logical CPU, by key. Linux: CPU number -> idle +
+// iowait jiffies (/proc/stat); Windows: windowsKey(group, index) -> idle
+// cycles (QueryIdleProcessorCycleTimeEx). Only differences between two
+// samples mean anything.
+using IdleSample = std::map<int, std::uint64_t>;
+constexpr int windowsKey(int group, int logicalIndex) { return group * 64 + logicalIndex; }
+
+// Linux: every CPU tied at the top of rankLinuxCores' ranking (same source,
+// same value), lowest number first, each with its SMT siblings from
+// cpuN/topology/thread_siblings_list (just itself when that file is missing).
+// Empty when there is no ranking. The first one is rankLinuxCores' choice.
+std::vector<CoreCandidate> linuxTopCandidates(const std::string &sysfsRoot, const std::vector<int> &allowed);
+// The idle column sums of /proc/stat's "cpuN" lines (fields 4 and 5: idle
+// and iowait).
+IdleSample parseProcStatIdle(const std::string &procStat);
+
+// Windows: every CPU set tied at the top of rankWindowsCpuSets' ranking
+// (unparked, EfficiencyClass, SchedulingClass), lowest group and index first,
+// so a hybrid CPU stays on its P-cores. `cores` lists each physical core's
+// logical processors as windowsKey()s (GetLogicalProcessorInformationEx,
+// RelationProcessorCore); a processor in none of them is a core of its own.
+// The first one is rankWindowsCpuSets' choice.
+std::vector<CoreCandidate> windowsTopCandidates(const std::vector<CpuSetRecord> &records,
+                                                const std::vector<std::vector<int>> &cores);
+
+// The candidate whose physical core was idle the most between the two
+// samples (summed over its SMT keys; a key missing from either sample counts
+// as never idle). Ties: the earlier candidate. Unranked if there are none.
+CoreChoice quietestCandidate(const std::vector<CoreCandidate> &candidates, const IdleSample &before,
+                             const IdleSample &after);
+
+// This machine: the platform's tie set (empty: no ranking), and an idle
+// sample of every logical CPU (empty where the platform has none).
+std::vector<CoreCandidate> topCandidatesForSingleThread();
+IdleSample sampleIdle();
 
 } // namespace sb::isa
