@@ -16,8 +16,10 @@
 #   Windows x64      VC-WIN64A; NASM assembles the AES-NI / SHA-NI / VAES code
 #   Windows ARM64    VC-WIN64-CLANGASM-ARM: cl compiles, clang-cl assembles
 #                    (the stock VC-WIN64-ARM has no assembly at all, N4)
-# All with the hardened minimal options of P17. The Windows armcap patch (D5)
-# is applied on every target (cmake/openssl/patch-win-armcap.cmake).
+# All with the hardened minimal options of P17. Two small Windows patches are
+# applied on every target: the armcap override (D5,
+# cmake/openssl/patch-win-armcap.cmake) and the uninitialised registry handle
+# in get_windows_regdirs (AP-5 L9, cmake/openssl/patch-win-defaults.cmake).
 #
 # The build is installed into SYNBENCH_OPENSSL_ROOT (default <build>/openssl)
 # with a stamp file naming everything that went into it. A configure that
@@ -119,7 +121,9 @@ else()
 endif()
 
 # --- the stamp: everything that decides the build --------------------------
-file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-armcap.cmake" _ossl_patch_sha)
+file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-armcap.cmake" _ossl_patch_armcap)
+file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-defaults.cmake" _ossl_patch_defaults)
+set(_ossl_patch_sha "${_ossl_patch_armcap} ${_ossl_patch_defaults}")
 set(_ossl_tool "")
 if(_ossl_tool_version_cmd)
     execute_process(COMMAND ${_ossl_tool_version_cmd} OUTPUT_VARIABLE _ossl_tool ERROR_VARIABLE _ossl_tool_err
@@ -191,6 +195,7 @@ else()
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         PREFIX "${_ossl_prefix}"
         PATCH_COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=<SOURCE_DIR> -P "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-armcap.cmake"
+            COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=<SOURCE_DIR> -P "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-defaults.cmake"
         CONFIGURE_COMMAND "${CMAKE_COMMAND}" -E env ${_ossl_env}
             "${SYNBENCH_PERL}" <SOURCE_DIR>/Configure ${_ossl_target} ${_ossl_args}
             "--prefix=${_ossl_baked}" "--openssldir=${_ossl_baked}/ssl" --libdir=lib
