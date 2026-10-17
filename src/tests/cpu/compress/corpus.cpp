@@ -86,8 +86,14 @@ public:
         Xoshiro256ss rng(0x564F434142ull);  // "VOCAB"
         std::array<std::string, 96> syllables;
         for (std::string &s : syllables) {
-            s = std::string(onsets[rng.below(onsets.size())]) + std::string(vowels[rng.below(vowels.size())])
-                + std::string(codas[rng.below(codas.size())]);
+            // One draw per statement: the order of operands in one expression
+            // is unspecified (GCC and Clang differ), and the order of draws is
+            // part of the corpus. This order (coda, vowel, onset) is the one
+            // the committed golden CRC was made with.
+            const std::uint64_t coda = rng.below(codas.size());
+            const std::uint64_t vowel = rng.below(vowels.size());
+            const std::uint64_t onset = rng.below(onsets.size());
+            s = std::string(onsets[onset]) + std::string(vowels[vowel]) + std::string(codas[coda]);
         }
         for (std::string &w : m_words) {
             const std::uint64_t n = 1 + rng.below(4);
@@ -96,7 +102,11 @@ public:
         }
     }
     // Zipf-like: index below(below(N) + 1) favours the first words, as real text does.
-    const std::string &pick(Xoshiro256ss &rng) const { return m_words[rng.below(rng.below(m_words.size()) + 1)]; }
+    const std::string &pick(Xoshiro256ss &rng) const
+    {
+        const std::uint64_t range = rng.below(m_words.size()) + 1;
+        return m_words[rng.below(range)];
+    }
 
 private:
     std::array<std::string, 2048> m_words;
@@ -189,7 +199,9 @@ void binary(Writer &w, Xoshiro256ss &rng, std::size_t block)
         w.putLe(rng.below(64), 2);
         w.putLe(std::uint16_t(std::int16_t(value)), 2);
         w.putLe(++counter, 4);
-        w.putLe(rng.below(4) == 0 ? rng.below(256) : 0, 4);
+        const bool flagged = rng.below(4) == 0;
+        const std::uint64_t flags = flagged ? rng.below(256) : 0;
+        w.putLe(flags, 4);
     }
 }
 

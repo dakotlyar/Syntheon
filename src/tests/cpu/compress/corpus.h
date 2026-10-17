@@ -16,6 +16,11 @@
 //   10%  incompressible random bytes
 // The golden value is the CRC-32 (zlib's crc32()) of the whole corpus
 // (golden/corpus.inc): it catches PRNG or generator drift between platforms.
+//
+// Determinism rule for every generator and kernel input: at most one PRNG
+// draw per expression (one per statement, into a named local). C++ leaves
+// the evaluation order of most operands unspecified, so `f(rng.next()) +
+// g(rng.next())` gives different data with different compilers.
 
 #include <cstddef>
 #include <cstdint>

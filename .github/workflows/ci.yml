@@ -90,6 +90,17 @@ jobs:
       - name: Unit tests
         run: ctest --preset linux-x64-release --output-on-failure
 
+      # §6.4: the golden tables must not depend on the compiler. The GCC build
+      # above checked them (ctest cpu_golden_tables); this builds the
+      # generator with Clang and checks again (an unspecified evaluation
+      # order once gave Clang a different corpus).
+      - name: Golden tables, Clang build
+        run: |
+          cmake -S . -B build/clang-golden -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
+          cmake --build build/clang-golden --target synbench-cpu-golden
+          build/clang-golden/bin/synbench-cpu-golden --check src/tests/cpu/golden
+
       # §10 smoke launch: loads the UI, runs every stub fast against a
       # temporary history (no elevation) and exits 0.
       - name: Smoke launch

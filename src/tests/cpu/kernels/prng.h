@@ -6,6 +6,10 @@
 // fully specified, so every OS, compiler and CPU produces the same stream;
 // the standard library's engines and distributions are not used anywhere in
 // the CPU test, because their output differs between implementations.
+//
+// Use: at most one draw per expression (named locals, one per statement).
+// The order of operands within one expression is unspecified in C++, so two
+// draws in one `a + b` come out in a compiler-dependent order.
 
 #include <cstdint>
 
