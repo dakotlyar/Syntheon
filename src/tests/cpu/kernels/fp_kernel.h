@@ -2,7 +2,7 @@
 #pragma once
 
 // The floating-point kernel (Phase 2 design §5.2): `fp.rate`, and `single.fp`
-// on one pinned thread. One unit, for a seed s in 0..63, is 65536 rounds of:
+// on one pinned thread. One unit, for a seed s in 0..63, is 131072 rounds (about 2 ms on Knowhere, §4.5) of:
 //
 //   FP64  8 independent chains, 4 steps each of the logistic map in Horner
 //         form, z = (z * -0.925 + 3.7) * z (3 FLOPs), which stays in about
@@ -23,8 +23,8 @@
 
 namespace sb::cpu {
 
-inline constexpr std::uint64_t kFpRounds = 65536;
-inline constexpr std::uint64_t kFpOpsPerUnit = kFpRounds * (8 * 4 * 3 + 4 + 8 * 4 * 3);  // 12845056
+inline constexpr std::uint64_t kFpRounds = 131072;
+inline constexpr std::uint64_t kFpOpsPerUnit = kFpRounds * (8 * 4 * 3 + 4 + 8 * 4 * 3);  // 25690112
 
 std::uint64_t fpUnit(std::uint64_t seed);
 
