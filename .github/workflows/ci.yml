@@ -5,7 +5,19 @@ on:
     branches: [main, 'phase-*']
   pull_request:
     branches: [main]
+  # A manual run can be cut down to the Windows x64 job, and its unit tests to
+  # a ctest -R regex, for quick feedback on Windows-only failures:
+  #   gh workflow run ci.yml --ref <branch> -f windows_only=true -f ctest_regex='^(tst_cpu_engine|openssl_config)$'
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Run only the windows-x64 job
+        type: boolean
+        default: false
+      ctest_regex:
+        description: "windows-x64: run only the unit tests matching this ctest -R regex (empty: all)"
+        type: string
+        default: ""
   # release.yml runs the same jobs on a tag, then publishes their artifacts.
   workflow_call:
 
@@ -13,8 +25,10 @@ on:
 permissions:
   contents: read
 
+# A manual run has a group of its own, so it never cancels the branch's
+# push run (or the other way round).
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -26,6 +40,8 @@ env:
 
 jobs:
   linux-x64:
+    # inputs is empty outside a manual run, so this is true there.
+    if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
@@ -217,7 +233,16 @@ jobs:
           bash packaging/checks/no-test-binaries.sh stage
 
       - name: Unit tests
-        run: ctest --preset windows-x64-release --output-on-failure
+        shell: pwsh
+        env:
+          CTEST_REGEX: ${{ inputs.ctest_regex }}
+        run: |
+          if ($env:CTEST_REGEX) {
+            ctest --preset windows-x64-release --output-on-failure -R $env:CTEST_REGEX
+          } else {
+            ctest --preset windows-x64-release --output-on-failure
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # §10 smoke launch (a GUI exe). run-smoke.ps1 cannot hang: the Windows error
       # mode turns a missing DLL into an immediate exit code instead of a dialog,
@@ -263,6 +288,7 @@ jobs:
   # makes an installer.
 
   package-linux-x64:
+    if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
@@ -409,6 +435,7 @@ jobs:
           if-no-files-found: error
 
   package-windows-x64:
+    if: ${{ !inputs.windows_only }}
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v5
@@ -593,6 +620,7 @@ jobs:
   # Cross builds (D13): nothing here is ever executed. The static checks
   # (P27) are the whole validation until someone runs the result.
   package-windows-arm64:
+    if: ${{ !inputs.windows_only }}
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v5
@@ -746,6 +774,7 @@ jobs:
           if-no-files-found: error
 
   linux-arm64-cross:
+    if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-24.04
     env:
       SYSROOT: ${{ github.workspace }}/sysroot-arm64
@@ -866,6 +895,7 @@ jobs:
           if-no-files-found: error
 
   lint:
+    if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
