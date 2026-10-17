@@ -35,6 +35,28 @@ bool spreadOverProcessorGroups(int index, int count);
 // so an unfocused SynBench isn't moved onto E-cores. Elsewhere, nothing.
 void optOutOfPowerThrottlingForThisThread();
 
+// Windows: the calling thread runs at THREAD_PRIORITY_HIGHEST while this
+// object lives, then at its old priority. For the engine's coordinator: it
+// sleeps almost all the time, but when its 50 ms poll or a worker's "done"
+// wakes it, it must run at once, also when every CPU is busy with
+// normal-priority threads (its own workers included), which on Windows can
+// otherwise hold it off for a whole quantum (about 190 ms on Windows Server)
+// and break the 250 ms Stop contract. Elsewhere, nothing: raising a thread's
+// priority on Linux needs privileges.
+class ScopedRaisedThreadPriority
+{
+public:
+    ScopedRaisedThreadPriority();
+    ~ScopedRaisedThreadPriority();
+    ScopedRaisedThreadPriority(const ScopedRaisedThreadPriority &) = delete;
+    ScopedRaisedThreadPriority &operator=(const ScopedRaisedThreadPriority &) = delete;
+
+private:
+    // Used on Windows only.
+    [[maybe_unused]] int m_old = 0;
+    [[maybe_unused]] bool m_raised = false;
+};
+
 // Windows (P5): the process opts out of power throttling while this object
 // lives, then goes back to the system's default. Elsewhere, nothing.
 class ScopedProcessPowerThrottlingOptOut

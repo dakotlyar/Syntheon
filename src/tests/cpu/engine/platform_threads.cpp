@@ -116,6 +116,23 @@ void optOutOfPowerThrottlingForThisThread()
 #endif
 }
 
+ScopedRaisedThreadPriority::ScopedRaisedThreadPriority()
+{
+#if defined(_WIN32)
+    m_old = GetThreadPriority(GetCurrentThread());
+    m_raised = m_old != THREAD_PRIORITY_ERROR_RETURN && m_old < THREAD_PRIORITY_HIGHEST
+               && SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST) != 0;
+#endif
+}
+
+ScopedRaisedThreadPriority::~ScopedRaisedThreadPriority()
+{
+#if defined(_WIN32)
+    if (m_raised)
+        SetThreadPriority(GetCurrentThread(), m_old);
+#endif
+}
+
 ScopedProcessPowerThrottlingOptOut::ScopedProcessPowerThrottlingOptOut()
 {
 #if defined(_WIN32)

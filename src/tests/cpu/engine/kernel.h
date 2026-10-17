@@ -20,7 +20,8 @@ inline constexpr std::uint64_t kSeeds = 64;
 
 // One worker thread's state for one kernel: its buffers and contexts. Made on
 // the worker thread itself, so the memory is first touched (and placed) there,
-// before any timing (§4.1).
+// before any timing (§4.1). Destroyed on the coordinator, once the worker has
+// finished with it: the destructor mustn't depend on the thread it runs on.
 class KernelThread
 {
 public:

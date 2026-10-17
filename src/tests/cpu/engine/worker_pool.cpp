@@ -118,9 +118,6 @@ void WorkerPool::workerMain(int index)
                 w.nextUnit = 0;
                 w.state = m_kernel->makeThread(index);
                 break;
-            case Job::Release:
-                w.state.reset();
-                break;
             case Job::Window: {
                 w.units = 0;
                 w.seconds = 0;
@@ -209,6 +206,7 @@ void WorkerPool::runJob(Job job, std::chrono::milliseconds length, const std::fu
 Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, const std::function<bool()> &cancelled,
                                 const std::function<void(int window)> &progress)
 {
+    const ScopedRaisedThreadPriority raised;
     Measurement m;
     m_kernel = &kernel;
     bool wasCancelled = false;
@@ -224,8 +222,11 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
         return false;
     };
     const auto finish = [&] {
-        bool unused = false;
-        runJob(Job::Release, {}, {}, unused);
+        // On this thread: every worker is idle (it reported done under the
+        // mutex), and waking each one to do it would put N more wake-ups on
+        // Stop's path.
+        for (Worker &w : m_workers)
+            w.state.reset();
         for (const Worker &w : m_workers)
             m.checksum = m.checksum * kSinkMultiplier + w.sink;
         m_kernel = nullptr;

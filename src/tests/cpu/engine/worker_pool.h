@@ -14,12 +14,17 @@
 //
 // The coordinator is the thread that calls measure() (the CPU test's run()
 // thread). It polls `cancelled` every 50 ms; the workers never call into the
-// test's context. Stop therefore returns within about 150 ms.
+// test's context. Stop therefore returns within about 150 ms: a poll, plus
+// the unit each worker is in. For that to hold when every CPU is busy, the
+// coordinator runs at a raised priority during measure() (Windows; see
+// ScopedRaisedThreadPriority), and once the workers have stopped it frees
+// their kernel state itself rather than waking each of them again.
 //
-// Stop is honoured in the windows only: the per-measurement Prepare (each
-// worker's makeThread()) and Release steps aren't interruptible, so the 250 ms
-// Stop contract also needs makeThread() to be quick (no per-thread copies of
-// large inputs such as the 32 MiB corpus; share them read-only).
+// Stop is honoured in the windows only: the per-measurement Prepare step
+// (each worker's makeThread()) isn't interruptible, so the 250 ms Stop
+// contract also needs makeThread() to be quick (no per-thread copies of large
+// inputs such as the 32 MiB corpus; share them read-only), and so do the
+// KernelThread destructors, which run on the coordinator.
 //
 // Every unit's checksum goes to the kernel's golden check (a mismatch is an
 // Error and ends the measurement) and is folded (multiply-add, which, unlike
@@ -118,7 +123,7 @@ public:
     int placementFailures() const { return m_placementFailures.load(); }
 
 private:
-    enum class Job { None, Prepare, Window, Release, Quit };
+    enum class Job { None, Prepare, Window, Quit };
     struct Worker {
         std::thread thread;
         std::unique_ptr<KernelThread> state;
