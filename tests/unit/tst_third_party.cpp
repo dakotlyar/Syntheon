@@ -41,6 +41,12 @@ class TestThirdParty : public QObject
 private slots:
     void pinnedVersions()
     {
+        // The headers are the pinned ones too, not a system copy (CI-5: lzma.h
+        // came from /usr/include on Linux and didn't exist on Windows).
+        QCOMPARE(QByteArray(ZLIB_VERSION), QByteArray("1.3.2"));
+        QCOMPARE(QByteArray(ZSTD_VERSION_STRING), QByteArray("1.5.7"));
+        QCOMPARE(LZ4_VERSION_NUMBER, 11000);
+        QCOMPARE(QByteArray(LZMA_VERSION_STRING), QByteArray("5.8.4"));
         QCOMPARE(QByteArray(zlibVersion()), QByteArray("1.3.2"));
         QCOMPARE(QByteArray(ZSTD_versionString()), QByteArray("1.5.7"));
         QCOMPARE(QByteArray(LZ4_versionString()), QByteArray("1.10.0"));

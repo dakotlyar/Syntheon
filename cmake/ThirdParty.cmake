@@ -121,6 +121,12 @@ foreach(_tgt zlibstatic libzstd_static lz4_static liblzma)
     set_target_properties(${_tgt} PROPERTIES COMPILE_OPTIONS "${_opts}")
 endforeach()
 
+# xz's CMake gives liblzma's public headers only an install interface, so a
+# consumer found lzma.h only where the system has one (Linux): the system's
+# header with the pinned library, and no header at all on Windows. The build
+# interface is added here (SYSTEM, like the other libraries' headers).
+target_include_directories(liblzma SYSTEM INTERFACE "$<BUILD_INTERFACE:${synbench_xz_SOURCE_DIR}/src/liblzma/api>")
+
 add_library(synbench::zlib ALIAS zlibstatic)
 add_library(synbench::zstd ALIAS libzstd_static)
 add_library(synbench::lz4 ALIAS lz4_static)
