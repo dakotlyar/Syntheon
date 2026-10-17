@@ -130,16 +130,27 @@ add_test(NAME cpu_kernel_flags
     COMMAND "${CMAKE_COMMAND}" "-DCOMMANDS=${PROJECT_BINARY_DIR}/compile_commands.json" -DCOMPILER=${_k_compiler}
             "-DSCALAR=${_k_scalar}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckKernelFlags.cmake")
 # ...and SB_NO_VECTOR (MSVC's loop pragma) is always followed by a classic
-# loop, with a planted range-for that must fail.
+# loop, anywhere under src/; planted range-fors (on the next line, on the
+# same line, with an init-statement) must each fail.
 add_test(NAME cpu_no_vector_pragmas
-    COMMAND "${CMAKE_COMMAND}" "-DFILES=${_k_scalar}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckNoVectorPragmas.cmake")
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/planted-flags/range_for.cpp"
-     "void f(float (&c)[4])\n{\n    SB_NO_VECTOR\n    for (float &x : c)\n        x = 0;\n}\n")
-add_test(NAME cpu_no_vector_pragmas_rejects_planted
-    COMMAND "${CMAKE_COMMAND}" "-DFILES=${CMAKE_CURRENT_BINARY_DIR}/planted-flags/range_for.cpp"
-            -P "${PROJECT_SOURCE_DIR}/cmake/CheckNoVectorPragmas.cmake")
-set_tests_properties(cpu_no_vector_pragmas_rejects_planted PROPERTIES
-    PASS_REGULAR_EXPRESSION "range_for\\.cpp: SB_NO_VECTOR is followed by")
+    COMMAND "${CMAKE_COMMAND}" "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckNoVectorPragmas.cmake")
+set_tests_properties(cpu_no_vector_pragmas PROPERTIES FAIL_REGULAR_EXPRESSION " 0 SB_NO_VECTOR site")
+foreach(_planted next_line same_line init_statement)
+    if(_planted STREQUAL "next_line")
+        set(_body "    SB_NO_VECTOR\n    for (float &x : c)\n        x = 0;\n")
+    elseif(_planted STREQUAL "same_line")
+        set(_body "    SB_NO_VECTOR for (float &x : c)\n        x = 0;\n")
+    else()
+        set(_body "    SB_NO_VECTOR\n    for (int i = 0; float &x : c)\n        x = float(i++);\n")
+    endif()
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/planted-flags/range_for_${_planted}.cpp"
+         "void f(float (&c)[4])\n{\n${_body}}\n")
+    add_test(NAME cpu_no_vector_pragmas_rejects_${_planted}
+        COMMAND "${CMAKE_COMMAND}" "-DFILES=${CMAKE_CURRENT_BINARY_DIR}/planted-flags/range_for_${_planted}.cpp"
+                -P "${PROJECT_SOURCE_DIR}/cmake/CheckNoVectorPragmas.cmake")
+    set_tests_properties(cpu_no_vector_pragmas_rejects_${_planted} PROPERTIES
+        PASS_REGULAR_EXPRESSION "range_for_${_planted}\\.cpp: SB_NO_VECTOR is followed by")
+endforeach()
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/planted-flags/compile_commands.json"
      "[{\"directory\": \"/b\", \"file\": \"/s/planted.cpp\", \"command\": \"c++ -O2 -fno-tree-vectorize -ffp-contract=off -O3 -c /s/planted.cpp\"}]\n")
 add_test(NAME cpu_kernel_flags_rejects_planted
