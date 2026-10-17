@@ -86,6 +86,22 @@ private slots:
         QCOMPARE(c.crc, golden::kCorpusCrc32);
         QCOMPARE(c.crc, crc32Of(c.bytes));
         QCOMPARE(c.blockCrc[5], crc32Of(c.block(5)));
+        QCOMPARE(c.blockHash[5], blockHash(c.block(5)));
+    }
+
+    // §5.4: the decompression check's hash, against an independent Python
+    // implementation (integers only: the same on every compiler).
+    void blockHashKnownAnswers()
+    {
+        std::uint8_t bytes[100];
+        for (int i = 0; i < 100; ++i)
+            bytes[i] = std::uint8_t(i);
+        QCOMPARE(blockHash(bytes), 0x67003CCCB003A004ull);  // three full 32-byte steps and a 4-byte tail
+        QCOMPARE(blockHash(corpus().block(0)), 0x7CF69545590FD82Bull);
+        QCOMPARE(corpus().blockHash[0], 0x7CF69545590FD82Bull);
+        std::vector<std::uint8_t> changed(corpus().block(0).begin(), corpus().block(0).end());
+        changed[123456] ^= 0x10;
+        QVERIFY(blockHash(changed) != corpus().blockHash[0]);
     }
 
     void labels()

@@ -7,8 +7,9 @@
 // `single.compress`.
 //
 //   CorpusData           the 32 MiB corpus (made once, shared read-only by
-//                        every thread: never copied per thread, L6) and its
-//                        CRC-32 (golden::kCorpusCrc32)
+//                        every thread: never copied per thread, L6), its
+//                        CRC-32 (golden::kCorpusCrc32), and each block's
+//                        blockHash(), made with it
 //   CompressKernel       a unit compresses block b = unit index mod 128;
 //                        its compressed size is compared with
 //                        golden/compress.inc, a mismatch counted as a
@@ -16,13 +17,14 @@
 //                        confirmed in CI)
 //   compressCorpus()     the unscored prep step: all 128 blocks compressed in
 //                        parallel, for the decompress units and the ratio
-//   DecompressKernel     a unit decompresses block b of that set; the output
-//                        must equal the original block byte for byte (an
-//                        Error if not; Dave, 2026-10-17: not a CRC-32, which
-//                        cost as much as LZ4's decompression)
+//   DecompressKernel     a unit decompresses block b of that set; the output's
+//                        blockHash() must be the original block's (an Error
+//                        if not; Dave, 2026-10-17: a 4-lane hash, not a
+//                        CRC-32, which cost as much as LZ4's decompression,
+//                        nor a byte compare with the shared corpus)
 //   SingleCompressKernel one unit compresses block b with each codec in turn
-//                        and decompresses that output (each compared with the
-//                        original, as above), each of the 8 calls
+//                        and decompresses that output (each checked by its
+//                        hash, as above), each of the 8 calls
 //                        timed on its own; the window's rate is the geometric
 //                        mean of the 8 (bytes / that call's total time), so
 //                        xz's slow compression doesn't decide it alone
@@ -44,12 +46,18 @@ namespace sb::cpu {
 struct CorpusData {
     std::vector<std::uint8_t> bytes;                  // kCorpusSize
     std::array<std::uint32_t, kCorpusBlocks> blockCrc{};  // zlib crc32() of each block (for crc)
+    std::array<std::uint64_t, kCorpusBlocks> blockHash{};  // blockHash() of each block
     std::uint32_t crc = 0;                            // of the whole corpus (golden::kCorpusCrc32)
     std::span<const std::uint8_t> block(std::size_t b) const
     {
         return std::span(bytes).subspan(b * kCorpusBlockSize, kCorpusBlockSize);
     }
 };
+// The decompression check (§5.4): four multiply-xor lanes over 8-byte words,
+// about 10 us per 256 KiB block on Knowhere. Integers only, the same on every
+// compiler and platform (all little-endian).
+std::uint64_t blockHash(std::span<const std::uint8_t> data);
+
 // Generates the corpus on `threads` threads and checksums it.
 CorpusData makeCorpusData(int threads);
 

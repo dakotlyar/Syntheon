@@ -52,16 +52,39 @@ std::uint32_t crcOf(std::span<const std::uint8_t> data)
     return std::uint32_t(crc32(0L, data.data(), uInt(data.size())));
 }
 
-// §5.4 (Dave, 2026-10-17): a decompressed block is compared with the
-// original byte for byte (not by CRC-32, which cost as much as LZ4's
-// decompression itself). 0 if they are equal, else 1 + the block number.
-std::uint64_t mismatch(std::span<const std::uint8_t> got, std::span<const std::uint8_t> original, std::size_t b)
+// The single-thread unit's golden value: its four decompressed blocks'
+// hashes folded in codec order, all four the original block's.
+std::uint64_t foldFour(std::uint64_t hash)
 {
-    const bool same = got.size() == original.size() && std::memcmp(got.data(), original.data(), got.size()) == 0;
-    return same ? 0 : 1 + b;
+    std::uint64_t sum = 0;
+    for (std::size_t i = 0; i < kCodecCount; ++i)
+        sum = foldChecksum(sum, hash);
+    return sum;
 }
 
 } // namespace
+
+std::uint64_t blockHash(std::span<const std::uint8_t> data)
+{
+    // Four independent multiply-xor lanes over 8-byte words (little-endian
+    // loads: every SynBench platform is little-endian), then the tail bytes.
+    constexpr std::uint64_t k = 0x9E3779B97F4A7C15ull;
+    std::uint64_t h[4] = {1, 2, 3, 4};
+    const std::uint8_t *p = data.data();
+    const std::size_t n = data.size();
+    std::size_t i = 0;
+    for (; i + 32 <= n; i += 32) {
+        std::uint64_t w[4];
+        std::memcpy(w, p + i, 32);
+        h[0] = (h[0] ^ w[0]) * k;
+        h[1] = (h[1] ^ w[1]) * k;
+        h[2] = (h[2] ^ w[2]) * k;
+        h[3] = (h[3] ^ w[3]) * k;
+    }
+    for (; i < n; ++i)
+        h[0] = (h[0] ^ p[i]) * k;
+    return foldChecksum(foldChecksum(foldChecksum(foldChecksum(n, h[0]), h[1]), h[2]), h[3]);
+}
 
 CorpusData makeCorpusData(int threads)
 {
@@ -70,6 +93,7 @@ CorpusData makeCorpusData(int threads)
     c.crc = std::uint32_t(crc32(0L, Z_NULL, 0));
     for (std::size_t b = 0; b < kCorpusBlocks; ++b) {
         c.blockCrc[b] = crcOf(c.block(b));
+        c.blockHash[b] = blockHash(c.block(b));
         c.crc = std::uint32_t(crc32_combine(c.crc, c.blockCrc[b], z_off_t(kCorpusBlockSize)));
     }
     return c;
@@ -197,16 +221,16 @@ std::unique_ptr<KernelThread> DecompressKernel::makeThread(int) const
         {
             const std::size_t b = std::size_t(unitIndex % kCorpusBlocks);
             ctx.decompress(set->blocks[b], out);
-            // §5.4: every decompressed block against the original, byte for byte.
-            return mismatch(out, corpus->block(b), b);
+            // §5.4: every decompressed block's hash against the original's.
+            return blockHash(out);
         }
     };
     return std::make_unique<T>(&m_set, &m_corpus);
 }
 
-std::optional<std::uint64_t> DecompressKernel::golden(std::uint64_t) const
+std::optional<std::uint64_t> DecompressKernel::golden(std::uint64_t seed) const
 {
-    return 0;  // no block differs from its original
+    return m_corpus.blockHash[std::size_t(seed % kCorpusBlocks)];
 }
 
 // --- the single-thread mixed unit ---------------------------------------------
@@ -266,7 +290,7 @@ std::unique_ptr<KernelThread> SingleCompressKernel::makeThread(int) const
                 bytes[2 * i + 1] += double(kCorpusBlockSize);
                 if (*n != goldenCompressedSize(c.codec(), b))
                     ++k->m_sizeMismatches;
-                sum += mismatch(unpacked, block, b);
+                sum = foldChecksum(sum, blockHash(unpacked));
             }
             return sum;
         }
@@ -274,9 +298,9 @@ std::unique_ptr<KernelThread> SingleCompressKernel::makeThread(int) const
     return std::make_unique<T>(this);
 }
 
-std::optional<std::uint64_t> SingleCompressKernel::golden(std::uint64_t) const
+std::optional<std::uint64_t> SingleCompressKernel::golden(std::uint64_t seed) const
 {
-    return 0;  // all four round trips gave the original block
+    return foldFour(m_corpus.blockHash[std::size_t(seed % kCorpusBlocks)]);
 }
 
 } // namespace sb::cpu
