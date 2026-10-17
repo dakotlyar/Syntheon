@@ -106,16 +106,34 @@ TestCase {
         Compare.setBaseline(older)
         compare(Compare.baselineUuid, older)
         tick()
-        // Zeb: a run without a test's score draws no bar (it was a 2 px stub).
-        // One run has only CPU, the other only RAM: each test row has one empty.
-        const bars = allNamed(c, "bar")
-        verify(bars.length >= 4, "bars: " + bars.length)
+        // Zeb: a run without a test's score leaves its bar's slot empty, and
+        // every other bar stays in its run's slot. One run has only CPU, the
+        // other only RAM: in each test row one slot is empty.
+        const slots = allSlots(c)
+        verify(slots.length >= 2, "bar rows: " + slots.length)
         let empty = 0
-        for (const b of bars) {
-            if (b.width === 0) ++empty
-            else verify(b.width >= 2)
+        for (const row of slots) {
+            compare(row.length, Compare.runs.length)
+            for (let i = 0; i < row.length; ++i) {
+                // slot i of every row at the same offset: i x (6 + 3 spacing)
+                compare(row[i].y, i * 9)
+                const bar = findChild(row[i], "bar")
+                if (!bar.visible) ++empty
+                else verify(bar.width >= 2)
+            }
         }
-        verify(empty >= 2, "empty bars: " + empty)
+        verify(empty >= 2, "empty slots: " + empty)
+    }
+
+    // The bar slots of each relative-bars cell, in run order.
+    function allSlots(item) {
+        let out = []
+        const mine = []
+        for (let i = 0; i < item.children.length; ++i)
+            if (item.children[i].objectName === "barSlot") mine.push(item.children[i])
+        if (mine.length > 0 && item.visible) out.push(mine.sort((a, b) => a.index - b.index))
+        for (let i = 0; i < item.children.length; ++i) out = out.concat(allSlots(item.children[i]))
+        return out
     }
 
     function test_4_openShowsResults() {

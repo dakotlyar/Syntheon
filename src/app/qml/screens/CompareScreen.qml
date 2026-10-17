@@ -210,15 +210,24 @@ ScreenFrame {
                         spacing: 3
                         Repeater {
                             model: cell.modelData.kind === "bars" ? cell.modelData.bars : []
-                            delegate: Rectangle {
+                            // One full-width slot per run, always there (a Column
+                            // skips zero-width items), so the bars keep their run's
+                            // position; a missing value (0) leaves its slot empty.
+                            delegate: Item {
+                                id: barSlot
                                 required property real modelData
                                 required property int index
-                                height: 6; radius: 3
-                                // A missing value (0) draws nothing; the row keeps its height.
-                                objectName: "bar"
-                                width: modelData > 0 ? Math.max(2, barColumn.width * modelData) : 0
-                                color: root.runs[index] && root.runs[index].baseline ? Theme.accent : Theme.muted
-                                opacity: root.runs[index] && root.runs[index].baseline ? 1 : 0.55
+                                objectName: "barSlot"
+                                width: barColumn.width
+                                height: 6
+                                Rectangle {
+                                    objectName: "bar"
+                                    visible: barSlot.modelData > 0
+                                    height: parent.height; radius: 3
+                                    width: Math.max(2, barColumn.width * barSlot.modelData)
+                                    color: root.runs[barSlot.index] && root.runs[barSlot.index].baseline ? Theme.accent : Theme.muted
+                                    opacity: root.runs[barSlot.index] && root.runs[barSlot.index].baseline ? 1 : 0.55
+                                }
                             }
                         }
                     }
