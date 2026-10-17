@@ -16,6 +16,13 @@
 
 #include <QTest>
 
+#if defined(Q_OS_WIN)
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <time.h>
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <string>
@@ -93,17 +100,37 @@ std::vector<sb::isa::SimdPath> runnableSimdPaths()
     return out;
 }
 
-// The fastest of `tries` runs of fn() (the least disturbed one).
-template <typename Fn>
-Clock::duration fastest(int tries, Fn &&fn)
+// This thread's CPU time (user + kernel), in seconds.
+double threadCpuSeconds()
 {
-    Clock::duration best = Clock::duration::max();
-    for (int i = 0; i < tries; ++i) {
-        const auto t0 = Clock::now();
+#if defined(Q_OS_WIN)
+    FILETIME created, exited, kernel, user;
+    GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user);
+    const auto ticks = [](const FILETIME &f) { return (std::uint64_t(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
+    return double(ticks(kernel) + ticks(user)) * 1e-7;
+#else
+    timespec ts{};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return double(ts.tv_sec) + double(ts.tv_nsec) * 1e-9;
+#endif
+}
+
+// The CPU time one call of fn() takes on this thread: the average over calls
+// adding up to at least 0.2 s of CPU (Windows counts thread time in 15.6 ms
+// ticks), at least 3 calls. CPU time, not wall time, so a loaded runner that
+// preempts the thread doesn't stretch it (AP-5 L7).
+template <typename Fn>
+Clock::duration cpuPerCall(Fn &&fn)
+{
+    const double start = threadCpuSeconds();
+    int calls = 0;
+    double used = 0;
+    while (calls < 3 || used < 0.2) {
         fn();
-        best = std::min(best, Clock::now() - t0);
+        ++calls;
+        used = threadCpuSeconds() - start;
     }
-    return best;
+    return std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(used / calls));
 }
 
 double msOf(Clock::duration d)
@@ -444,30 +471,30 @@ private slots:
     }
 
     // §4.1: a unit takes at most 100 ms on the slowest supported CPU, so Stop
-    // returns within 250 ms. Here: the fastest of 3 runs, well below that
-    // even on a slow runner (they take about 0.1-2 ms on Knowhere).
+    // returns within 250 ms. Here: its CPU time (about 1-6 ms on Knowhere)
+    // under 25 ms, which leaves a slow runner 4 times Knowhere's margin.
     void unitsAreShort()
     {
         const std::vector<std::uint32_t> base = primesBase();
         std::vector<std::uint64_t> bitset(kPrimesBitsetWords);
-        const Clock::duration ti = fastest(3, [] { intUnit(3); });
-        const Clock::duration tf = fastest(3, [] { fpUnit(3); });
-        const Clock::duration tp = fastest(3, [&] { primesUnit(3, base, bitset.data()); });
+        const Clock::duration ti = cpuPerCall([] { intUnit(3); });
+        const Clock::duration tf = cpuPerCall([] { fpUnit(3); });
+        const Clock::duration tp = cpuPerCall([&] { primesUnit(3, base, bitset.data()); });
         const SimdInputs inputs;
         const SimdChoice c = chooseSimdPath(sb::isa::detect(), inputs);
         const simd::Input in = inputs.forSeed(3);
         simd::Output out{};
-        const Clock::duration ts = fastest(3, [&] { simdUnitFor(c.path)(&in, &out); });
+        const Clock::duration ts = cpuPerCall([&] { simdUnitFor(c.path)(&in, &out); });
         // The slowest path (SSE4.2: multiply + add, 4 lanes) on this CPU.
         const Clock::duration tsse = simdUnitFor(sb::isa::SimdPath::Sse42) && c.path != sb::isa::SimdPath::Sse42
-                                         ? fastest(3, [&] { simdUnitFor(sb::isa::SimdPath::Sse42)(&in, &out); })
+                                         ? cpuPerCall([&] { simdUnitFor(sb::isa::SimdPath::Sse42)(&in, &out); })
                                          : ts;
         const SortInputs sortInputs;
         std::vector<std::uint64_t> keys(kSortKeys);
         std::vector<StrRef> strings(kSortStrings);
-        const Clock::duration tk = fastest(3, [&] { sortKeysUnit(sortInputs.keys(3), keys.data()); });
+        const Clock::duration tk = cpuPerCall([&] { sortKeysUnit(sortInputs.keys(3), keys.data()); });
         const Clock::duration tstr =
-            fastest(3, [&] { sortStringsUnit(sortInputs.strings(3), strings.data(), sortInputs.arena()); });
+            cpuPerCall([&] { sortStringsUnit(sortInputs.strings(3), strings.data(), sortInputs.arena()); });
         qInfo("unit times: integer %.3f ms, FP %.3f ms, primes %.3f ms, SIMD %.3f ms (%s), SIMD %.3f ms (narrowest), "
               "integer sort %.3f ms, string sort %.3f ms",
               msOf(ti), msOf(tf), msOf(tp), msOf(ts), c.label.c_str(), msOf(tsse), msOf(tk), msOf(tstr));

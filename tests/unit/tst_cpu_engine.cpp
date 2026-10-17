@@ -166,8 +166,8 @@ double secondsOf(Clock::duration d)
 //   thread t's last unit, plus 1 ms for the engine's own stamp;
 // - the repetition's length lies in the same bracket, and is at least the
 //   window (nobody stops early);
-// - per thread, at most one unit started after the coordinator's last poll
-//   (the one it can start between that poll and setting stop).
+// - per thread, only the units it can start between the coordinator's last
+//   poll and its setting stop came after that poll (see below).
 QString checkRepetitions(const Measurement &m, const RecordingKernel &k, const std::vector<Clock::time_point> &polls,
                          int threads, Clock::duration window)
 {
@@ -179,40 +179,71 @@ QString checkRepetitions(const Measurement &m, const RecordingKernel &k, const s
         // t's last unit, which the engine stamps right after the kernel's own.
         const Clock::time_point earliest = k.windowStart(r);
         Clock::time_point latest = Clock::time_point::max();
+        // The coordinator's last poll before it set stop: the one at about
+        // the deadline. The polls while the workers drain after stop come a
+        // poll interval (50 ms) or more after it, so polls later than the
+        // deadline + 25 ms don't count. (A pre-stop poll delayed past that
+        // leaves an earlier one as the last: that only widens the allowance
+        // below.)
+        const Clock::time_point cutoff = earliest + window + 25ms;
         Clock::time_point lastPoll = earliest;
         for (const Clock::time_point p : polls) {
-            if (p > earliest && (r == reps || p < k.windowStart(r + 1)))
+            if (p > earliest && p <= cutoff && (r == reps || p < k.windowStart(r + 1)))
                 lastPoll = std::max(lastPoll, p);
         }
         std::uint64_t units = 0;
         std::vector<Clock::time_point> ends;
         std::vector<std::uint64_t> counts;
+        std::vector<int> afterPoll;
+        std::vector<Clock::duration> shortest;
         for (int t = 0; t < threads; ++t) {
             std::uint64_t n = 0;
-            int startedAfterStop = 0;
+            int startedAfterPoll = 0;
             Clock::time_point end = earliest;
+            Clock::duration unitMin = Clock::duration::max();
             for (const RecordingKernel::Unit &u : k.units(t)) {
                 if (u.window != r)
                     continue;
                 ++n;
                 latest = std::min(latest, u.start);
                 end = std::max(end, u.end);
+                unitMin = std::min(unitMin, u.end - u.start);
                 if (u.start > lastPoll)
-                    ++startedAfterStop;
+                    ++startedAfterPoll;
             }
             if (n == 0)
                 return QStringLiteral("thread %1 ran no unit in repetition %2").arg(t).arg(r);
-            // Stop is checked between units: a thread finishes the unit it is
-            // in, and at most one more can start in the instant between the
-            // coordinator's last poll and its setting stop.
-            if (startedAfterStop > 1)
-                return QStringLiteral("thread %1 started %2 units after the stop in repetition %3")
-                    .arg(t)
-                    .arg(startedAfterStop)
-                    .arg(r);
             units += n;
             ends.push_back(end);
             counts.push_back(n);
+            afterPoll.push_back(startedAfterPoll);
+            shortest.push_back(unitMin);
+        }
+        // Stop is checked between units: a thread finishes the unit it is in,
+        // and only units that start between the coordinator's last poll and
+        // its setting stop come after the poll: one, unless the coordinator
+        // was preempted in between (a loaded runner). When stop was set isn't
+        // recorded, but it was before every other thread's last unit ended
+        // (that thread saw it then; 1 ms for the instructions in between), so
+        // thread t may have started 1 + (that gap / its own unit length).
+        if (threads > 1) {
+            for (int t = 0; t < threads; ++t) {
+                Clock::time_point stopBy = Clock::time_point::max();
+                for (int u = 0; u < threads; ++u) {
+                    if (u != t)
+                        stopBy = std::min(stopBy, ends[std::size_t(u)] + 1ms);
+                }
+                const double gap = std::max(0.0, secondsOf(stopBy - lastPoll));
+                const int allowed = 1 + int(gap / secondsOf(shortest[std::size_t(t)]));
+                if (afterPoll[std::size_t(t)] > allowed)
+                    return QStringLiteral("thread %1 started %2 units after the last poll in repetition %3 (at most "
+                                          "%4: stop came within %5 ms of the poll)")
+                        .arg(t)
+                        .arg(afterPoll[std::size_t(t)])
+                        .arg(r)
+                        .arg(allowed)
+                        .arg(gap * 1000, 0, 'f', 1);
+            }
         }
         const double slack = 1e-3;  // the instructions between the kernel's stamp and the engine's
         const Clock::time_point slowestEnd = *std::max_element(ends.begin(), ends.end());
