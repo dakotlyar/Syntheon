@@ -124,4 +124,10 @@ struct DetailLayout {
 // metrics, a table of every metric, and one chart per series.
 DetailLayout genericDetailLayout(const TestResult &result);
 
+// Every N/A test's Detail page (Dave, 2026-10-17): a result whose status is
+// NotAvailable shows one NaStateBlock with the reason, not the test's normal
+// layout (whose fields would all be dashes). A layout that already has its own
+// NaStateBlock (NPU) is kept as the test made it. Other statuses: unchanged.
+DetailLayout withNotAvailableState(DetailLayout layout, const TestResult &result, const QString &testName);
+
 } // namespace sb

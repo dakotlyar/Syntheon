@@ -368,9 +368,10 @@ void ResultsController::buildDetail()
         return;
 
     const ITest *test = m_runController.registry().find(m_detailId);
-    const DetailLayout layout = test ? test->detail(*result) : genericDetailLayout(*result);
     m_detailColor = m_runController.testColor(m_detailId);
     m_detailTitle = m_runController.testName(m_detailId);
+    const DetailLayout layout =
+        withNotAvailableState(test ? test->detail(*result) : genericDetailLayout(*result), *result, m_detailTitle);
     m_detailSubtitle = layout.subtitle;
     m_detailBlocks = buildDetailBlocks(layout, *result, m_detailColor);
     if (source != &*m_run) {

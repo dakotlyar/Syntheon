@@ -5,6 +5,25 @@
 
 namespace sb {
 
+DetailLayout withNotAvailableState(DetailLayout layout, const TestResult &result, const QString &testName)
+{
+    if (result.status != Status::NotAvailable)
+        return layout;
+    for (const DetailBlock &b : std::as_const(layout.blocks)) {
+        if (std::holds_alternative<NaStateBlock>(b.content))
+            return layout;
+    }
+    DetailLayout na;
+    na.subtitle = QStringLiteral("Not available on this machine");
+    na.headlineMetrics = layout.headlineMetrics;
+    const QString title = testName.isEmpty() ? QStringLiteral("This test isn't available here")
+                                             : QStringLiteral("%1 isn't available here").arg(testName);
+    const QString body = result.statusReason.isEmpty() ? QStringLiteral("The test reported that it can't run on this machine.")
+                                                       : result.statusReason;
+    na.blocks.append({{}, NaStateBlock{title, body}});
+    return na;
+}
+
 DetailLayout genericDetailLayout(const TestResult &result)
 {
     DetailLayout layout;

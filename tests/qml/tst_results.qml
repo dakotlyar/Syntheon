@@ -153,6 +153,29 @@ TestCase {
         Fixtures.setStubScale(0.02)
     }
 
+    // Dave 2026-10-17 (Z4): an N/A test's Detail page is the N/A block with
+    // the reason, not its normal layout full of dashes; any test, not just NPU.
+    function test_3c_notAvailableDetailShowsTheReason() {
+        Fixtures.setStubScale(0.02)
+        runAndWait(["ram", "storage"], [["ram", "simulate", "na"]])
+        const screen = createTemporaryObject(screenComponent, test)
+        Results.openRun("")
+        tick()
+        Results.showDetail("ram")
+        tick()
+        const na = findChild(screen, "naStateBlock")
+        verify(na !== null && na.visible)
+        compare(na.block.title, "RAM isn't available here")
+        verify(na.block.body.indexOf("not available") >= 0, na.block.body)
+        compare(Results.detailSubtitle, "Not available on this machine")
+        compare(findChild(screen, "kpiValue"), null)  // no empty KPI cards
+        // A test that ran keeps its own page.
+        Results.showDetail("storage")
+        tick()
+        compare(findChild(screen, "naStateBlock"), null)
+        RunController.setOption("ram", "simulate", "normal")
+    }
+
     function test_4_stoppedRunShowsPartialMarker() {
         Fixtures.setStubScale(0.15)
         RunController.clearSelection()

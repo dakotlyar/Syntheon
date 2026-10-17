@@ -3,9 +3,11 @@ import QtQuick
 import QtQuick.Layouts
 import SynBench
 
-// The "not available" page (NPU): a pill, the headline, why.
+// The "not available" page: a pill, the headline, why. Every N/A test's
+// Detail page is this block (withNotAvailableState in core/detail.cpp).
 Box {
     id: root
+    objectName: "naStateBlock"
 
     property var block
 

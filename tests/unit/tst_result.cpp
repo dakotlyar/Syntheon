@@ -42,6 +42,33 @@ class TestResultTypes : public QObject
     Q_OBJECT
 
 private slots:
+    // Z4: any N/A result gets the N/A block with its reason; an NPU-style
+    // layout that has its own N/A block, and other statuses, are unchanged.
+    void notAvailableDetailState()
+    {
+        DetailLayout normal;
+        normal.subtitle = QStringLiteral("— · — channels");
+        normal.blocks.append({{}, NoteBlock{QStringLiteral("x"), Tone::Neutral}});
+        TestResult na = TestResult::notAvailable(QStringLiteral("No DIMM data"));
+        const DetailLayout d = withNotAvailableState(normal, na, QStringLiteral("RAM"));
+        QCOMPARE(d.subtitle, QStringLiteral("Not available on this machine"));
+        QCOMPARE(d.blocks.size(), 1);
+        const auto *b = std::get_if<NaStateBlock>(&d.blocks[0].content);
+        QVERIFY(b);
+        QCOMPARE(b->title, QStringLiteral("RAM isn't available here"));
+        QCOMPARE(b->body, QStringLiteral("No DIMM data"));
+
+        DetailLayout own;
+        own.blocks.append({{}, NaStateBlock{QStringLiteral("No supported NPU found"), QStringLiteral("why")}});
+        QCOMPARE(withNotAvailableState(own, na, QStringLiteral("NPU")).blocks, own.blocks);
+
+        TestResult ok;
+        ok.status = Status::Ok;
+        QCOMPARE(withNotAvailableState(normal, ok, QStringLiteral("RAM")).blocks, normal.blocks);
+        TestResult error = TestResult::error(QStringLiteral("boom"));
+        QCOMPARE(withNotAvailableState(normal, error, QStringLiteral("RAM")).blocks, normal.blocks);
+    }
+
     void statusStringsRoundTrip()
     {
         const Status all[] = {Status::Ok,        Status::Partial,  Status::NotAvailable, Status::Error,
