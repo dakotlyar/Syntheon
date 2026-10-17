@@ -14,12 +14,14 @@
 //           of prefix with others ("stems"), so comparisons go past the first
 //           word, where the comparator takes 8 bytes at a time
 //
-// One unit = copy the seed's pristine input into the thread's own buffer,
-// then sort it (the copy is timed too: about 2% of the unit). The pristine
-// inputs of all 64 seeds are made once per kernel and shared read-only by the
-// threads (L6: no per-thread copies of large inputs; about 66 MB in all).
-// The checksum hashes the sorted output; golden/sort.inc holds it per seed,
-// and tst_cpu_kernels checks the order against std::sort.
+// One unit = make the seed's input in the thread's own buffer from the
+// seeded PRNG (Dave, 2026-10-17: generated in the unit, no shared pool of
+// per-seed inputs, no copy), then sort it; the generation is timed too (about
+// 3-5% of the unit). u64: 65,536 draws. Strings: 32,768 picks from the
+// arena, which is the one thing shared read-only by every thread (the
+// strings' text and one StrRef per arena string, about 4 MB). The checksum
+// hashes the sorted output; golden/sort.inc holds it per seed, and
+// tst_cpu_kernels checks the order against std::sort.
 
 #include "tests/cpu/engine/kernel.h"
 
@@ -46,44 +48,45 @@ bool strLess(const StrRef &a, const StrRef &b, const char *arena);
 void introsort(std::uint64_t *first, std::uint64_t *last);
 void introsort(StrRef *first, StrRef *last, const char *arena);
 
-class SortInputs
+// The strings every seed's input is drawn from: made once, shared read-only.
+class SortArena
 {
 public:
-    SortInputs();
-    std::span<const std::uint64_t> keys(std::uint64_t seed) const;
-    std::span<const StrRef> strings(std::uint64_t seed) const;
-    const char *arena() const { return m_arena.data(); }
+    SortArena();
+    const char *text() const { return m_text.data(); }  // every string, then 8 zero bytes
+    const StrRef *refs() const { return m_refs.data(); }
+    std::size_t size() const { return m_refs.size(); }
 
 private:
-    std::vector<std::uint64_t> m_keys;  // kSeeds x kSortKeys
-    std::vector<StrRef> m_refs;         // kSeeds x kSortStrings
-    std::vector<char> m_arena;          // every string, then 8 zero bytes
+    std::vector<char> m_text;
+    std::vector<StrRef> m_refs;
 };
 
-// One unit: copies `pristine` into `work` (the same size), sorts it, returns
-// the hash of the sorted output.
-std::uint64_t sortKeysUnit(std::span<const std::uint64_t> pristine, std::uint64_t *work);
-std::uint64_t sortStringsUnit(std::span<const StrRef> pristine, StrRef *work, const char *arena);
+// A seed's input, into `out` (kSortKeys / kSortStrings elements).
+void makeSortKeys(std::uint64_t seed, std::uint64_t *out);
+void makeSortStrings(std::uint64_t seed, const SortArena &arena, StrRef *out);
+
+// One unit: makes the seed's input in `work`, sorts it, returns the hash of
+// the sorted output.
+std::uint64_t sortKeysUnit(std::uint64_t seed, std::uint64_t *work);
+std::uint64_t sortStringsUnit(std::uint64_t seed, const SortArena &arena, StrRef *work);
 
 class SortKeysKernel : public Kernel
 {
 public:
-    explicit SortKeysKernel(const SortInputs &inputs) : m_inputs(inputs) {}
+    SortKeysKernel() = default;
     std::string name() const override { return "Integer sort"; }
     double workPerUnit() const override { return double(kSortKeys); }
     // P14: elements per cycle per thread (it does about 0.005).
     double maxWorkPerCyclePerThread() const override { return 0.1; }
     std::unique_ptr<KernelThread> makeThread(int thread) const override;
     std::optional<std::uint64_t> golden(std::uint64_t seed) const override;
-
-private:
-    const SortInputs &m_inputs;
 };
 
 class SortStringsKernel : public Kernel
 {
 public:
-    explicit SortStringsKernel(const SortInputs &inputs) : m_inputs(inputs) {}
+    explicit SortStringsKernel(const SortArena &arena) : m_arena(arena) {}
     std::string name() const override { return "String sort"; }
     double workPerUnit() const override { return double(kSortStrings); }
     // P14: elements per cycle per thread (it does about 0.002).
@@ -92,7 +95,7 @@ public:
     std::optional<std::uint64_t> golden(std::uint64_t seed) const override;
 
 private:
-    const SortInputs &m_inputs;
+    const SortArena &m_arena;
 };
 
 } // namespace sb::cpu

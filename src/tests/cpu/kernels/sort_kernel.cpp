@@ -196,97 +196,84 @@ void introsort(StrRef *first, StrRef *last, const char *arena)
     introsortRange(first, last, [arena](const StrRef &x, const StrRef &y) { return strLess(x, y, arena); });
 }
 
-SortInputs::SortInputs() : m_keys(kSeeds * kSortKeys), m_refs(kSeeds * kSortStrings)
+SortArena::SortArena() : m_refs(kArenaStrings)
 {
-    // The keys: one stream per seed, one draw per statement.
-    for (std::uint64_t s = 0; s < kSeeds; ++s) {
-        Xoshiro256ss rng(s ^ 0x534F52544B455953ull);  // "SORTKEYS"
-        for (std::size_t i = 0; i < kSortKeys; ++i)
-            m_keys[s * kSortKeys + i] = rng.next();
-    }
-    // The arena: kArenaStrings strings of 4..24 letters, each starting with
-    // (up to 12 letters of) one of kStems stems.
+    // kArenaStrings strings of 4..24 letters, each starting with (up to 12
+    // letters of) one of kStems stems; one draw per statement.
     Xoshiro256ss rng(0x534F525453545253ull);  // "SORTSTRS"
     std::vector<char> stems(kStems * kStemLength);
     for (char &c : stems) {
         const std::uint64_t letter = rng.below(26);
         c = char('a' + letter);
     }
-    std::vector<StrRef> all(kArenaStrings);
-    m_arena.reserve(kArenaStrings * 15 + 8);
-    for (StrRef &r : all) {
+    m_text.reserve(kArenaStrings * 15 + 8);
+    for (StrRef &r : m_refs) {
         const std::uint64_t stem = rng.below(kStems);
         const std::uint64_t len = 4 + rng.below(21);
-        r.offset = std::uint32_t(m_arena.size());
+        r.offset = std::uint32_t(m_text.size());
         r.len = std::uint16_t(len);
         for (std::uint64_t i = 0; i < len; ++i) {
             if (i < kStemLength) {
-                m_arena.push_back(stems[stem * kStemLength + i]);
+                m_text.push_back(stems[stem * kStemLength + i]);
             } else {
                 const std::uint64_t letter = rng.below(26);
-                m_arena.push_back(char('a' + letter));
+                m_text.push_back(char('a' + letter));
             }
         }
         char first8[8] = {};
-        std::memcpy(first8, m_arena.data() + r.offset, len < 8 ? len : 8);
+        std::memcpy(first8, m_text.data() + r.offset, len < 8 ? len : 8);
         r.prefixBE = loadBE(first8);
     }
-    m_arena.insert(m_arena.end(), 8, '\0');
-    // Each seed's strings: kSortStrings drawn from the arena.
-    for (std::uint64_t s = 0; s < kSeeds; ++s) {
-        Xoshiro256ss pick(s ^ 0x534F525450494B53ull);  // "SORTPIKS"
-        for (std::size_t i = 0; i < kSortStrings; ++i) {
-            const std::uint64_t k = pick.below(kArenaStrings);
-            m_refs[s * kSortStrings + i] = all[k];
-        }
+    m_text.insert(m_text.end(), 8, '\0');
+}
+
+void makeSortKeys(std::uint64_t seed, std::uint64_t *out)
+{
+    Xoshiro256ss rng((seed % kSeeds) ^ 0x534F52544B455953ull);  // "SORTKEYS"; one draw per statement
+    SB_NO_VECTOR
+    for (std::size_t i = 0; i < kSortKeys; ++i)
+        out[i] = rng.next();
+}
+
+void makeSortStrings(std::uint64_t seed, const SortArena &arena, StrRef *out)
+{
+    Xoshiro256ss pick((seed % kSeeds) ^ 0x534F525450494B53ull);  // "SORTPIKS"
+    const StrRef *refs = arena.refs();
+    SB_NO_VECTOR
+    for (std::size_t i = 0; i < kSortStrings; ++i) {
+        const std::uint64_t k = pick.below(kArenaStrings);
+        out[i] = refs[k];
     }
 }
 
-std::span<const std::uint64_t> SortInputs::keys(std::uint64_t seed) const
+SB_NOINLINE std::uint64_t sortKeysUnit(std::uint64_t seed, std::uint64_t *work)
 {
-    return std::span(m_keys).subspan(std::size_t(seed % kSeeds) * kSortKeys, kSortKeys);
-}
-
-std::span<const StrRef> SortInputs::strings(std::uint64_t seed) const
-{
-    return std::span(m_refs).subspan(std::size_t(seed % kSeeds) * kSortStrings, kSortStrings);
-}
-
-SB_NOINLINE std::uint64_t sortKeysUnit(std::span<const std::uint64_t> pristine, std::uint64_t *work)
-{
-    const std::uint64_t *src = pristine.data();
-    opaque(src);
+    opaque(seed);
     opaque(work);
-    std::memcpy(work, src, pristine.size() * sizeof(std::uint64_t));
-    introsort(work, work + pristine.size());
-    return hashSequence(pristine.size(), [work](std::size_t i) { return work[i]; });
+    makeSortKeys(seed, work);
+    introsort(work, work + kSortKeys);
+    return hashSequence(kSortKeys, [work](std::size_t i) { return work[i]; });
 }
 
-SB_NOINLINE std::uint64_t sortStringsUnit(std::span<const StrRef> pristine, StrRef *work, const char *arena)
+SB_NOINLINE std::uint64_t sortStringsUnit(std::uint64_t seed, const SortArena &arena, StrRef *work)
 {
-    const StrRef *src = pristine.data();
-    opaque(src);
+    opaque(seed);
     opaque(work);
-    opaque(arena);
-    std::memcpy(work, src, pristine.size() * sizeof(StrRef));
-    introsort(work, work + pristine.size(), arena);
-    return hashSequence(pristine.size(),
+    const char *text = arena.text();
+    opaque(text);
+    makeSortStrings(seed, arena, work);
+    introsort(work, work + kSortStrings, text);
+    return hashSequence(kSortStrings,
                         [work](std::size_t i) { return (std::uint64_t(work[i].offset) << 16) | work[i].len; });
 }
 
 std::unique_ptr<KernelThread> SortKeysKernel::makeThread(int) const
 {
     struct T : KernelThread {
-        const SortInputs *inputs;
         std::vector<std::uint64_t> work = std::vector<std::uint64_t>(kSortKeys, 0);  // touched here
-        std::uint64_t unit(std::uint64_t unitIndex) override
-        {
-            return sortKeysUnit(inputs->keys(unitIndex % kSeeds), work.data());
-        }
+        std::uint64_t unit(std::uint64_t unitIndex) override { return sortKeysUnit(unitIndex % kSeeds, work.data()); }
     };
-    auto t = std::make_unique<T>();
-    t->inputs = &m_inputs;
-    return t;
+    return std::make_unique<T>();
 }
 
 std::optional<std::uint64_t> SortKeysKernel::golden(std::uint64_t seed) const
@@ -297,15 +284,15 @@ std::optional<std::uint64_t> SortKeysKernel::golden(std::uint64_t seed) const
 std::unique_ptr<KernelThread> SortStringsKernel::makeThread(int) const
 {
     struct T : KernelThread {
-        const SortInputs *inputs;
+        const SortArena *arena;
         std::vector<StrRef> work = std::vector<StrRef>(kSortStrings, StrRef{});  // touched here
         std::uint64_t unit(std::uint64_t unitIndex) override
         {
-            return sortStringsUnit(inputs->strings(unitIndex % kSeeds), work.data(), inputs->arena());
+            return sortStringsUnit(unitIndex % kSeeds, *arena, work.data());
         }
     };
     auto t = std::make_unique<T>();
-    t->inputs = &m_inputs;
+    t->arena = &m_arena;
     return t;
 }
 

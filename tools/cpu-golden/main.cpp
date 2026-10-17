@@ -164,17 +164,17 @@ std::string compressTable()
 std::string sortTable()
 {
     using namespace sb::cpu;
-    const SortInputs inputs;
+    const SortArena arena;
     // Two tables in one file: kSortKeys and kSortStrings.
     const std::string keys = seedTable("The sorting kernels (section 5.6): the hash of the sorted output per seed.",
                                        "kSortKeys[s] = sb::cpu::sortKeysUnit(s); kSortStrings[s] = sortStringsUnit(s).",
                                        "kSortKeys", [&](std::uint64_t seed) {
                                            std::vector<std::uint64_t> work(kSortKeys);
-                                           return sortKeysUnit(inputs.keys(seed), work.data());
+                                           return sortKeysUnit(seed, work.data());
                                        });
     std::string strings = seedTable("", "", "kSortStrings", [&](std::uint64_t seed) {
         std::vector<StrRef> work(kSortStrings);
-        return sortStringsUnit(inputs.strings(seed), work.data(), inputs.arena());
+        return sortStringsUnit(seed, arena, work.data());
     });
     // Without the second header.
     strings = strings.substr(strings.find("inline constexpr"));

@@ -325,24 +325,24 @@ private slots:
 
     void sortKeysMatchGolden()
     {
-        const SortInputs inputs;
         std::vector<std::uint64_t> work(kSortKeys);
         for (std::uint64_t s = 0; s < kSeeds; ++s) {
-            QCOMPARE(sortKeysUnit(inputs.keys(s), work.data()), golden::kSortKeys[s]);
+            QCOMPARE(sortKeysUnit(s, work.data()), golden::kSortKeys[s]);
             if (s % 16 == 0) {
                 // Exactly std::sort's result: sorted, and a permutation of the input.
-                std::vector<std::uint64_t> want(inputs.keys(s).begin(), inputs.keys(s).end());
+                std::vector<std::uint64_t> want(kSortKeys);
+                makeSortKeys(s, want.data());
                 std::sort(want.begin(), want.end());
                 QCOMPARE(work, want);
             }
         }
-        SortKeysKernel k(inputs);
+        SortKeysKernel k;
         QCOMPARE(k.makeThread(0)->unit(3 + kSeeds), golden::kSortKeys[3]);
     }
 
     void stringComparator()
     {
-        // Strings in an arena, padded; refs made the way SortInputs makes them.
+        // Strings in an arena, padded; refs made the way SortArena makes them.
         std::string arena;
         std::vector<StrRef> refs;
         const auto add = [&](const std::string &str) {
@@ -371,24 +371,25 @@ private slots:
 
     void sortStringsMatchGolden()
     {
-        const SortInputs inputs;
-        std::vector<StrRef> work(kSortStrings);
-        const auto text = [&](const StrRef &r) { return std::string(inputs.arena() + r.offset, r.len); };
+        const SortArena arena;
+        std::vector<StrRef> work(kSortStrings), input(kSortStrings);
+        const auto text = [&](const StrRef &r) { return std::string(arena.text() + r.offset, r.len); };
         int pastFirstWord = 0;
         for (std::uint64_t s = 0; s < kSeeds; ++s) {
-            QCOMPARE(sortStringsUnit(inputs.strings(s), work.data(), inputs.arena()), golden::kSortStrings[s]);
+            QCOMPARE(sortStringsUnit(s, arena, work.data()), golden::kSortStrings[s]);
             if (s % 16 == 0) {
+                makeSortStrings(s, arena, input.data());
                 // The same order of contents as std::sort of the strings, and
                 // a permutation of the input refs.
                 std::vector<std::string> want, got;
-                for (const StrRef &r : inputs.strings(s))
+                for (const StrRef &r : input)
                     want.push_back(text(r));
                 std::sort(want.begin(), want.end());
                 for (const StrRef &r : work)
                     got.push_back(text(r));
                 QCOMPARE(got, want);
                 std::vector<std::uint64_t> a, b;
-                for (const StrRef &r : inputs.strings(s))
+                for (const StrRef &r : input)
                     a.push_back((std::uint64_t(r.offset) << 16) | r.len);
                 for (const StrRef &r : work)
                     b.push_back((std::uint64_t(r.offset) << 16) | r.len);
@@ -403,7 +404,8 @@ private slots:
         // comparator goes past the first word.
         qInfo("sorted neighbours sharing 8 bytes: %d of %d", pastFirstWord, int(4 * (kSortStrings - 1)));
         QVERIFY(pastFirstWord > int(kSortStrings));
-        for (const StrRef &r : inputs.strings(5))
+        makeSortStrings(5, arena, input.data());
+        for (const StrRef &r : input)
             QVERIFY(r.len >= 4 && r.len <= 24);
     }
 
@@ -458,9 +460,9 @@ private slots:
         const IntKernel i;
         const FpKernel f;
         const PrimesKernel p;
-        const SortInputs sortInputs;
-        const SortKeysKernel sk(sortInputs);
-        const SortStringsKernel ss(sortInputs);
+        const SortArena sortArena;
+        const SortKeysKernel sk;
+        const SortStringsKernel ss(sortArena);
         WorkerPool pool({2, {}});
         for (const Kernel *k : std::initializer_list<const Kernel *>{&i, &f, &p, &sk, &ss}) {
             const Measurement m = pool.measure(*k, {20ms, 50ms, 2}, [] { return false; });
@@ -489,12 +491,11 @@ private slots:
         const Clock::duration tsse = simdUnitFor(sb::isa::SimdPath::Sse42) && c.path != sb::isa::SimdPath::Sse42
                                          ? cpuPerCall([&] { simdUnitFor(sb::isa::SimdPath::Sse42)(&in, &out); })
                                          : ts;
-        const SortInputs sortInputs;
+        const SortArena sortArena;
         std::vector<std::uint64_t> keys(kSortKeys);
         std::vector<StrRef> strings(kSortStrings);
-        const Clock::duration tk = cpuPerCall([&] { sortKeysUnit(sortInputs.keys(3), keys.data()); });
-        const Clock::duration tstr =
-            cpuPerCall([&] { sortStringsUnit(sortInputs.strings(3), strings.data(), sortInputs.arena()); });
+        const Clock::duration tk = cpuPerCall([&] { sortKeysUnit(3, keys.data()); });
+        const Clock::duration tstr = cpuPerCall([&] { sortStringsUnit(3, sortArena, strings.data()); });
         qInfo("unit times: integer %.3f ms, FP %.3f ms, primes %.3f ms, SIMD %.3f ms (%s), SIMD %.3f ms (narrowest), "
               "integer sort %.3f ms, string sort %.3f ms",
               msOf(ti), msOf(tf), msOf(tp), msOf(ts), c.label.c_str(), msOf(tsse), msOf(tk), msOf(tstr));
