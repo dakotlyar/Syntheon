@@ -9,6 +9,10 @@
 // Run by hand (Kanan) when a kernel's definition changes, then commit the
 // tables with a CPU testVersion bump. CI runs --check on every platform.
 #include "tests/cpu/compress/corpus.h"
+#include "tests/cpu/engine/kernel.h"
+#include "tests/cpu/kernels/fp_kernel.h"
+#include "tests/cpu/kernels/int_kernel.h"
+#include "tests/cpu/kernels/primes_kernel.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -54,10 +58,51 @@ std::string corpusTable()
            + "inline constexpr std::uint32_t kCorpusCrc32 = " + hex32(sb::cpu::crc32Of(corpus)) + ";\n";
 }
 
+// A table of one checksum per seed (0..kSeeds-1), `perSeed(seed)` each.
+std::string seedTable(const char *what, const char *how, const char *name,
+                      const std::function<std::uint64_t(std::uint64_t)> &perSeed, bool decimal = false)
+{
+    std::ostringstream s;
+    s << header(what, how) << "inline constexpr std::array<std::uint64_t, " << sb::cpu::kSeeds << "> " << name
+      << " = {\n";
+    for (std::uint64_t seed = 0; seed < sb::cpu::kSeeds; ++seed) {
+        char buf[32];
+        std::snprintf(buf, sizeof buf, decimal ? "%llu," : "0x%016llXull,", (unsigned long long)perSeed(seed));
+        const std::uint64_t perLine = decimal ? 8 : 4;
+        s << (seed % perLine == 0 ? "    " : " ") << buf << (seed % perLine == perLine - 1 ? "\n" : "");
+    }
+    s << "};\n";
+    return s.str();
+}
+
+std::string intTable()
+{
+    return seedTable("The integer kernel (section 5.1): the checksum of one unit per seed.",
+                     "kInt[s] = sb::cpu::intUnit(s).", "kInt", sb::cpu::intUnit);
+}
+
+std::string fpTable()
+{
+    return seedTable("The floating-point kernel (section 5.2): the checksum of one unit per seed.",
+                     "kFp[s] = sb::cpu::fpUnit(s).", "kFp", sb::cpu::fpUnit);
+}
+
+std::string primesTable()
+{
+    const std::vector<std::uint32_t> base = sb::cpu::primesBase();
+    std::vector<std::uint64_t> bitset(sb::cpu::kPrimesBitsetWords);
+    return seedTable("The primes kernel (section 5.2): primes in [10^12 + s * 2^20, 10^12 + (s + 1) * 2^20).",
+                     "kPrimes[s] = sb::cpu::primesUnit(s, ...): a segmented sieve.", "kPrimes",
+                     [&](std::uint64_t seed) { return sb::cpu::primesUnit(seed, base, bitset.data()); }, true);
+}
+
 const std::vector<Table> &tables()
 {
     static const std::vector<Table> t = {
         {"corpus.inc", corpusTable},
+        {"int.inc", intTable},
+        {"fp.inc", fpTable},
+        {"primes.inc", primesTable},
     };
     return t;
 }

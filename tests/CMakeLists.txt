@@ -108,6 +108,35 @@ add_test(NAME openssl_config
 add_test(NAME cpu_golden_tables
     COMMAND synbench-cpu-golden --check "${PROJECT_SOURCE_DIR}/src/tests/cpu/golden")
 
+# The kernel TUs get P7's flags (§6.2, §14.2 item 4), as compile_commands.json
+# records them; and the check fails on a planted TU built at -O3 without them.
+get_target_property(_k_sources synbench_cpu_kernels SOURCES)
+get_target_property(_k_dir synbench_cpu_kernels SOURCE_DIR)
+set(_k_scalar "")
+foreach(_s IN LISTS _k_sources)
+    if(_s MATCHES "\\.cpp$")
+        list(APPEND _k_scalar "${_k_dir}/${_s}")
+    endif()
+endforeach()
+list(JOIN _k_scalar "|" _k_scalar)
+if(MSVC)
+    set(_k_compiler MSVC)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(_k_compiler Clang)
+else()
+    set(_k_compiler GNU)
+endif()
+add_test(NAME cpu_kernel_flags
+    COMMAND "${CMAKE_COMMAND}" "-DCOMMANDS=${PROJECT_BINARY_DIR}/compile_commands.json" -DCOMPILER=${_k_compiler}
+            "-DSCALAR=${_k_scalar}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckKernelFlags.cmake")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/planted-flags/compile_commands.json"
+     "[{\"directory\": \"/b\", \"file\": \"/s/planted.cpp\", \"command\": \"c++ -O2 -fno-tree-vectorize -ffp-contract=off -O3 -c /s/planted.cpp\"}]\n")
+add_test(NAME cpu_kernel_flags_rejects_planted
+    COMMAND "${CMAKE_COMMAND}" "-DCOMMANDS=${CMAKE_CURRENT_BINARY_DIR}/planted-flags/compile_commands.json" -DCOMPILER=GNU
+            -DSCALAR=/s/planted.cpp -P "${PROJECT_SOURCE_DIR}/cmake/CheckKernelFlags.cmake")
+set_tests_properties(cpu_kernel_flags_rejects_planted PROPERTIES
+    PASS_REGULAR_EXPRESSION "planted\\.cpp: optimisation is '-O3', not -O2")
+
 # Every script the build runs with `cmake -P` pins its policies.
 add_test(NAME cmake_scripts_set_policies
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckScriptPolicies.cmake")
