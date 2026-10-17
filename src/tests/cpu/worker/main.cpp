@@ -42,9 +42,12 @@
 
 #include <openssl/crypto.h>
 
+#include <array>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <optional>
 #include <string>
 #include <thread>

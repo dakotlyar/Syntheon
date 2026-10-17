@@ -6,6 +6,7 @@
 #include "tests/cpu/kernels/kernel_common.h"
 
 #include <bit>
+#include <cstddef>
 
 SB_KERNEL_TU
 

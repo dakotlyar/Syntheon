@@ -10,6 +10,7 @@
 #include <barrier>
 #include <bit>
 #include <cmath>
+#include <cstddef>
 
 SB_KERNEL_TU
 

@@ -20,6 +20,7 @@
 
 #include "tests/cpu/engine/kernel.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>

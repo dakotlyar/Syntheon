@@ -6,6 +6,7 @@
 #include "tests/cpu/kernels/kernel_common.h"
 #include "tests/cpu/kernels/prng.h"
 
+#include <cstddef>
 #include <cstring>
 #include <utility>
 

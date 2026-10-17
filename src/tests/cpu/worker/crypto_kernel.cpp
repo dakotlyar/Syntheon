@@ -6,7 +6,9 @@
 
 #include <openssl/evp.h>
 
+#include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstring>
 #include <stdexcept>
 #include <vector>

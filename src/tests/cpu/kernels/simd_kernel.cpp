@@ -7,6 +7,7 @@
 #include "tests/cpu/kernels/prng.h"
 
 #include <bit>
+#include <cstddef>
 #include <stdexcept>
 
 SB_KERNEL_TU

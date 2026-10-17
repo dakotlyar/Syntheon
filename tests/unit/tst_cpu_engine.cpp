@@ -15,9 +15,11 @@
 #include <algorithm>
 #include <atomic>
 #include <barrier>
+#include <cstddef>
 #include <mutex>
 #include <set>
 #include <thread>
+#include <utility>
 
 using namespace sb::cpu;
 using namespace std::chrono_literals;

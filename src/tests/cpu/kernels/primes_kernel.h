@@ -19,6 +19,7 @@
 
 #include "tests/cpu/engine/kernel.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>

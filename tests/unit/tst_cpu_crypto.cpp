@@ -13,6 +13,7 @@
 #include <QProcess>
 #include <QTest>
 
+#include <algorithm>
 #include <thread>
 
 #if defined(Q_OS_WIN)

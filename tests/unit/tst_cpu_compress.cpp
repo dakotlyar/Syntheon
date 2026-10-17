@@ -16,6 +16,8 @@
 #include <zlib.h>
 #include <zstd.h>
 
+#include <algorithm>
+#include <stdexcept>
 #include <thread>
 
 using namespace sb::cpu;

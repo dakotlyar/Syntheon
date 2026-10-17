@@ -18,6 +18,7 @@
 #include "tests/cpu/kernels/simd_kernel.h"
 #include "tests/cpu/kernels/sort_kernel.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <filesystem>
