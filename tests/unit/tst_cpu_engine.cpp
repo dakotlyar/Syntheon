@@ -498,6 +498,143 @@ private slots:
             QCOMPARE(int(s.size()), int(kSeeds));
     }
 
+    // Kernel::seeds(): a kernel with 128 inputs (the compression kernels'
+    // corpus blocks) gets its golden table asked for seeds 0..127, each
+    // thread goes through all of them, and a mismatch names the seed.
+    // Driven by unit counts, like everyThreadSeesEverySeed.
+    void kernelWithMoreSeeds()
+    {
+        constexpr int kThreads = 3;
+        struct Blocks : Kernel {
+            mutable std::mutex mutex;
+            mutable std::set<std::uint64_t> asked;
+            mutable std::vector<std::atomic<int>> units;
+            std::optional<std::uint64_t> wrong;
+            Blocks() : units(kThreads) {}
+            std::string name() const override { return "Blocks"; }
+            double workPerUnit() const override { return 1; }
+            double maxWorkPerCyclePerThread() const override { return 1e9; }
+            std::uint64_t seeds() const override { return 128; }
+            std::unique_ptr<KernelThread> makeThread(int thread) const override
+            {
+                struct T : KernelThread {
+                    std::atomic<int> *count;
+                    std::uint64_t unit(std::uint64_t index) override
+                    {
+                        ++*count;
+                        return index % 128 + 1;
+                    }
+                };
+                auto t = std::make_unique<T>();
+                t->count = &units[std::size_t(thread)];
+                return t;
+            }
+            std::optional<std::uint64_t> golden(std::uint64_t seed) const override
+            {
+                std::lock_guard lock(mutex);
+                asked.insert(seed);
+                return wrong && seed == *wrong ? std::optional<std::uint64_t>(0) : std::optional(seed + 1);
+            }
+            bool allDone() const
+            {
+                for (const std::atomic<int> &u : units) {
+                    if (u.load() < 128)
+                        return false;
+                }
+                return true;
+            }
+        } k;
+        WorkerPool pool({kThreads, {}});
+        const Measurement m = pool.measure(k, {60000ms, 60000ms, 1}, [&k] { return k.allDone(); });
+        QCOMPARE(m.outcome, Measurement::Outcome::Cancelled);
+        QCOMPARE(int(k.asked.size()), 128);
+        QCOMPARE(*k.asked.rbegin(), std::uint64_t(127));
+        k.wrong = 100;
+        const Measurement bad = pool.measure(k, {60000ms, 60000ms, 1}, [] { return false; });
+        QCOMPARE(bad.outcome, Measurement::Outcome::WrongResult);
+        QVERIFY(QString::fromStdString(bad.error).contains(QLatin1StringView("(seed 100)")));
+    }
+
+    // KernelThread::cancelRequested(): a unit far longer than 100 ms (a codec
+    // call on a slow CPU) that polls it ends at a Stop within 250 ms, and its
+    // early-returned result is neither counted nor checked (the golden here
+    // would call it wrong).
+    void cancelReachesALongUnit()
+    {
+        struct Long : Kernel {
+            std::string name() const override { return "Long"; }
+            double workPerUnit() const override { return 1; }
+            double maxWorkPerCyclePerThread() const override { return 1e9; }
+            std::unique_ptr<KernelThread> makeThread(int) const override
+            {
+                struct T : KernelThread {
+                    std::uint64_t unit(std::uint64_t) override
+                    {
+                        // 10 s of "work" in 1 ms steps, unless cancelled.
+                        const auto until = Clock::now() + 10s;
+                        while (Clock::now() < until && !cancelRequested())
+                            std::this_thread::sleep_for(1ms);
+                        return 0;
+                    }
+                };
+                return std::make_unique<T>();
+            }
+            std::optional<std::uint64_t> golden(std::uint64_t) const override { return 1; }
+        } k;
+        WorkerPool pool({testThreads(), {}});
+        std::atomic<bool> cancel{false};
+        Clock::time_point cancelledAt{};
+        std::thread canceller([&] {
+            std::this_thread::sleep_for(300ms);
+            cancelledAt = Clock::now();
+            cancel = true;
+        });
+        const Measurement m = pool.measure(k, {100ms, 10000ms, 5}, [&] { return cancel.load(); });
+        const auto took = Clock::now() - cancelledAt;
+        canceller.join();
+        QCOMPARE(m.outcome, Measurement::Outcome::Cancelled);
+        QVERIFY2(took < 250ms, qPrintable(QStringLiteral("Stop took %1 ms").arg(secondsOf(took) * 1000)));
+        QVERIFY(m.error.empty());
+    }
+
+    // KernelThread::windowRate(): a kernel's own rate for a window replaces
+    // W_t / E_t, summed over threads; beginWindow() comes before each window.
+    void kernelTimedWindowRate()
+    {
+        struct Own : Kernel {
+            mutable std::atomic<int> windows{0};
+            std::string name() const override { return "Own"; }
+            double workPerUnit() const override { return 1e6; }
+            double maxWorkPerCyclePerThread() const override { return 1e9; }
+            std::unique_ptr<KernelThread> makeThread(int) const override
+            {
+                struct T : KernelThread {
+                    std::atomic<int> *windows;
+                    bool begun = false;
+                    void beginWindow() override
+                    {
+                        begun = true;
+                        ++*windows;
+                    }
+                    std::optional<double> windowRate() const override { return begun ? 1234.5 : -1.0; }
+                    std::uint64_t unit(std::uint64_t) override
+                    {
+                        std::this_thread::sleep_for(1ms);
+                        return 1;
+                    }
+                };
+                auto t = std::make_unique<T>();
+                t->windows = &windows;
+                return t;
+            }
+        } k;
+        WorkerPool pool({2, {}});
+        const Measurement m = pool.measure(k, {10ms, 20ms, 3}, [] { return false; });
+        QVERIFY2(m.ok(), m.error.c_str());
+        QCOMPARE(m.median, 2 * 1234.5);
+        QCOMPARE(k.windows.load(), 2 * 4);  // warm-up + 3 repetitions, two threads
+    }
+
     // §6.1: the sink doesn't cancel when the same checksum repeats (it does
     // for every kernel, once per 64 seeds; an XOR fold gave 0 for an even count).
     void checksumSinkDoesNotCancel()

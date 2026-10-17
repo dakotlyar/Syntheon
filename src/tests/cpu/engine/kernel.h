@@ -6,6 +6,7 @@
 // thread until the window's deadline. Each unit returns a checksum, which is
 // compared with the kernel's golden value for that seed.
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -27,8 +28,29 @@ class KernelThread
 public:
     virtual ~KernelThread() = default;
     // One unit of work for `unitIndex`; returns its checksum. A unit takes at
-    // most 100 ms on the slowest supported CPU (§4.1: Stop returns in 250 ms).
+    // most 100 ms on the slowest supported CPU (§4.1: Stop returns in 250 ms),
+    // or checks cancelRequested() often enough (the codecs: every 64 KiB).
     virtual std::uint64_t unit(std::uint64_t unitIndex) = 0;
+
+    // A kernel that times parts of its units itself (the single-thread
+    // compression mark times each codec call on its own, §5.4) reports its
+    // own rate for a window, in work per second; nothing = the engine's
+    // W_t / E_t. beginWindow() runs on the worker before the window's first
+    // unit, windowRate() after its last.
+    virtual void beginWindow() {}
+    virtual std::optional<double> windowRate() const { return std::nullopt; }
+
+protected:
+    // True once the measurement is cancelled (Stop). A unit that may run
+    // longer than the rule above returns early when it sees it; the engine
+    // then discards that unit (its result may be partial).
+    bool cancelRequested() const { return m_cancel && m_cancel->load(std::memory_order_relaxed); }
+    // The flag itself, for code that polls it (the codec adapters).
+    const std::atomic<bool> *cancelFlag() const { return m_cancel; }
+
+private:
+    friend class WorkerPool;
+    const std::atomic<bool> *m_cancel = nullptr;
 };
 
 class Kernel
@@ -48,7 +70,10 @@ public:
     // Called on the worker thread that will use it. Not interruptible by Stop:
     // keep it quick (large shared inputs are shared read-only, not copied).
     virtual std::unique_ptr<KernelThread> makeThread(int thread) const = 0;
-    // The golden checksum for a seed (§6.1, §6.4); nothing = no check.
+    // The number of distinct inputs: unit i works on input i mod seeds()
+    // (kSeeds; the compression kernels: one per corpus block, 128).
+    virtual std::uint64_t seeds() const { return kSeeds; }
+    // The golden checksum for a seed (< seeds(); §6.1, §6.4); nothing = no check.
     virtual std::optional<std::uint64_t> golden(std::uint64_t seed) const
     {
         (void)seed;

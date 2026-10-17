@@ -9,13 +9,18 @@
 // sets `stop`; it finishes the unit it is in (units are <= 100 ms) and records
 // its work W_t and the time E_t from the window's start to the end of its own
 // last unit. A repetition's rate is R = sum over threads of W_t / E_t (P2): no
-// thread is charged for another's last, long unit. The result is the median of
-// the repetitions, with spread = (max - min) / median.
+// thread is charged for another's last, long unit. (A kernel that times the
+// parts of its units itself, KernelThread::windowRate, gives its own rate for
+// the window instead of W_t / E_t.) The result is the median of the
+// repetitions, with spread = (max - min) / median.
 //
 // The coordinator is the thread that calls measure() (the CPU test's run()
 // thread). It polls `cancelled` every 50 ms; the workers never call into the
 // test's context. Stop therefore returns within about 150 ms: a poll, plus
-// the unit each worker is in. For that to hold when every CPU is busy, the
+// the unit each worker is in. A unit that can run longer (a codec call on a
+// 256 KiB block) polls KernelThread::cancelRequested(), set on a cancel,
+// every 64 KiB and returns early; a cancelled unit is neither counted nor
+// checked. For that to hold when every CPU is busy, the
 // coordinator runs at a raised priority during measure() (Windows; see
 // ScopedRaisedThreadPriority), and once the workers have stopped it frees
 // their kernel state itself rather than waking each of them again.
@@ -130,6 +135,7 @@ private:
         // Results of the last window (written by the worker, read after it reports done).
         std::uint64_t units = 0;
         double seconds = 0;  // E_t
+        std::optional<double> ownRate;  // the kernel's own rate for the window (KernelThread::windowRate)
         std::uint64_t sink = 0;
         std::uint64_t nextUnit = 0;  // this thread's unit counter in the current measurement
         std::optional<std::string> failure;
@@ -154,6 +160,9 @@ private:
     int m_finished = 0;
     Clock::time_point m_windowStart;
     std::atomic<bool> m_stop{false};
+    // Set with m_stop on a cancel, for the units that poll it
+    // (KernelThread::cancelRequested); cleared when a measurement starts.
+    std::atomic<bool> m_cancel{false};
 };
 
 } // namespace sb::cpu

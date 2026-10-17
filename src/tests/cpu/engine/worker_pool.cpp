@@ -117,11 +117,15 @@ void WorkerPool::workerMain(int index)
                 w.sink = 0;
                 w.nextUnit = 0;
                 w.state = m_kernel->makeThread(index);
+                w.state->m_cancel = &m_cancel;
                 break;
             case Job::Window: {
                 w.units = 0;
                 w.seconds = 0;
+                w.ownRate.reset();
+                w.state->beginWindow();
                 Clock::time_point last = start;
+                const std::uint64_t seeds = m_kernel->seeds();
                 // Stop is checked between units only: a unit in progress is
                 // finished and counted (so every thread finishes at least one).
                 do {
@@ -132,12 +136,16 @@ void WorkerPool::workerMain(int index)
                     // threads, one seed each).
                     const std::uint64_t unitIndex = w.nextUnit++ + std::uint64_t(index);
                     const std::uint64_t sum = w.state->unit(unitIndex);
+                    // A cancelled unit may have returned early: not counted,
+                    // not checked.
+                    if (m_cancel.load(std::memory_order_relaxed))
+                        break;
                     last = Clock::now();
                     ++w.units;
                     // Multiply-add, not XOR: a kernel's checksums repeat every
                     // 64 seeds, and XOR would cancel them out to 0.
                     w.sink = w.sink * kSinkMultiplier + sum;
-                    const std::uint64_t seed = unitIndex % kSeeds;
+                    const std::uint64_t seed = unitIndex % seeds;
                     if (const auto expected = m_kernel->golden(seed); expected && *expected != sum) {
                         w.failure = m_kernel->name() + " kernel produced a wrong result (seed " + std::to_string(seed)
                                     + "): possible miscompile or hardware fault";
@@ -147,6 +155,7 @@ void WorkerPool::workerMain(int index)
                     }
                 } while (!m_stop.load(std::memory_order_relaxed));
                 w.seconds = std::chrono::duration<double>(last - start).count();
+                w.ownRate = w.state->windowRate();
                 break;
             }
             case Job::None:
@@ -195,10 +204,21 @@ void WorkerPool::runJob(Job job, std::chrono::milliseconds length, const std::fu
             m_done.wait_for(lock, std::min<Clock::duration>(kPoll, deadline - now));
             if (cancelled && cancelled()) {
                 wasCancelled = true;
+                m_cancel = true;
                 break;
             }
         }
         m_stop = true;
+        // Until every worker has finished the unit it is in: a cancel must
+        // still reach a unit that polls it (a long codec call past the
+        // deadline). Polled only when a worker is still busy after a poll
+        // interval, so short units see no extra poll.
+        while (!m_done.wait_for(lock, kPoll, [&] { return m_finished == n; })) {
+            if (!wasCancelled && cancelled && cancelled()) {
+                wasCancelled = true;
+                m_cancel = true;
+            }
+        }
     }
     m_done.wait(lock, [&] { return m_finished == n; });
 }
@@ -209,6 +229,7 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
     const ScopedRaisedThreadPriority raised;
     Measurement m;
     m_kernel = &kernel;
+    m_cancel = false;
     bool wasCancelled = false;
 
     const auto failed = [&] {
@@ -261,7 +282,9 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
         for (const Worker &w : m_workers) {
             s.units += w.units;
             s.seconds = std::max(s.seconds, w.seconds);
-            if (w.seconds > 0)
+            if (w.ownRate)
+                s.rate += *w.ownRate;
+            else if (w.seconds > 0)
                 s.rate += double(w.units) * kernel.workPerUnit() / w.seconds;
         }
         m.reps.push_back(s);
