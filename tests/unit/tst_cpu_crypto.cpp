@@ -10,6 +10,7 @@
 #include "isa/cpu_features.h"
 #include "tests/cpu/crypto_client.h"
 
+#include <QFileInfo>
 #include <QProcess>
 #include <QTest>
 
@@ -187,6 +188,57 @@ private slots:
         QVERIFY(!CryptoClient::lineTooLong(QByteArray(CryptoClient::kMaxOutputLine, 'x')));
         QVERIFY(CryptoClient::lineTooLong(QByteArray(CryptoClient::kMaxOutputLine + 1, 'x')));
         QVERIFY(!CryptoClient::lineTooLong(QByteArray(CryptoClient::kMaxOutputLine + 1, 'x') + '\n'));
+    }
+
+    // Zeb: the client checks a result itself (before task 14 relies on it):
+    // a well-formed run with the wrong checksum, or an impossible rate, is
+    // Failed with a clear reason. A last line without a newline still counts;
+    // a crash says so. Through a fake worker (tests/unit/fake_cpucrypto.cpp).
+    void fakeWorkers()
+    {
+        const auto runFake = [](const QString &mode) {
+            const QString sum = QStringLiteral("0x%1").arg(CryptoClient::expectedChecksum(CryptoAlg::Sha256), 16, 16,
+                                                           QLatin1Char('0'));
+            CryptoClient::setWorkerForTests(QStringLiteral(SB_FAKE_WORKER),
+                                            {QStringLiteral("--fake"), mode, QStringLiteral("--checksum"), sum});
+            CryptoOutcome o = CryptoClient::run(quick(CryptoAlg::Sha256, false), [] { return false; });
+            CryptoClient::setWorkerForTests({});
+            return o;
+        };
+        const CryptoOutcome ok = runFake(QStringLiteral("ok"));
+        QVERIFY2(ok.ok(), qPrintable(ok.error));
+        QCOMPARE(ok.medianMbps, 1000.0);
+        const CryptoOutcome nonl = runFake(QStringLiteral("nonl"));
+        QVERIFY2(nonl.ok(), qPrintable(nonl.error));
+        const CryptoOutcome wrong = runFake(QStringLiteral("wrongsum"));
+        QCOMPARE(wrong.status, CryptoOutcome::Status::Failed);
+        QVERIFY2(wrong.error.contains(QLatin1StringView("checksum was 0x0000000000001234")), qPrintable(wrong.error));
+        const CryptoOutcome absurd = runFake(QStringLiteral("absurd"));
+        QCOMPARE(absurd.status, CryptoOutcome::Status::Failed);
+        QVERIFY2(absurd.error.contains(QLatin1StringView("implausible rate")), qPrintable(absurd.error));
+        const CryptoOutcome crash = runFake(QStringLiteral("crash"));
+        QCOMPARE(crash.status, CryptoOutcome::Status::Failed);
+#if defined(Q_OS_WIN)
+        QVERIFY2(crash.error.contains(QLatin1StringView("crashed (NTSTATUS 0xc0000005")), qPrintable(crash.error));
+#else
+        QVERIFY2(crash.error.contains(QLatin1StringView("crashed (signal ")), qPrintable(crash.error));
+#endif
+        // The real worker is back.
+        QCOMPARE(QFileInfo(CryptoClient::workerPath()).completeBaseName(), QStringLiteral("synbench-cpucrypto"));
+    }
+
+    void plausibilityCeiling()
+    {
+        // 16 / 8 bytes per cycle x 7 GHz x 1.5, per thread.
+        QCOMPARE(CryptoClient::ceilingMbps(CryptoAlg::AesGcm, 1), 168000.0);
+        QCOMPARE(CryptoClient::ceilingMbps(CryptoAlg::Sha256, 4), 336000.0);
+        CryptoOutcome o;
+        o.checksum = CryptoClient::expectedChecksum(CryptoAlg::AesGcm);
+        o.repMbps = {83500};
+        o.medianMbps = 83500;  // Knowhere's hardware AES on 4 threads
+        QVERIFY(CryptoClient::resultProblem(o, CryptoAlg::AesGcm, 4).isEmpty());
+        o.medianMbps = 0;
+        QVERIFY(CryptoClient::resultProblem(o, CryptoAlg::AesGcm, 4).contains(QLatin1StringView("implausible")));
     }
 
     // Stop kills the worker within 250 ms (a poll, then the kill), and no

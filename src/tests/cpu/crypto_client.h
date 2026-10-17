@@ -32,6 +32,7 @@
 #include <QByteArray>
 #include <QProcessEnvironment>
 #include <QString>
+#include <QStringList>
 
 #include <chrono>
 #include <cstdint>
@@ -100,6 +101,19 @@ public:
     // is stopped rather than buffered without end.
     static constexpr qsizetype kMaxOutputLine = 64 * 1024;
     static bool lineTooLong(const QByteArray &pending);
+    // The checks on a measurement's result, after its shape (Zeb, before
+    // task 14): the checksum must be expectedChecksum(), and every rate
+    // positive and under ceilingMbps(). Empty if it passes, else the reason.
+    static QString resultProblem(const CryptoOutcome &o, CryptoAlg alg, int threads);
+    // The client's own plausibility ceiling, in MB/s: the engine's P14 rule
+    // with the worker's per-thread bytes per cycle (AES-GCM 16, SHA-256 8)
+    // at 7 GHz x 1.5 x threads. A worker past it isn't measuring.
+    static double ceilingMbps(CryptoAlg alg, int threads);
+#if defined(SYNBENCH_DEV_HOOKS)
+    // Tests: run `program` (with `extraArgs` before the usual ones) instead
+    // of the real worker; an empty program restores the real one.
+    static void setWorkerForTests(const QString &program, const QStringList &extraArgs = {});
+#endif
 };
 
 } // namespace sb::cpu

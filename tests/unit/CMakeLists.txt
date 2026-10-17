@@ -24,8 +24,15 @@ synbench_add_unit_test(tst_cpu_data SOURCES tst_cpu_data.cpp LIBS synbench_test_
 synbench_add_unit_test(tst_cpu_kernels SOURCES tst_cpu_kernels.cpp LIBS synbench_test_cpu)
 synbench_add_unit_test(tst_cpu_compress SOURCES tst_cpu_compress.cpp
     LIBS synbench_test_cpu synbench::zlib synbench::zstd synbench::lz4 synbench::lzma)
+target_compile_definitions(tst_cpu_compress PRIVATE SB_DEBUG_BUILD=$<IF:$<CONFIG:Debug>,1,0>)
 synbench_add_unit_test(tst_cpu_crypto SOURCES tst_cpu_crypto.cpp LIBS synbench_test_cpu Qt6::Core)
 add_dependencies(tst_cpu_crypto synbench-cpucrypto)
+# A fake worker for the client's checks (no OpenSSL, no Qt; never installed).
+add_executable(fake-cpucrypto fake_cpucrypto.cpp)
+set_target_properties(fake-cpucrypto PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-tools")
+add_dependencies(tst_cpu_crypto fake-cpucrypto)
+target_compile_definitions(tst_cpu_crypto PRIVATE SB_FAKE_WORKER="$<TARGET_FILE:fake-cpucrypto>")
 foreach(t tst_sysinfo_parsers tst_sysinfo_live tst_sysinfo_linux tst_isa)
     if(TARGET ${t})
         target_compile_definitions(${t} PRIVATE SB_FIXTURES="${PROJECT_SOURCE_DIR}/tests/fixtures")
