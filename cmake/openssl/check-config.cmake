@@ -31,9 +31,23 @@ endif()
 
 if(LIBRARY AND WINCTX)
     # Windows: the directories come from the registry context, not the build.
-    file(STRINGS "${LIBRARY}" ctx REGEX "OSSL_WINCTX: \"${WINCTX}\"")
-    if(NOT ctx)
-        list(APPEND problems "${LIBRARY} wasn't built with OSSL_WINCTX=${WINCTX}")
+    # 1. The define reached OpenSSL's makefile (CPPFLAGS, recorded at configure).
+    if(NOT cflags MATCHES "[= ][-/]DOSSL_WINCTX=${WINCTX}( |\n|$)")
+        list(APPEND problems "OpenSSL's makefile CPPFLAGS lack -DOSSL_WINCTX=${WINCTX}")
+    endif()
+    # 2. defaults.c was compiled with it: its registry key, a wide (UTF-16LE)
+    #    string because OpenSSL's Windows builds define UNICODE. Not
+    #    OpenSSL_version(OPENSSL_WINCTX): in 3.5.9 cversion.c stringizes the
+    #    macro's name (TOSTR without a second expansion level), so that string
+    #    reads OSSL_WINCTX: "OSSL_WINCTX" whatever the context is.
+    file(STRINGS "${LIBRARY}" key ENCODING UTF-16LE REGEX "WOW6432Node\\\\OpenSSL-[0-9]+\\.[0-9]+-${WINCTX}$")
+    if(NOT key)
+        file(STRINGS "${LIBRARY}" seen REGEX "OSSL_WINCTX|OpenSSL-[0-9]+\\.[0-9]+-")
+        file(STRINGS "${LIBRARY}" seen16 ENCODING UTF-16LE REGEX "OpenSSL-[0-9]+\\.[0-9]+-")
+        list(APPEND problems "${LIBRARY} has no registry key ...\\OpenSSL-<major>.<minor>-${WINCTX} (OSSL_WINCTX=${WINCTX})"
+                             "  ASCII seen: ${seen}" "  UTF-16LE seen: ${seen16}")
+    else()
+        message(STATUS "OSSL_WINCTX registry key: ${key}")
     endif()
 elseif(LIBRARY)
     file(STRINGS "${LIBRARY}" dirs REGEX "OPENSSLDIR: \"")
@@ -55,4 +69,8 @@ if(problems)
     list(JOIN problems "\n  " problems)
     message(FATAL_ERROR "${ROOT}:\n  ${problems}")
 endif()
-message(STATUS "OpenSSL configuration: hardened, assembly on, optimised, directories at ${BAKED}")
+if(WINCTX)
+    message(STATUS "OpenSSL configuration: hardened, assembly on, optimised, directories from registry context ${WINCTX}")
+else()
+    message(STATUS "OpenSSL configuration: hardened, assembly on, optimised, directories at ${BAKED}")
+endif()

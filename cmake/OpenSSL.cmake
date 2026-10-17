@@ -123,7 +123,10 @@ endif()
 # --- the stamp: everything that decides the build --------------------------
 file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-armcap.cmake" _ossl_patch_armcap)
 file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-defaults.cmake" _ossl_patch_defaults)
-set(_ossl_patch_sha "${_ossl_patch_armcap} ${_ossl_patch_defaults}")
+# check-cflags.cmake writes the root's synbench-openssl-cflags.txt: a new
+# version must rebuild, or an old root lacks what it records.
+file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/openssl/check-cflags.cmake" _ossl_cflags_check)
+set(_ossl_patch_sha "${_ossl_patch_armcap} ${_ossl_patch_defaults} ${_ossl_cflags_check}")
 set(_ossl_tool "")
 if(_ossl_tool_version_cmd)
     execute_process(COMMAND ${_ossl_tool_version_cmd} OUTPUT_VARIABLE _ossl_tool ERROR_VARIABLE _ossl_tool_err
