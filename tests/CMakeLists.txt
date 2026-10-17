@@ -76,6 +76,25 @@ if(SYNBENCH_PYTHON3 AND SYNBENCH_NM AND NOT CMAKE_CROSSCOMPILING)
             COMMAND ${_sb_crypto_check} "$<TARGET_FILE:planted_crypto_c_sha>" --expect-missing SHA-256)
     endif()
 endif()
+# The COFF (Windows) path of the check, on planted archives (AP-5 L8): where
+# clang and the LLVM tools are around (next to clang, or versioned on PATH).
+if(NOT WIN32 AND SYNBENCH_PYTHON3)
+    find_program(SYNBENCH_CLANG NAMES clang clang-18 clang-17 clang-16 clang-15 clang-14)
+    set(_llvm_hints "")
+    if(SYNBENCH_CLANG)
+        get_filename_component(_clang_real "${SYNBENCH_CLANG}" REALPATH)
+        get_filename_component(_llvm_bin "${_clang_real}" DIRECTORY)
+        set(_llvm_hints HINTS "${_llvm_bin}")
+    endif()
+    find_program(SYNBENCH_LLVM_AR NAMES llvm-ar ${_llvm_hints})
+    find_program(SYNBENCH_LLVM_NM NAMES llvm-nm ${_llvm_hints})
+    find_program(SYNBENCH_LLVM_OBJDUMP NAMES llvm-objdump ${_llvm_hints})
+    if(SYNBENCH_CLANG AND SYNBENCH_LLVM_AR AND SYNBENCH_LLVM_NM AND SYNBENCH_LLVM_OBJDUMP)
+        add_subdirectory(crypto_planted/coff)
+    else()
+        message(STATUS "No clang + LLVM tools: the COFF planted crypto-symbols tests are skipped")
+    endif()
+endif()
 
 # OpenSSL was configured with P17's options, kept its assembly, was built
 # optimised (H2) and bakes in only the dummy directories (M4).
@@ -92,6 +111,16 @@ add_test(NAME cpu_golden_tables
 # Every script the build runs with `cmake -P` pins its policies.
 add_test(NAME cmake_scripts_set_policies
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckScriptPolicies.cmake")
+# ...and fails on a planted -P script without the line.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/planted-policy/planted.cmake"
+     "add_custom_target(x COMMAND \"\${CMAKE_COMMAND}\" -P \"\${CMAKE_CURRENT_LIST_DIR}/no-minimum.cmake\")\n")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/planted-policy/no-minimum.cmake" "message(STATUS \"no policies\")\n")
+add_test(NAME cmake_scripts_set_policies_rejects_planted
+    COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+            "-DPLANTED=${CMAKE_CURRENT_BINARY_DIR}/planted-policy/planted.cmake"
+            -P "${PROJECT_SOURCE_DIR}/cmake/CheckScriptPolicies.cmake")
+set_tests_properties(cmake_scripts_set_policies_rejects_planted PROPERTIES
+    PASS_REGULAR_EXPRESSION "planted-policy/no-minimum\\.cmake")
 
 # Every tracked path must be checkout-able on Windows.
 add_test(NAME windows_safe_paths
