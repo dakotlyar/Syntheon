@@ -3,17 +3,23 @@
 // kernel x every seed against its golden table (the same committed tables on
 // every platform), the prime counts against an independent Miller-Rabin
 // count, each kernel run through the engine, and the 100 ms unit rule (§4.1).
+#include "tests/cpu/engine/platform_threads.h"
 #include "tests/cpu/engine/worker_pool.h"
 #include "tests/cpu/golden/golden.h"
 #include "tests/cpu/kernels/fp_kernel.h"
 #include "tests/cpu/kernels/int_kernel.h"
+#include "tests/cpu/kernels/nbody_kernel.h"
 #include "tests/cpu/kernels/primes_kernel.h"
+#include "tests/cpu/kernels/prng.h"
 #include "tests/cpu/kernels/simd_kernel.h"
+#include "tests/cpu/kernels/sort_kernel.h"
 
 #include <QTest>
 
 #include <algorithm>
 #include <chrono>
+#include <string>
+#include <thread>
 
 using namespace sb::cpu;
 using namespace std::chrono_literals;
@@ -258,6 +264,166 @@ private slots:
         QCOMPARE(pool.measure(k, {10ms, 10ms, 1}, [] { return false; }).outcome, Measurement::Outcome::Failed);
     }
 
+    // §5.6: our introsort against std::sort, on the shapes that break naive
+    // quicksorts (sorted, reversed, all equal, organ pipe, few values) and on
+    // every size up to 300 (the insertion-sort threshold and the recursion
+    // around it).
+    void introsortAgreesWithStdSort()
+    {
+        Xoshiro256ss rng(99);
+        std::vector<std::vector<std::uint64_t>> cases;
+        for (std::size_t n = 0; n <= 300; ++n) {
+            std::vector<std::uint64_t> v(n);
+            for (std::uint64_t &x : v)
+                x = rng.below(n / 3 + 1);  // many duplicates
+            cases.push_back(v);
+        }
+        const std::size_t big = 100000;
+        std::vector<std::uint64_t> sorted(big), reversed(big), equal(big, 7), pipe(big), few(big);
+        for (std::size_t i = 0; i < big; ++i) {
+            sorted[i] = i;
+            reversed[i] = big - i;
+            pipe[i] = i < big / 2 ? i : big - i;
+            few[i] = rng.below(3);
+        }
+        for (auto *v : {&sorted, &reversed, &equal, &pipe, &few})
+            cases.push_back(*v);
+        for (std::vector<std::uint64_t> &v : cases) {
+            std::vector<std::uint64_t> want = v;
+            std::sort(want.begin(), want.end());
+            introsort(v.data(), v.data() + v.size());
+            QCOMPARE(v, want);
+        }
+    }
+
+    void sortKeysMatchGolden()
+    {
+        const SortInputs inputs;
+        std::vector<std::uint64_t> work(kSortKeys);
+        for (std::uint64_t s = 0; s < kSeeds; ++s) {
+            QCOMPARE(sortKeysUnit(inputs.keys(s), work.data()), golden::kSortKeys[s]);
+            if (s % 16 == 0) {
+                // Exactly std::sort's result: sorted, and a permutation of the input.
+                std::vector<std::uint64_t> want(inputs.keys(s).begin(), inputs.keys(s).end());
+                std::sort(want.begin(), want.end());
+                QCOMPARE(work, want);
+            }
+        }
+        SortKeysKernel k(inputs);
+        QCOMPARE(k.makeThread(0)->unit(3 + kSeeds), golden::kSortKeys[3]);
+    }
+
+    void stringComparator()
+    {
+        // Strings in an arena, padded; refs made the way SortInputs makes them.
+        std::string arena;
+        std::vector<StrRef> refs;
+        const auto add = [&](const std::string &str) {
+            StrRef r{};
+            r.offset = std::uint32_t(arena.size());
+            r.len = std::uint16_t(str.size());
+            arena += str;
+            char first8[8] = {};
+            std::copy_n(str.begin(), std::min<std::size_t>(8, str.size()), first8);
+            for (const char c : first8)
+                r.prefixBE = (r.prefixBE << 8) | std::uint8_t(c);
+            refs.push_back(r);
+        };
+        const std::vector<std::string> words = {"abcd", "abcde", "abcdefgh", "abcdefghi", "abcdefghij", "abcdefgha",
+                                                "abcdefghijklmnop", "abcdefghijklmnoq", "abcdefghijklmnopq",
+                                                "abcdefghijklmnopqrstuvwx", "abcdefghijklmnopqrstuvwy", "zzzz", "b"};
+        for (const std::string &w : words)
+            add(w);
+        arena.append(8, '\0');
+        for (std::size_t i = 0; i < words.size(); ++i) {
+            for (std::size_t j = 0; j < words.size(); ++j)
+                QVERIFY2(strLess(refs[i], refs[j], arena.data()) == (words[i] < words[j]),
+                         qPrintable(QStringLiteral("%1 < %2").arg(QString::fromStdString(words[i]), QString::fromStdString(words[j]))));
+        }
+    }
+
+    void sortStringsMatchGolden()
+    {
+        const SortInputs inputs;
+        std::vector<StrRef> work(kSortStrings);
+        const auto text = [&](const StrRef &r) { return std::string(inputs.arena() + r.offset, r.len); };
+        int pastFirstWord = 0;
+        for (std::uint64_t s = 0; s < kSeeds; ++s) {
+            QCOMPARE(sortStringsUnit(inputs.strings(s), work.data(), inputs.arena()), golden::kSortStrings[s]);
+            if (s % 16 == 0) {
+                // The same order of contents as std::sort of the strings, and
+                // a permutation of the input refs.
+                std::vector<std::string> want, got;
+                for (const StrRef &r : inputs.strings(s))
+                    want.push_back(text(r));
+                std::sort(want.begin(), want.end());
+                for (const StrRef &r : work)
+                    got.push_back(text(r));
+                QCOMPARE(got, want);
+                std::vector<std::uint64_t> a, b;
+                for (const StrRef &r : inputs.strings(s))
+                    a.push_back((std::uint64_t(r.offset) << 16) | r.len);
+                for (const StrRef &r : work)
+                    b.push_back((std::uint64_t(r.offset) << 16) | r.len);
+                std::sort(a.begin(), a.end());
+                std::sort(b.begin(), b.end());
+                QCOMPARE(a, b);
+                for (std::size_t i = 1; i < work.size(); ++i)
+                    pastFirstWord += work[i].prefixBE == work[i - 1].prefixBE && work[i].len > 8 && work[i - 1].len > 8;
+            }
+        }
+        // §5.6: neighbours that share their first 8 bytes are common, so the
+        // comparator goes past the first word.
+        qInfo("sorted neighbours sharing 8 bytes: %d of %d", pastFirstWord, int(4 * (kSortStrings - 1)));
+        QVERIFY(pastFirstWord > int(kSortStrings));
+        for (const StrRef &r : inputs.strings(5))
+            QVERIFY(r.len >= 4 && r.len <= 24);
+    }
+
+    // §5.7, §14.1: the episode's result is bit-identical for 1, 2, 7 and all
+    // threads (every episode is checked against the one-thread reference).
+    void nbodyAnyThreadCount()
+    {
+        QCOMPARE(nbodyReferenceEpisode(), golden::kNbody);
+        std::vector<int> counts = {1, 2, 7, logicalCpuCount()};
+        for (const int n : counts) {
+            const NbodyKernel k(n);
+            WorkerPool pool({n, {}});
+            const Measurement m = pool.measure(k, {10ms, 30ms, 2}, [] { return false; });
+            QVERIFY2(m.ok(), qPrintable(QStringLiteral("%1 threads: %2").arg(n).arg(QString::fromStdString(m.error))));
+            QVERIFY(m.reps[0].units >= std::uint64_t(n));
+            qInfo("n-body on %d threads: %.0f M interactions/s", n, m.median / 1e6);
+        }
+        // A kernel made for another thread count can't run.
+        const NbodyKernel k(3);
+        WorkerPool pool({2, {}});
+        QCOMPARE(pool.measure(k, {10ms, 10ms, 1}, [] { return false; }).outcome, Measurement::Outcome::Failed);
+    }
+
+    // Stop during an episode: every thread leaves at the same step barrier,
+    // within 250 ms (an episode on a slow 4-thread CPU takes about 150 ms;
+    // a step an eighth of that).
+    void nbodyStopWithin250ms()
+    {
+        const int n = std::min(4, logicalCpuCount());
+        const NbodyKernel k(n);
+        WorkerPool pool({n, {}});
+        std::atomic<bool> cancel{false};
+        Clock::time_point cancelledAt{};
+        std::thread canceller([&] {
+            std::this_thread::sleep_for(300ms);
+            cancelledAt = Clock::now();
+            cancel = true;
+        });
+        const Measurement m = pool.measure(k, {100ms, 10000ms, 5}, [&] { return cancel.load(); });
+        const auto took = Clock::now() - cancelledAt;
+        canceller.join();
+        QCOMPARE(m.outcome, Measurement::Outcome::Cancelled);
+        QVERIFY2(took < 250ms, qPrintable(QStringLiteral("Stop took %1 ms").arg(msOf(took))));
+        // The kernel is usable again (its state was reset).
+        QVERIFY(pool.measure(k, {10ms, 20ms, 1}, [] { return false; }).ok());
+    }
+
     // Each kernel through the engine: every unit checked against the golden
     // table (two threads, all seeds), a plausible rate.
     void kernelsThroughTheEngine()
@@ -265,8 +431,11 @@ private slots:
         const IntKernel i;
         const FpKernel f;
         const PrimesKernel p;
+        const SortInputs sortInputs;
+        const SortKeysKernel sk(sortInputs);
+        const SortStringsKernel ss(sortInputs);
         WorkerPool pool({2, {}});
-        for (const Kernel *k : std::initializer_list<const Kernel *>{&i, &f, &p}) {
+        for (const Kernel *k : std::initializer_list<const Kernel *>{&i, &f, &p, &sk, &ss}) {
             const Measurement m = pool.measure(*k, {20ms, 50ms, 2}, [] { return false; });
             QVERIFY2(m.ok(), m.error.c_str());
             QVERIFY(m.median > 0);
@@ -293,9 +462,16 @@ private slots:
         const Clock::duration tsse = simdUnitFor(sb::isa::SimdPath::Sse42) && c.path != sb::isa::SimdPath::Sse42
                                          ? fastest(3, [&] { simdUnitFor(sb::isa::SimdPath::Sse42)(&in, &out); })
                                          : ts;
-        qInfo("unit times: integer %.3f ms, FP %.3f ms, primes %.3f ms, SIMD %.3f ms (%s), SIMD %.3f ms (narrowest)",
-              msOf(ti), msOf(tf), msOf(tp), msOf(ts), c.label.c_str(), msOf(tsse));
-        for (const Clock::duration t : {ti, tf, tp, ts, tsse})
+        const SortInputs sortInputs;
+        std::vector<std::uint64_t> keys(kSortKeys);
+        std::vector<StrRef> strings(kSortStrings);
+        const Clock::duration tk = fastest(3, [&] { sortKeysUnit(sortInputs.keys(3), keys.data()); });
+        const Clock::duration tstr =
+            fastest(3, [&] { sortStringsUnit(sortInputs.strings(3), strings.data(), sortInputs.arena()); });
+        qInfo("unit times: integer %.3f ms, FP %.3f ms, primes %.3f ms, SIMD %.3f ms (%s), SIMD %.3f ms (narrowest), "
+              "integer sort %.3f ms, string sort %.3f ms",
+              msOf(ti), msOf(tf), msOf(tp), msOf(ts), c.label.c_str(), msOf(tsse), msOf(tk), msOf(tstr));
+        for (const Clock::duration t : {ti, tf, tp, ts, tsse, tk, tstr})
             QVERIFY(t < 25ms);
     }
 };

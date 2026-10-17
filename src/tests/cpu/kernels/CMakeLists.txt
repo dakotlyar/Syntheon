@@ -32,6 +32,8 @@ add_library(synbench_cpu_kernels STATIC
     primes_kernel.h primes_kernel.cpp
     simd_kernel.h simd_kernel.cpp
     simd/simd_common.h
+    sort_kernel.h sort_kernel.cpp
+    nbody_kernel.h nbody_kernel.cpp
 )
 target_link_libraries(synbench_cpu_kernels PUBLIC synbench_isa)
 

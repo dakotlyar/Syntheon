@@ -20,5 +20,7 @@ namespace sb::cpu::golden {
 #include "tests/cpu/golden/primes.inc"
 #include "tests/cpu/golden/simd.inc"
 #include "tests/cpu/golden/compress.inc"
+#include "tests/cpu/golden/sort.inc"
+#include "tests/cpu/golden/nbody.inc"
 
 } // namespace sb::cpu::golden

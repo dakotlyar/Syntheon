@@ -13,8 +13,10 @@
 #include "tests/cpu/engine/kernel.h"
 #include "tests/cpu/kernels/fp_kernel.h"
 #include "tests/cpu/kernels/int_kernel.h"
+#include "tests/cpu/kernels/nbody_kernel.h"
 #include "tests/cpu/kernels/primes_kernel.h"
 #include "tests/cpu/kernels/simd_kernel.h"
+#include "tests/cpu/kernels/sort_kernel.h"
 
 #include <atomic>
 #include <cstdio>
@@ -159,6 +161,35 @@ std::string compressTable()
     return s.str();
 }
 
+std::string sortTable()
+{
+    using namespace sb::cpu;
+    const SortInputs inputs;
+    // Two tables in one file: kSortKeys and kSortStrings.
+    const std::string keys = seedTable("The sorting kernels (section 5.6): the hash of the sorted output per seed.",
+                                       "kSortKeys[s] = sb::cpu::sortKeysUnit(s); kSortStrings[s] = sortStringsUnit(s).",
+                                       "kSortKeys", [&](std::uint64_t seed) {
+                                           std::vector<std::uint64_t> work(kSortKeys);
+                                           return sortKeysUnit(inputs.keys(seed), work.data());
+                                       });
+    std::string strings = seedTable("", "", "kSortStrings", [&](std::uint64_t seed) {
+        std::vector<StrRef> work(kSortStrings);
+        return sortStringsUnit(inputs.strings(seed), work.data(), inputs.arena());
+    });
+    // Without the second header.
+    strings = strings.substr(strings.find("inline constexpr"));
+    return keys + strings;
+}
+
+std::string nbodyTable()
+{
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "0x%016llXull", (unsigned long long)sb::cpu::nbodyReferenceEpisode());
+    return header("The physics kernel (section 5.7): the hash of an episode's final positions.",
+                  "kNbody = sb::cpu::nbodyReferenceEpisode() on one thread; any seed, any thread count.")
+           + "inline constexpr std::uint64_t kNbody = " + buf + ";\n";
+}
+
 const std::vector<Table> &tables()
 {
     static const std::vector<Table> t = {
@@ -168,6 +199,8 @@ const std::vector<Table> &tables()
         {"primes.inc", primesTable},
         {"simd.inc", simdTable},
         {"compress.inc", compressTable},
+        {"sort.inc", sortTable},
+        {"nbody.inc", nbodyTable},
     };
     return t;
 }
