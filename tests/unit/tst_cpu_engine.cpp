@@ -64,6 +64,96 @@ private:
     double m_ceiling;
 };
 
+// A fixed amount of CPU work: `count` steps of a dependent multiply-add
+// chain, each through opaque() so none can be folded away.
+std::uint64_t chain(std::uint64_t x, std::uint64_t count)
+{
+    for (std::uint64_t i = 0; i < count; ++i) {
+        x = x * 6364136223846793005ull + 1442695040888963407ull;
+        opaque(x);
+    }
+    return x;
+}
+
+// Steps of chain() that take about `d` on this machine, from the fastest of a
+// few timed runs (the least disturbed one). Only sizes the units: no test
+// result depends on it being accurate.
+std::uint64_t chainStepsFor(Clock::duration d)
+{
+    constexpr std::uint64_t kProbe = 1u << 20;
+    Clock::duration best = Clock::duration::max();
+    for (int i = 0; i < 5; ++i) {
+        const auto t0 = Clock::now();
+        opaqueValue(chain(std::uint64_t(i), kProbe));
+        best = std::min(best, Clock::now() - t0);
+    }
+    const double perStep = std::chrono::duration<double>(best).count() / double(kProbe);
+    return std::max<std::uint64_t>(1, std::uint64_t(std::chrono::duration<double>(d).count() / perStep));
+}
+
+// A kernel whose units are a known amount of CPU work (thread t's units are
+// steps(t) chain steps), and which records when each unit ran, tagged with the
+// window it ran in (set by the measure() progress callback, which is called on
+// the coordinator before a window's workers start and after the previous
+// window's have all finished). The tests check the engine's accounting against
+// these records, so their checks hold however the OS schedules the threads.
+class RecordingKernel : public Kernel
+{
+public:
+    struct Unit {
+        int window;
+        Clock::time_point start, end;
+    };
+    RecordingKernel(int threads, std::function<std::uint64_t(int thread)> steps)
+        : m_steps(std::move(steps)), m_units(std::size_t(threads))
+    {
+    }
+    std::string name() const override { return "Recording"; }
+    double workPerUnit() const override { return 1000.0; }
+    double maxWorkPerCyclePerThread() const override { return 1e6; }
+    std::unique_ptr<KernelThread> makeThread(int thread) const override
+    {
+        struct T : KernelThread {
+            std::uint64_t steps;
+            std::vector<Unit> *out;
+            const std::atomic<int> *window;
+            std::uint64_t unit(std::uint64_t index) override
+            {
+                Unit u{window->load(), Clock::now(), {}};
+                const std::uint64_t sum = chain(index + 1, steps);
+                u.end = Clock::now();
+                out->push_back(u);
+                return sum;
+            }
+        };
+        auto t = std::make_unique<T>();
+        t->steps = m_steps(thread);
+        t->out = &m_units[std::size_t(thread)];
+        t->window = &m_window;
+        return t;
+    }
+    // For measure()'s progress callback: the window that starts now.
+    void startWindow(int window)
+    {
+        m_window = window;
+        m_windowStarts.push_back(Clock::now());
+    }
+    // Read once measure() has returned (the pool's joins order the writes).
+    const std::vector<Unit> &units(int thread) const { return m_units[std::size_t(thread)]; }
+    Clock::time_point windowStart(int window) const { return m_windowStarts[std::size_t(window)]; }
+
+private:
+    std::function<std::uint64_t(int)> m_steps;
+    mutable std::vector<std::vector<Unit>> m_units;
+    std::atomic<int> m_window{-1};
+    std::vector<Clock::time_point> m_windowStarts;
+};
+
+double secondsOf(Clock::duration d)
+{
+    return std::chrono::duration<double>(d).count();
+}
+
 int testThreads()
 {
     // Never more busy threads than CPUs, or wall-clock spinning slows down.
@@ -116,47 +206,151 @@ private slots:
     // P2: each thread's rate is its own work over its own elapsed time to the
     // end of its last unit, so a thread with long units isn't charged for the
     // part of its last unit that ran past the deadline, and nobody else is
-    // either. Thread 0: 1 ms units; thread 1: 40 ms units.
+    // either. Thread 0: units of about 1 ms of CPU work; thread 1: 40 times
+    // that. Checked against the kernel's own record of when each unit ran, not
+    // against nominal costs, so a runner that stalls a thread can't fail it.
     void unevenUnitsPerThreadAccounting()
     {
         if (logicalCpuCount() < 2)
             QSKIP("needs two CPUs");
+        const std::uint64_t shortUnit = chainStepsFor(1ms);
+        RecordingKernel k(2, [shortUnit](int t) { return t == 0 ? shortUnit : 40 * shortUnit; });
+        // The coordinator's polls: the last one in a window comes right
+        // before it sets stop.
+        std::vector<Clock::time_point> polls;
         WorkerPool pool({2, {}});
-        const SpinKernel k([](int t) { return t == 0 ? 1ms : 40ms; });
-        const Measurement m = pool.measure(k, {50ms, 810ms, 3}, [] { return false; });
+        constexpr auto window = 300ms;
+        const Measurement m = pool.measure(
+            k, {50ms, window, 3},
+            [&] {
+                polls.push_back(Clock::now());
+                return false;
+            },
+            [&](int w) { k.startWindow(w); });
         QVERIFY2(m.ok(), m.error.c_str());
-        const double expected = 1000.0 / 0.001 + 1000.0 / 0.040;
-        QVERIFY2(std::abs(m.median - expected) / expected < 0.05,
-                 qPrintable(QStringLiteral("rate %1, expected %2").arg(m.median).arg(expected)));
-        // The slow thread finishes the unit it is in at the deadline: a
-        // repetition lasts at least its window and at most one long unit plus
-        // the coordinator's lateness past it (its 50 ms poll, rounded up to the
-        // scheduler's tick: 15.6 ms on Windows, more on a loaded runner).
-        const double window = 0.810, longUnit = 0.040, lateness = 0.050 + 0.050;
-        for (const RepSample &s : m.reps)
-            QVERIFY2(s.seconds >= window - 0.002 && s.seconds < window + longUnit + lateness,
-                     qPrintable(QStringLiteral("repetition %1 s").arg(s.seconds)));
+        QCOMPARE(int(m.reps.size()), 3);
+
+        for (int r = 1; r <= 3; ++r) {
+            const RepSample &s = m.reps[std::size_t(r - 1)];
+            // The engine's window start lies between the progress callback
+            // and the first unit of the window; E_t runs from it to the end
+            // of thread t's last unit, which the engine stamps right after
+            // the kernel's own stamp.
+            const Clock::time_point earliest = k.windowStart(r);
+            Clock::time_point latest = Clock::time_point::max();
+            Clock::time_point lastPoll = earliest;
+            for (const Clock::time_point p : polls) {
+                if (p > earliest && (r == 3 || p < k.windowStart(r + 1)))
+                    lastPoll = std::max(lastPoll, p);
+            }
+            double rateLow = 0, rateHigh = 0, chargedForSlowest = 0;
+            double secondsLow = 0, secondsHigh = 0;
+            std::uint64_t units = 0;
+            std::vector<Clock::time_point> ends;
+            std::vector<std::uint64_t> counts;
+            for (int t = 0; t < 2; ++t) {
+                std::uint64_t n = 0;
+                int startedAfterStop = 0;
+                Clock::time_point end = earliest;
+                for (const RecordingKernel::Unit &u : k.units(t)) {
+                    if (u.window != r)
+                        continue;
+                    ++n;
+                    latest = std::min(latest, u.start);
+                    end = std::max(end, u.end);
+                    if (u.start > lastPoll)
+                        ++startedAfterStop;
+                }
+                QVERIFY2(n > 0, qPrintable(QStringLiteral("thread %1 ran no unit in repetition %2").arg(t).arg(r)));
+                // Stop is checked between units: a thread finishes the unit
+                // it is in, and at most one more can start in the instant
+                // between the coordinator's last poll and its setting stop.
+                QVERIFY2(startedAfterStop <= 1,
+                         qPrintable(QStringLiteral("thread %1 started %2 units after the stop in repetition %3")
+                                        .arg(t)
+                                        .arg(startedAfterStop)
+                                        .arg(r)));
+                units += n;
+                ends.push_back(end);
+                counts.push_back(n);
+            }
+            const double slack = 1e-3;  // the instructions between the kernel's stamp and the engine's
+            const Clock::time_point slowestEnd = std::max(ends[0], ends[1]);
+            for (int t = 0; t < 2; ++t) {
+                const double work = double(counts[std::size_t(t)]) * k.workPerUnit();
+                rateHigh += work / secondsOf(ends[std::size_t(t)] - latest);
+                rateLow += work / (secondsOf(ends[std::size_t(t)] - earliest) + slack);
+                chargedForSlowest += work / secondsOf(slowestEnd - earliest);
+            }
+            secondsLow = secondsOf(slowestEnd - latest);
+            secondsHigh = secondsOf(slowestEnd - earliest) + slack;
+            const QString detail = QStringLiteral("repetition %1: rate %2 (from the records: %3 to %4; charging both "
+                                                  "threads to the slowest one's end would give %5), %6 s (%7 to %8), "
+                                                  "%9 units (records: %10)")
+                                       .arg(r)
+                                       .arg(s.rate)
+                                       .arg(rateLow)
+                                       .arg(rateHigh)
+                                       .arg(chargedForSlowest)
+                                       .arg(s.seconds)
+                                       .arg(secondsLow)
+                                       .arg(secondsHigh)
+                                       .arg(s.units)
+                                       .arg(units);
+            QVERIFY2(s.units == units, qPrintable(detail));
+            QVERIFY2(s.rate >= rateLow && s.rate <= rateHigh, qPrintable(detail));
+            QVERIFY2(s.seconds >= secondsLow && s.seconds <= secondsHigh, qPrintable(detail));
+            // Nobody stops early: the thread in a unit at the deadline ends after it.
+            QVERIFY2(s.seconds >= secondsOf(window), qPrintable(detail));
+        }
     }
 
     // Stop during a long repetition returns within 250 ms (§4.1), even with
-    // 90 ms units.
+    // 90 ms units (about 90 ms of CPU work each). On a failure the message
+    // splits the time into the coordinator's poll, the units in progress
+    // finishing, and the engine's own wrap-up.
     void stopWithin250ms()
     {
-        WorkerPool pool({testThreads(), {}});
-        const SpinKernel k([](int) { return 90ms; });
+        const int n = testThreads();
+        RecordingKernel k(n, [steps = chainStepsFor(90ms)](int) { return steps; });
+        WorkerPool pool({n, {}});
         std::atomic<bool> cancel{false};
-        Clock::time_point cancelledAt{};
+        Clock::time_point cancelledAt{}, seenAt{};
         std::thread canceller([&] {
             std::this_thread::sleep_for(400ms);
             cancelledAt = Clock::now();
             cancel = true;
         });
-        const Measurement m = pool.measure(k, {100ms, 10000ms, 5}, [&] { return cancel.load(); });
+        const Measurement m = pool.measure(
+            k, {100ms, 10000ms, 5},
+            [&] {
+                if (!cancel.load())
+                    return false;
+                seenAt = Clock::now();
+                return true;
+            },
+            [&](int w) { k.startWindow(w); });
         const auto returnedAt = Clock::now();
         canceller.join();
         QCOMPARE(m.outcome, Measurement::Outcome::Cancelled);
+        Clock::time_point lastEnd = seenAt;
+        QStringList inFlight;
+        for (int t = 0; t < n; ++t) {
+            const RecordingKernel::Unit &u = k.units(t).back();
+            lastEnd = std::max(lastEnd, u.end);
+            inFlight << QStringLiteral("%1 ms").arg(secondsOf(u.end - u.start) * 1000, 0, 'f', 1);
+        }
+        const auto ms = [](Clock::duration d) { return QString::number(secondsOf(d) * 1000, 'f', 1); };
         const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(returnedAt - cancelledAt);
-        QVERIFY2(took < 250ms, qPrintable(QStringLiteral("Stop took %1 ms").arg(took.count())));
+        QVERIFY2(took < 250ms,
+                 qPrintable(QStringLiteral("Stop took %1 ms: the coordinator saw it after %2 ms (it polls every "
+                                           "50 ms), the units in progress ended %3 ms later (their wall times: %4; "
+                                           "nominal 90 ms), and measure() returned %5 ms after that")
+                                .arg(took.count())
+                                .arg(ms(seenAt - cancelledAt))
+                                .arg(ms(lastEnd - seenAt))
+                                .arg(inFlight.join(QStringLiteral(", ")))
+                                .arg(ms(returnedAt - lastEnd))));
     }
 
     // Phase 1 threading rule 4: the workers are gone when the pool is.
