@@ -137,6 +137,44 @@ add_test(NAME cpu_kernel_flags_rejects_planted
 set_tests_properties(cpu_kernel_flags_rejects_planted PROPERTIES
     PASS_REGULAR_EXPRESSION "planted\\.cpp: optimisation is '-O3', not -O2")
 
+# The SIMD paths' wide-arch objects follow the ODR rule (§5.3, P8): only
+# their entry point and their own namespace (packaging/checks/simd-odr.py);
+# and the check fails on a planted object that breaks it. The arch flags of
+# each path's TU are checked too (compile_commands.json).
+get_property(_simd_isas GLOBAL PROPERTY SYNBENCH_SIMD_ISAS)
+if(SYNBENCH_PYTHON3 AND SYNBENCH_NM AND _simd_isas)
+    set(_simd_objects "")
+    set(_simd_wide_flags "")
+    set(SYNBENCH_PLANTED_FLAGS "")
+    foreach(_isa IN LISTS _simd_isas)
+        list(APPEND _simd_objects "${_isa}=$<TARGET_OBJECTS:synbench_simd_${_isa}>")
+        get_target_property(_flags synbench_simd_${_isa} SYNBENCH_ARCH_FLAGS)
+        get_target_property(_wide synbench_simd_${_isa} SYNBENCH_WIDE)
+        get_target_property(_dir synbench_simd_${_isa} SOURCE_DIR)
+        set(_entry "${_dir}/simd/simd_${_isa}.cpp=")
+        if(_flags)
+            list(JOIN _flags "," _joined)
+            string(APPEND _entry "${_joined}")
+        endif()
+        list(APPEND _simd_wide_flags "${_entry}")
+        if(_wide AND NOT SYNBENCH_PLANTED_FLAGS)
+            set(SYNBENCH_PLANTED_FLAGS ${_flags})
+        endif()
+    endforeach()
+    add_test(NAME simd_odr
+        COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/simd-odr.py" --nm "${SYNBENCH_NM}"
+                ${_simd_objects})
+    add_subdirectory(simd_planted)
+    add_test(NAME simd_odr_rejects_planted
+        COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/simd-odr.py" --nm "${SYNBENCH_NM}"
+                --expect-violation "planted=$<TARGET_OBJECTS:synbench_simd_planted>")
+    set_tests_properties(simd_odr_rejects_planted PROPERTIES PASS_REGULAR_EXPRESSION "plantedOutside")
+    list(JOIN _simd_wide_flags "|" _simd_wide_flags)
+    add_test(NAME cpu_simd_flags
+        COMMAND "${CMAKE_COMMAND}" "-DCOMMANDS=${PROJECT_BINARY_DIR}/compile_commands.json" -DCOMPILER=${_k_compiler}
+                "-DWIDE=${_simd_wide_flags}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckKernelFlags.cmake")
+endif()
+
 # Every script the build runs with `cmake -P` pins its policies.
 add_test(NAME cmake_scripts_set_policies
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckScriptPolicies.cmake")

@@ -8,6 +8,7 @@
 #include "tests/cpu/kernels/fp_kernel.h"
 #include "tests/cpu/kernels/int_kernel.h"
 #include "tests/cpu/kernels/primes_kernel.h"
+#include "tests/cpu/kernels/simd_kernel.h"
 
 #include <QTest>
 
@@ -67,6 +68,23 @@ bool isPrime(std::uint64_t n)
             return false;
     }
     return true;
+}
+
+// The SIMD paths this runner's CPU (and OS) can run: the widest one and every
+// narrower one on the same ladder (P9).
+std::vector<sb::isa::SimdPath> runnableSimdPaths()
+{
+    using sb::isa::SimdPath;
+    std::vector<SimdPath> out;
+    switch (sb::isa::bestSimdPath(sb::isa::detect())) {
+    case SimdPath::Avx512: out.push_back(SimdPath::Avx512); [[fallthrough]];
+    case SimdPath::Avx2Fma: out.push_back(SimdPath::Avx2Fma); [[fallthrough]];
+    case SimdPath::Sse42: out.push_back(SimdPath::Sse42); break;
+    case SimdPath::Sve: out.push_back(SimdPath::Sve); [[fallthrough]];
+    case SimdPath::Neon: out.push_back(SimdPath::Neon); break;
+    case SimdPath::None: break;
+    }
+    return out;
 }
 
 // The fastest of `tries` runs of fn() (the least disturbed one).
@@ -157,6 +175,89 @@ private slots:
         QVERIFY(!isPrime(1000000000001ull));  // 73 x 137 x 99990001
     }
 
+    // §5.3: the inputs keep the arithmetic exact (A, B in -2..2; x, y in
+    // -128..127), and the reference matches the golden table.
+    void simdReferenceMatchesGolden()
+    {
+        const SimdInputs inputs;
+        for (const std::uint64_t s : {0ull, 1ull, 63ull}) {
+            const simd::Input in = inputs.forSeed(s);
+            for (int i = 0; i < simd::kGemmM * simd::kGemmK; ++i)
+                QVERIFY(in.a[i] >= -2 && in.a[i] <= 2 && in.a[i] == float(int(in.a[i])));
+            for (int i = 0; i < simd::kGemmBRows * simd::kGemmN; ++i)
+                QVERIFY(in.b[i] >= -2 && in.b[i] <= 2 && in.b[i] == float(int(in.b[i])));
+            for (int i = 0; i < simd::kDotLength; ++i)
+                QVERIFY(in.x[i] >= -128 && in.x[i] <= 127);
+            simd::Output out{};
+            simdReferenceUnit(in, out);
+            QCOMPARE(simdChecksum(out), golden::kSimd[s]);
+            // The largest |C| stays far inside the exact range of a float.
+            float most = 0;
+            for (const float c : out.c)
+                most = std::max(most, std::abs(c));
+            QVERIFY(most < float(1 << 24));
+            QVERIFY(most > 0);
+        }
+        QVERIFY(golden::kSimd[0] != golden::kSimd[1]);
+    }
+
+    // §14.1: every path this runner has gives the reference's result, on
+    // every seed. The others are skipped (and named).
+    void simdPathsMatchGolden()
+    {
+        const SimdInputs inputs;
+        const std::vector<sb::isa::SimdPath> paths = runnableSimdPaths();
+        QVERIFY(!paths.empty());
+        for (const sb::isa::SimdPath p :
+             {sb::isa::SimdPath::Sse42, sb::isa::SimdPath::Avx2Fma, sb::isa::SimdPath::Avx512, sb::isa::SimdPath::Neon,
+              sb::isa::SimdPath::Sve}) {
+            const bool built = simdUnitFor(p) != nullptr;
+            if (std::find(paths.begin(), paths.end(), p) == paths.end() || !built) {
+                qInfo("%s: not run here (%s)", sb::isa::simdPathName(p),
+                      built ? "this CPU or OS lacks it" : "not in this build");
+                continue;
+            }
+            std::uint32_t bits = 0;
+            for (std::uint64_t s = 0; s < kSeeds; ++s) {
+                const simd::Input in = inputs.forSeed(s);
+                simd::Output out{};
+                simdUnitFor(p)(&in, &out);
+                QVERIFY2(simdChecksum(out) == golden::kSimd[s],
+                         qPrintable(QStringLiteral("%1, seed %2").arg(QLatin1StringView(sb::isa::simdPathName(p))).arg(s)));
+                bits = out.vectorBits;
+            }
+            qInfo("%s: all %d seeds match the reference (%u-bit)", sb::isa::simdPathName(p), int(kSeeds), bits);
+            // And through the engine, as the CPU test runs it.
+            const SimdKernel k(inputs, p, bits);
+            WorkerPool pool({2, {}});
+            const Measurement m = pool.measure(k, {20ms, 50ms, 2}, [] { return false; });
+            QVERIFY2(m.ok(), m.error.c_str());
+            qInfo("%s: %.0f M ops/s on 2 threads", sb::isa::simdPathName(p), m.median / 1e6);
+        }
+    }
+
+    // P9 / D15: the path the CPU test picks on this machine is the widest one,
+    // with its label and the reason for the log.
+    void simdChoiceOnThisMachine()
+    {
+        const SimdInputs inputs;
+        const sb::isa::CpuFeatures f = sb::isa::detect();
+        const SimdChoice c = chooseSimdPath(f, inputs);
+        QCOMPARE(c.path, sb::isa::bestSimdPath(f));
+        QVERIFY(simdUnitFor(c.path) != nullptr);
+        QVERIFY(!c.warning);
+        QCOMPARE(QString::fromStdString(c.label), QString::fromLatin1(sb::isa::simdPathName(c.path)));
+        qInfo("SIMD choice: %s; %s", c.label.c_str(), c.note.c_str());
+        QCOMPARE(simdPathLabel(sb::isa::SimdPath::Sve, 256), std::string("SVE (256-bit, unvalidated)"));
+        QCOMPARE(simdPathLabel(sb::isa::SimdPath::Avx2Fma, 256), std::string("AVX2 + FMA (256-bit)"));
+        // A path not in this build can't be made into a running kernel.
+        const sb::isa::SimdPath foreign =
+            simdUnitFor(sb::isa::SimdPath::Neon) ? sb::isa::SimdPath::Avx512 : sb::isa::SimdPath::Neon;
+        const SimdKernel k(inputs, foreign, 128);
+        WorkerPool pool({1, {}});
+        QCOMPARE(pool.measure(k, {10ms, 10ms, 1}, [] { return false; }).outcome, Measurement::Outcome::Failed);
+    }
+
     // Each kernel through the engine: every unit checked against the golden
     // table (two threads, all seeds), a plausible rate.
     void kernelsThroughTheEngine()
@@ -183,8 +284,18 @@ private slots:
         const Clock::duration ti = fastest(3, [] { intUnit(3); });
         const Clock::duration tf = fastest(3, [] { fpUnit(3); });
         const Clock::duration tp = fastest(3, [&] { primesUnit(3, base, bitset.data()); });
-        qInfo("unit times: integer %.3f ms, FP %.3f ms, primes %.3f ms", msOf(ti), msOf(tf), msOf(tp));
-        for (const Clock::duration t : {ti, tf, tp})
+        const SimdInputs inputs;
+        const SimdChoice c = chooseSimdPath(sb::isa::detect(), inputs);
+        const simd::Input in = inputs.forSeed(3);
+        simd::Output out{};
+        const Clock::duration ts = fastest(3, [&] { simdUnitFor(c.path)(&in, &out); });
+        // The slowest path (SSE4.2: multiply + add, 4 lanes) on this CPU.
+        const Clock::duration tsse = simdUnitFor(sb::isa::SimdPath::Sse42) && c.path != sb::isa::SimdPath::Sse42
+                                         ? fastest(3, [&] { simdUnitFor(sb::isa::SimdPath::Sse42)(&in, &out); })
+                                         : ts;
+        qInfo("unit times: integer %.3f ms, FP %.3f ms, primes %.3f ms, SIMD %.3f ms (%s), SIMD %.3f ms (narrowest)",
+              msOf(ti), msOf(tf), msOf(tp), msOf(ts), c.label.c_str(), msOf(tsse));
+        for (const Clock::duration t : {ti, tf, tp, ts, tsse})
             QVERIFY(t < 25ms);
     }
 };

@@ -13,7 +13,9 @@
 #include "tests/cpu/kernels/fp_kernel.h"
 #include "tests/cpu/kernels/int_kernel.h"
 #include "tests/cpu/kernels/primes_kernel.h"
+#include "tests/cpu/kernels/simd_kernel.h"
 
+#include <atomic>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -58,16 +60,35 @@ std::string corpusTable()
            + "inline constexpr std::uint32_t kCorpusCrc32 = " + hex32(sb::cpu::crc32Of(corpus)) + ";\n";
 }
 
+// perSeed(0..count-1), on every hardware thread (perSeed must be
+// thread-safe); the results in seed order.
+std::vector<std::uint64_t> forEachSeed(std::uint64_t count, const std::function<std::uint64_t(std::uint64_t)> &perSeed)
+{
+    std::vector<std::uint64_t> out(count);
+    std::atomic<std::uint64_t> next{0};
+    const auto work = [&] {
+        for (std::uint64_t i; (i = next++) < count;)
+            out[i] = perSeed(i);
+    };
+    std::vector<std::thread> pool;
+    for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t)
+        pool.emplace_back(work);
+    for (std::thread &t : pool)
+        t.join();
+    return out;
+}
+
 // A table of one checksum per seed (0..kSeeds-1), `perSeed(seed)` each.
 std::string seedTable(const char *what, const char *how, const char *name,
                       const std::function<std::uint64_t(std::uint64_t)> &perSeed, bool decimal = false)
 {
+    const std::vector<std::uint64_t> values = forEachSeed(sb::cpu::kSeeds, perSeed);
     std::ostringstream s;
     s << header(what, how) << "inline constexpr std::array<std::uint64_t, " << sb::cpu::kSeeds << "> " << name
       << " = {\n";
     for (std::uint64_t seed = 0; seed < sb::cpu::kSeeds; ++seed) {
         char buf[32];
-        std::snprintf(buf, sizeof buf, decimal ? "%llu," : "0x%016llXull,", (unsigned long long)perSeed(seed));
+        std::snprintf(buf, sizeof buf, decimal ? "%llu," : "0x%016llXull,", (unsigned long long)values[seed]);
         const std::uint64_t perLine = decimal ? 8 : 4;
         s << (seed % perLine == 0 ? "    " : " ") << buf << (seed % perLine == perLine - 1 ? "\n" : "");
     }
@@ -90,10 +111,25 @@ std::string fpTable()
 std::string primesTable()
 {
     const std::vector<std::uint32_t> base = sb::cpu::primesBase();
-    std::vector<std::uint64_t> bitset(sb::cpu::kPrimesBitsetWords);
     return seedTable("The primes kernel (section 5.2): primes in [10^12 + s * 2^20, 10^12 + (s + 1) * 2^20).",
                      "kPrimes[s] = sb::cpu::primesUnit(s, ...): a segmented sieve.", "kPrimes",
-                     [&](std::uint64_t seed) { return sb::cpu::primesUnit(seed, base, bitset.data()); }, true);
+                     [&](std::uint64_t seed) {
+                         std::vector<std::uint64_t> bitset(sb::cpu::kPrimesBitsetWords);
+                         return sb::cpu::primesUnit(seed, base, bitset.data());
+                     },
+                     true);
+}
+
+std::string simdTable()
+{
+    const sb::cpu::SimdInputs inputs;
+    return seedTable("The SIMD kernel (section 5.3): the checksum of one unit per seed, the same on every path.",
+                     "kSimd[s] = simdChecksum() of sb::cpu::simdReferenceUnit(s), the scalar reference.", "kSimd",
+                     [&](std::uint64_t seed) {
+                         sb::cpu::simd::Output out{};
+                         sb::cpu::simdReferenceUnit(inputs.forSeed(seed), out);
+                         return sb::cpu::simdChecksum(out);
+                     });
 }
 
 const std::vector<Table> &tables()
@@ -103,6 +139,7 @@ const std::vector<Table> &tables()
         {"int.inc", intTable},
         {"fp.inc", fpTable},
         {"primes.inc", primesTable},
+        {"simd.inc", simdTable},
     };
     return t;
 }

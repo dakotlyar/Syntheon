@@ -18,5 +18,6 @@ namespace sb::cpu::golden {
 #include "tests/cpu/golden/int.inc"
 #include "tests/cpu/golden/fp.inc"
 #include "tests/cpu/golden/primes.inc"
+#include "tests/cpu/golden/simd.inc"
 
 } // namespace sb::cpu::golden

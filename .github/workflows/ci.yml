@@ -842,6 +842,16 @@ jobs:
       - name: Build
         run: cmake --build --preset linux-arm64-cross
 
+      # §5.3 (P8): the SVE path's object, the one wide-arch TU on ARM64, follows
+      # the SIMD ODR rule (the x64 ones are the simd_odr CTest; this job has no
+      # tests). NEON is the armv8-a baseline, checked for the same shape.
+      - name: SIMD ODR rule on the ARM64 path objects
+        run: |
+          sve=$(find build/linux-arm64-cross -name 'simd_sve.cpp.o' | head -1)
+          neon=$(find build/linux-arm64-cross -name 'simd_neon.cpp.o' | head -1)
+          [ -n "$sve" ] && [ -n "$neon" ] || { echo "::error::simd_sve.cpp.o or simd_neon.cpp.o is not in the build"; exit 1; }
+          python3 packaging/checks/simd-odr.py --nm aarch64-linux-gnu-nm "sve=$sve" "neon=$neon"
+
       # §11.2: the only proof the ARM64 build has the ARMv8 Crypto path (ARM
       # never runs in CI); the check must also fail, readably, on zlib.
       - name: libcrypto has the hardware crypto path (ARMv8 Crypto)
@@ -917,7 +927,7 @@ jobs:
         run: shellcheck packaging/checks/*.sh packaging/linux/*.sh
 
       - name: Python scripts compile
-        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py packaging/checks/qmllint-gate.py packaging/checks/crypto-symbols.py
+        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py packaging/checks/qmllint-gate.py packaging/checks/crypto-symbols.py packaging/checks/simd-odr.py
 
       - name: Desktop file and AppStream metadata
         run: |
