@@ -115,6 +115,22 @@ private slots:
         QCOMPARE(bestSimdPath(f), SimdPath::Sse42);
     }
 
+    // AP-5 L2: the AVX-512 path's TU may use FMA3 and AVX2 instructions too,
+    // so a CPU (or hypervisor) that reports AVX-512 without them doesn't get it.
+    void avx512WithoutFmaOrAvx2IsNotAvx512()
+    {
+        X86Cpuid noFma = knowhere();
+        noFma.leaf1.c &= ~(1u << 12);
+        const CpuFeatures f = decodeX86(noFma);
+        QVERIFY(f.has(Feature::Avx512F) && f.has(Feature::Avx512Vl) && !f.has(Feature::Fma));
+        QCOMPARE(bestSimdPath(f), SimdPath::Sse42);
+        X86Cpuid noAvx2 = knowhere();
+        noAvx2.leaf7.b &= ~(1u << 5);
+        const CpuFeatures g = decodeX86(noAvx2);
+        QVERIFY(g.has(Feature::Avx512F) && !g.has(Feature::Avx2));
+        QCOMPARE(bestSimdPath(g), SimdPath::Sse42);
+    }
+
     void avx2WithoutFmaIsSse42()
     {
         X86Cpuid r = knowhere();

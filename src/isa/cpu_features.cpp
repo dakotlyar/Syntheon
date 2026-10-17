@@ -305,7 +305,10 @@ CpuFeatures detect()
 
 SimdPath bestSimdPath(const CpuFeatures &f, bool sveInBuild)
 {
-    if (f.has(Feature::Avx512F) && f.has(Feature::Avx512Bw) && f.has(Feature::Avx512Dq) && f.has(Feature::Avx512Vl))
+    // The AVX-512 TU is also built with -mfma (and AVX2 is implied by its
+    // flags): the compiler may use FMA3 / AVX2 instructions anywhere in it.
+    if (f.has(Feature::Avx512F) && f.has(Feature::Avx512Bw) && f.has(Feature::Avx512Dq) && f.has(Feature::Avx512Vl)
+        && f.has(Feature::Avx2) && f.has(Feature::Fma))
         return SimdPath::Avx512;
     if (f.has(Feature::Avx2) && f.has(Feature::Fma))
         return SimdPath::Avx2Fma;
