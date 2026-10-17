@@ -209,6 +209,20 @@ add_test(NAME cpu_crypto_golden_table
             "-DEXPECTED=${PROJECT_SOURCE_DIR}/src/tests/cpu/golden/crypto.inc"
             -P "${PROJECT_SOURCE_DIR}/cmake/CheckCommandOutput.cmake")
 
+# The encryption worker's imports load from System32 and its folder only
+# (/DEPENDENTLOADFLAG:0xA00, AP-5 L3), read from its PE header; and the check
+# fails on a planted executable linked without the flag (MSVC builds).
+if(MSVC AND SYNBENCH_PYTHON3)
+    add_test(NAME pe_loadflags_worker
+        COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/pe-loadflags.py"
+                "$<TARGET_FILE:synbench-cpucrypto>" --expect 0xA00)
+    add_subdirectory(pe_planted)
+    add_test(NAME pe_loadflags_rejects_planted
+        COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/pe-loadflags.py"
+                "$<TARGET_FILE:pe_planted_noflag>" --expect 0xA00)
+    set_tests_properties(pe_loadflags_rejects_planted PROPERTIES PASS_REGULAR_EXPRESSION "FAIL .*(DependentLoadFlags 0x0,|no load configuration)")
+endif()
+
 # Every script the build runs with `cmake -P` pins its policies.
 add_test(NAME cmake_scripts_set_policies
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckScriptPolicies.cmake")

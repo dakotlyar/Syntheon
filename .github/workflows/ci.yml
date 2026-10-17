@@ -560,17 +560,18 @@ jobs:
         shell: pwsh
         run: ./packaging/checks/test-windows-static-checks.ps1 -Tree stage -Arch x64
 
-      # AP-5 L3: the elevated encryption worker's own imports load from System32
-      # and its folder only (/DEPENDENTLOADFLAG:0xA00); the check must also fail
-      # on SynBench.exe, which doesn't set it.
-      - name: The encryption worker's DLL search is System32 + its folder
+      # AP-5 L3: both elevated executables load their imports from System32 and
+      # their own folder only (/DEPENDENTLOADFLAG:0xA00: SynBench.exe's since
+      # Phase 1, packaged builds only). The check's negative control is the
+      # pe_loadflags_rejects_planted CTest (windows-x64 job): a planted exe
+      # linked without the flag.
+      - name: The elevated executables' DLL search is System32 + their folder
         shell: pwsh
         run: |
-          python packaging/checks/pe-loadflags.py stage/synbench-cpucrypto.exe --expect 0xA00
-          if ($LASTEXITCODE -ne 0) { throw "synbench-cpucrypto.exe lacks DependentLoadFlags 0xA00" }
-          python packaging/checks/pe-loadflags.py stage/SynBench.exe --expect 0xA00
-          if ($LASTEXITCODE -ne 1) { throw "the negative control on SynBench.exe did not fail as it must" }
-          $global:LASTEXITCODE = 0
+          foreach ($exe in 'stage/synbench-cpucrypto.exe', 'stage/SynBench.exe') {
+            python packaging/checks/pe-loadflags.py $exe --expect 0xA00
+            if ($LASTEXITCODE -ne 0) { throw "$exe lacks DependentLoadFlags 0xA00" }
+          }
 
       - name: Versions
         shell: pwsh
@@ -762,17 +763,18 @@ jobs:
         shell: pwsh
         run: ./packaging/checks/test-windows-static-checks.ps1 -Tree stage -Arch arm64
 
-      # AP-5 L3: the elevated encryption worker's own imports load from System32
-      # and its folder only (/DEPENDENTLOADFLAG:0xA00); the check must also fail
-      # on SynBench.exe, which doesn't set it.
-      - name: The encryption worker's DLL search is System32 + its folder
+      # AP-5 L3: both elevated executables load their imports from System32 and
+      # their own folder only (/DEPENDENTLOADFLAG:0xA00: SynBench.exe's since
+      # Phase 1, packaged builds only). The check's negative control is the
+      # pe_loadflags_rejects_planted CTest (windows-x64 job): a planted exe
+      # linked without the flag.
+      - name: The elevated executables' DLL search is System32 + their folder
         shell: pwsh
         run: |
-          python packaging/checks/pe-loadflags.py stage/synbench-cpucrypto.exe --expect 0xA00
-          if ($LASTEXITCODE -ne 0) { throw "synbench-cpucrypto.exe lacks DependentLoadFlags 0xA00" }
-          python packaging/checks/pe-loadflags.py stage/SynBench.exe --expect 0xA00
-          if ($LASTEXITCODE -ne 1) { throw "the negative control on SynBench.exe did not fail as it must" }
-          $global:LASTEXITCODE = 0
+          foreach ($exe in 'stage/synbench-cpucrypto.exe', 'stage/SynBench.exe') {
+            python packaging/checks/pe-loadflags.py $exe --expect 0xA00
+            if ($LASTEXITCODE -ne 0) { throw "$exe lacks DependentLoadFlags 0xA00" }
+          }
 
       - name: Versions
         shell: pwsh
