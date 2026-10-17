@@ -175,6 +175,14 @@ if(SYNBENCH_PYTHON3 AND SYNBENCH_NM AND _simd_isas)
                 "-DWIDE=${_simd_wide_flags}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckKernelFlags.cmake")
 endif()
 
+# The encryption worker's golden table (§5.5) is what the worker computes on
+# this platform (it is made by the worker itself: OpenSSL is linked into the
+# worker only).
+add_test(NAME cpu_crypto_golden_table
+    COMMAND "${CMAKE_COMMAND}" "-DCOMMAND=$<TARGET_FILE:synbench-cpucrypto>" -DARGS=--print-golden
+            "-DEXPECTED=${PROJECT_SOURCE_DIR}/src/tests/cpu/golden/crypto.inc"
+            -P "${PROJECT_SOURCE_DIR}/cmake/CheckCommandOutput.cmake")
+
 # Every script the build runs with `cmake -P` pins its policies.
 add_test(NAME cmake_scripts_set_policies
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckScriptPolicies.cmake")

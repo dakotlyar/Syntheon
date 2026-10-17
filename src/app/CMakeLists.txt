@@ -121,6 +121,8 @@ target_link_libraries(synbench_app PRIVATE
     synbench_appcore
     synbench_version
 )
+# The CPU test starts its encryption worker from the app's folder (§5.5).
+add_dependencies(synbench_app synbench-cpucrypto)
 if(TARGET synbench-helper)
     add_dependencies(synbench_app synbench-helper)  # pkexec runs it from the same folder (dev builds)
 endif()

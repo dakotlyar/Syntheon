@@ -29,6 +29,7 @@ if ($OldInstaller) { $OldInstaller = (Resolve-Path $OldInstaller).Path }
 
 $app = Join-Path $env:ProgramFiles 'SynBench'
 $exe = Join-Path $app 'SynBench.exe'
+$worker = Join-Path $app 'synbench-cpucrypto.exe'
 $tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
 $logs = Join-Path $tempRoot 'install-logs'
 New-Item -ItemType Directory -Force $logs | Out-Null
@@ -104,6 +105,7 @@ try {
     Step 'Inno: install / launch / uninstall'
     Run $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-install.log")
     if (-not (Test-Path $exe)) { throw 'SynBench.exe missing after the Inno install' }
+    if (-not (Test-Path $worker)) { throw 'synbench-cpucrypto.exe missing after the Inno install' }
     Assert-Version
     Test-Launch
     Run (Get-InnoUninstaller) @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
@@ -114,6 +116,7 @@ try {
     Step 'MSI: install / launch / uninstall'
     Run 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-install.log")
     if (-not (Test-Path $exe)) { throw 'SynBench.exe missing after the MSI install' }
+    if (-not (Test-Path $worker)) { throw 'synbench-cpucrypto.exe missing after the MSI install' }
     Test-Launch
     Run 'msiexec.exe' @('/x', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-uninstall.log")
     Wait-Gone

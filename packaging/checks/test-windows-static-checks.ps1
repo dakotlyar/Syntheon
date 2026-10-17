@@ -61,6 +61,18 @@ try {
     Remove-Item (Join-Path $work 'Qt6Core.dll')
     Assert-Fails 'Qt6Core.dll removed'
 
+    # 6. the encryption worker is gone (Phase 2 §11.3)
+    Fresh-Copy
+    Remove-Item (Join-Path $work 'synbench-cpucrypto.exe')
+    Assert-Fails 'synbench-cpucrypto.exe removed'
+
+    # 7. an encryption worker of the wrong architecture
+    if ($Arch -eq 'arm64') {
+        Fresh-Copy
+        Copy-Item (Join-Path $env:SystemRoot 'System32\whoami.exe') (Join-Path $work 'synbench-cpucrypto.exe') -Force
+        Assert-Fails 'an x64 synbench-cpucrypto.exe in the ARM64 tree'
+    } else { Write-Host 'skip: no arm64 executable is available on this runner to plant in the x64 tree' }
+
     Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
     Write-Host "::error::$($_.Exception.Message)"

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # The kernels: their own target, for their compile flags (P7).
 add_subdirectory(kernels)
+# The encryption worker, synbench-cpucrypto (§5.5): its own executable.
+add_subdirectory(worker)
 
 add_library(synbench_test_cpu STATIC
     cpu_test.h cpu_test.cpp
@@ -12,6 +14,8 @@ add_library(synbench_test_cpu STATIC
     engine/worker_pool.h engine/worker_pool.cpp
     # Deterministic data (§5.4, §6.4, P10).
     compress/corpus.h compress/corpus.cpp
+    # The encryption worker's client (§5.5).
+    crypto_client.h crypto_client.cpp
     # Compression (§5.4, P11).
     compress/codec.h compress/codec.cpp
     compress/compress_kernels.h compress/compress_kernels.cpp

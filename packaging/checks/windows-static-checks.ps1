@@ -32,5 +32,11 @@ if ($Arch -eq 'x64') { $crt += 'vcruntime140_1.dll' }
 $missing = $crt | Where-Object { -not (Test-Path (Join-Path $Tree $_)) }
 if ($missing) { throw "the app-local VC++ runtime is missing from the tree: $($missing -join ', ')" }
 Write-Host "ok: the VC++ runtime is in the tree ($($crt -join ', '))"
+
+# The CPU test's encryption worker ships next to SynBench.exe (Phase 2 §11.3);
+# pe-check.ps1 above has checked its architecture and dependencies.
+if (-not (Test-Path (Join-Path $Tree 'synbench-cpucrypto.exe'))) { throw 'synbench-cpucrypto.exe (the encryption worker) is missing from the tree' }
+Write-Host 'ok: the encryption worker is in the tree'
+
 $global:LASTEXITCODE = 0
 exit 0

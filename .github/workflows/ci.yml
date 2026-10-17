@@ -346,6 +346,16 @@ jobs:
       - name: Install
         run: cmake --install build/linux-x64-package --prefix stage
 
+      # Phase 2 §11.2, §11.3: the CPU test's encryption worker is installed,
+      # its linked code has the hardware AES and SHA-256 paths (the same check
+      # as libcrypto's, on the program that runs), and the packaged build runs
+      # its known-answer tests and golden table natively here.
+      - name: The encryption worker is installed, with the hardware crypto path, and passes its self-test
+        run: |
+          test -x stage/libexec/synbench-cpucrypto || { echo "::error::stage/libexec/synbench-cpucrypto is missing"; exit 1; }
+          python3 packaging/checks/crypto-symbols.py stage/libexec/synbench-cpucrypto --arch x86_64
+          env -i stage/libexec/synbench-cpucrypto --self-test
+
       - name: The packaged binaries carry no developer hooks and no test binaries
         run: |
           bash packaging/checks/no-dev-hooks.sh stage
@@ -360,6 +370,7 @@ jobs:
       - name: Static checks on the AppDir (architecture, libraries, glibc 2.35 floor)
         run: |
           python3 packaging/checks/elf-check.py AppDir --arch x86_64
+          test -x AppDir/usr/libexec/synbench-cpucrypto || { echo "::error::the encryption worker is not in the AppDir"; exit 1; }
           # Both Qt platform plugins: native Wayland and xcb (the X11/XWayland fallback).
           for f in libqwayland.so libqxcb.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
           test -n "$(find AppDir/usr/plugins/wayland-shell-integration -name 'libxdg-shell.so')"
@@ -534,6 +545,14 @@ jobs:
       - name: Static checks on the stage tree (hooks, test binaries, architecture, dependencies, runtime)
         shell: pwsh
         run: ./packaging/checks/windows-static-checks.ps1 -Tree stage -Arch x64
+
+      # Phase 2 §11.3: the packaged encryption worker (app-local runtime, no
+      # developer hooks) runs its known-answer tests and golden table.
+      - name: The packaged encryption worker passes its self-test
+        shell: pwsh
+        run: |
+          & stage/synbench-cpucrypto.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "synbench-cpucrypto --self-test failed ($LASTEXITCODE)" }
 
       # A check that cannot fail proves nothing: plant defects in a copy and
       # require the checks to reject each one.
@@ -863,6 +882,13 @@ jobs:
       - name: Install
         run: cmake --install build/linux-arm64-cross --prefix stage
 
+      # Phase 2 §11.2, §11.3: the encryption worker is installed and its linked
+      # code has the ARMv8 Crypto AES and SHA-256 paths (nothing runs here).
+      - name: The encryption worker is installed, with the hardware crypto path
+        run: |
+          test -x stage/libexec/synbench-cpucrypto || { echo "::error::stage/libexec/synbench-cpucrypto is missing"; exit 1; }
+          python3 packaging/checks/crypto-symbols.py stage/libexec/synbench-cpucrypto --arch aarch64 --nm aarch64-linux-gnu-nm
+
       - name: The packaged binaries carry no developer hooks and no test binaries
         run: |
           bash packaging/checks/no-dev-hooks.sh stage
@@ -878,6 +904,7 @@ jobs:
       - name: Static checks (P27, the aarch64 floor is glibc 2.39)
         run: |
           python3 packaging/checks/elf-check.py AppDir --arch aarch64 --cross-prefix aarch64-linux-gnu-
+          test -x AppDir/usr/libexec/synbench-cpucrypto || { echo "::error::the encryption worker is not in the AppDir"; exit 1; }
           for f in libqwayland.so libqxcb.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
           test -n "$(find AppDir/usr/plugins/wayland-shell-integration -name 'libxdg-shell.so')"
           bash packaging/checks/no-dev-hooks.sh AppDir
