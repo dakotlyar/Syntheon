@@ -47,6 +47,7 @@
 #include "tests/cpu/engine/kernel.h"
 
 #include <atomic>
+#include <barrier>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -163,6 +164,16 @@ private:
     // Set with m_stop on a cancel, for the units that poll it
     // (KernelThread::cancelRequested); cleared when a measurement starts.
     std::atomic<bool> m_cancel{false};
+
+    // Collective kernels (Kernel::collectiveThreads): after each unit every
+    // worker arrives here, and the barrier's completion reads m_stop once for
+    // all of them, so they all run the same number of units.
+    struct DecideStop {
+        WorkerPool *pool;
+        void operator()() noexcept { pool->m_collectiveStop = pool->m_stop.load(); }
+    };
+    std::unique_ptr<std::barrier<DecideStop>> m_unitBarrier;
+    bool m_collectiveStop = false;  // written by the completion, read after the barrier
 };
 
 } // namespace sb::cpu

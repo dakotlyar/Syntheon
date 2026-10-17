@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <barrier>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -633,6 +634,69 @@ private slots:
         QVERIFY2(m.ok(), m.error.c_str());
         QCOMPARE(m.median, 2 * 1234.5);
         QCOMPARE(k.windows.load(), 2 * 4);  // warm-up + 3 repetitions, two threads
+    }
+
+    // Kernel::collectiveThreads(): all threads run the same units together
+    // (they meet at the kernel's own barrier inside each unit), the stop
+    // decision is the same for all of them, each is credited 1/N of a unit,
+    // and a pool of another size fails the measurement.
+    void collectiveKernel()
+    {
+        constexpr int kThreads = 3;
+        struct Together : Kernel {
+            mutable std::barrier<> meet{kThreads};
+            mutable std::vector<std::vector<std::uint64_t>> seen = std::vector<std::vector<std::uint64_t>>(kThreads);
+            std::string name() const override { return "Together"; }
+            double workPerUnit() const override { return 3000; }
+            double maxWorkPerCyclePerThread() const override { return 1e9; }
+            int collectiveThreads() const override { return kThreads; }
+            std::unique_ptr<KernelThread> makeThread(int thread) const override
+            {
+                struct T : KernelThread {
+                    std::barrier<> *meet;
+                    std::vector<std::uint64_t> *seen;
+                    std::uint64_t unit(std::uint64_t index) override
+                    {
+                        seen->push_back(index);
+                        std::this_thread::sleep_for(std::chrono::microseconds(200));
+                        meet->arrive_and_wait();  // nobody finishes a unit alone
+                        return index % kSeeds + 7;
+                    }
+                };
+                auto t = std::make_unique<T>();
+                t->meet = &meet;
+                t->seen = &seen[std::size_t(thread)];
+                return t;
+            }
+            std::optional<std::uint64_t> golden(std::uint64_t seed) const override { return seed + 7; }
+        } k;
+        WorkerPool pool({kThreads, {}});
+        const Measurement m = pool.measure(k, {20ms, 60ms, 3}, [] { return false; });
+        QVERIFY2(m.ok(), m.error.c_str());
+        // Every thread ran exactly the same units, in the same order.
+        QVERIFY(!k.seen[0].empty());
+        QCOMPARE(k.seen[1], k.seen[0]);
+        QCOMPARE(k.seen[2], k.seen[0]);
+        for (std::size_t i = 0; i < k.seen[0].size(); ++i)
+            QCOMPARE(k.seen[0][i], std::uint64_t(i));
+        // Each repetition: the units divided by the threads is a whole number of
+        // shared units, and the rate counts each shared unit once.
+        for (const RepSample &r : m.reps) {
+            QCOMPARE(r.units % kThreads, std::uint64_t(0));
+            const double shared = double(r.units / kThreads);
+            QVERIFY(r.rate <= shared * 3000 / 0.060 * 1.05);
+        }
+        // A cancel ends all of them together.
+        std::atomic<int> polls{0};
+        QCOMPARE(pool.measure(k, {10000ms, 10000ms, 1}, [&] { return ++polls > 3; }).outcome,
+                 Measurement::Outcome::Cancelled);
+        QCOMPARE(k.seen[1].size(), k.seen[0].size());
+        QCOMPARE(k.seen[2].size(), k.seen[0].size());
+        // The wrong pool size.
+        WorkerPool two({2, {}});
+        const Measurement wrong = two.measure(k, {10ms, 10ms, 1}, [] { return false; });
+        QCOMPARE(wrong.outcome, Measurement::Outcome::Failed);
+        QCOMPARE(QString::fromStdString(wrong.error), QStringLiteral("Together: built for 3 threads, the pool has 2"));
     }
 
     // §6.1: the sink doesn't cancel when the same checksum repeats (it does

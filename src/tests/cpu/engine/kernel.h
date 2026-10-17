@@ -70,6 +70,14 @@ public:
     // Called on the worker thread that will use it. Not interruptible by Stop:
     // keep it quick (large shared inputs are shared read-only, not copied).
     virtual std::unique_ptr<KernelThread> makeThread(int thread) const = 0;
+    // 0: every thread runs its own units (the default). N > 0: a collective
+    // kernel built for exactly N threads (n-body, §5.7): all N work on the
+    // same unit together (the kernel synchronises them inside it), so they
+    // run the same unit indices, each is credited workPerUnit() / N, and the
+    // engine takes the stop decision once for all of them after each unit.
+    // A pool with another thread count fails the measurement. A collective
+    // unit must not throw (the other threads would wait for it forever).
+    virtual int collectiveThreads() const { return 0; }
     // The number of distinct inputs: unit i works on input i mod seeds()
     // (kSeeds; the compression kernels: one per corpus block, 128).
     virtual std::uint64_t seeds() const { return kSeeds; }

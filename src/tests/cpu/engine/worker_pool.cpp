@@ -126,34 +126,46 @@ void WorkerPool::workerMain(int index)
                 w.state->beginWindow();
                 Clock::time_point last = start;
                 const std::uint64_t seeds = m_kernel->seeds();
+                const bool collective = m_unitBarrier != nullptr;
                 // Stop is checked between units only: a unit in progress is
                 // finished and counted (so every thread finishes at least one).
-                do {
+                for (;;) {
                     // Thread t runs units t, t+1, t+2...: every thread goes
-                    // through all kSeeds seeds, and at any moment the threads
+                    // through all the seeds, and at any moment the threads
                     // work on different ones (an interleaved t, t+N, ... would
                     // give each thread only the seeds = t mod gcd(N, 64): at 64
-                    // threads, one seed each).
-                    const std::uint64_t unitIndex = w.nextUnit++ + std::uint64_t(index);
+                    // threads, one seed each). A collective kernel's threads
+                    // all run the same unit.
+                    const std::uint64_t unitIndex = w.nextUnit++ + (collective ? 0 : std::uint64_t(index));
                     const std::uint64_t sum = w.state->unit(unitIndex);
                     // A cancelled unit may have returned early: not counted,
                     // not checked.
-                    if (m_cancel.load(std::memory_order_relaxed))
-                        break;
-                    last = Clock::now();
-                    ++w.units;
-                    // Multiply-add, not XOR: a kernel's checksums repeat every
-                    // 64 seeds, and XOR would cancel them out to 0.
-                    w.sink = w.sink * kSinkMultiplier + sum;
-                    const std::uint64_t seed = unitIndex % seeds;
-                    if (const auto expected = m_kernel->golden(seed); expected && *expected != sum) {
-                        w.failure = m_kernel->name() + " kernel produced a wrong result (seed " + std::to_string(seed)
-                                    + "): possible miscompile or hardware fault";
-                        w.wrongResult = true;
-                        m_stop = true;
+                    bool done = m_cancel.load(std::memory_order_relaxed);
+                    if (!done) {
+                        last = Clock::now();
+                        ++w.units;
+                        // Multiply-add, not XOR: a kernel's checksums repeat
+                        // every 64 seeds, and XOR would cancel them out to 0.
+                        w.sink = w.sink * kSinkMultiplier + sum;
+                        const std::uint64_t seed = unitIndex % seeds;
+                        if (const auto expected = m_kernel->golden(seed); expected && *expected != sum) {
+                            w.failure = m_kernel->name() + " kernel produced a wrong result (seed "
+                                        + std::to_string(seed) + "): possible miscompile or hardware fault";
+                            w.wrongResult = true;
+                            m_stop = true;
+                            done = true;
+                        }
+                    }
+                    if (collective) {
+                        // One decision for all: the barrier's completion
+                        // reads stop after every worker has finished the unit.
+                        m_unitBarrier->arrive_and_wait();
+                        if (m_collectiveStop)
+                            break;
+                    } else if (done || m_stop.load(std::memory_order_relaxed)) {
                         break;
                     }
-                } while (!m_stop.load(std::memory_order_relaxed));
+                }
                 w.seconds = std::chrono::duration<double>(last - start).count();
                 w.ownRate = w.state->windowRate();
                 break;
@@ -242,6 +254,18 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
         }
         return false;
     };
+    // A collective kernel needs exactly its own thread count.
+    m_unitBarrier.reset();
+    if (const int need = kernel.collectiveThreads(); need > 0) {
+        if (need != threads()) {
+            m.outcome = Measurement::Outcome::Failed;
+            m.error = kernel.name() + ": built for " + std::to_string(need) + " threads, the pool has "
+                      + std::to_string(threads());
+            m_kernel = nullptr;
+            return m;
+        }
+        m_unitBarrier = std::make_unique<std::barrier<DecideStop>>(threads(), DecideStop{this});
+    }
     const auto finish = [&] {
         // On this thread: every worker is idle (it reported done under the
         // mutex), and waking each one to do it would put N more wake-ups on
@@ -251,6 +275,7 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
         for (const Worker &w : m_workers)
             m.checksum = m.checksum * kSinkMultiplier + w.sink;
         m_kernel = nullptr;
+        m_unitBarrier.reset();
         return m;
     };
 
@@ -279,13 +304,15 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
             return finish();
         }
         RepSample s;
+        // A collective kernel's threads share each unit's work.
+        const double work = kernel.workPerUnit() / (m_unitBarrier ? double(threads()) : 1.0);
         for (const Worker &w : m_workers) {
             s.units += w.units;
             s.seconds = std::max(s.seconds, w.seconds);
             if (w.ownRate)
                 s.rate += *w.ownRate;
             else if (w.seconds > 0)
-                s.rate += double(w.units) * kernel.workPerUnit() / w.seconds;
+                s.rate += double(w.units) * work / w.seconds;
         }
         m.reps.push_back(s);
         rates.push_back(s.rate);
