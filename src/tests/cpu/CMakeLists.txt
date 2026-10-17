@@ -12,6 +12,9 @@ add_library(synbench_test_cpu STATIC
     engine/worker_pool.h engine/worker_pool.cpp
     # Deterministic data (§5.4, §6.4, P10).
     compress/corpus.h compress/corpus.cpp
+    # Compression (§5.4, P11).
+    compress/codec.h compress/codec.cpp
+    compress/compress_kernels.h compress/compress_kernels.cpp
     golden/golden.h
 )
 target_link_libraries(synbench_test_cpu PUBLIC synbench_core synbench_test_common synbench_isa synbench_cpu_kernels)
@@ -21,3 +24,7 @@ target_link_libraries(synbench_test_cpu PRIVATE Threads::Threads)
 # compression sub-test. Linked from the start so every build, the ARM64 cross
 # builds included, compiles them.
 target_link_libraries(synbench_test_cpu PRIVATE synbench::zlib synbench::zstd synbench::lz4 synbench::lzma)
+# They get the build type's flags: a Debug build measures unoptimised codecs
+# (Dave, 2026-10-17: Debug CPU numbers are local-only and flagged; nothing is
+# forced). codecsOptimised() tells the CPU test.
+target_compile_definitions(synbench_test_cpu PRIVATE SYNBENCH_THIRD_PARTY_OPTIMISED=$<IF:$<CONFIG:Debug>,0,1>)

@@ -22,6 +22,8 @@ synbench_add_unit_test(tst_isa SOURCES tst_isa.cpp LIBS synbench_isa synbench_sy
 synbench_add_unit_test(tst_cpu_engine SOURCES tst_cpu_engine.cpp LIBS synbench_test_cpu)
 synbench_add_unit_test(tst_cpu_data SOURCES tst_cpu_data.cpp LIBS synbench_test_cpu synbench::zlib)
 synbench_add_unit_test(tst_cpu_kernels SOURCES tst_cpu_kernels.cpp LIBS synbench_test_cpu)
+synbench_add_unit_test(tst_cpu_compress SOURCES tst_cpu_compress.cpp
+    LIBS synbench_test_cpu synbench::zlib synbench::zstd synbench::lz4 synbench::lzma)
 foreach(t tst_sysinfo_parsers tst_sysinfo_live tst_sysinfo_linux tst_isa)
     if(TARGET ${t})
         target_compile_definitions(${t} PRIVATE SB_FIXTURES="${PROJECT_SOURCE_DIR}/tests/fixtures")

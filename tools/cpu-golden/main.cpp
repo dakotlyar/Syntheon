@@ -8,6 +8,7 @@
 //
 // Run by hand (Kanan) when a kernel's definition changes, then commit the
 // tables with a CPU testVersion bump. CI runs --check on every platform.
+#include "tests/cpu/compress/compress_kernels.h"
 #include "tests/cpu/compress/corpus.h"
 #include "tests/cpu/engine/kernel.h"
 #include "tests/cpu/kernels/fp_kernel.h"
@@ -132,6 +133,32 @@ std::string simdTable()
                      });
 }
 
+std::string compressTable()
+{
+    using namespace sb::cpu;
+    const CorpusData corpus = makeCorpusData(int(std::max(1u, std::thread::hardware_concurrency())));
+    // One task per (codec, block), each with its own context.
+    const std::vector<std::uint64_t> sizes = forEachSeed(kCodecCount * kCorpusBlocks, [&](std::uint64_t i) {
+        const Codec c = kCodecs[i / kCorpusBlocks];
+        CodecContext ctx(c);
+        std::vector<std::uint8_t> out(CodecContext::bound(c, kCorpusBlockSize));
+        return std::uint64_t(*ctx.compress(corpus.block(std::size_t(i % kCorpusBlocks)), out));
+    });
+    std::ostringstream s;
+    s << header("Compression (section 5.4): each 256 KiB corpus block's compressed size, per codec.",
+                "kCompressedSizes[codec][block]: zlib 6, zstd 3, LZ4, xz 6 (256 KiB dictionary); CodecContext.")
+      << "inline constexpr std::array<std::array<std::uint32_t, " << kCorpusBlocks << ">, " << kCodecCount
+      << "> kCompressedSizes = {{\n";
+    for (std::size_t c = 0; c < kCodecCount; ++c) {
+        s << "    // " << codecLabel(kCodecs[c]) << "\n    {";
+        for (std::size_t b = 0; b < kCorpusBlocks; ++b)
+            s << (b % 10 == 0 ? "\n        " : " ") << sizes[c * kCorpusBlocks + b] << ",";
+        s << "\n    },\n";
+    }
+    s << "}};\n";
+    return s.str();
+}
+
 const std::vector<Table> &tables()
 {
     static const std::vector<Table> t = {
@@ -140,6 +167,7 @@ const std::vector<Table> &tables()
         {"fp.inc", fpTable},
         {"primes.inc", primesTable},
         {"simd.inc", simdTable},
+        {"compress.inc", compressTable},
     };
     return t;
 }
