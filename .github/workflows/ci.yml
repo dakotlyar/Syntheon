@@ -308,14 +308,14 @@ jobs:
       - name: Build
         run: cmake --build --preset linux-x64-package
 
-      # §11.2: the hardware AES and SHA-256 code is in libcrypto; the check also
-      # has to fail without it (self-test, and on a library that isn't libcrypto).
+      # §11.2: the hardware AES and SHA-256 code is in libcrypto; the check must
+      # also fail, readably (exit 1 with both parts missing, not 2 = unread), on
+      # a library that isn't libcrypto. The planted stub / C-only archives are
+      # CTests (linux-x64 job).
       - name: libcrypto has the hardware crypto path (AES-NI, SHA-NI)
         run: |
-          python3 packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.a --arch x86_64 --self-test
-          if python3 packaging/checks/crypto-symbols.py build/linux-x64-package/_deps/synbench_zlib-build/libz.a --arch x86_64; then
-            echo "::error::crypto-symbols.py passed on zlib"; exit 1
-          fi
+          python3 packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.a --arch x86_64
+          python3 packaging/checks/crypto-symbols.py build/linux-x64-package/_deps/synbench_zlib-build/libz.a --arch x86_64 --expect-missing all
 
       - name: Install
         run: cmake --install build/linux-x64-package --prefix stage
@@ -471,19 +471,20 @@ jobs:
       - name: Build
         run: cmake --build --preset windows-x64-package
 
-      # §11.2: the hardware AES and SHA-256 code is in libcrypto; the check also
-      # has to fail without it (self-test, and on a library that isn't libcrypto).
+      # §11.2: the hardware AES and SHA-256 code is in libcrypto; the check must
+      # also fail, readably, on a library that isn't libcrypto.
       - name: libcrypto has the hardware crypto path (AES-NI, SHA-NI)
         shell: pwsh
         run: |
           $nm = (Get-Command llvm-nm -ErrorAction SilentlyContinue).Source
           if (-not $nm) { $nm = @("$env:VCINSTALLDIR\Tools\Llvm\x64\bin\llvm-nm.exe", "$env:ProgramFiles\LLVM\bin\llvm-nm.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1 }
           if (-not $nm) { throw "no llvm-nm on this runner" }
-          python packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.lib --arch x86_64 --nm $nm --self-test
+          python packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.lib --arch x86_64 --nm $nm
           if ($LASTEXITCODE -ne 0) { throw "the hardware crypto check failed" }
-          python packaging/checks/crypto-symbols.py build/windows-x64-package/_deps/synbench_zlib-build/zlibs.lib --arch x86_64 --nm $nm
-          if ($LASTEXITCODE -eq 0) { throw "crypto-symbols.py passed on zlib" }
-          $global:LASTEXITCODE = 0
+          # zlib 1.3.2's static library is zs.lib. Both parts missing and the
+          # file read (exit 0 here; 2 would mean nothing was checked).
+          python packaging/checks/crypto-symbols.py build/windows-x64-package/_deps/synbench_zlib-build/zs.lib --arch x86_64 --nm $nm --expect-missing all
+          if ($LASTEXITCODE -ne 0) { throw "the negative control on zlib did not fail as it must" }
 
       # For diagnosis when the manifest check below fails: the real link command.
       - name: Show how SynBench.exe was linked
@@ -658,19 +659,20 @@ jobs:
       - name: Build
         run: cmake --build --preset windows-arm64-cross
 
-      # §11.2: the hardware AES and SHA-256 code is in libcrypto; the check also
-      # has to fail without it (self-test, and on a library that isn't libcrypto).
+      # §11.2: the hardware AES and SHA-256 code is in libcrypto; the check must
+      # also fail, readably, on a library that isn't libcrypto.
       - name: libcrypto has the hardware crypto path (ARMv8 Crypto; VC-WIN64-CLANGASM-ARM)
         shell: pwsh
         run: |
           $nm = (Get-Command llvm-nm -ErrorAction SilentlyContinue).Source
           if (-not $nm) { $nm = @("$env:VCINSTALLDIR\Tools\Llvm\x64\bin\llvm-nm.exe", "$env:ProgramFiles\LLVM\bin\llvm-nm.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1 }
           if (-not $nm) { throw "no llvm-nm on this runner" }
-          python packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.lib --arch aarch64 --nm $nm --self-test
+          python packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.lib --arch aarch64 --nm $nm
           if ($LASTEXITCODE -ne 0) { throw "the hardware crypto check failed" }
-          python packaging/checks/crypto-symbols.py build/windows-arm64-cross/_deps/synbench_zlib-build/zlibs.lib --arch aarch64 --nm $nm
-          if ($LASTEXITCODE -eq 0) { throw "crypto-symbols.py passed on zlib" }
-          $global:LASTEXITCODE = 0
+          # zlib 1.3.2's static library is zs.lib. Both parts missing and the
+          # file read (exit 0 here; 2 would mean nothing was checked).
+          python packaging/checks/crypto-symbols.py build/windows-arm64-cross/_deps/synbench_zlib-build/zs.lib --arch aarch64 --nm $nm --expect-missing all
+          if ($LASTEXITCODE -ne 0) { throw "the negative control on zlib did not fail as it must" }
 
       # For diagnosis when the manifest check below fails: the real link command.
       - name: Show how SynBench.exe was linked
@@ -806,13 +808,12 @@ jobs:
         run: cmake --build --preset linux-arm64-cross
 
       # §11.2: the only proof the ARM64 build has the ARMv8 Crypto path (ARM
-      # never runs in CI); the check also has to fail without it.
+      # never runs in CI); the check must also fail, readably, on zlib.
       - name: libcrypto has the hardware crypto path (ARMv8 Crypto)
         run: |
-          python3 packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.a --arch aarch64 --nm aarch64-linux-gnu-nm --self-test
-          if python3 packaging/checks/crypto-symbols.py build/linux-arm64-cross/_deps/synbench_zlib-build/libz.a --arch aarch64 --nm aarch64-linux-gnu-nm; then
-            echo "::error::crypto-symbols.py passed on zlib"; exit 1
-          fi
+          python3 packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.a --arch aarch64 --nm aarch64-linux-gnu-nm
+          python3 packaging/checks/crypto-symbols.py build/linux-arm64-cross/_deps/synbench_zlib-build/libz.a --arch aarch64 \
+            --nm aarch64-linux-gnu-nm --expect-missing all
 
       - name: Install
         run: cmake --install build/linux-arm64-cross --prefix stage

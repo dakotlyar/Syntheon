@@ -29,7 +29,7 @@ endif()
 
 # The qmllint gate (CI's "any QML warning fails") must itself fail on a planted
 # warning, with the real qmllint of this Qt.
-find_program(SYNBENCH_PYTHON3 python3)
+find_program(SYNBENCH_PYTHON3 NAMES python3 python)
 if(UNIX AND SYNBENCH_PYTHON3 AND TARGET Qt6::qmllint)
     add_test(NAME qmllint_gate_selftest
         COMMAND bash "${PROJECT_SOURCE_DIR}/packaging/checks/test-qmllint-gate.sh"
@@ -43,28 +43,40 @@ add_test(NAME third_party_notices
             -P "${PROJECT_SOURCE_DIR}/cmake/CheckThirdPartyNotices.cmake")
 
 # The built libcrypto has the hardware AES and SHA-256 code (§11.2), and the
-# check fails without it: on a library that isn't libcrypto, and (self-test)
-# with the objects that provide each part removed.
-if(UNIX AND SYNBENCH_PYTHON3 AND NOT CMAKE_CROSSCOMPILING)
+# check fails without it (AP-5 M1, M2): on a library that isn't libcrypto
+# (both parts missing, and readable: exit 1, not 2) and on planted archives
+# with one part a stub or plain C (x86-64, GCC/Clang).
+if(WIN32)
+    find_program(SYNBENCH_NM llvm-nm HINTS "$ENV{VCINSTALLDIR}/Tools/Llvm/x64/bin" "$ENV{ProgramFiles}/LLVM/bin")
+else()
+    find_program(SYNBENCH_NM nm)
+endif()
+if(SYNBENCH_PYTHON3 AND SYNBENCH_NM AND NOT CMAKE_CROSSCOMPILING)
     string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _sb_cpu)
     if(_sb_cpu MATCHES "^(x86_64|amd64)$")
         set(_sb_crypto_arch x86_64)
     else()
         set(_sb_crypto_arch aarch64)
     endif()
-    add_test(NAME crypto_symbols
-        COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/crypto-symbols.py"
-                "${SYNBENCH_OPENSSL_LIBRARY}" --arch ${_sb_crypto_arch} --self-test)
+    set(_sb_crypto_check "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/crypto-symbols.py" --nm "${SYNBENCH_NM}"
+        --arch ${_sb_crypto_arch})
+    add_test(NAME crypto_symbols COMMAND ${_sb_crypto_check} "${SYNBENCH_OPENSSL_LIBRARY}")
     add_test(NAME crypto_symbols_rejects_other_library
-        COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/crypto-symbols.py"
-                "$<TARGET_FILE:zlibstatic>" --arch ${_sb_crypto_arch})
-    set_tests_properties(crypto_symbols_rejects_other_library PROPERTIES WILL_FAIL TRUE)
+        COMMAND ${_sb_crypto_check} "$<TARGET_FILE:zlibstatic>" --expect-missing all)
+    if(_sb_crypto_arch STREQUAL "x86_64" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        add_subdirectory(crypto_planted)
+        add_test(NAME crypto_symbols_rejects_stub_gcm
+            COMMAND ${_sb_crypto_check} "$<TARGET_FILE:planted_crypto_stub_aes>" --expect-missing AES)
+        add_test(NAME crypto_symbols_rejects_c_sha256
+            COMMAND ${_sb_crypto_check} "$<TARGET_FILE:planted_crypto_c_sha>" --expect-missing SHA-256)
+    endif()
 endif()
 
-# OpenSSL was configured with P17's options and kept its assembly.
+# OpenSSL was configured with P17's options, kept its assembly, was built
+# optimised (H2) and bakes in only the dummy directories (M4).
 add_test(NAME openssl_config
-    COMMAND "${CMAKE_COMMAND}" "-DCONFIG_H=${SYNBENCH_OPENSSL_ROOT}/include/openssl/configuration.h"
-            -P "${PROJECT_SOURCE_DIR}/cmake/openssl/check-config.cmake")
+    COMMAND "${CMAKE_COMMAND}" "-DROOT=${SYNBENCH_OPENSSL_ROOT}" "-DLIBRARY=${SYNBENCH_OPENSSL_LIBRARY}"
+            "-DBAKED=${SYNBENCH_OPENSSL_BAKED_PREFIX}" -P "${PROJECT_SOURCE_DIR}/cmake/openssl/check-config.cmake")
 
 # The CPU test's golden tables are what the reference implementations give on
 # this platform (§6.4): the same committed table must hold everywhere.

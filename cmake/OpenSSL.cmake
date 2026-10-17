@@ -64,7 +64,13 @@ if(WIN32)
     endif()
     set(_ossl_lib "${SYNBENCH_OPENSSL_ROOT}/lib/libcrypto.lib")
     set(_ossl_build_cmd "${_ossl_make}" build_libs)
-    set(_ossl_install_cmd "${_ossl_make}" install_dev)
+    set(_ossl_makefile makefile)
+    set(_ossl_optimised /O2)
+    # M4: the prefix (and OPENSSLDIR, MODULESDIR, ENGINESDIR under it) that is
+    # compiled into libcrypto. Nothing is ever loaded from there (P17), and it
+    # is a folder a standard user can't create; the real files are installed
+    # with DESTDIR and copied into SYNBENCH_OPENSSL_ROOT.
+    set(_ossl_baked "C:/Windows/System32/SynBench-no-OpenSSL-files")
 else()
     find_program(SYNBENCH_PERL perl NO_CACHE REQUIRED)
     find_program(SYNBENCH_MAKE NAMES make gmake NO_CACHE REQUIRED)
@@ -87,15 +93,21 @@ else()
         string(REGEX REPLACE "gcc$" "" _ossl_prefix "${CMAKE_C_COMPILER}")
         list(APPEND _ossl_args "--cross-compile-prefix=${_ossl_prefix}")
         list(APPEND _ossl_env "CC=gcc")
+        # A Configure argument, so it is added to OpenSSL's CFLAGS: an
+        # environment CFLAGS would replace them (and its -O3).
         if(CMAKE_SYSROOT)
-            list(APPEND _ossl_env "CFLAGS=--sysroot=${CMAKE_SYSROOT}")
+            list(APPEND _ossl_args "--sysroot=${CMAKE_SYSROOT}")
         endif()
     else()
         list(APPEND _ossl_env "CC=${CMAKE_C_COMPILER}")
     endif()
     set(_ossl_lib "${SYNBENCH_OPENSSL_ROOT}/lib/libcrypto.a")
     set(_ossl_build_cmd "${SYNBENCH_MAKE}" -j${_ossl_jobs} build_libs)
-    set(_ossl_install_cmd "${SYNBENCH_MAKE}" install_dev)
+    set(_ossl_make "${SYNBENCH_MAKE}")
+    set(_ossl_makefile Makefile)
+    set(_ossl_optimised -O3)
+    # M4 (see the Windows branch): /nonexistent can't be created by a user.
+    set(_ossl_baked "/nonexistent/synbench-openssl")
 endif()
 
 # --- the stamp: everything that decides the build --------------------------
@@ -113,7 +125,8 @@ string(JOIN "\n" _ossl_stamp
     "env ${_ossl_env}"
     "compiler ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}"
     "assembler ${_ossl_tool}"
-    "patch ${_ossl_patch_sha}")
+    "patch ${_ossl_patch_sha}"
+    "baked ${_ossl_baked}")
 string(SHA256 _ossl_stamp_id "${_ossl_stamp}")
 set(_ossl_stamp_file "${SYNBENCH_OPENSSL_ROOT}/synbench-openssl.stamp")
 file(WRITE "${CMAKE_BINARY_DIR}/synbench-openssl.stamp.new" "${_ossl_stamp}\n")
@@ -134,27 +147,53 @@ if(_ossl_reuse)
 else()
     message(STATUS "OpenSSL ${SYNBENCH_OPENSSL_VERSION} (${_ossl_target}): building into ${SYNBENCH_OPENSSL_ROOT}")
     # A root with another build's files must not mix with this one. Only a
-    # root this file made (it has the stamp) or an empty one is cleared.
+    # root this file made (it has the stamp, or the "building" marker of a
+    # build that hasn't finished yet) or an empty one is cleared.
+    set(_ossl_building "${SYNBENCH_OPENSSL_ROOT}/synbench-openssl.building")
     if(EXISTS "${SYNBENCH_OPENSSL_ROOT}")
         file(GLOB _ossl_any "${SYNBENCH_OPENSSL_ROOT}/*")
-        if(_ossl_any AND NOT EXISTS "${_ossl_stamp_file}")
+        if(_ossl_any AND NOT EXISTS "${_ossl_stamp_file}" AND NOT EXISTS "${_ossl_building}")
             message(FATAL_ERROR "SYNBENCH_OPENSSL_ROOT=${SYNBENCH_OPENSSL_ROOT} isn't empty and wasn't made by this build "
                                 "(no synbench-openssl.stamp); refusing to clear it")
         endif()
         file(REMOVE_RECURSE "${SYNBENCH_OPENSSL_ROOT}")
     endif()
+    file(WRITE "${_ossl_building}" "${_ossl_stamp}\n")
+    # The unpacked (and patched) source and the build tree belong to one stamp:
+    # another stamp (a new version, options or patch, L3) starts from a fresh
+    # extract instead of reusing a tree patched by an older script.
+    set(_ossl_prefix "${CMAKE_BINARY_DIR}/_deps/openssl")
+    if(EXISTS "${_ossl_prefix}")
+        set(_ossl_prev "")
+        if(EXISTS "${_ossl_prefix}/synbench-openssl.id")
+            file(READ "${_ossl_prefix}/synbench-openssl.id" _ossl_prev)
+        endif()
+        if(NOT _ossl_prev STREQUAL _ossl_stamp_id)
+            file(REMOVE_RECURSE "${_ossl_prefix}")
+        endif()
+    endif()
+    file(WRITE "${_ossl_prefix}/synbench-openssl.id" "${_ossl_stamp_id}")
+    # install_dev goes into <build>/stage + the baked prefix (DESTDIR); that
+    # tree is copied into the root.
+    string(REGEX REPLACE "^[A-Za-z]:" "" _ossl_baked_nodrive "${_ossl_baked}")
+    set(_ossl_stage "<BINARY_DIR>/stage")
     ExternalProject_Add(synbench_openssl
         URL "https://github.com/openssl/openssl/releases/download/openssl-${SYNBENCH_OPENSSL_VERSION}/openssl-${SYNBENCH_OPENSSL_VERSION}.tar.gz"
         URL_HASH SHA256=${SYNBENCH_OPENSSL_SHA256}
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-        PREFIX "${CMAKE_BINARY_DIR}/_deps/openssl"
+        PREFIX "${_ossl_prefix}"
         PATCH_COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=<SOURCE_DIR> -P "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-armcap.cmake"
         CONFIGURE_COMMAND "${CMAKE_COMMAND}" -E env ${_ossl_env}
             "${SYNBENCH_PERL}" <SOURCE_DIR>/Configure ${_ossl_target} ${_ossl_args}
-            "--prefix=${SYNBENCH_OPENSSL_ROOT}" "--openssldir=${SYNBENCH_OPENSSL_ROOT}/ssl" --libdir=lib
+            "--prefix=${_ossl_baked}" "--openssldir=${_ossl_baked}/ssl" --libdir=lib
+            COMMAND "${CMAKE_COMMAND}" -DMAKEFILE=<BINARY_DIR>/${_ossl_makefile} -DWANT=${_ossl_optimised}
+                    -DOUT=<BINARY_DIR>/synbench-openssl-cflags.txt -P "${CMAKE_CURRENT_LIST_DIR}/openssl/check-cflags.cmake"
         BUILD_COMMAND ${_ossl_build_cmd}
-        INSTALL_COMMAND ${_ossl_install_cmd}
+        INSTALL_COMMAND ${_ossl_make} install_dev "DESTDIR=${_ossl_stage}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_ossl_stage}${_ossl_baked_nodrive}" "${SYNBENCH_OPENSSL_ROOT}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "<BINARY_DIR>/synbench-openssl-cflags.txt" "${SYNBENCH_OPENSSL_ROOT}/"
             COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_BINARY_DIR}/synbench-openssl.stamp.new" "${_ossl_stamp_file}"
+            COMMAND "${CMAKE_COMMAND}" -E rm -f "${_ossl_building}"
         BUILD_BYPRODUCTS "${_ossl_lib}"
         LOG_CONFIGURE ON
         LOG_BUILD ON
@@ -177,6 +216,7 @@ else()
 endif()
 add_library(synbench::crypto ALIAS synbench_crypto)
 set(SYNBENCH_OPENSSL_LIBRARY "${_ossl_lib}")
+set(SYNBENCH_OPENSSL_BAKED_PREFIX "${_ossl_baked}")
 
 # The licence text: LICENSE.txt of the verified 3.5.9 tarball, kept here because
 # the source only arrives at build time and the notices are written at configure.

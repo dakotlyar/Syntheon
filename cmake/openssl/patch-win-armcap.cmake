@@ -12,11 +12,20 @@
 #   cmake -DSOURCE_DIR=<openssl source> -P patch-win-armcap.cmake
 set(file "${SOURCE_DIR}/crypto/armcap.c")
 file(READ "${file}" text)
-set(marker "SynBench (Phase 2 D5)")
+# The marker names this script's own hash (L3): a tree patched by another
+# version of the script is an error, not "already applied".
+file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" script_sha)
+string(SUBSTRING "${script_sha}" 0 16 script_sha)
+set(marker "SynBench (Phase 2 D5, patch ${script_sha})")
 string(FIND "${text}" "${marker}" already)
 if(NOT already EQUAL -1)
     message(STATUS "armcap patch: already applied")
     return()
+endif()
+string(FIND "${text}" "SynBench (Phase 2 D5" other)
+if(NOT other EQUAL -1)
+    message(FATAL_ERROR "armcap patch: ${file} was patched by another version of this script; "
+                        "delete the OpenSSL source tree so it is extracted again")
 endif()
 set(before [[
 #ifdef _WIN32
@@ -31,7 +40,7 @@ void OPENSSL_cpuid_setup(void)
     const char *e;
 
     /*
-     * SynBench (Phase 2 D5): honour OPENSSL_armcap as the other platforms
+     * @MARKER@: honour OPENSSL_armcap as the other platforms
      * do, so a run can force the software path. The value replaces the
      * detected capabilities.
      */
@@ -47,6 +56,7 @@ if(first EQUAL -1 OR NOT first EQUAL last)
     message(FATAL_ERROR "armcap patch: the Windows OPENSSL_cpuid_setup in ${file} isn't the expected 3.5.9 code; "
                         "update cmake/openssl/patch-win-armcap.cmake for this OpenSSL")
 endif()
+string(REPLACE "@MARKER@" "${marker}" after "${after}")
 string(REPLACE "${before}" "${after}" text "${text}")
 file(WRITE "${file}" "${text}")
 message(STATUS "armcap patch: applied to ${file}")
