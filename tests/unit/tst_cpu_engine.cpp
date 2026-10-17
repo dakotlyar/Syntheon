@@ -13,6 +13,10 @@
 #include <QFile>
 #include <QTest>
 
+#if defined(Q_OS_LINUX)
+#include <sched.h>
+#endif
+
 
 #include <algorithm>
 #include <atomic>
@@ -187,6 +191,69 @@ double secondsOf(Clock::duration d)
 {
     return std::chrono::duration<double>(d).count();
 }
+
+// Two CPUs this process may pin to, as CoreChoices (Linux: the first two of
+// the affinity mask; Windows: group 0's first two). Fewer when there aren't.
+std::vector<sb::isa::CoreChoice> twoCpus()
+{
+    std::vector<sb::isa::CoreChoice> cpus;
+#if defined(Q_OS_LINUX)
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof(set), &set) == 0) {
+        for (int c = 0; c < CPU_SETSIZE && cpus.size() < 2; ++c) {
+            if (CPU_ISSET(c, &set))
+                cpus.push_back({true, c, 0, 0, "test"});
+        }
+    }
+#elif defined(Q_OS_WIN)
+    for (int c = 0; c < std::min(2, logicalCpuCount()); ++c)
+        cpus.push_back({true, c, 0, 0, "test"});
+#endif
+    return cpus;
+}
+
+// A kernel whose 1 ms units record the window they ran in and the CPU they
+// ran on.
+class WhereKernel : public Kernel
+{
+public:
+    struct Unit {
+        int window;
+        int cpu;
+    };
+    std::string name() const override { return "Where"; }
+    double workPerUnit() const override { return 1; }
+    double maxWorkPerCyclePerThread() const override { return 1; }
+    std::unique_ptr<KernelThread> makeThread(int) const override
+    {
+        struct T : KernelThread {
+            const WhereKernel *k;
+            std::uint64_t unit(std::uint64_t) override
+            {
+                std::this_thread::sleep_for(1ms);
+                k->m_units.push_back({k->m_window.load(), currentCpu()});
+                return 1;
+            }
+        };
+        auto t = std::make_unique<T>();
+        t->k = this;
+        return t;
+    }
+    void startWindow(int window)
+    {
+        m_window = window;
+        m_windowStarts.push_back(Clock::now());
+    }
+    // One thread only; read once measure() has returned.
+    const std::vector<Unit> &units() const { return m_units; }
+    const std::vector<Clock::time_point> &windowStarts() const { return m_windowStarts; }
+
+private:
+    mutable std::vector<Unit> m_units;
+    std::atomic<int> m_window{-1};
+    std::vector<Clock::time_point> m_windowStarts;
+};
 
 // Checks every repetition of `m` against the units `k` recorded (`threads`
 // threads, repetitions of `window`). Empty if all hold, else what failed. Per
@@ -860,6 +927,125 @@ private slots:
         check.wrong = &wrongCpu;
         QVERIFY(pool.measure(check, {10ms, 100ms, 1}, [] { return false; }).ok());
         QCOMPARE(wrongCpu.load(), 0);
+    }
+
+    // Decision D: before each repetition (not the warm-up) the pool samples
+    // idle time for 250 ms, outside the window, and re-pins to the quieter
+    // candidate; each repetition records where it ran. Injected samples make
+    // the second CPU the quieter one in repetitions 1 and 3, the first in 2.
+    void repickPerRepetition()
+    {
+        const std::vector<sb::isa::CoreChoice> cpus = twoCpus();
+        if (cpus.size() < 2)
+            QSKIP("needs two CPUs to pin to");
+        WorkerPool::Options o;
+        o.threads = 1;
+        o.pinTo = cpus[0];
+        o.pickFrom = {{cpus[0], {100}}, {cpus[1], {200}}};
+        std::vector<Clock::time_point> sampledAt;
+        o.idleSampler = [&] {
+            const int call = int(sampledAt.size());
+            sampledAt.push_back(Clock::now());
+            const int rep = call / 2 + 1;
+            const bool second = call % 2 == 1;
+            const std::uint64_t quiet = second ? 25 : 0, busy = second ? 5 : 0;
+            return rep == 2 ? sb::isa::IdleSample{{100, quiet}, {200, busy}}
+                            : sb::isa::IdleSample{{100, busy}, {200, quiet}};
+        };
+        WorkerPool pool(std::move(o));
+        QVERIFY(pool.pinned());
+        WhereKernel k;
+        const Measurement m = pool.measure(k, {20ms, 100ms, 3}, [] { return false; },
+                                           [&](int w) { k.startWindow(w); });
+        QVERIFY(m.ok());
+        QCOMPARE(sampledAt.size(), std::size_t(6));  // two per repetition, none for the warm-up
+        QCOMPARE(m.reps.size(), std::size_t(3));
+        const int want[] = {cpus[0].cpu, cpus[1].cpu, cpus[0].cpu, cpus[1].cpu};  // warm-up = pinTo
+        for (int r = 1; r <= 3; ++r) {
+            QVERIFY(m.reps[std::size_t(r - 1)].core.ranked);
+            QCOMPARE(m.reps[std::size_t(r - 1)].core.cpu, want[r]);
+            // 250 ms of sampling, all before the window started...
+            const auto first = sampledAt[std::size_t(2 * r - 2)], second = sampledAt[std::size_t(2 * r - 1)];
+            QVERIFY(second - first >= 250ms);
+            QVERIFY(k.windowStarts()[std::size_t(r)] >= second);
+            // ...so the repetition's own time doesn't include it.
+            QVERIFY2(m.reps[std::size_t(r - 1)].seconds < 0.100 + 0.150,
+                     qPrintable(QString::number(m.reps[std::size_t(r - 1)].seconds)));
+        }
+        int wrong = 0;
+        for (const WhereKernel::Unit &u : k.units()) {
+            if (currentCpu() >= 0 && u.cpu != want[u.window])
+                ++wrong;
+        }
+        QCOMPARE(wrong, 0);
+        QCOMPARE(pool.placementFailures(), 0);
+    }
+
+    // One candidate: nothing to choose, so no sampling.
+    void singleCandidateNoSampling()
+    {
+        const std::vector<sb::isa::CoreChoice> cpus = twoCpus();
+        if (cpus.empty())
+            QSKIP("needs a CPU to pin to");
+        WorkerPool::Options o;
+        o.threads = 1;
+        o.pinTo = cpus[0];
+        o.pickFrom = {{cpus[0], {0}}};
+        int samples = 0;
+        o.idleSampler = [&] {
+            ++samples;
+            return sb::isa::IdleSample{};
+        };
+        WorkerPool pool(std::move(o));
+        WhereKernel k;
+        const auto start = Clock::now();
+        const Measurement m = pool.measure(k, {10ms, 20ms, 3}, [] { return false; });
+        QVERIFY(m.ok());
+        QCOMPARE(samples, 0);
+        QVERIFY(Clock::now() - start < 250ms * 3);
+        for (const RepSample &s : m.reps)
+            QCOMPARE(s.core.cpu, cpus[0].cpu);
+    }
+
+    // Stop during the sampling still returns within 250 ms: it polls cancel
+    // every 50 ms, like a window (a 10 s sample shows it doesn't wait for the
+    // end). On Linux the coordinator's run-queue wait is subtracted, as in
+    // stopWithin250ms.
+    void stopDuringSampling()
+    {
+        const std::vector<sb::isa::CoreChoice> cpus = twoCpus();
+        if (cpus.size() < 2)
+            QSKIP("needs two CPUs to pin to");
+        WorkerPool::Options o;
+        o.threads = 1;
+        o.pinTo = cpus[0];
+        o.pickFrom = {{cpus[0], {0}}, {cpus[1], {1}}};
+        o.sampleFor = 10000ms;
+        int samples = 0;
+        Clock::time_point cancelledAt{};
+        std::uint64_t wait0 = 0;
+        o.idleSampler = [&] {
+            // Repetition 1's first sample: cancel 100 ms into the sampling.
+            if (++samples == 1) {
+                cancelledAt = Clock::now() + 100ms;
+                wait0 = runQueueWaitNs();
+            }
+            return sb::isa::IdleSample{};
+        };
+        WorkerPool pool(std::move(o));
+        WhereKernel k;
+        const Measurement m = pool.measure(
+            k, {10ms, 20ms, 3},
+            [&] { return cancelledAt != Clock::time_point{} && Clock::now() >= cancelledAt; });
+        const auto returnedAt = Clock::now();
+        const double waitMs = double(runQueueWaitNs() - wait0) / 1e6;
+        QCOMPARE(m.outcome, Measurement::Outcome::Cancelled);
+        QCOMPARE(samples, 1);
+        QVERIFY(m.reps.empty());
+        const double tookMs = secondsOf(returnedAt - cancelledAt) * 1000;
+        QVERIFY2(tookMs - waitMs < 250, qPrintable(QStringLiteral("Stop took %1 ms (%2 ms waiting for a CPU)")
+                                                       .arg(tookMs, 0, 'f', 1)
+                                                       .arg(waitMs, 0, 'f', 1)));
     }
 
     void unrankedCoreRunsUnpinned()

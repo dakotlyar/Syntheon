@@ -39,7 +39,12 @@
 //
 // Threads: one per logical CPU for the multi-thread groups, not pinned (P3;
 // on Windows with several processor groups, spread at group level); one
-// thread pinned to the top-ranked core for the single-thread mark (P4). The
+// thread pinned to the top-ranked core for the single-thread mark (P4). When
+// several cores tie at the top, the single-thread pool re-picks before each
+// repetition (decision D, Options::pickFrom): it samples idle time for 250 ms
+// (before the window starts, so the sampling counts toward no window; it
+// polls cancel every 50 ms like a window does) and re-pins to the tied core
+// whose physical core was idle the most. The warm-up runs on pinTo. The
 // threads start with the pool and are joined when it is destroyed, before the
 // test's run() returns (Phase 1 threading rule 4).
 
@@ -76,6 +81,9 @@ struct RepSample {
     // When the coordinator set stop (the deadline; for the tests, which check
     // that no thread starts more than the one unit racing with it).
     Clock::time_point stopSet{};
+    // The core the workers were pinned to (decision D's pick, else pinTo);
+    // unranked: they ran unpinned. For the log and the Detail page.
+    isa::CoreChoice core;
 };
 
 struct Measurement {
@@ -107,7 +115,16 @@ public:
     struct Options {
         int threads = 0;            // 0 = logicalCpuCount()
         isa::CoreChoice pinTo;      // ranked: every worker is pinned there (the single-thread mark)
+        // Decision D: with two or more candidates, before each repetition
+        // the pool samples idle time for `sampleFor` and re-pins every worker
+        // to isa::quietestCandidate(). Empty or one: pinTo throughout.
+        std::vector<isa::CoreCandidate> pickFrom;
+        std::chrono::milliseconds sampleFor{250};
+        std::function<isa::IdleSample()> idleSampler;  // empty: isa::sampleIdle (tests inject their own)
     };
+    // The single-thread mark's pool on this machine: one thread on the
+    // top-ranked core, re-picked among the tied ones per repetition.
+    static Options singleThreadOptions();
     explicit WorkerPool(Options options);
     ~WorkerPool();  // stops and joins every worker
     WorkerPool(const WorkerPool &) = delete;
@@ -135,7 +152,7 @@ public:
     int placementFailures() const { return m_placementFailures.load(); }
 
 private:
-    enum class Job { None, Prepare, Window, Quit };
+    enum class Job { None, Prepare, Window, Pin, Quit };
     struct Worker {
         std::thread thread;
         std::unique_ptr<KernelThread> state;
@@ -146,11 +163,15 @@ private:
         std::uint64_t sink = 0;
         std::uint64_t nextUnit = 0;  // this thread's unit counter in the current measurement
         long tid = 0;                // set by the worker before the constructor's first job returns
+        bool pinFailed = false;      // the last Pin job's pinCurrentThread() failed
         std::optional<std::string> failure;
         bool wrongResult = false;    // the failure is a golden mismatch
     };
 
     void workerMain(int index);
+    // Decision D, before a repetition: samples, picks and re-pins (m_core).
+    // False if cancelled while sampling.
+    bool repick(const std::function<bool()> &cancelled, bool &wasCancelled);
     // Hands `job` to every worker and waits until all have finished it.
     void runJob(Job job, std::chrono::milliseconds length, const std::function<bool()> &cancelled, bool &wasCancelled);
 
@@ -159,6 +180,8 @@ private:
     std::atomic<bool> m_pinned{false};
     std::atomic<int> m_placementFailures{0};
     const Kernel *m_kernel = nullptr;
+    isa::CoreChoice m_core;       // where the workers are pinned now (unranked: unpinned)
+    isa::CoreChoice m_pinTarget;  // for a Pin job (under m_mutex)
 
     std::mutex m_mutex;
     std::condition_variable m_wake;   // workers wait for a new generation

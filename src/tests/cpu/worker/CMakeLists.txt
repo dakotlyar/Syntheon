@@ -15,6 +15,7 @@ add_executable(synbench-cpucrypto
     "${PROJECT_SOURCE_DIR}/src/tests/cpu/engine/worker_pool.cpp"
     "${PROJECT_SOURCE_DIR}/src/tests/cpu/engine/platform_threads.cpp"
     "${PROJECT_SOURCE_DIR}/src/isa/cpu_features.cpp"
+    "${PROJECT_SOURCE_DIR}/src/isa/core_ranking.cpp"
 )
 target_include_directories(synbench-cpucrypto PRIVATE "${PROJECT_SOURCE_DIR}/src")
 find_package(Threads REQUIRED)

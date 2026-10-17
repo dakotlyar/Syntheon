@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 #include <exception>
+#include <thread>
 
 namespace sb::cpu {
 
@@ -62,7 +63,16 @@ int WorkerPool::liveThreads()
     return g_liveThreads.load();
 }
 
-WorkerPool::WorkerPool(Options options) : m_options(options)
+WorkerPool::Options WorkerPool::singleThreadOptions()
+{
+    Options o;
+    o.threads = 1;
+    o.pickFrom = isa::topCandidatesForSingleThread();
+    o.pinTo = o.pickFrom.empty() ? isa::CoreChoice{} : o.pickFrom.front().core;
+    return o;
+}
+
+WorkerPool::WorkerPool(Options options) : m_options(std::move(options))
 {
     const int n = m_options.threads > 0 ? m_options.threads : logicalCpuCount();
     m_pinned = m_options.pinTo.ranked;
@@ -73,6 +83,8 @@ WorkerPool::WorkerPool(Options options) : m_options(options)
     // so pinned() is settled from here on.
     bool unused = false;
     runJob(Job::None, {}, {}, unused);
+    if (m_pinned)
+        m_core = m_options.pinTo;
 }
 
 WorkerPool::~WorkerPool()
@@ -180,6 +192,11 @@ void WorkerPool::workerMain(int index)
                 w.ownRate = w.state->windowRate();
                 break;
             }
+            case Job::Pin:
+                w.pinFailed = !pinCurrentThread(m_pinTarget);
+                if (w.pinFailed)
+                    ++m_placementFailures;
+                break;
             case Job::None:
             case Job::Quit:
                 break;
@@ -246,6 +263,37 @@ void WorkerPool::runJob(Job job, std::chrono::milliseconds length, const std::fu
     m_done.wait(lock, [&] { return m_finished == n; });
 }
 
+bool WorkerPool::repick(const std::function<bool()> &cancelled, bool &wasCancelled)
+{
+    const std::function<isa::IdleSample()> &sample = m_options.idleSampler;
+    const isa::IdleSample before = sample ? sample() : isa::sampleIdle();
+    const Clock::time_point deadline = Clock::now() + m_options.sampleFor;
+    for (;;) {
+        const auto now = Clock::now();
+        if (now >= deadline)
+            break;
+        std::this_thread::sleep_for(std::min<Clock::duration>(kPoll, deadline - now));
+        if (cancelled && cancelled()) {
+            wasCancelled = true;
+            m_cancel = true;
+            return false;
+        }
+    }
+    const isa::CoreChoice pick =
+        isa::quietestCandidate(m_options.pickFrom, before, sample ? sample() : isa::sampleIdle());
+    if (m_core.ranked && pick.cpu == m_core.cpu && pick.group == m_core.group)
+        return true;
+    {
+        std::lock_guard lock(m_mutex);
+        m_pinTarget = pick;
+    }
+    bool unused = false;
+    runJob(Job::Pin, {}, {}, unused);
+    const bool failed = std::any_of(m_workers.begin(), m_workers.end(), [](const Worker &w) { return w.pinFailed; });
+    m_core = failed ? isa::CoreChoice{} : pick;
+    return true;
+}
+
 Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, const std::function<bool()> &cancelled,
                                 const std::function<void(int window)> &progress)
 {
@@ -305,6 +353,10 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
 
     std::vector<double> rates;
     for (int r = 1; r <= spec.reps; ++r) {
+        if (m_options.pickFrom.size() > 1 && !repick(cancelled, wasCancelled)) {
+            m.outcome = Measurement::Outcome::Cancelled;
+            return finish();
+        }
         if (progress)
             progress(r);
         runJob(Job::Window, spec.rep, cancelled, wasCancelled);
@@ -316,6 +368,7 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
         }
         RepSample s;
         s.stopSet = m_stopSet;
+        s.core = m_core;
         // A collective kernel's threads share each unit's work.
         const double work = kernel.workPerUnit() / (m_unitBarrier ? double(threads()) : 1.0);
         for (const Worker &w : m_workers) {
