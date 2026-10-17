@@ -6,6 +6,7 @@
 #include "core/selection_model.h"
 #include "storage/sqlite_run_sink.h"
 
+#include <QAbstractItemModel>
 #include <QHash>
 #include <QObject>
 #include <QThreadPool>
@@ -33,7 +34,7 @@ class RunController : public QObject
 {
     Q_OBJECT
     // --- Run screen ---
-    Q_PROPERTY(QObject *catalog READ catalog CONSTANT)
+    Q_PROPERTY(QAbstractItemModel *catalog READ catalog CONSTANT)
     Q_PROPERTY(int selectedCount READ selectedCount NOTIFY selectionChanged)
     Q_PROPERTY(bool runsAloneSelected READ runsAloneSelected NOTIFY selectionChanged)
     Q_PROPERTY(QString estimateText READ estimateText NOTIFY estimateChanged)
@@ -55,7 +56,7 @@ class RunController : public QObject
     Q_PROPERTY(QString runUuid READ runUuid NOTIFY runChanged)
     Q_PROPERTY(QString runTitle READ runTitle NOTIFY runChanged)
     Q_PROPERTY(QString runSubtitle READ runSubtitle NOTIFY etaChanged)
-    Q_PROPERTY(QObject *queue READ queue CONSTANT)
+    Q_PROPERTY(QAbstractItemModel *queue READ queue CONSTANT)
     Q_PROPERTY(QObject *log READ log CONSTANT)
     Q_PROPERTY(QString currentStage READ currentStage NOTIFY currentChanged)
     Q_PROPERTY(QString currentTestColor READ currentTestColor NOTIFY currentChanged)
@@ -65,7 +66,7 @@ public:
                   Orchestrator::Config config = {}, QObject *parent = nullptr);
     ~RunController() override;
 
-    QObject *catalog() { return &m_selection; }
+    QAbstractItemModel *catalog() { return &m_selection; }
     SelectionModel &selection() { return m_selection; }
     Registry &registry() { return m_registry; }
     Orchestrator &orchestrator() { return m_orchestrator; }
@@ -89,7 +90,7 @@ public:
     QString runUuid() const;
     QString runTitle() const;
     QString runSubtitle() const;
-    QObject *queue();
+    QAbstractItemModel *queue();
     QObject *log();
     QString currentStage() const { return m_stage; }
     QString currentTestColor() const { return m_stageColor; }

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
-import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import SynBench

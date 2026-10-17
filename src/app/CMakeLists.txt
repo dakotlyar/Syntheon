@@ -43,10 +43,22 @@ set_source_files_properties(qml/theme/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE
 
 # The QML module lives in a library so the Qt Quick tests (tests/qml) can import
 # it; the executable only links it and starts the app.
+#
+# OUTPUT_DIRECTORY ends in the module's URI, so <build>/src/app is an import path
+# that resolves "import SynBench" for the tooling (qmllint, qmlls, all_qmllint).
+# The app itself loads the module from its resources, not from this folder.
+#
+# qml_singletons.h declares the app's C++ singletons (QML_FOREIGN) to the
+# module, so the type compiler and qmllint see them; the controllers stay in
+# synbench_appcore, whose metatypes are extracted for that.
+qt_extract_metatypes(synbench_appcore)
 qt_add_qml_module(synbench_ui
     URI SynBench
     VERSION 1.0
     STATIC
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/SynBench"
+    SOURCES
+        qml_singletons.h
     QML_FILES
         qml/Main.qml
         qml/theme/Theme.qml
@@ -95,7 +107,7 @@ qt_add_qml_module(synbench_ui
         qml/dialogs/RecoveryNoticeDialog.qml
         qml/dialogs/StorageProblemDialog.qml
 )
-target_link_libraries(synbench_ui PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::QuickShapes)
+target_link_libraries(synbench_ui PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::QuickShapes synbench_appcore)
 
 qt_add_executable(synbench_app WIN32 main.cpp)
 set_target_properties(synbench_app PROPERTIES OUTPUT_NAME SynBench)

@@ -80,14 +80,23 @@ ColumnLayout {
 
                 // The first block of a row (the chart, or a lone block).
                 Loader {
+                    id: head
                     Layout.fillWidth: true
                     Layout.preferredWidth: rowItem.modelData.kind === "split" ? 3 : 1
                     Layout.alignment: Qt.AlignTop
                     sourceComponent: root.component(rowItem.modelData.blocks[0].type)
-                    onLoaded: {
-                        item.block = Qt.binding(() => rowItem.modelData.blocks[0].type === "custom"
-                            ? { text: qsTr("This view isn't available in this version."), tone: "warn" } : rowItem.modelData.blocks[0])
-                        if (item.hasOwnProperty("colorToken")) item.colorToken = Qt.binding(() => root.colorToken)
+                    // The loaded block's data (and a chart's colour) stay bound.
+                    Binding {
+                        target: head.item
+                        property: "block"
+                        value: rowItem.modelData.blocks[0].type === "custom"
+                            ? { text: qsTr("This view isn't available in this version."), tone: "warn" } : rowItem.modelData.blocks[0]
+                    }
+                    Binding {
+                        when: head.item !== null && head.item.hasOwnProperty("colorToken")
+                        target: head.item
+                        property: "colorToken"
+                        value: root.colorToken
                     }
                 }
                 // The rest of the row, stacked in the second column.
@@ -100,10 +109,11 @@ ColumnLayout {
                     Repeater {
                         model: rowItem.modelData.blocks.slice(1)
                         delegate: Loader {
+                            id: tail
                             required property var modelData
                             Layout.fillWidth: true
                             sourceComponent: root.component(modelData.type)
-                            onLoaded: item.block = Qt.binding(() => modelData)
+                            Binding { target: tail.item; property: "block"; value: tail.modelData }
                         }
                     }
                 }

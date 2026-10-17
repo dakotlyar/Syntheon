@@ -138,7 +138,8 @@ ScreenFrame {
                             }
                             Pill {
                                 visible: row.available && !row.runsAlone
-                                text: { RunController.estimateText; return RunController.estimateOf(row.testId) }
+                                // Reading estimateText re-evaluates this when the estimates change.
+                                text: { void RunController.estimateText; return RunController.estimateOf(row.testId) }
                             }
                         }
                     }

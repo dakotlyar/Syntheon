@@ -59,13 +59,13 @@ SbDialog {
                 objectName: "copyLog"
                 text: qsTr("Copy")
                 onClicked: {
-                    clip.text = dialog.model ? dialog.model.visibleText() : ""
-                    clip.selectAll()
-                    clip.copy()
+                    clipboardText.text = dialog.model ? dialog.model.visibleText() : ""
+                    clipboardText.selectAll()
+                    clipboardText.copy()
                 }
             }
         }
-        TextEdit { id: clip; visible: false }
+        TextEdit { id: clipboardText; visible: false }
 
         Rectangle {
             Layout.fillWidth: true

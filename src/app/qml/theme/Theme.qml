@@ -12,7 +12,7 @@ QtObject {
     property string mode: "system"
 
     readonly property bool dark: mode === "dark"
-        || (mode === "system" && Qt.styleHints.colorScheme === Qt.Dark)
+        || (mode === "system" && Application.styleHints.colorScheme === Qt.Dark)
 
     function pick(light, darkValue) { return dark ? darkValue : light }
 

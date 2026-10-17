@@ -239,7 +239,7 @@ QString RunController::runSubtitle() const
     return s;
 }
 
-QObject *RunController::queue()
+QAbstractItemModel *RunController::queue()
 {
     return m_queue.get();
 }

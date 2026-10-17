@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/app_runtime.h"
 
+#include "app/qml_singletons.h"
+
 #include <QDir>
 #include <QElapsedTimer>
 #include <QThread>
@@ -56,18 +58,32 @@ AppRuntime::AppRuntime(Options options, QObject *parent) : QObject(parent), m_op
     m_compare = std::make_unique<CompareController>(*m_run, *m_storage, *m_storageController);
 }
 
-AppRuntime::~AppRuntime() = default;
+AppRuntime::~AppRuntime()
+{
+    // No engine may be handed a destroyed object (unit tests make several runtimes).
+    const auto release = [](auto *&slot, const void *mine) { if (slot == mine) slot = nullptr; };
+    release(qml::Instance<SettingsController>::object, m_settings.get());
+    release(qml::Instance<AppController>::object, m_app.get());
+    release(qml::Instance<StorageController>::object, m_storageController.get());
+    release(qml::Instance<RunController>::object, m_run.get());
+    release(qml::Instance<ResultsController>::object, m_results.get());
+    release(qml::Instance<StartupController>::object, m_startup.get());
+    release(qml::Instance<HistoryModel>::object, m_history.get());
+    release(qml::Instance<CompareController>::object, m_compare.get());
+}
 
 void AppRuntime::registerQml()
 {
-    qmlRegisterSingletonInstance("SynBench", 1, 0, "Settings", m_settings.get());
-    qmlRegisterSingletonInstance("SynBench", 1, 0, "AppController", m_app.get());
-    qmlRegisterSingletonInstance("SynBench", 1, 0, "StorageController", m_storageController.get());
-    qmlRegisterSingletonInstance("SynBench", 1, 0, "RunController", m_run.get());
-    qmlRegisterSingletonInstance("SynBench", 1, 0, "Results", m_results.get());
-    qmlRegisterSingletonInstance("SynBench", 1, 0, "Startup", m_startup.get());
-    qmlRegisterSingletonInstance("SynBench", 1, 0, "History", m_history.get());
-    qmlRegisterSingletonInstance("SynBench", 1, 0, "Compare", m_compare.get());
+    // The types are declared to the module at build time (qml_singletons.h);
+    // this hands over the objects the engines will get.
+    qml::Instance<SettingsController>::object = m_settings.get();
+    qml::Instance<AppController>::object = m_app.get();
+    qml::Instance<StorageController>::object = m_storageController.get();
+    qml::Instance<RunController>::object = m_run.get();
+    qml::Instance<ResultsController>::object = m_results.get();
+    qml::Instance<StartupController>::object = m_startup.get();
+    qml::Instance<HistoryModel>::object = m_history.get();
+    qml::Instance<CompareController>::object = m_compare.get();
 }
 
 bool AppRuntime::claimInstance()

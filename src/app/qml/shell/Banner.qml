@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
-import QtQuick.Layouts
 import SynBench
 
 // A persistent notice across the top of the work area (the D9 emulation

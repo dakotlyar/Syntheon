@@ -48,8 +48,9 @@ public:
 
     static Options optionsFromEnvironment();
 
-    // Registers the controllers as the QML singletons Settings, AppController
-    // and StorageController (module SynBench).
+    // Hands the controllers to the QML singletons of module SynBench (Settings,
+    // AppController, StorageController, RunController, Results, Startup,
+    // History, Compare; declared in qml_singletons.h). Before any engine loads.
     void registerQml();
     // Opens the history and starts the gates (storage, elevation).
     // Takes the single-instance claim on the history folder: opens the history
