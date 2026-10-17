@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import SynBench
@@ -35,7 +36,7 @@ Item {
     readonly property bool useRail: layout !== "tabs" && !narrow
     readonly property int currentIndex: {
         var n = 0
-        for (var i = 0; i < sections.length; ++i) {
+        for (let i = 0; i < sections.length; ++i) {
             if (sections[i].spacer) continue
             if (sections[i].id === section) return n
             ++n

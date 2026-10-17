@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import SynBench
@@ -38,26 +39,27 @@ ScreenFrame {
                 Repeater {
                     model: AppController.systemRows
                     delegate: Item {
+                        id: sysRow
                         required property var modelData
                         required property int index
                         Layout.fillWidth: true
                         implicitHeight: Math.max(44, valueText.implicitHeight + 24)
                         Rectangle {
-                            visible: index > 0
+                            visible: sysRow.index > 0
                             width: parent.width; height: 1; color: Theme.line
                         }
                         SbText {
                             x: 14; width: 130
                             anchors.verticalCenter: parent.verticalCenter
-                            text: modelData.label
+                            text: sysRow.modelData.label
                             kind: "label"
                         }
                         SbText {
                             id: valueText
-                            objectName: "value-" + modelData.label
+                            objectName: "value-" + sysRow.modelData.label
                             x: 150; width: parent.width - 164
                             anchors.verticalCenter: parent.verticalCenter
-                            text: modelData.value
+                            text: sysRow.modelData.value
                             wrapMode: Text.WordWrap
                         }
                     }

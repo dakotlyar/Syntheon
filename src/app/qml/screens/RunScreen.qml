@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -192,7 +193,7 @@ ScreenFrame {
                             }
                             contentItem: RowLayout {
                                 spacing: 6
-                                Rectangle { width: 7; height: 7; radius: 3.5; color: Theme.testColor(tab.modelData.colorToken) }
+                                Rectangle { implicitWidth: 7; implicitHeight: 7; radius: 3.5; color: Theme.testColor(tab.modelData.colorToken) }
                                 SbText {
                                     text: tab.text
                                     kind: "small"
@@ -203,7 +204,7 @@ ScreenFrame {
                         }
                     }
                 }
-                Rectangle { visible: RunController.tabs.length > 0; Layout.fillWidth: true; height: 1; color: Theme.line }
+                Rectangle { visible: RunController.tabs.length > 0; Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
 
                 SbText {
                     visible: RunController.tabs.length === 0

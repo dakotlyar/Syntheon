@@ -22,7 +22,7 @@ Box {
             text: root.block ? root.block.title : ""
             font.weight: Font.DemiBold
         }
-        Rectangle { visible: root.block && root.block.title.length > 0; Layout.fillWidth: true; height: 1; color: Theme.line }
+        Rectangle { visible: root.block && root.block.title.length > 0; Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
         LineChart {
             objectName: "chart"
             Layout.fillWidth: true

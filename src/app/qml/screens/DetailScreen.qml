@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -51,7 +52,7 @@ ScreenFrame {
                 contentItem: RowLayout {
                     spacing: 7
                     Rectangle {
-                        width: 8; height: 8; radius: 4
+                        implicitWidth: 8; implicitHeight: 8; radius: 4
                         color: tab.modelData.na ? Theme.na : Theme.testColor(tab.modelData.colorToken)
                     }
                     SbText {

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
 import SynBench
@@ -15,7 +16,7 @@ TestCase {
     Component { id: spyComponent; SignalSpy {} }
     Component {
         id: dialogComponent
-        AuthDialog { parent: test.contentItem }
+        AuthDialog { parent: test }
     }
 
     function test_failedOffersRetryAndQuit() {

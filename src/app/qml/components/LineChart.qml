@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Shapes
 import SynBench
@@ -33,7 +34,7 @@ Item {
         if (v <= 0) return 1
         var p = Math.pow(10, Math.floor(Math.log(v) / Math.LN10))
         var steps = [1, 2, 2.5, 5, 10]
-        for (var i = 0; i < steps.length; ++i)
+        for (let i = 0; i < steps.length; ++i)
             if (steps[i] * p >= v) return steps[i] * p
         return 10 * p
     }
@@ -41,19 +42,19 @@ Item {
     readonly property real maxY: {
         if (yMax > 0) return yMax
         var m = 0
-        for (var i = 0; i < points.length; ++i) m = Math.max(m, points[i].y)
+        for (let i = 0; i < points.length; ++i) m = Math.max(m, points[i].y)
         return niceMax(m * 1.05)
     }
     readonly property real minX: {
         var m = Infinity
-        for (var i = 0; i < points.length; ++i) m = Math.min(m, points[i].x)
-        for (var j = 0; j < xTicks.length; ++j) m = Math.min(m, xTicks[j].x)
+        for (let i = 0; i < points.length; ++i) m = Math.min(m, points[i].x)
+        for (let j = 0; j < xTicks.length; ++j) m = Math.min(m, xTicks[j].x)
         return isFinite(m) ? m : 0
     }
     readonly property real maxX: {
         var m = -Infinity
-        for (var i = 0; i < points.length; ++i) m = Math.max(m, points[i].x)
-        for (var j = 0; j < xTicks.length; ++j) m = Math.max(m, xTicks[j].x)
+        for (let i = 0; i < points.length; ++i) m = Math.max(m, points[i].x)
+        for (let j = 0; j < xTicks.length; ++j) m = Math.max(m, xTicks[j].x)
         return isFinite(m) ? m : 1
     }
 
@@ -67,7 +68,7 @@ Item {
 
     readonly property var polyline: {
         var p = []
-        for (var i = 0; i < points.length; ++i) p.push(Qt.point(fx(points[i].x), fy(points[i].y)))
+        for (let i = 0; i < points.length; ++i) p.push(Qt.point(fx(points[i].x), fy(points[i].y)))
         return p
     }
     readonly property var areaPoly: {
@@ -86,15 +87,16 @@ Item {
     Repeater {
         model: 5
         delegate: Item {
+            id: gridLine
             required property int index
             readonly property real v: root.maxY * index / 4
             Rectangle {
-                x: root.padLeft; y: root.fy(v); width: root.plotW; height: 1; color: Theme.line
+                x: root.padLeft; y: root.fy(gridLine.v); width: root.plotW; height: 1; color: Theme.line
             }
             SbText {
-                x: 0; width: root.padLeft - 8; y: root.fy(v) - height / 2
+                x: 0; width: root.padLeft - 8; y: root.fy(gridLine.v) - height / 2
                 horizontalAlignment: Text.AlignRight
-                text: Math.round(v * 10) / 10 + (root.yUnit === "%" ? "%" : "")
+                text: Math.round(gridLine.v * 10) / 10 + (root.yUnit === "%" ? "%" : "")
                 kind: "data"; font.pixelSize: 11; color: Theme.muted
             }
         }
@@ -145,8 +147,8 @@ Item {
             required property var modelData
             readonly property real nearestY: {
                 var best = 0, d = Infinity
-                for (var i = 0; i < root.points.length; ++i) {
-                    var dx = Math.abs(root.points[i].x - modelData.x)
+                for (let i = 0; i < root.points.length; ++i) {
+                    const dx = Math.abs(root.points[i].x - modelData.x)
                     if (dx < d) { d = dx; best = root.points[i].y }
                 }
                 return best

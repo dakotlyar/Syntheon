@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import SynBench
@@ -39,8 +40,9 @@ ColumnLayout {
         Repeater {
             model: root.preconditions
             delegate: Rectangle {
+                id: precondition
                 required property var modelData
-                objectName: "precondition-" + modelData.id
+                objectName: "precondition-" + precondition.modelData.id
                 Layout.fillWidth: true
                 implicitHeight: row.implicitHeight + 12
                 radius: Theme.radius
@@ -51,10 +53,10 @@ ColumnLayout {
                     anchors.margins: 6
                     anchors.leftMargin: 10
                     anchors.rightMargin: 10
-                    SbText { text: modelData.label; Layout.fillWidth: true }
+                    SbText { text: precondition.modelData.label; Layout.fillWidth: true }
                     Pill {
-                        text: modelData.detail
-                        tone: modelData.state === "met" ? "good" : modelData.state === "notmet" ? "bad" : "good"
+                        text: precondition.modelData.detail
+                        tone: precondition.modelData.state === "met" ? "good" : precondition.modelData.state === "notmet" ? "bad" : "good"
                     }
                 }
             }

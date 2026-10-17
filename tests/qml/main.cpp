@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/app_runtime.h"
 #include "app/fonts.h"
-#include "app/models/options_model.h"
 #include "core/result.h"
+#include "fixtures.h"
 #include "storage/run_repository.h"
 #include "tests/common/stub_clock.h"
 
@@ -13,75 +13,6 @@
 #include <QtQuickTest>
 
 #include <memory>
-
-// An OptionsModel with one option of every kind, for the editor tests.
-class Fixtures : public QObject
-{
-    Q_OBJECT
-
-public:
-    // Stubs run at this fraction of their real time (tests only).
-    Q_INVOKABLE void setStubScale(double scale) { sb::tests::setStubTimeScale(scale); }
-
-    Q_INVOKABLE QObject *allKindsModel()
-    {
-        sb::OptionSchema s;
-        sb::OptionDef b;
-        b.key = QStringLiteral("flag"); b.label = QStringLiteral("A flag"); b.kind = sb::OptionKind::Bool; b.defaultValue = true;
-        s.options.append(b);
-        sb::OptionDef m;
-        m.key = QStringLiteral("multi"); m.label = QStringLiteral("Runtimes"); m.kind = sb::OptionKind::MultiSelect;
-        m.items = {{QStringLiteral("a"), QStringLiteral("Alpha")}, {QStringLiteral("b"), QStringLiteral("Beta")},
-                   {QStringLiteral("c"), QStringLiteral("Gamma"), false, QStringLiteral("no Intel device")},
-                   // a label that already carries its reason: shown once, not twice
-                   {QStringLiteral("d"), QStringLiteral("Delta (no NVIDIA GPU)"), false, QStringLiteral("no NVIDIA GPU")}};
-        m.defaultValue = QStringList{QStringLiteral("a")};
-        s.options.append(m);
-        sb::OptionDef seg;
-        seg.key = QStringLiteral("seg"); seg.label = QStringLiteral("Profile"); seg.kind = sb::OptionKind::SingleSelect;
-        seg.presentation = sb::SelectPresentation::Segmented;
-        seg.items = {{QStringLiteral("l"), QStringLiteral("Light")}, {QStringLiteral("m"), QStringLiteral("Mixed")}};
-        seg.defaultValue = QStringLiteral("m");
-        s.options.append(seg);
-        sb::OptionDef drop;
-        drop.key = QStringLiteral("drop"); drop.label = QStringLiteral("Buffer"); drop.kind = sb::OptionKind::SingleSelect;
-        drop.items = {{QStringLiteral("s"), QStringLiteral("256 MiB")}, {QStringLiteral("g"), QStringLiteral("1 GiB")}};
-        drop.defaultValue = QStringLiteral("g");
-        s.options.append(drop);
-        sb::OptionDef dyn;
-        dyn.key = QStringLiteral("dyn"); dyn.label = QStringLiteral("Drive"); dyn.kind = sb::OptionKind::DynamicSelect;
-        dyn.items = {{QStringLiteral("/"), QStringLiteral("/"), true, {}, QStringLiteral("NVMe · 812 GB free · btrfs")},
-                     {QStringLiteral("/mnt"), QStringLiteral("/mnt")}};
-        dyn.defaultValue = QStringLiteral("/");
-        s.options.append(dyn);
-        sb::OptionDef num;
-        num.key = QStringLiteral("num"); num.label = QStringLiteral("Duration"); num.kind = sb::OptionKind::Number;
-        num.minimum = 5; num.maximum = 60; num.step = 5; num.unit = QStringLiteral("s"); num.defaultValue = 10.0;
-        s.options.append(num);
-        sb::OptionDef path;
-        path.key = QStringLiteral("path"); path.label = QStringLiteral("Folder"); path.kind = sb::OptionKind::Path;
-        path.defaultValue = QString();
-        s.options.append(path);
-        sb::OptionDef info;
-        info.key = QStringLiteral("info"); info.label = QStringLiteral("Window"); info.kind = sb::OptionKind::Info;
-        info.infoValue = QStringLiteral("1280×720"); info.infoTone = sb::Tone::Good;
-        s.options.append(info);
-        sb::OptionDef warn;
-        warn.key = QStringLiteral("longinfo"); warn.label = QStringLiteral("Models"); warn.kind = sb::OptionKind::Info;
-        warn.infoValue = QStringLiteral("Specific models and precisions are Phase 6 open questions.");
-        warn.infoTone = sb::Tone::Warn;
-        s.options.append(warn);
-
-        auto *values = new sb::OptionValues;
-        m_values.push_back(std::unique_ptr<sb::OptionValues>(values));
-        auto *model = new sb::OptionsModel(s, values, this);
-        model->setSchema(s);
-        return model;
-    }
-
-private:
-    std::vector<std::unique_ptr<sb::OptionValues>> m_values;
-};
 
 // Real controllers on a temporary settings file and history (no elevation, no
 // helper), registered as the QML singletons before any test file loads. Two
@@ -111,7 +42,7 @@ public slots:
             repo.saveRun(r);
         }
         m_runtime->registerQml();
-        qmlRegisterSingletonInstance("SynBenchTest", 1, 0, "Fixtures", &m_fixtures);
+        Fixtures::instance = &m_fixtures;
         // Stubs at a fast time scale; probes and the (elevation-free) gate.
         qputenv("SYNBENCH_STUB_SCALE", "0.02");
         m_runtime->app().start();

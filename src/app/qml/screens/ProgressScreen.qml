@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -171,7 +172,7 @@ ScreenFrame {
                     tone: "acc"
                 }
             }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
 
             Rectangle {
                 Layout.fillWidth: true

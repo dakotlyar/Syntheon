@@ -78,7 +78,7 @@ ScreenFrame {
                     onActivated: value => Settings.layout = value
                 }
             }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
 
             // --- Theme ---
             GridLayout {
@@ -102,7 +102,7 @@ ScreenFrame {
                     onActivated: value => Settings.theme = value
                 }
             }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
 
             // --- Data location ---
             GridLayout {

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -35,22 +36,23 @@ SbDialog {
                 Repeater {
                     model: Startup.hardwareCheck
                     delegate: Item {
+                        id: check
                         required property var modelData
                         required property int index
-                        objectName: "check-" + modelData.id
+                        objectName: "check-" + check.modelData.id
                         Layout.fillWidth: true
                         implicitHeight: Math.max(40, detail.implicitHeight + 18)
-                        Rectangle { visible: index > 0; width: parent.width; height: 1; color: Theme.line }
-                        Swatch { x: 12; anchors.verticalCenter: parent.verticalCenter; implicitHeight: 22; color: Theme.testColor(modelData.colorToken) }
-                        SbText { x: 30; width: 110; anchors.verticalCenter: parent.verticalCenter; text: modelData.name; font.weight: Font.DemiBold }
+                        Rectangle { visible: check.index > 0; width: parent.width; height: 1; color: Theme.line }
+                        Swatch { x: 12; anchors.verticalCenter: parent.verticalCenter; implicitHeight: 22; color: Theme.testColor(check.modelData.colorToken) }
+                        SbText { x: 30; width: 110; anchors.verticalCenter: parent.verticalCenter; text: check.modelData.name; font.weight: Font.DemiBold }
                         SbText {
                             id: detail
                             x: 146; width: parent.width - 146 - 12
                             anchors.verticalCenter: parent.verticalCenter
                             wrapMode: Text.WordWrap
                             kind: "small"
-                            text: modelData.detail.length > 0 ? modelData.detail : (modelData.state === "na" ? qsTr("Not available") : qsTr("Ready"))
-                            color: modelData.state === "na" ? Theme.na : Theme.ink
+                            text: check.modelData.detail.length > 0 ? check.modelData.detail : (check.modelData.state === "na" ? qsTr("Not available") : qsTr("Ready"))
+                            color: check.modelData.state === "na" ? Theme.na : Theme.ink
                         }
                     }
                 }

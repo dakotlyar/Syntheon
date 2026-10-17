@@ -135,6 +135,23 @@ the packaging and cross jobs and a lint job. `release.yml` runs it for a tag
 `v<VERSION>` and opens a **draft** release with five files (the Linux ARM64
 AppImage stays an artifact). `sysroot-arm64.yml` pre-warms the sysroot cache.
 
+### QML lint
+
+Any qmllint warning fails the linux-x64 job. To run the same check locally on
+a configured build (here `<build>`):
+
+```sh
+cmake --build <build> --target all_qmllint_json
+<Qt>/bin/qmllint -I <build>/src/app -I <build>/tests/qml -I <Qt>/qml \
+    --json <build>/tests_qml_qmllint.json tests/qml/*.qml
+python3 packaging/checks/qmllint-gate.py <build>/synbench_ui_qmllint.json <build>/tests_qml_qmllint.json
+```
+
+The gate reads qmllint's JSON reports because qmllint 6.12's text output
+(`all_qmllint`) leaves out some of the warnings it counts. Delegates use
+`pragma ComponentBehavior: Bound` and `required` properties, and every access
+to another object's property is qualified with its id.
+
 ## Version
 
 `VERSION` holds `YYYY.MM.N`. Dev builds show `-dev+<sha>`; packaging presets

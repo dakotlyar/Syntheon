@@ -57,7 +57,7 @@ class RunController : public QObject
     Q_PROPERTY(QString runTitle READ runTitle NOTIFY runChanged)
     Q_PROPERTY(QString runSubtitle READ runSubtitle NOTIFY etaChanged)
     Q_PROPERTY(QAbstractItemModel *queue READ queue CONSTANT)
-    Q_PROPERTY(QObject *log READ log CONSTANT)
+    Q_PROPERTY(QAbstractItemModel *log READ log CONSTANT)
     Q_PROPERTY(QString currentStage READ currentStage NOTIFY currentChanged)
     Q_PROPERTY(QString currentTestColor READ currentTestColor NOTIFY currentChanged)
 
@@ -91,7 +91,7 @@ public:
     QString runTitle() const;
     QString runSubtitle() const;
     QAbstractItemModel *queue();
-    QObject *log();
+    QAbstractItemModel *log();
     QString currentStage() const { return m_stage; }
     QString currentTestColor() const { return m_stageColor; }
 

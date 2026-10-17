@@ -53,15 +53,19 @@ jobs:
       - name: Build
         run: cmake --build --preset linux-x64-release
 
-      # qmllint with the build's module (§13): the all_qmllint target lints the
+      # qmllint with the build's module (§13): all_qmllint_json lints the
       # SynBench module's own files with its qmldir and C++ types, so imports,
-      # components and the C++ singletons resolve. The Qt Quick tests import
-      # that module from the build tree. Errors fail the job (qmllint's exit
-      # status); the remaining [unqualified] warnings are task 2.
-      - name: QML (qmllint, module-aware)
+      # components and the C++ singletons resolve; the Qt Quick tests are linted
+      # against the built SynBench and SynBenchTest modules. ANY warning fails
+      # (qmllint-gate.py reads the JSON reports: qmllint's text output leaves
+      # some counted warnings out). A missing report fails too.
+      - name: QML (qmllint, module-aware; any warning fails)
         run: |
-          cmake --build --preset linux-x64-release --target all_qmllint
-          "$QT_ROOT_DIR/bin/qmllint" -I build/linux-x64-release/src/app -I "$QT_ROOT_DIR/qml" tests/qml/*.qml
+          cmake --build --preset linux-x64-release --target all_qmllint_json || true
+          "$QT_ROOT_DIR/bin/qmllint" -I build/linux-x64-release/src/app -I build/linux-x64-release/tests/qml \
+            -I "$QT_ROOT_DIR/qml" --json build/linux-x64-release/tests_qml_qmllint.json tests/qml/*.qml || true
+          python3 packaging/checks/qmllint-gate.py \
+            build/linux-x64-release/synbench_ui_qmllint.json build/linux-x64-release/tests_qml_qmllint.json
 
       # AP5-R2-4: test-only binaries never ship. Install rules arrive with
       # packaging (task 19); until then the install tree is empty.
@@ -697,7 +701,7 @@ jobs:
         run: shellcheck packaging/checks/*.sh packaging/linux/*.sh
 
       - name: Python scripts compile
-        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py
+        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py packaging/checks/qmllint-gate.py
 
       - name: Desktop file and AppStream metadata
         run: |

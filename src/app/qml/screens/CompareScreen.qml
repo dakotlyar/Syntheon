@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -68,6 +69,7 @@ ScreenFrame {
 
     // --- scores ---
     Box {
+        id: scoreTable
         objectName: "scoreTable"
         visible: Compare.valid
         Layout.fillWidth: true
@@ -95,21 +97,21 @@ ScreenFrame {
             rowSpacing: 0
 
             Repeater {
-                model: parent.parent.flat
+                model: scoreTable.flat
                 delegate: Item {
                     id: cell
                     required property var modelData
                     Layout.fillWidth: true
-                    Layout.preferredWidth: modelData.kind === "name" || modelData.kind === "head" && modelData.text === qsTr("Test") ? 2 : 1
-                    implicitHeight: modelData.kind === "runhead" ? 56 : modelData.kind === "head" ? 34 : 52
+                    Layout.preferredWidth: cell.modelData.kind === "name" || cell.modelData.kind === "head" && cell.modelData.text === qsTr("Test") ? 2 : 1
+                    implicitHeight: cell.modelData.kind === "runhead" ? 56 : cell.modelData.kind === "head" ? 34 : 52
                     clip: true
 
                     Rectangle {
                         anchors.fill: parent
-                        color: (modelData.kind === "head" || modelData.kind === "runhead") ? Theme.sunk : "transparent"
+                        color: (cell.modelData.kind === "head" || cell.modelData.kind === "runhead") ? Theme.sunk : "transparent"
                     }
                     Rectangle {
-                        visible: modelData.kind !== "head" && modelData.kind !== "runhead"
+                        visible: cell.modelData.kind !== "head" && cell.modelData.kind !== "runhead"
                         anchors.bottom: parent.bottom
                         width: parent.width; height: 1; color: Theme.line
                     }
@@ -200,6 +202,7 @@ ScreenFrame {
                     }
                     // The relative bars: one per run, the baseline in the accent colour.
                     Column {
+                        id: barColumn
                         visible: cell.modelData.kind === "bars"
                         anchors.left: parent.left; anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
@@ -211,7 +214,7 @@ ScreenFrame {
                                 required property real modelData
                                 required property int index
                                 height: 6; radius: 3
-                                width: Math.max(2, parent.width * modelData)
+                                width: Math.max(2, barColumn.width * modelData)
                                 color: root.runs[index] && root.runs[index].baseline ? Theme.accent : Theme.muted
                                 opacity: root.runs[index] && root.runs[index].baseline ? 1 : 0.55
                             }
@@ -248,7 +251,7 @@ ScreenFrame {
                     onChosen: value => Compare.setRawTest(value)
                 }
             }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
 
             GridLayout {
                 id: rawGrid
@@ -270,15 +273,15 @@ ScreenFrame {
                         id: rcell
                         required property var modelData
                         Layout.fillWidth: true
-                        Layout.preferredWidth: modelData.kind === "label" || modelData.text === qsTr("Metric") ? 2 : 1
-                        implicitHeight: modelData.kind === "head" ? 44 : 46
+                        Layout.preferredWidth: rcell.modelData.kind === "label" || rcell.modelData.text === qsTr("Metric") ? 2 : 1
+                        implicitHeight: rcell.modelData.kind === "head" ? 44 : 46
                         HoverHandler { id: rawHover; enabled: rcell.modelData.tip !== undefined }
                         ToolTip.visible: rawHover.hovered && rcell.modelData.tip !== undefined
                         ToolTip.text: rcell.modelData.tip || ""
                         clip: true
-                        Rectangle { anchors.fill: parent; color: modelData.kind === "head" ? Theme.sunk : "transparent" }
+                        Rectangle { anchors.fill: parent; color: rcell.modelData.kind === "head" ? Theme.sunk : "transparent" }
                         Rectangle {
-                            visible: modelData.kind !== "head"
+                            visible: rcell.modelData.kind !== "head"
                             anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line
                         }
                         SbText {

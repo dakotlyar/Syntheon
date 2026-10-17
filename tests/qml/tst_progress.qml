@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
 import SynBench
@@ -51,7 +52,7 @@ TestCase {
         compare(AppController.section, "progress")
 
         // The log fills while it runs.
-        tryVerify(function() { return RunController.log.count > 2 }, 20000)
+        tryVerify(function() { return RunController.log.rowCount() > 2 }, 20000)
         verify(findChild(screen, "logView").count > 0)
 
         // Zeb #4: the test name has its own column and isn't repeated in the message.

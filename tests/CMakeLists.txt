@@ -27,6 +27,15 @@ if(UNIX)
                 "${PROJECT_SOURCE_DIR}/packaging/checks/no-test-binaries.sh")
 endif()
 
+# The qmllint gate (CI's "any QML warning fails") must itself fail on a planted
+# warning, with the real qmllint of this Qt.
+find_program(SYNBENCH_PYTHON3 python3)
+if(UNIX AND SYNBENCH_PYTHON3 AND TARGET Qt6::qmllint)
+    add_test(NAME qmllint_gate_selftest
+        COMMAND bash "${PROJECT_SOURCE_DIR}/packaging/checks/test-qmllint-gate.sh"
+                "$<TARGET_FILE:Qt6::qmllint>" "${PROJECT_SOURCE_DIR}/packaging/checks/qmllint-gate.py")
+endif()
+
 # Every tracked path must be checkout-able on Windows.
 add_test(NAME windows_safe_paths
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckWindowsPaths.cmake")

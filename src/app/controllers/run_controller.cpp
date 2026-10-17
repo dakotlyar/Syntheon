@@ -244,7 +244,7 @@ QAbstractItemModel *RunController::queue()
     return m_queue.get();
 }
 
-QObject *RunController::log()
+QAbstractItemModel *RunController::log()
 {
     return m_log.get();
 }

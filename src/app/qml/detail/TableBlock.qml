@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import SynBench
@@ -64,12 +65,13 @@ Box {
         Repeater {
             model: root.rows
             delegate: Item {
+                id: tableRow
                 required property var modelData
                 required property int index
                 Layout.fillWidth: true
                 implicitHeight: rowLayout.implicitHeight + 16
                 Rectangle {
-                    visible: index < root.rows.length - 1
+                    visible: tableRow.index < root.rows.length - 1
                     anchors.bottom: parent.bottom
                     width: parent.width; height: 1; color: Theme.line
                 }
@@ -79,7 +81,7 @@ Box {
                     anchors.leftMargin: 12; anchors.rightMargin: 12
                     spacing: 12
                     Repeater {
-                        model: modelData
+                        model: tableRow.modelData
                         delegate: SbText {
                             required property string modelData
                             required property int index

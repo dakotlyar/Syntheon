@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import SynBench
@@ -18,7 +19,7 @@ ComboBox {
     textRole: "label"
     valueRole: "value"
     currentIndex: {
-        for (var i = 0; i < items.length; ++i)
+        for (let i = 0; i < items.length; ++i)
             if (items[i].value === current) return i
         return -1
     }

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -35,30 +36,31 @@ Rectangle {
             Repeater {
                 model: root.sections
                 delegate: Item {
+                    id: entry
                     required property var modelData
                     Layout.fillHeight: true
-                    Layout.fillWidth: modelData.spacer === true
-                    Layout.minimumWidth: modelData.spacer === true ? 8 : btn.implicitWidth
-                    implicitWidth: modelData.spacer === true ? 8 : btn.implicitWidth
+                    Layout.fillWidth: entry.modelData.spacer === true
+                    Layout.minimumWidth: entry.modelData.spacer === true ? 8 : btn.implicitWidth
+                    implicitWidth: entry.modelData.spacer === true ? 8 : btn.implicitWidth
 
                     AbstractButton {
                         id: btn
-                        objectName: "nav-" + (modelData.id || "")
-                        visible: !modelData.spacer
+                        objectName: "nav-" + (entry.modelData.id || "")
+                        visible: !entry.modelData.spacer
                         anchors.verticalCenter: parent.verticalCenter
                         height: 34
                         padding: 0
                         activeFocusOnTab: true
                         hoverEnabled: true
-                        text: modelData.label || ""
+                        text: entry.modelData.label || ""
                         Accessible.role: Accessible.PageTab
                         Accessible.name: text
-                        Accessible.selected: modelData.id === root.current
-                        onClicked: root.navigate(modelData.id)
-                        Keys.onReturnPressed: root.navigate(modelData.id)
+                        Accessible.selected: entry.modelData.id === root.current
+                        onClicked: root.navigate(entry.modelData.id)
+                        Keys.onReturnPressed: root.navigate(entry.modelData.id)
                         background: Rectangle {
                             radius: Theme.radius
-                            color: modelData.id === root.current ? Theme.accentSoft : (btn.hovered ? Theme.sunk : "transparent")
+                            color: entry.modelData.id === root.current ? Theme.accentSoft : (btn.hovered ? Theme.sunk : "transparent")
                             border.width: btn.visualFocus ? 2 : 0
                             border.color: Theme.accent
                         }
@@ -66,13 +68,13 @@ Rectangle {
                             spacing: 8
                             Item { Layout.preferredWidth: 2 }
                             Icon {
-                                path: modelData.icon || ""
-                                color: modelData.id === root.current ? Theme.accent : Theme.muted
+                                path: entry.modelData.icon || ""
+                                color: entry.modelData.id === root.current ? Theme.accent : Theme.muted
                             }
                             SbText {
                                 text: btn.text
                                 font.weight: Font.Medium
-                                color: modelData.id === root.current ? Theme.ink : Theme.muted
+                                color: entry.modelData.id === root.current ? Theme.ink : Theme.muted
                             }
                             Item { Layout.preferredWidth: 6 }
                         }
