@@ -4,3 +4,7 @@
 add_library(synbench_simd_planted OBJECT planted_wide.cpp)
 target_compile_options(synbench_simd_planted PRIVATE ${SYNBENCH_PLANTED_FLAGS})
 set_target_properties(synbench_simd_planted PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+# ...and one whose only fault is a dynamic initialiser (AP-5 L1).
+add_library(synbench_simd_planted_init OBJECT planted_init.cpp)
+target_compile_options(synbench_simd_planted_init PRIVATE ${SYNBENCH_PLANTED_FLAGS})
+set_target_properties(synbench_simd_planted_init PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)

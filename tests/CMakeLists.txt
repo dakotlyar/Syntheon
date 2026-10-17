@@ -180,6 +180,10 @@ if(SYNBENCH_PYTHON3 AND SYNBENCH_NM AND _simd_isas)
         COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/simd-odr.py" --nm "${SYNBENCH_NM}"
                 --expect-violation "planted=$<TARGET_OBJECTS:synbench_simd_planted>")
     set_tests_properties(simd_odr_rejects_planted PROPERTIES PASS_REGULAR_EXPRESSION "plantedOutside")
+    add_test(NAME simd_odr_rejects_planted_initialiser
+        COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/simd-odr.py" --nm "${SYNBENCH_NM}"
+                --expect-violation "planted=$<TARGET_OBJECTS:synbench_simd_planted_init>")
+    set_tests_properties(simd_odr_rejects_planted_initialiser PROPERTIES PASS_REGULAR_EXPRESSION "dynamic initialiser")
     list(JOIN _simd_wide_flags "|" _simd_wide_flags)
     add_test(NAME cpu_simd_flags
         COMMAND "${CMAKE_COMMAND}" "-DCOMMANDS=${PROJECT_BINARY_DIR}/compile_commands.json" -DCOMPILER=${_k_compiler}

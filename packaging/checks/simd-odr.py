@@ -20,12 +20,19 @@ COMDAT function shows as T); MSVC's own constant pools (__real@..., __xmm@,
 __ymm@, __zmm@, ??_C@ string literals) are named after their content, so
 copies are identical and pass.
 
+Dynamic initialisers are refused too (AP-5 L1): a wide TU's static
+constructor runs before main(), before any dispatch, on every CPU. ELF:
+.init_array / .ctors / .preinit_array sections or _GLOBAL__sub_I_ symbols;
+COFF: .CRT$XC* sections or ??__E (MSVC dynamic initialiser) symbols. The
+section names are read from the object's own headers.
+
 Exit 0: every object follows the rule (with --expect-violation: at least one
 object breaks it, for the planted negative). 1: the other way round. 2: an
 object couldn't be read.
 """
 import argparse
 import re
+import struct
 import subprocess
 import sys
 
@@ -37,6 +44,63 @@ MSVC_CONSTANTS = re.compile(r"^(__real@|__xmm@|__ymm@|__zmm@|\?\?_C@)")
 def is_elf(path):
     with open(path, "rb") as f:
         return f.read(4) == b"\x7fELF"
+
+
+def elf_sections(data):
+    """Section names of an ELF object (32/64-bit, either byte order)."""
+    is64 = data[4] == 2
+    end = "<" if data[5] == 1 else ">"
+    if is64:
+        shoff, = struct.unpack_from(end + "Q", data, 0x28)
+        shentsize, shnum, shstrndx = struct.unpack_from(end + "HHH", data, 0x3A)
+    else:
+        shoff, = struct.unpack_from(end + "I", data, 0x20)
+        shentsize, shnum, shstrndx = struct.unpack_from(end + "HHH", data, 0x2E)
+    def header(i):
+        base = shoff + i * shentsize
+        name, = struct.unpack_from(end + "I", data, base)
+        off, size = (struct.unpack_from(end + "QQ", data, base + 0x18) if is64
+                     else struct.unpack_from(end + "II", data, base + 0x10))
+        return name, off, size
+    _, stroff, strsize = header(shstrndx)
+    strtab = data[stroff:stroff + strsize]
+    return [strtab[n:strtab.index(b"\0", n)].decode("latin-1") for n, _, _ in (header(i) for i in range(shnum))]
+
+
+def coff_sections(data):
+    """Section names of a COFF object (regular or /bigobj)."""
+    sig1, sig2 = struct.unpack_from("<HH", data, 0)
+    if sig1 == 0 and sig2 == 0xFFFF:  # bigobj: ANON_OBJECT_HEADER_BIGOBJ
+        nsec, symptr, nsym = struct.unpack_from("<III", data, 44)
+        first, symsize = 56, 20
+    else:
+        nsec, = struct.unpack_from("<H", data, 2)
+        symptr, nsym = struct.unpack_from("<II", data, 8)
+        optsize, = struct.unpack_from("<H", data, 16)
+        first, symsize = 20 + optsize, 18
+    strtab = symptr + nsym * symsize
+    names = []
+    for i in range(nsec):
+        raw = data[first + 40 * i:first + 40 * i + 8].rstrip(b"\0")
+        if raw.startswith(b"/"):  # a long name: an offset into the string table
+            at = strtab + int(raw[1:])
+            raw = data[at:data.index(b"\0", at)]
+        names.append(raw.decode("latin-1"))
+    return names
+
+
+def initialisers(path, elf, all_symbols):
+    """What makes the object run code before main()."""
+    with open(path, "rb") as f:
+        data = f.read()
+    found = []
+    for name in (elf_sections(data) if elf else coff_sections(data)):
+        if (elf and re.match(r"^\.(init_array|ctors|preinit_array)", name)) or (not elf and name.startswith(".CRT$XC")):
+            found.append(f"section {name}")
+    for name in all_symbols:
+        if "_GLOBAL__sub_I_" in name or name.startswith("??__E"):
+            found.append(f"symbol {name}")
+    return found
 
 
 def symbols(nm, path, demangle):
@@ -61,7 +125,11 @@ def violations(nm, isa, path):
     entry = f"sb_simd_{isa}_unit"
     elf = is_elf(path)
     bad = []
-    for kind, name in symbols(nm, path, demangle=elf):
+    listed = list(symbols(nm, path, demangle=elf))
+    raw = [name for _, name in symbols(nm, path, demangle=False)] if elf else [name for _, name in listed]
+    for what in initialisers(path, elf, raw):
+        bad.append(f"dynamic initialiser: {what}")
+    for kind, name in listed:
         if not exported(kind) or name == entry:
             continue
         if elf:
@@ -100,7 +168,8 @@ def main():
             return 2
         if bad:
             found = True
-            print(f"{path} ({isa}): {len(bad)} symbol(s) outside sb::cpu::simd_{isa} other than sb_simd_{isa}_unit:")
+            print(f"{path} ({isa}): {len(bad)} problem(s): symbols outside sb::cpu::simd_{isa} other than "
+                  f"sb_simd_{isa}_unit, or dynamic initialisers:")
             for b in bad:
                 print(f"    {b}")
         else:
