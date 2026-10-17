@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <exception>
 #include <mutex>
 #include <thread>
@@ -50,14 +51,13 @@ std::uint32_t crcOf(std::span<const std::uint8_t> data)
     return std::uint32_t(crc32(0L, data.data(), uInt(data.size())));
 }
 
-// The single-thread unit's golden value: its four decompressed blocks' CRCs
-// folded in codec order, all four the original block's.
-std::uint64_t foldFourCrcs(std::uint32_t crc)
+// §5.4 (Dave, 2026-10-17): a decompressed block is compared with the
+// original byte for byte (not by CRC-32, which cost as much as LZ4's
+// decompression itself). 0 if they are equal, else 1 + the block number.
+std::uint64_t mismatch(std::span<const std::uint8_t> got, std::span<const std::uint8_t> original, std::size_t b)
 {
-    std::uint64_t sum = 0;
-    for (std::size_t i = 0; i < kCodecCount; ++i)
-        sum = foldChecksum(sum, crc);
-    return sum;
+    const bool same = got.size() == original.size() && std::memcmp(got.data(), original.data(), got.size()) == 0;
+    return same ? 0 : 1 + b;
 }
 
 } // namespace
@@ -188,23 +188,24 @@ std::unique_ptr<KernelThread> DecompressKernel::makeThread(int) const
 {
     struct T : KernelThread {
         const CompressedSet *set;
+        const CorpusData *corpus;
         CodecContext ctx;
         std::vector<std::uint8_t> out = std::vector<std::uint8_t>(kCorpusBlockSize, 0);  // touched here
-        explicit T(const CompressedSet *s) : set(s), ctx(s->codec) {}
+        T(const CompressedSet *s, const CorpusData *c) : set(s), corpus(c), ctx(s->codec) {}
         std::uint64_t unit(std::uint64_t unitIndex) override
         {
             const std::size_t b = std::size_t(unitIndex % kCorpusBlocks);
             ctx.decompress(set->blocks[b], out);
-            // §5.4: every decompressed block against the original block's CRC-32.
-            return crcOf(out);
+            // §5.4: every decompressed block against the original, byte for byte.
+            return mismatch(out, corpus->block(b), b);
         }
     };
-    return std::make_unique<T>(&m_set);
+    return std::make_unique<T>(&m_set, &m_corpus);
 }
 
-std::optional<std::uint64_t> DecompressKernel::golden(std::uint64_t seed) const
+std::optional<std::uint64_t> DecompressKernel::golden(std::uint64_t) const
 {
-    return m_corpus.blockCrc[std::size_t(seed % kCorpusBlocks)];
+    return 0;  // no block differs from its original
 }
 
 // --- the single-thread mixed unit ---------------------------------------------
@@ -264,7 +265,7 @@ std::unique_ptr<KernelThread> SingleCompressKernel::makeThread(int) const
                 bytes[2 * i + 1] += double(kCorpusBlockSize);
                 if (*n != goldenCompressedSize(c.codec(), b))
                     ++k->m_sizeMismatches;
-                sum = foldChecksum(sum, crcOf(unpacked));
+                sum += mismatch(unpacked, block, b);
             }
             return sum;
         }
@@ -272,9 +273,9 @@ std::unique_ptr<KernelThread> SingleCompressKernel::makeThread(int) const
     return std::make_unique<T>(this);
 }
 
-std::optional<std::uint64_t> SingleCompressKernel::golden(std::uint64_t seed) const
+std::optional<std::uint64_t> SingleCompressKernel::golden(std::uint64_t) const
 {
-    return foldFourCrcs(m_corpus.blockCrc[std::size_t(seed % kCorpusBlocks)]);
+    return 0;  // all four round trips gave the original block
 }
 
 } // namespace sb::cpu

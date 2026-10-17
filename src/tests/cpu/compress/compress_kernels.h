@@ -7,8 +7,8 @@
 // `single.compress`.
 //
 //   CorpusData           the 32 MiB corpus (made once, shared read-only by
-//                        every thread: never copied per thread, L6) and the
-//                        CRC-32 of each block
+//                        every thread: never copied per thread, L6) and its
+//                        CRC-32 (golden::kCorpusCrc32)
 //   CompressKernel       a unit compresses block b = unit index mod 128;
 //                        its compressed size is compared with
 //                        golden/compress.inc, a mismatch counted as a
@@ -16,10 +16,13 @@
 //                        confirmed in CI)
 //   compressCorpus()     the unscored prep step: all 128 blocks compressed in
 //                        parallel, for the decompress units and the ratio
-//   DecompressKernel     a unit decompresses block b of that set; the output's
-//                        CRC-32 must be the original block's (an Error if not)
+//   DecompressKernel     a unit decompresses block b of that set; the output
+//                        must equal the original block byte for byte (an
+//                        Error if not; Dave, 2026-10-17: not a CRC-32, which
+//                        cost as much as LZ4's decompression)
 //   SingleCompressKernel one unit compresses block b with each codec in turn
-//                        and decompresses that output, each of the 8 calls
+//                        and decompresses that output (each compared with the
+//                        original, as above), each of the 8 calls
 //                        timed on its own; the window's rate is the geometric
 //                        mean of the 8 (bytes / that call's total time), so
 //                        xz's slow compression doesn't decide it alone
@@ -40,7 +43,7 @@ namespace sb::cpu {
 
 struct CorpusData {
     std::vector<std::uint8_t> bytes;                  // kCorpusSize
-    std::array<std::uint32_t, kCorpusBlocks> blockCrc{};  // zlib crc32() of each block
+    std::array<std::uint32_t, kCorpusBlocks> blockCrc{};  // zlib crc32() of each block (for crc)
     std::uint32_t crc = 0;                            // of the whole corpus (golden::kCorpusCrc32)
     std::span<const std::uint8_t> block(std::size_t b) const
     {
