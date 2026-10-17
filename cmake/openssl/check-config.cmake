@@ -22,7 +22,8 @@ endif()
 
 if(EXISTS "${ROOT}/synbench-openssl-cflags.txt")
     file(READ "${ROOT}/synbench-openssl-cflags.txt" cflags)
-    if(NOT cflags MATCHES "(^| )(-O3|/O2)( |\n|$)")
+    # A flag starts the line's value (CFLAGS=-O3 ...) or follows a space.
+    if(NOT cflags MATCHES "(^|[ =])(-O3|/O2)( |\n|$)")
         list(APPEND problems "built without -O3 / /O2: ${cflags}")
     endif()
 else()
