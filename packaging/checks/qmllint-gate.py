@@ -8,7 +8,8 @@ Each report is qmllint's --json output (the all_qmllint_json target writes
 <build>/synbench_ui_qmllint.json; CI writes one for tests/qml). Every finding
 of type warning or worse is printed as file:line:col and fails the gate, and
 so does a file qmllint marked unsuccessful. Info-level findings are printed
-but don't fail.
+but don't fail, except the categories in FAILING_IDS (unused imports, which
+qmllint reports as info by default).
 
 Why the JSON and not qmllint's own --max-warnings: qmllint 6.12.0's text
 output leaves out some warnings that it still counts (block-scoped var,
@@ -23,6 +24,8 @@ import sys
 from pathlib import Path
 
 FAILING = {"warning", "critical", "error", "fatal"}
+# Categories that fail even though qmllint reports them at info level.
+FAILING_IDS = {"unused-imports"}
 
 
 def main(paths):
@@ -52,7 +55,7 @@ def main(paths):
                 where = f"{name}:{w.get('line', 0)}:{w.get('column', 0)}"
                 message = " ".join(str(w.get("message", "")).split())
                 line = f"{where}: {kind}: {message} [{w.get('id', '?')}]"
-                if kind in FAILING:
+                if kind in FAILING or w.get("id") in FAILING_IDS:
                     print(f"::error::{line}")
                     failures += 1
                 else:

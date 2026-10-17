@@ -17,6 +17,13 @@ Item {
     Item { width: side }
 }
 QML
+# An unused import (qmllint says "info"; the gate fails it anyway).
+cat > "$d/Unused.qml" <<'QML'
+import QtQuick
+import QtQuick.Layouts
+Item {
+}
+QML
 cat > "$d/Good.qml" <<'QML'
 import QtQuick
 Item {
@@ -29,8 +36,11 @@ QML
 "$qmllint" --json "$d/good.json" "$d/Good.qml" > /dev/null 2>&1
 python3 "$gate" "$d/bad.json" > "$d/out.txt" 2>&1 && fail "the gate passed a planted unqualified access"
 grep -q 'Bad.qml:4' "$d/out.txt" || fail "the gate did not name the planted warning: $(cat "$d/out.txt")"
+"$qmllint" --json "$d/unused.json" "$d/Unused.qml" > /dev/null 2>&1
+python3 "$gate" "$d/unused.json" > "$d/out.txt" 2>&1 && fail "the gate passed an unused import"
+grep -q 'unused-imports' "$d/out.txt" || fail "the gate did not name the unused import: $(cat "$d/out.txt")"
 python3 "$gate" "$d/good.json" > /dev/null 2>&1 || fail "the gate failed a clean file"
 echo '{"files": []}' > "$d/empty.json"
 python3 "$gate" "$d/empty.json" > /dev/null 2>&1 && fail "the gate passed a report with no files"
 python3 "$gate" "$d/missing.json" > /dev/null 2>&1 && fail "the gate passed a missing report"
-echo "PASS: the qmllint gate fails on a planted warning, an empty and a missing report, and passes a clean file"
+echo "PASS: the qmllint gate fails on a planted warning, an unused import, an empty and a missing report, and passes a clean file"
