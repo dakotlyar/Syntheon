@@ -170,6 +170,24 @@ private slots:
         QVERIFY2(o.error.startsWith(QLatin1StringView("synbench-cpucrypto: bad --threads")), qPrintable(o.error));
     }
 
+    // AP-5 L6: a run's output must have the right shape, and a runaway line
+    // is refused.
+    void outputShape()
+    {
+        CryptoOutcome o;
+        o.repMbps = {1, 2, 3};
+        QVERIFY(CryptoClient::shapeProblem(o, true, 3, false).isEmpty());
+        QVERIFY(CryptoClient::shapeProblem(o, false, 3, false).contains(QLatin1StringView("ready line: no")));
+        QVERIFY(CryptoClient::shapeProblem(o, true, 5, false).contains(QLatin1StringView("3 of 5 repetitions")));
+        QVERIFY(CryptoClient::shapeProblem(o, true, 3, true).contains(QLatin1StringView("didn't see the software-path mask")));
+        o.masked = true;
+        QVERIFY(CryptoClient::shapeProblem(o, true, 3, false).contains(QLatin1StringView("on the hardware path")));
+        QVERIFY(CryptoClient::shapeProblem(o, true, 3, true).isEmpty());
+        QVERIFY(!CryptoClient::lineTooLong(QByteArray(CryptoClient::kMaxOutputLine, 'x')));
+        QVERIFY(CryptoClient::lineTooLong(QByteArray(CryptoClient::kMaxOutputLine + 1, 'x')));
+        QVERIFY(!CryptoClient::lineTooLong(QByteArray(CryptoClient::kMaxOutputLine + 1, 'x') + '\n'));
+    }
+
     // Stop kills the worker within 250 ms (a poll, then the kill), and no
     // process is left behind.
     void cancelKillsTheWorker()

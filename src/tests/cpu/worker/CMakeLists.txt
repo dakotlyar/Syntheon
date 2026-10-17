@@ -23,6 +23,13 @@ set_target_properties(synbench-cpucrypto PROPERTIES
     MSVC_RUNTIME_LIBRARY MultiThreadedDLL  # /MD in every build type, as OpenSSL
     AUTOMOC OFF AUTOUIC OFF AUTORCC OFF    # no Qt here
     INSTALL_RPATH "")                      # no library search path of its own
+if(MSVC)
+    # The loader resolves the worker's own imports (the VC++ runtime...) from
+    # System32 and its folder only: LOAD_LIBRARY_SEARCH_SYSTEM32 |
+    # LOAD_LIBRARY_SEARCH_APPLICATION_DIR (AP-5 L3; SetDefaultDllDirectories
+    # in main() covers later loads). packaging/checks/pe-loadflags.py checks it.
+    target_link_options(synbench-cpucrypto PRIVATE /DEPENDENTLOADFLAG:0xA00)
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # As the helper: nothing from a bundled library directory is needed.
     target_link_options(synbench-cpucrypto PRIVATE -static-libstdc++ -static-libgcc)

@@ -43,7 +43,10 @@ QString lastLine(const QByteArray &text)
 }
 
 // Runs the worker with `args` until it exits, Stop or the timeout.
-CryptoOutcome runWorker(const QStringList &args, bool software, std::chrono::milliseconds timeout,
+// `reps`: a measurement's repetitions (its output is checked for the right
+// shape: a ready line, `reps` rep lines, the mask seen exactly when asked
+// for); 0 for the self-test.
+CryptoOutcome runWorker(const QStringList &args, bool software, int reps, std::chrono::milliseconds timeout,
                         const std::function<bool()> &cancelled, const std::function<void(int)> &window)
 {
     CryptoOutcome out;
@@ -55,6 +58,8 @@ CryptoOutcome runWorker(const QStringList &args, bool software, std::chrono::mil
     QProcess p;
     p.setProgram(program);
     p.setArguments(args);
+    // Its own folder, not wherever SynBench was started from (AP-5 L3).
+    p.setWorkingDirectory(QFileInfo(program).absolutePath());
     p.setProcessEnvironment(CryptoClient::environment(software));
     // stdin stays open (a pipe) while we run: the worker exits when it closes.
     p.start(QIODevice::ReadWrite);
@@ -63,12 +68,13 @@ CryptoOutcome runWorker(const QStringList &args, bool software, std::chrono::mil
         return out;
     }
     out.pid = p.processId();
-    bool haveResult = false;
+    bool haveResult = false, haveReady = false, garbage = false;
     QByteArray pending;
     const auto handle = [&](const QByteArray &line) {
         const QJsonObject o = QJsonDocument::fromJson(line).object();
         const QString ev = o.value(QLatin1StringView("ev")).toString();
         if (ev == QLatin1StringView("ready")) {
+            haveReady = true;
             out.openssl = o.value(QLatin1StringView("openssl")).toString();
             out.features = o.value(QLatin1StringView("features")).toString();
             out.masked = o.value(QLatin1StringView("masked")).toBool();
@@ -90,6 +96,9 @@ CryptoOutcome runWorker(const QStringList &args, bool software, std::chrono::mil
     };
     const auto drain = [&] {
         pending += p.readAllStandardOutput();
+        // No line of ours is near this long (AP-5 L6): don't buffer junk.
+        if (CryptoClient::lineTooLong(pending))
+            garbage = true;
         qsizetype nl;
         while ((nl = pending.indexOf('\n')) >= 0) {
             handle(pending.left(nl));
@@ -101,6 +110,11 @@ CryptoOutcome runWorker(const QStringList &args, bool software, std::chrono::mil
         if (cancelled && cancelled()) {
             killWorker(p);
             out.status = CryptoOutcome::Status::Cancelled;
+            return out;
+        }
+        if (garbage) {
+            killWorker(p);
+            out.error = QStringLiteral("The encryption worker wrote an output line longer than %1 bytes").arg(CryptoClient::kMaxOutputLine);
             return out;
         }
         if (Clock::now() >= deadline) {
@@ -125,6 +139,12 @@ CryptoOutcome runWorker(const QStringList &args, bool software, std::chrono::mil
     if (!haveResult) {
         out.error = QStringLiteral("The encryption worker gave no result");
         return out;
+    }
+    if (reps > 0) {
+        if (const QString problem = CryptoClient::shapeProblem(out, haveReady, reps, software); !problem.isEmpty()) {
+            out.error = problem;
+            return out;
+        }
     }
     out.status = CryptoOutcome::Status::Ok;
     return out;
@@ -197,12 +217,30 @@ CryptoOutcome CryptoClient::run(const CryptoRunSpec &spec, const std::function<b
                               QStringLiteral("--rep-ms"),    QString::number(spec.windows.rep.count()),
                               QStringLiteral("--reps"),      QString::number(spec.windows.reps),
                               QStringLiteral("--seed"),      QString::number(spec.seed % kSeeds)};
-    return runWorker(args, spec.software, timeoutFor(spec), cancelled, window);
+    return runWorker(args, spec.software, spec.windows.reps, timeoutFor(spec), cancelled, window);
 }
 
 CryptoOutcome CryptoClient::selfTest(const std::function<bool()> &cancelled)
 {
-    return runWorker({QStringLiteral("--self-test")}, false, std::chrono::milliseconds(30000), cancelled, {});
+    return runWorker({QStringLiteral("--self-test")}, false, 0, std::chrono::milliseconds(30000), cancelled, {});
+}
+
+bool CryptoClient::lineTooLong(const QByteArray &pending)
+{
+    return pending.size() > kMaxOutputLine && pending.indexOf('\n') < 0;
+}
+
+QString CryptoClient::shapeProblem(const CryptoOutcome &o, bool sawReady, int reps, bool software)
+{
+    if (!sawReady || int(o.repMbps.size()) != reps)
+        return QStringLiteral("The encryption worker's output was malformed (ready line: %1, %2 of %3 repetitions)")
+            .arg(sawReady ? QStringLiteral("yes") : QStringLiteral("no"))
+            .arg(o.repMbps.size())
+            .arg(reps);
+    if (o.masked != software)
+        return software ? QStringLiteral("The encryption worker didn't see the software-path mask")
+                        : QStringLiteral("The encryption worker saw an OpenSSL capability mask on the hardware path");
+    return {};
 }
 
 std::uint64_t CryptoClient::expectedChecksum(CryptoAlg alg)

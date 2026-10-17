@@ -560,6 +560,18 @@ jobs:
         shell: pwsh
         run: ./packaging/checks/test-windows-static-checks.ps1 -Tree stage -Arch x64
 
+      # AP-5 L3: the elevated encryption worker's own imports load from System32
+      # and its folder only (/DEPENDENTLOADFLAG:0xA00); the check must also fail
+      # on SynBench.exe, which doesn't set it.
+      - name: The encryption worker's DLL search is System32 + its folder
+        shell: pwsh
+        run: |
+          python packaging/checks/pe-loadflags.py stage/synbench-cpucrypto.exe --expect 0xA00
+          if ($LASTEXITCODE -ne 0) { throw "synbench-cpucrypto.exe lacks DependentLoadFlags 0xA00" }
+          python packaging/checks/pe-loadflags.py stage/SynBench.exe --expect 0xA00
+          if ($LASTEXITCODE -ne 1) { throw "the negative control on SynBench.exe did not fail as it must" }
+          $global:LASTEXITCODE = 0
+
       - name: Versions
         shell: pwsh
         run: |
@@ -749,6 +761,18 @@ jobs:
       - name: Negative control, the static checks fail on planted defects
         shell: pwsh
         run: ./packaging/checks/test-windows-static-checks.ps1 -Tree stage -Arch arm64
+
+      # AP-5 L3: the elevated encryption worker's own imports load from System32
+      # and its folder only (/DEPENDENTLOADFLAG:0xA00); the check must also fail
+      # on SynBench.exe, which doesn't set it.
+      - name: The encryption worker's DLL search is System32 + its folder
+        shell: pwsh
+        run: |
+          python packaging/checks/pe-loadflags.py stage/synbench-cpucrypto.exe --expect 0xA00
+          if ($LASTEXITCODE -ne 0) { throw "synbench-cpucrypto.exe lacks DependentLoadFlags 0xA00" }
+          python packaging/checks/pe-loadflags.py stage/SynBench.exe --expect 0xA00
+          if ($LASTEXITCODE -ne 1) { throw "the negative control on SynBench.exe did not fail as it must" }
+          $global:LASTEXITCODE = 0
 
       - name: Versions
         shell: pwsh
@@ -954,7 +978,7 @@ jobs:
         run: shellcheck packaging/checks/*.sh packaging/linux/*.sh
 
       - name: Python scripts compile
-        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py packaging/checks/qmllint-gate.py packaging/checks/crypto-symbols.py packaging/checks/simd-odr.py
+        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py packaging/checks/qmllint-gate.py packaging/checks/crypto-symbols.py packaging/checks/simd-odr.py packaging/checks/pe-loadflags.py
 
       - name: Desktop file and AppStream metadata
         run: |

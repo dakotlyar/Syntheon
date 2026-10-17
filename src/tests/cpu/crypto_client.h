@@ -15,6 +15,10 @@
 //            a software run adds the mask
 // So OPENSSL_CONF, OPENSSL_MODULES, OPENSSL_ENGINES and anything else in
 // SynBench's environment never reach it.
+// It runs in its own folder (not wherever SynBench was started), and on
+// Windows its imports load from System32 and that folder only
+// (/DEPENDENTLOADFLAG:0xA00). A run's output must have the right shape
+// (shapeProblem) and no line may exceed kMaxOutputLine.
 //
 // The software path (D7): the dedicated crypto instructions off, SIMD on.
 //   x64    OPENSSL_ia32cap=~0x200000200000000:~0x60020000000:~0x0:~0x0:~0x0
@@ -25,6 +29,7 @@
 
 #include "tests/cpu/engine/worker_pool.h"
 
+#include <QByteArray>
 #include <QProcessEnvironment>
 #include <QString>
 
@@ -86,6 +91,15 @@ public:
     static CryptoOutcome selfTest(const std::function<bool()> &cancelled);
     // What the checksum of a passing run is: the XOR of the golden table.
     static std::uint64_t expectedChecksum(CryptoAlg alg);
+
+    // The checks on a measurement's output (AP-5 L6), used by run(): empty if
+    // it has the right shape (a ready line, `reps` rep lines, the mask seen
+    // exactly on a software run), else the reason.
+    static QString shapeProblem(const CryptoOutcome &o, bool sawReady, int reps, bool software);
+    // An output line (no newline yet) longer than this is junk: the worker
+    // is stopped rather than buffered without end.
+    static constexpr qsizetype kMaxOutputLine = 64 * 1024;
+    static bool lineTooLong(const QByteArray &pending);
 };
 
 } // namespace sb::cpu
