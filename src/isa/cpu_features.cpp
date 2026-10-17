@@ -255,6 +255,7 @@ CpuFeatures decodeWindowsArm(const WindowsArmFeatures &present)
     if (present.sve2) f.set(Feature::Sve2);
     if (present.i8mm) f.set(Feature::I8mm);
     if (present.bf16) f.set(Feature::Bf16);
+    if (present.fp16) f.set(Feature::Fp16);
     return f;
 }
 
@@ -285,11 +286,14 @@ CpuFeatures detect()
 #ifdef PF_ARM_SVE2_INSTRUCTIONS_AVAILABLE
     p.sve2 = has(PF_ARM_SVE2_INSTRUCTIONS_AVAILABLE);
 #endif
-#ifdef PF_ARM_SVE_I8MM_INSTRUCTIONS_AVAILABLE
-    p.i8mm = has(PF_ARM_SVE_I8MM_INSTRUCTIONS_AVAILABLE);
+#ifdef PF_ARM_V82_I8MM_INSTRUCTIONS_AVAILABLE
+    p.i8mm = has(PF_ARM_V82_I8MM_INSTRUCTIONS_AVAILABLE);
 #endif
-#ifdef PF_ARM_SVE_BF16_INSTRUCTIONS_AVAILABLE
-    p.bf16 = has(PF_ARM_SVE_BF16_INSTRUCTIONS_AVAILABLE);
+#ifdef PF_ARM_V86_BF16_INSTRUCTIONS_AVAILABLE
+    p.bf16 = has(PF_ARM_V86_BF16_INSTRUCTIONS_AVAILABLE);
+#endif
+#ifdef PF_ARM_V82_FP16_INSTRUCTIONS_AVAILABLE
+    p.fp16 = has(PF_ARM_V82_FP16_INSTRUCTIONS_AVAILABLE);
 #endif
     return decodeWindowsArm(p);
 #else

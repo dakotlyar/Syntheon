@@ -13,6 +13,8 @@
 #include <QTest>
 
 #include <atomic>
+#include <mutex>
+#include <set>
 #include <thread>
 
 using namespace sb::cpu;
@@ -206,6 +208,47 @@ private slots:
         QVERIFY(QString::fromStdString(m.error).startsWith(QLatin1StringView("Spin: ")));
     }
 
+    // AP-5 M5: every thread goes through every seed, also with 64 threads
+    // (interleaved indices gave each thread one seed there).
+    void everyThreadSeesEverySeed()
+    {
+        struct SeedKernel : Kernel {
+            mutable std::mutex mutex;
+            mutable std::vector<std::set<std::uint64_t>> seen;
+            std::string name() const override { return "Seeds"; }
+            double workPerUnit() const override { return 1; }
+            double maxWorkPerCyclePerThread() const override { return 1e9; }
+            std::unique_ptr<KernelThread> makeThread(int thread) const override
+            {
+                struct T : KernelThread {
+                    std::set<std::uint64_t> local;
+                    std::set<std::uint64_t> *out;
+                    std::mutex *mutex;
+                    ~T() override
+                    {
+                        std::lock_guard lock(*mutex);
+                        out->insert(local.begin(), local.end());
+                    }
+                    std::uint64_t unit(std::uint64_t index) override
+                    {
+                        local.insert(index % kSeeds);
+                        return index;
+                    }
+                };
+                auto t = std::make_unique<T>();
+                std::lock_guard lock(mutex);
+                t->out = &seen[std::size_t(thread)];
+                t->mutex = &mutex;
+                return t;
+            }
+        } k;
+        k.seen.resize(64);
+        WorkerPool pool({64, {}});
+        QVERIFY(pool.measure(k, {50ms, 100ms, 1}, [] { return false; }).ok());
+        for (const std::set<std::uint64_t> &s : k.seen)
+            QCOMPARE(int(s.size()), int(kSeeds));
+    }
+
     void progressPerWindow()
     {
         WorkerPool pool({1, {}});
@@ -313,7 +356,7 @@ private slots:
         QVERIFY(!scope.active());
 #endif
         optOutOfPowerThrottlingForThisThread();
-        spreadOverProcessorGroups(0, 1);
+        QVERIFY(spreadOverProcessorGroups(0, 1));
     }
 };
 

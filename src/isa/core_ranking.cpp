@@ -125,11 +125,12 @@ CoreChoice rankWindowsCpuSets(const std::vector<CpuSetRecord> &records)
 {
     const CpuSetRecord *best = nullptr;
     for (const CpuSetRecord &r : records) {
-        if (r.allocatedElsewhere)
+        if (r.allocatedElsewhere || r.realTime || !r.inProcessAffinity)
             continue;
         if (!best
-            || std::make_tuple(r.efficiencyClass, r.schedulingClass, -r.group, -r.logicalIndex)
-                   > std::make_tuple(best->efficiencyClass, best->schedulingClass, -best->group, -best->logicalIndex))
+            || std::make_tuple(!r.parked, r.efficiencyClass, r.schedulingClass, -r.group, -r.logicalIndex)
+                   > std::make_tuple(!best->parked, best->efficiencyClass, best->schedulingClass, -best->group,
+                                     -best->logicalIndex))
             best = &r;
     }
     if (!best)
@@ -165,6 +166,12 @@ CoreChoice bestCoreForSingleThread()
     auto *first = reinterpret_cast<PSYSTEM_CPU_SET_INFORMATION>(buffer.data());
     if (!GetSystemCpuSetInformation(first, length, &length, GetCurrentProcess(), 0))
         return {};
+    // The process affinity: one group's mask (GetProcessAffinityMask gives
+    // zeros when the process spans groups; then nothing is filtered).
+    DWORD_PTR processMask = 0, systemMask = 0;
+    USHORT groupCount = 1, group = 0;
+    const bool haveAffinity = GetProcessAffinityMask(GetCurrentProcess(), &processMask, &systemMask) && processMask != 0
+                              && GetProcessGroupAffinity(GetCurrentProcess(), &groupCount, &group) && groupCount == 1;
     std::vector<CpuSetRecord> records;
     for (ULONG offset = 0; offset < length;) {
         const auto *info = reinterpret_cast<const SYSTEM_CPU_SET_INFORMATION *>(buffer.data() + offset);
@@ -178,6 +185,11 @@ CoreChoice bestCoreForSingleThread()
             r.efficiencyClass = info->CpuSet.EfficiencyClass;
             r.schedulingClass = info->CpuSet.SchedulingClass;
             r.allocatedElsewhere = info->CpuSet.Allocated && !info->CpuSet.AllocatedToTargetProcess;
+            r.realTime = info->CpuSet.RealTime;
+            r.parked = info->CpuSet.Parked;
+            if (haveAffinity)
+                r.inProcessAffinity = r.group == group && r.logicalIndex < int(sizeof(DWORD_PTR) * 8)
+                                      && ((processMask >> r.logicalIndex) & 1u);
             records.push_back(r);
         }
         offset += info->Size;

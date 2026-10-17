@@ -83,10 +83,12 @@ void WorkerPool::workerMain(int index)
     ++g_liveThreads;
     const int count = int(m_workers.size());
     if (m_options.pinTo.ranked) {
-        if (!pinCurrentThread(m_options.pinTo))
+        if (!pinCurrentThread(m_options.pinTo)) {
             m_pinned = false;
-    } else {
-        spreadOverProcessorGroups(index, count);
+            ++m_placementFailures;
+        }
+    } else if (!spreadOverProcessorGroups(index, count)) {
+        ++m_placementFailures;
     }
     optOutOfPowerThrottlingForThisThread();
 
@@ -123,9 +125,12 @@ void WorkerPool::workerMain(int index)
                 // Stop is checked between units only: a unit in progress is
                 // finished and counted (so every thread finishes at least one).
                 do {
-                    // Threads take interleaved unit indices, so they work on
-                    // different seeds at the same time.
-                    const std::uint64_t unitIndex = w.nextUnit++ * std::uint64_t(count) + std::uint64_t(index);
+                    // Thread t runs units t, t+1, t+2...: every thread goes
+                    // through all kSeeds seeds, and at any moment the threads
+                    // work on different ones (an interleaved t, t+N, ... would
+                    // give each thread only the seeds = t mod gcd(N, 64): at 64
+                    // threads, one seed each).
+                    const std::uint64_t unitIndex = w.nextUnit++ + std::uint64_t(index);
                     const std::uint64_t sum = w.state->unit(unitIndex);
                     last = Clock::now();
                     ++w.units;

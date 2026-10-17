@@ -38,7 +38,9 @@ struct CoreChoice {
 CoreChoice rankLinuxCores(const std::string &sysfsRoot, const std::vector<int> &allowed);
 
 // Windows: one record per logical processor, as GetSystemCpuSetInformation
-// returns them.
+// returns them, plus whether the process's affinity allows it. Skipped: CPU
+// sets allocated to another process, real-time ones, ones outside the
+// process affinity. Unparked ones win over parked ones, then the ranking.
 struct CpuSetRecord {
     std::uint32_t id = 0;
     int group = 0;
@@ -46,6 +48,9 @@ struct CpuSetRecord {
     int efficiencyClass = 0;
     int schedulingClass = 0;
     bool allocatedElsewhere = false;  // reserved for another process (Allocated && !AllocatedToTargetProcess)
+    bool realTime = false;            // reserved for real-time work: skipped
+    bool parked = false;              // parked by power management right now: only if nothing else
+    bool inProcessAffinity = true;    // the process's affinity allows it: skipped otherwise
 };
 CoreChoice rankWindowsCpuSets(const std::vector<CpuSetRecord> &records);
 

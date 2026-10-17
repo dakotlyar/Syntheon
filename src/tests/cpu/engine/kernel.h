@@ -14,7 +14,8 @@
 namespace sb::cpu {
 
 // Inputs depend on the seed s = unitIndex mod kSeeds (§5), so a golden table
-// has kSeeds entries.
+// has kSeeds entries. Each worker runs consecutive unit indices (offset by its
+// thread number), so every thread goes through every seed.
 inline constexpr std::uint64_t kSeeds = 64;
 
 // One worker thread's state for one kernel: its buffers and contexts. Made on
@@ -43,7 +44,8 @@ public:
     // above ceiling x 7 GHz x threads x 1.5 means the kernel was optimised
     // away and is an Error.
     virtual double maxWorkPerCyclePerThread() const = 0;
-    // Called on the worker thread that will use it.
+    // Called on the worker thread that will use it. Not interruptible by Stop:
+    // keep it quick (large shared inputs are shared read-only, not copied).
     virtual std::unique_ptr<KernelThread> makeThread(int thread) const = 0;
     // The golden checksum for a seed (§6.1, §6.4); nothing = no check.
     virtual std::optional<std::uint64_t> golden(std::uint64_t seed) const

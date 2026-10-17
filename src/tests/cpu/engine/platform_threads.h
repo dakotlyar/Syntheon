@@ -27,8 +27,9 @@ int currentCpu();
 // `index` of `count` gets a whole group, in proportion to the groups' sizes,
 // because Windows 10 doesn't spread one process's threads across groups by
 // itself (§4.3). Group level only: the OS still places the thread inside the
-// group. Elsewhere, and with one group, does nothing.
-void spreadOverProcessorGroups(int index, int count);
+// group (the mask is the group's active processors). Elsewhere, and with one
+// group, does nothing. False if the call failed.
+bool spreadOverProcessorGroups(int index, int count);
 
 // Windows (P5): the calling thread asks not to be power-throttled (EcoQoS),
 // so an unfocused SynBench isn't moved onto E-cores. Elsewhere, nothing.

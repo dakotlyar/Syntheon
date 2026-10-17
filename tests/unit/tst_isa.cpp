@@ -159,6 +159,11 @@ private slots:
         QVERIFY(f.has(Feature::DotProd));
         QCOMPARE(bestSimdPath(f, false), SimdPath::Neon);
         QVERIFY(!decodeWindowsArm({}).has(Feature::ArmAes));
+        WindowsArmFeatures q;
+        q.i8mm = q.bf16 = q.fp16 = true;
+        const CpuFeatures g = decodeWindowsArm(q);
+        QVERIFY(g.has(Feature::I8mm) && g.has(Feature::Bf16) && g.has(Feature::Fp16));
+        QVERIFY(!g.has(Feature::Sve));
     }
 
     // Knowhere's CPPC ranking (captured 2026-10-16): 216 is the top value,
@@ -229,6 +234,17 @@ private slots:
         c = rankWindowsCpuSets(sets);
         QCOMPARE(c.group, 0);
         QCOMPARE(c.cpu, 0);
+        // Outside the process affinity, or real-time: skipped; parked: last resort.
+        sets[0].inProcessAffinity = false;
+        sets[1].realTime = true;
+        sets[2].parked = true;
+        c = rankWindowsCpuSets(sets);
+        QCOMPARE(c.group, 0);
+        QCOMPARE(c.cpu, 3);
+        sets[3].inProcessAffinity = false;
+        sets[4].inProcessAffinity = false;
+        c = rankWindowsCpuSets(sets);
+        QCOMPARE(c.cpu, 2);  // only the parked one is left
     }
 
     // The live machine: detection runs, and System info shows what the CPU

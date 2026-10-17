@@ -71,9 +71,14 @@ struct WindowsArmFeatures {
     bool atomics = false;  // PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE
     bool dotProd = false;  // PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE
     bool sve = false;      // PF_ARM_SVE_INSTRUCTIONS_AVAILABLE
-    bool sve2 = false;
+    bool sve2 = false;     // PF_ARM_SVE2_INSTRUCTIONS_AVAILABLE
+    // The AdvSIMD (NEON) forms, not the SVE ones (PF_ARM_SVE_I8MM_... says
+    // nothing about NEON I8MM): PF_ARM_V82_I8MM_, PF_ARM_V86_BF16_ and
+    // PF_ARM_V82_FP16_INSTRUCTIONS_AVAILABLE where the SDK has them; with an
+    // older SDK they stay unset (unknown, not absent).
     bool i8mm = false;
     bool bf16 = false;
+    bool fp16 = false;
 };
 CpuFeatures decodeWindowsArm(const WindowsArmFeatures &present);
 

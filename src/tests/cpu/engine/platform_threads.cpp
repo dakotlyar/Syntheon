@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <thread>
+#include <vector>
 
 #if defined(__linux__)
 #include <pthread.h>
@@ -65,31 +66,42 @@ int currentCpu()
 #endif
 }
 
-void spreadOverProcessorGroups(int index, int count)
+bool spreadOverProcessorGroups(int index, int count)
 {
 #if defined(_WIN32)
     const WORD groups = GetActiveProcessorGroupCount();
     if (groups <= 1 || count <= 0)
-        return;
+        return true;
+    // The groups' active-processor masks (not assumed contiguous).
+    DWORD length = 0;
+    GetLogicalProcessorInformationEx(RelationGroup, nullptr, &length);
+    std::vector<unsigned char> buffer(length);
+    auto *info = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buffer.data());
+    if (length == 0 || !GetLogicalProcessorInformationEx(RelationGroup, info, &length))
+        return false;
+    const GROUP_RELATIONSHIP &rel = info->Group;
     // Worker `index` goes to the group that holds its share: groups get
     // workers in proportion to their active processors.
-    const DWORD total = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    unsigned long long total = 0;
+    for (WORD g = 0; g < rel.ActiveGroupCount; ++g)
+        total += rel.GroupInfo[g].ActiveProcessorCount;
     const unsigned long long position = (unsigned long long)index * total / unsigned(count);
     unsigned long long start = 0;
-    for (WORD g = 0; g < groups; ++g) {
-        const DWORD size = GetActiveProcessorCount(g);
+    for (WORD g = 0; g < rel.ActiveGroupCount; ++g) {
+        const unsigned long long size = rel.GroupInfo[g].ActiveProcessorCount;
         if (position < start + size) {
             GROUP_AFFINITY affinity = {};
             affinity.Group = g;
-            affinity.Mask = size >= sizeof(KAFFINITY) * 8 ? ~KAFFINITY(0) : ((KAFFINITY(1) << size) - 1);
-            SetThreadGroupAffinity(GetCurrentThread(), &affinity, nullptr);
-            return;
+            affinity.Mask = rel.GroupInfo[g].ActiveProcessorMask;
+            return SetThreadGroupAffinity(GetCurrentThread(), &affinity, nullptr) != 0;
         }
         start += size;
     }
+    return false;
 #else
     (void)index;
     (void)count;
+    return true;
 #endif
 }
 

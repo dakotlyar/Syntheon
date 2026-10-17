@@ -16,6 +16,11 @@
 // thread). It polls `cancelled` every 50 ms; the workers never call into the
 // test's context. Stop therefore returns within about 150 ms.
 //
+// Stop is honoured in the windows only: the per-measurement Prepare (each
+// worker's makeThread()) and Release steps aren't interruptible, so the 250 ms
+// Stop contract also needs makeThread() to be quick (no per-thread copies of
+// large inputs such as the 32 MiB corpus; share them read-only).
+//
 // Every unit's checksum goes to the kernel's golden check (a mismatch is an
 // Error and ends the measurement) and is XOR-folded into a per-thread sink
 // that ends in an atomic, so no result is dead code (§6.1).
@@ -106,6 +111,9 @@ public:
     // Worker threads alive in this process, all pools (tests: a pool's
     // threads are gone once it is destroyed).
     static int liveThreads();
+    // Workers whose placement failed (pinning, or a processor-group
+    // assignment on Windows): they run where the OS puts them. For the log.
+    int placementFailures() const { return m_placementFailures.load(); }
 
 private:
     enum class Job { None, Prepare, Window, Release, Quit };
@@ -128,6 +136,7 @@ private:
     Options m_options;
     std::vector<Worker> m_workers;
     std::atomic<bool> m_pinned{false};
+    std::atomic<int> m_placementFailures{0};
     const Kernel *m_kernel = nullptr;
 
     std::mutex m_mutex;
