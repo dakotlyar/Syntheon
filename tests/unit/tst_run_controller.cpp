@@ -48,6 +48,20 @@ private:
     }
 
 private slots:
+    // Zeb Z3 (48b6f17): the scratch root is copied from the config before the
+    // orchestrator's initialiser moves the config; it used to read the
+    // moved-from (empty) string.
+    void scratchRootIsTheConfigs()
+    {
+        if (!m_rt)
+            startRuntime();
+        Orchestrator::Config config;
+        config.scratchRoot = m_dir->filePath(QStringLiteral("scratch-root"));
+        RunController controller(m_rt->storage(), m_rt->storageController(), m_rt->app(), config);
+        QCOMPARE(controller.scratchRoot(), config.scratchRoot);
+        QVERIFY(!controller.scratchRoot().isEmpty());
+    }
+
     // Zeb #4: the live log shows the test in its own column, so its message
     // drops a leading "<name>: " (only that; anything else is left alone).
     void logBodyDropsTheTestNamePrefix()
