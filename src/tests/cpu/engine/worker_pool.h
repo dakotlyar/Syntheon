@@ -73,6 +73,9 @@ struct RepSample {
     double rate = 0;          // work per second, summed over threads
     std::uint64_t units = 0;  // units finished, all threads (a collective kernel's shared unit counts once)
     double seconds = 0;       // the longest thread's E_t
+    // When the coordinator set stop (the deadline; for the tests, which check
+    // that no thread starts more than the one unit racing with it).
+    Clock::time_point stopSet{};
 };
 
 struct Measurement {
@@ -160,6 +163,7 @@ private:
     Job m_job = Job::None;
     int m_finished = 0;
     Clock::time_point m_windowStart;
+    Clock::time_point m_stopSet;  // when the coordinator last set stop (under m_mutex)
     std::atomic<bool> m_stop{false};
     // Set with m_stop on a cancel, for the units that poll it
     // (KernelThread::cancelRequested); cleared when a measurement starts.

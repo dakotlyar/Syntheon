@@ -221,6 +221,7 @@ void WorkerPool::runJob(Job job, std::chrono::milliseconds length, const std::fu
             }
         }
         m_stop = true;
+        m_stopSet = Clock::now();  // after the store: a unit that starts later raced with it
         // Until every worker has finished the unit it is in: a cancel must
         // still reach a unit that polls it (a long codec call past the
         // deadline). Polled only when a worker is still busy after a poll
@@ -304,6 +305,7 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
             return finish();
         }
         RepSample s;
+        s.stopSet = m_stopSet;
         // A collective kernel's threads share each unit's work.
         const double work = kernel.workPerUnit() / (m_unitBarrier ? double(threads()) : 1.0);
         for (const Worker &w : m_workers) {
