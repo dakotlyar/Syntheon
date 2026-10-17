@@ -55,7 +55,7 @@ SbDialog {
                 kind: "small"
                 color: Theme.warn
             }
-            SbText { text: qsTr("%1 lines").arg(dialog.model ? dialog.model.rowCount() : 0); kind: "small" }
+            SbText { objectName: "lineCount"; text: qsTr("%1 lines").arg(dialog.model ? dialog.model.count : 0); kind: "small" }
             SbButton {
                 objectName: "copyLog"
                 text: qsTr("Copy")

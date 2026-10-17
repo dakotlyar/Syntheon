@@ -119,9 +119,13 @@ void ResultsController::setRun(RunRecord run, bool live)
     const bool sameRun = m_run && m_run->uuid == run.uuid;
     m_run = std::move(run);
     m_live = live;
-    if (!sameRun)
+    if (!sameRun) {
         closeDetail();
-    m_logSource->clear();
+        // A log dialog may be open on this run: the same run re-set (a live
+        // run's update, or its stored copy at the end) keeps the lines it
+        // shows; "View log" reloads them when it opens.
+        m_logSource->clear();
+    }
     rebuild();
     emit runChanged();
     // Keep the Detail page on the same test while a live run updates.

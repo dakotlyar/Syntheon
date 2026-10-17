@@ -120,6 +120,39 @@ TestCase {
         keyClick(Qt.Key_Escape)
     }
 
+    // Zeb Z2: a log dialog open on a live run ("View results so far", then
+    // "View log") keeps its lines, and its line count, when the next test
+    // finishes and Results updates the run underneath it.
+    function test_3b_liveLogSurvivesATestFinishing() {
+        Fixtures.setStubScale(0.15)
+        RunController.clearSelection()
+        for (const id of ["cpu", "ram", "storage"]) RunController.toggle(id)
+        const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
+        const updated = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runUpdated" })
+        verify(RunController.start())
+        tryVerify(function() { return RunController.log.rowCount() > 2 }, 20000)
+        Results.openCurrent()
+        const screen = createTemporaryObject(screenComponent, test)
+        tick()
+        mouseClick(findChild(screen, "viewLog"))
+        const view = findChild(screen, "storedLogView")
+        const lines = findChild(screen, "lineCount")
+        tryVerify(function() { return view.count > 0 }, 5000)
+        compare(lines.text, view.count + " lines")
+        const shown = view.count
+        updated.clear()
+        updated.wait(30000)  // the next test finished: Results re-set the live run
+        tick()
+        compare(view.count, shown)
+        compare(lines.text, view.count + " lines")
+        finished.wait(60000)  // and the stored copy at the end
+        tick()
+        compare(view.count, shown)
+        compare(lines.text, view.count + " lines")
+        keyClick(Qt.Key_Escape)
+        Fixtures.setStubScale(0.02)
+    }
+
     function test_4_stoppedRunShowsPartialMarker() {
         Fixtures.setStubScale(0.15)
         RunController.clearSelection()

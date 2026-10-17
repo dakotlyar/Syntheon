@@ -13,7 +13,13 @@ int rank(const QString &level)
 }
 } // namespace
 
-LogFilterModel::LogFilterModel(QObject *parent) : QSortFilterProxyModel(parent) {}
+LogFilterModel::LogFilterModel(QObject *parent) : QSortFilterProxyModel(parent)
+{
+    for (auto signal : {&QAbstractItemModel::rowsInserted, &QAbstractItemModel::rowsRemoved})
+        connect(this, signal, this, &LogFilterModel::countChanged);
+    connect(this, &QAbstractItemModel::modelReset, this, &LogFilterModel::countChanged);
+    connect(this, &QAbstractItemModel::layoutChanged, this, &LogFilterModel::countChanged);
+}
 
 void LogFilterModel::setTestFilter(const QString &id)
 {
