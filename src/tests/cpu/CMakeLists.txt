@@ -7,6 +7,10 @@ add_library(synbench_test_cpu STATIC
     engine/platform_threads.h engine/platform_threads.cpp
     engine/time_scale.h engine/time_scale.cpp
     engine/worker_pool.h engine/worker_pool.cpp
+    # Deterministic data (§5.4, §6.4, P10).
+    kernels/prng.h
+    compress/corpus.h compress/corpus.cpp
+    golden/golden.h
 )
 target_link_libraries(synbench_test_cpu PUBLIC synbench_core synbench_test_common synbench_isa)
 find_package(Threads REQUIRED)

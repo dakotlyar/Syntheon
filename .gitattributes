@@ -1,2 +1,5 @@
 # Fixture captures must stay byte-exact on every checkout (no CRLF conversion).
 tests/fixtures/** -text
+# The CPU test's golden tables are compared byte for byte with what the
+# generator writes (LF): no CRLF conversion on Windows checkouts.
+src/tests/cpu/golden/*.inc -text

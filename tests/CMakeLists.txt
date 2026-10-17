@@ -66,6 +66,11 @@ add_test(NAME openssl_config
     COMMAND "${CMAKE_COMMAND}" "-DCONFIG_H=${SYNBENCH_OPENSSL_ROOT}/include/openssl/configuration.h"
             -P "${PROJECT_SOURCE_DIR}/cmake/openssl/check-config.cmake")
 
+# The CPU test's golden tables are what the reference implementations give on
+# this platform (§6.4): the same committed table must hold everywhere.
+add_test(NAME cpu_golden_tables
+    COMMAND synbench-cpu-golden --check "${PROJECT_SOURCE_DIR}/src/tests/cpu/golden")
+
 # Every tracked path must be checkout-able on Windows.
 add_test(NAME windows_safe_paths
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckWindowsPaths.cmake")

@@ -66,5 +66,6 @@ synbench_write_third_party_notices()
 
 if(SYNBENCH_BUILD_TESTS)
     enable_testing()
+    add_subdirectory(tools/cpu-golden)
     add_subdirectory(tests)
 endif()
