@@ -64,28 +64,6 @@ std::uint64_t foldFour(std::uint64_t hash)
 
 } // namespace
 
-std::uint64_t blockHash(std::span<const std::uint8_t> data)
-{
-    // Four independent multiply-xor lanes over 8-byte words (little-endian
-    // loads: every SynBench platform is little-endian), then the tail bytes.
-    constexpr std::uint64_t k = 0x9E3779B97F4A7C15ull;
-    std::uint64_t h[4] = {1, 2, 3, 4};
-    const std::uint8_t *p = data.data();
-    const std::size_t n = data.size();
-    std::size_t i = 0;
-    for (; i + 32 <= n; i += 32) {
-        std::uint64_t w[4];
-        std::memcpy(w, p + i, 32);
-        h[0] = (h[0] ^ w[0]) * k;
-        h[1] = (h[1] ^ w[1]) * k;
-        h[2] = (h[2] ^ w[2]) * k;
-        h[3] = (h[3] ^ w[3]) * k;
-    }
-    for (; i < n; ++i)
-        h[0] = (h[0] ^ p[i]) * k;
-    return foldChecksum(foldChecksum(foldChecksum(foldChecksum(n, h[0]), h[1]), h[2]), h[3]);
-}
-
 CorpusData makeCorpusData(int threads)
 {
     CorpusData c;

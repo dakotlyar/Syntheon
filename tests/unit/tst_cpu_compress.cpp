@@ -8,6 +8,7 @@
 #include "tests/cpu/engine/platform_threads.h"
 #include "tests/cpu/engine/worker_pool.h"
 #include "tests/cpu/golden/golden.h"
+#include "tests/cpu/kernels/prng.h"
 
 #include <QTest>
 
@@ -96,12 +97,41 @@ private slots:
         std::uint8_t bytes[100];
         for (int i = 0; i < 100; ++i)
             bytes[i] = std::uint8_t(i);
-        QCOMPARE(blockHash(bytes), 0x67003CCCB003A004ull);  // three full 32-byte steps and a 4-byte tail
-        QCOMPARE(blockHash(corpus().block(0)), 0x7CF69545590FD82Bull);
-        QCOMPARE(corpus().blockHash[0], 0x7CF69545590FD82Bull);
+        QCOMPARE(blockHash(bytes), 0x24B2C86055F914CDull);  // one full 64-byte step and a 36-byte tail
+        QCOMPARE(blockHash(corpus().block(0)), 0x48E4F13FB3AAC0D1ull);
+        QCOMPARE(corpus().blockHash[0], 0x48E4F13FB3AAC0D1ull);
         std::vector<std::uint8_t> changed(corpus().block(0).begin(), corpus().block(0).end());
         changed[123456] ^= 0x10;
         QVERIFY(blockHash(changed) != corpus().blockHash[0]);
+    }
+
+    // AP-5 L-a: the hash also carries high bits downwards. With a plain
+    // multiply per step, flipping bit 63 of two words of the same lane
+    // cancelled out, and corruption confined to the top byte of words (byte
+    // offset 7 mod 8) was missed about 1 time in 256.
+    void blockHashCatchesHighBitCorruption()
+    {
+        const std::span<const std::uint8_t> block = corpus().block(7);
+        const std::uint64_t original = blockHash(block);
+        std::vector<std::uint8_t> b(block.begin(), block.end());
+        b[7] ^= 0x80;       // bit 63 of word 0 (lane 0)
+        b[64 + 7] ^= 0x80;  // bit 63 of word 8 (lane 0 again)
+        QVERIFY(blockHash(b) != original);
+        // 2000 random corruptions of 1-8 top bytes of words.
+        Xoshiro256ss rng(1234);
+        int missed = 0;
+        for (int trial = 0; trial < 2000; ++trial) {
+            std::vector<std::uint8_t> c(block.begin(), block.end());
+            const std::uint64_t count = 1 + rng.below(8);
+            for (std::uint64_t i = 0; i < count; ++i) {
+                const std::uint64_t word = rng.below(kCorpusBlockSize / 8);
+                const std::uint64_t bits = 1 + rng.below(255);
+                c[std::size_t(word * 8 + 7)] ^= std::uint8_t(bits);
+            }
+            if (c != std::vector<std::uint8_t>(block.begin(), block.end()) && blockHash(c) == original)
+                ++missed;
+        }
+        QCOMPARE(missed, 0);
     }
 
     void labels()

@@ -34,6 +34,7 @@
 #include "tests/cpu/compress/codec.h"
 #include "tests/cpu/compress/corpus.h"
 #include "tests/cpu/engine/kernel.h"
+#include "tests/cpu/kernels/block_hash.h"
 
 #include <array>
 #include <atomic>
@@ -53,11 +54,6 @@ struct CorpusData {
         return std::span(bytes).subspan(b * kCorpusBlockSize, kCorpusBlockSize);
     }
 };
-// The decompression check (§5.4): four multiply-xor lanes over 8-byte words,
-// about 10 us per 256 KiB block on Knowhere. Integers only, the same on every
-// compiler and platform (all little-endian).
-std::uint64_t blockHash(std::span<const std::uint8_t> data);
-
 // Generates the corpus on `threads` threads and checksums it.
 CorpusData makeCorpusData(int threads);
 
