@@ -17,6 +17,7 @@ Item {
 
     Flickable {
         id: flick
+        objectName: "screenScroll"
         anchors.fill: parent
         contentWidth: width
         contentHeight: column.implicitHeight + 40

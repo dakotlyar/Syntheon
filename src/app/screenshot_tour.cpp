@@ -6,6 +6,7 @@
 #include "app/controllers/run_controller.h"
 
 #include <QCoreApplication>
+#include <QPointF>
 #include <QDir>
 #include <QImage>
 #include <QQmlComponent>
@@ -55,6 +56,25 @@ void ScreenshotTour::prepare()
     // screenshots); the newest N are ticked for Compare.
     if (const int n = qEnvironmentVariableIntValue("SYNBENCH_TOUR_SEED"); n > 0)
         seedRuns(n);
+    // SYNBENCH_TOUR_SIMULATE=cpu=error,ram=na sets those stubs' Simulate
+    // option (Error / N/A outcomes on Progress and Results).
+    for (const QString &pair : qEnvironmentVariable("SYNBENCH_TOUR_SIMULATE").split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        const QStringList kv = pair.split(QLatin1Char('='));
+        if (kv.size() == 2)
+            m_runtime.run().setOption(kv[0], QStringLiteral("simulate"), kv[1]);
+    }
+    // SYNBENCH_TOUR_SEED_BATTERY=1 adds a made-up Battery run, the newest.
+    if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_SEED_BATTERY") != 0)
+        seedBatteryRun();
+    // SYNBENCH_TOUR_BASELINE=oldest makes the oldest compared run the baseline.
+    if (qEnvironmentVariable("SYNBENCH_TOUR_BASELINE") == QLatin1StringView("oldest")) {
+        const QVariantList runs = m_runtime.compare().runs();
+        if (!runs.isEmpty())
+            m_runtime.compare().setBaseline(runs.last().toMap().value(QStringLiteral("uuid")).toString());
+    }
+    // SYNBENCH_TOUR_BANNER=1 shows a notice banner across the top.
+    if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_BANNER") != 0)
+        m_runtime.startup().setInstanceWarning(QStringLiteral("A second SynBench can't ask this one to come to the front (sample notice)."));
     // SYNBENCH_TOUR_RUN=1 starts the ticked tests; screenshots then wait
     // SYNBENCH_TOUR_DELAY ms (default 600) so a run can get under way, or finish.
     if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_RUN") != 0)
@@ -135,6 +155,73 @@ void ScreenshotTour::seedRuns(int n)
     m_runtime.compare().setRuns(m_runtime.history().checkedUuids());
 }
 
+// Per screenshot, once the section is showing:
+//   SYNBENCH_TOUR_LOG=1           opens the Results screen's log dialog
+//   SYNBENCH_TOUR_SCROLL=end      scrolls the visible screen to its end
+//   SYNBENCH_TOUR_POPUP=<name>    opens the popup of the combo box <name>
+void ScreenshotTour::stage()
+{
+    // From the window: items declared in Main.qml are its QObject children
+    // (the content item is only their visual parent).
+    QObject *root = m_window;
+    if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_LOG") != 0) {
+        QObject *log = root->findChild<QObject *>(QStringLiteral("logDialog"));
+        if (!log)
+            qWarning("screenshot tour: no log dialog on this screen");
+        else if (!log->property("opened").toBool())
+            QMetaObject::invokeMethod(log, "openLog");
+    }
+    if (qEnvironmentVariable("SYNBENCH_TOUR_SCROLL") == QLatin1StringView("end")) {
+        for (QQuickItem *f : root->findChildren<QQuickItem *>(QStringLiteral("screenScroll"))) {
+            if (!f->isVisible())
+                continue;
+            const qreal end = f->property("contentHeight").toReal() - f->height();
+            qInfo("screenshot tour: scrolling %s to %.0f", qPrintable(f->parentItem() ? f->parentItem()->metaObject()->className() : "?"), end);
+            f->setProperty("contentY", qMax<qreal>(0, end));
+        }
+    }
+    if (const QString name = qEnvironmentVariable("SYNBENCH_TOUR_POPUP"); !name.isEmpty()) {
+        for (QQuickItem *combo : root->findChildren<QQuickItem *>(name)) {
+            if (!combo->isVisible())
+                continue;
+            if (auto *popup = combo->property("popup").value<QObject *>(); popup && !popup->property("opened").toBool())
+                QMetaObject::invokeMethod(popup, "open");
+            break;
+        }
+    }
+}
+
+void ScreenshotTour::seedBatteryRun()
+{
+    RunRepository repo(m_runtime.storage().connection());
+    RunRecord r;
+    r.uuid = QUuid::createUuid();
+    r.status = RunStatus::Completed;
+    r.startedAt = QDateTime::currentDateTimeUtc().addSecs(-3600);
+    r.finishedAt = r.startedAt.addSecs(402 * 60);
+    r.appVersion = QStringLiteral("2026.11.0");
+    r.system.machineLabel = QStringLiteral("Knowhere · ASUS TUF Gaming A14");
+    TestResult t;
+    t.testId = QStringLiteral("battery");
+    t.status = Status::Ok;
+    t.score = 900;
+    t.formulaVersion = 0;
+    t.options.insert(QStringLiteral("profile"), QStringLiteral("mixed"));
+    t.metrics = {{QStringLiteral("runtime"), {}, QStringLiteral("Battery life"), 402.0, QStringLiteral("min"), Direction::HigherIsBetter, true},
+                 {QStringLiteral("avg_drain"), {}, QStringLiteral("Average drain"), 12.6, QStringLiteral("W"), Direction::LowerIsBetter, true},
+                 {QStringLiteral("health"), {}, QStringLiteral("Battery health"), 94.0, QStringLiteral("%"), Direction::Neutral, true},
+                 {QStringLiteral("full_wh"), {}, QStringLiteral("Full-charge capacity"), 84.6, QStringLiteral("Wh"), Direction::HigherIsBetter, false}};
+    QVector<QPointF> samples;
+    for (int m = 0; m <= 402; m += 6)
+        samples.append({double(m), 100.0 - 95.0 * m / 402.0});
+    t.series.append({QStringLiteral("drain"), QStringLiteral("Charge over time"), QStringLiteral("Time"), QStringLiteral("min"),
+                     QStringLiteral("%"), samples});
+    r.tests.append(t);
+    r.overall = computeOverall(r.tests, [](const QString &) { return false; });
+    repo.saveRun(r);
+    m_runtime.history().reload();
+}
+
 void ScreenshotTour::step()
 {
     const int perSection = 2;  // light, dark
@@ -153,6 +240,7 @@ void ScreenshotTour::step()
             m_runtime.results().showDetail(detail);
     }
     m_runtime.settings().setTheme(dark ? QStringLiteral("dark") : QStringLiteral("light"));
+    QTimer::singleShot(250, this, [this] { stage(); });
     QTimer::singleShot(450, this, [this, section, dark] {
         const QImage image = m_window->grabWindow();
         const QString name = QStringLiteral("%1-%2-%3.png")

@@ -27,6 +27,8 @@ public:
 private:
     void step();
     void seedRuns(int n);
+    void seedBatteryRun();
+    void stage();  // the per-screenshot hooks: log dialog, scroll, popup
     void openDialog(const QString &name);
     void prepare();
 

@@ -216,5 +216,5 @@ Item {
         }
     }
 
-    LogDialog { id: logDialog }
+    LogDialog { id: logDialog; objectName: "logDialog" }
 }
