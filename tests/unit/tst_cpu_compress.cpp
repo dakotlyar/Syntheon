@@ -138,9 +138,9 @@ private slots:
     {
         QCOMPARE(QString::fromLatin1(codecKey(Codec::Lz4)), QStringLiteral("lz4"));
         QCOMPARE(QString::fromLatin1(codecLabel(Codec::Xz)), QStringLiteral("xz (preset 6)"));
-#if defined(NDEBUG)
-        QVERIFY(codecsOptimised());
-#endif
+        // A Debug build compiles the codec libraries unoptimised (and says
+        // so); every other build type optimised.
+        QCOMPARE(codecsOptimised(), SB_DEBUG_BUILD == 0);
     }
 
     // Every block of every codec: the golden compressed size, and the round trip.
