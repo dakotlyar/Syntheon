@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+// The thread-placement pieces of the measurement engine (Phase 2 design
+// §4.1, §4.3, §4.4): how many logical CPUs the test uses, pinning a thread
+// to the single-thread core, spreading threads over Windows processor groups,
+// and Windows' power throttling (EcoQoS) opt-out. No-ops where the platform
+// has nothing to do.
+
+#include "isa/core_ranking.h"
+
+namespace sb::cpu {
+
+// The logical CPUs this process may use: the sched_getaffinity count on Linux
+// (it respects taskset and cgroups), GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)
+// on Windows. At least 1.
+int logicalCpuCount();
+
+// Pins the calling thread to the chosen CPU (pthread_setaffinity_np /
+// SetThreadGroupAffinity). False if the choice is unranked or the call failed;
+// the thread then runs unpinned.
+bool pinCurrentThread(const isa::CoreChoice &core);
+// The CPU the calling thread runs on right now (-1 if unknown); for tests.
+int currentCpu();
+
+// Windows with more than one processor group (> 64 logical CPUs): worker
+// `index` of `count` gets a whole group, in proportion to the groups' sizes,
+// because Windows 10 doesn't spread one process's threads across groups by
+// itself (§4.3). Group level only: the OS still places the thread inside the
+// group. Elsewhere, and with one group, does nothing.
+void spreadOverProcessorGroups(int index, int count);
+
+// Windows (P5): the calling thread asks not to be power-throttled (EcoQoS),
+// so an unfocused SynBench isn't moved onto E-cores. Elsewhere, nothing.
+void optOutOfPowerThrottlingForThisThread();
+
+// Windows (P5): the process opts out of power throttling while this object
+// lives, then goes back to the system's default. Elsewhere, nothing.
+class ScopedProcessPowerThrottlingOptOut
+{
+public:
+    ScopedProcessPowerThrottlingOptOut();
+    ~ScopedProcessPowerThrottlingOptOut();
+    ScopedProcessPowerThrottlingOptOut(const ScopedProcessPowerThrottlingOptOut &) = delete;
+    ScopedProcessPowerThrottlingOptOut &operator=(const ScopedProcessPowerThrottlingOptOut &) = delete;
+    bool active() const { return m_active; }
+
+private:
+    bool m_active = false;
+};
+
+} // namespace sb::cpu

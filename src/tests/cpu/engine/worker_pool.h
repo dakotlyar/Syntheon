@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+// The measurement engine (Phase 2 design §4): a pool of worker threads that
+// runs a kernel in time-boxed windows.
+//
+// One measurement = an unscored warm-up, then `reps` repetitions of a fixed
+// length (P1). In each window every thread runs units until the coordinator
+// sets `stop`; it finishes the unit it is in (units are <= 100 ms) and records
+// its work W_t and the time E_t from the window's start to the end of its own
+// last unit. A repetition's rate is R = sum over threads of W_t / E_t (P2): no
+// thread is charged for another's last, long unit. The result is the median of
+// the repetitions, with spread = (max - min) / median.
+//
+// The coordinator is the thread that calls measure() (the CPU test's run()
+// thread). It polls `cancelled` every 50 ms; the workers never call into the
+// test's context. Stop therefore returns within about 150 ms.
+//
+// Every unit's checksum goes to the kernel's golden check (a mismatch is an
+// Error and ends the measurement) and is XOR-folded into a per-thread sink
+// that ends in an atomic, so no result is dead code (§6.1).
+//
+// Threads: one per logical CPU for the multi-thread groups, not pinned (P3;
+// on Windows with several processor groups, spread at group level); one
+// thread pinned to the top-ranked core for the single-thread mark (P4). The
+// threads start with the pool and are joined when it is destroyed, before the
+// test's run() returns (Phase 1 threading rule 4).
+
+#include "isa/core_ranking.h"
+#include "tests/cpu/engine/kernel.h"
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstdint>
+#include <functional>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace sb::cpu {
+
+using Clock = std::chrono::steady_clock;
+static_assert(Clock::is_steady, "the engine times with a monotonic clock (P6)");
+
+struct WindowSpec {
+    std::chrono::milliseconds warmup{1000};
+    std::chrono::milliseconds rep{3000};
+    int reps = 5;
+};
+
+struct RepSample {
+    double rate = 0;          // work per second, summed over threads
+    std::uint64_t units = 0;  // units finished, all threads
+    double seconds = 0;       // the longest thread's E_t
+};
+
+struct Measurement {
+    // WrongResult: a golden check failed; Implausible: faster than the P14
+    // ceiling; Failed: a kernel threw (e.g. out of memory). All three make the
+    // sub-test an Error with `error` as its reason.
+    enum class Outcome { Ok, Cancelled, WrongResult, Implausible, Failed };
+    Outcome outcome = Outcome::Ok;
+    std::string error;            // the reason, for the log and the result
+    std::vector<RepSample> reps;  // the repetitions that ran, in order
+    double median = 0;            // work per second
+    double spread = 0;            // (max - min) / median
+    std::uint64_t checksum = 0;   // XOR of every unit's checksum, all threads
+
+    bool ok() const { return outcome == Outcome::Ok; }
+    // A spread over 10% is logged: "unstable: background activity or throttling" (§4.2).
+    bool unstable() const { return spread > 0.10; }
+};
+
+// Pure helpers (unit-tested).
+double medianOf(std::vector<double> values);
+double spreadOf(const std::vector<double> &values);  // (max - min) / median; 0 for none
+// P14: the plausibility ceiling, in work per second.
+double plausibilityCeiling(double maxWorkPerCyclePerThread, int threads);
+
+class WorkerPool
+{
+public:
+    struct Options {
+        int threads = 0;            // 0 = logicalCpuCount()
+        isa::CoreChoice pinTo;      // ranked: every worker is pinned there (the single-thread mark)
+    };
+    explicit WorkerPool(Options options);
+    ~WorkerPool();  // stops and joins every worker
+    WorkerPool(const WorkerPool &) = delete;
+    WorkerPool &operator=(const WorkerPool &) = delete;
+
+    int threads() const { return int(m_workers.size()); }
+    // Whether the workers of a pool made with a ranked pinTo really are pinned
+    // (false: the call failed and they run unpinned). Settled on construction.
+    bool pinned() const { return m_pinned.load(); }
+
+    // Runs one measurement of `kernel` (blocking). `progress` (optional) is
+    // called on this thread at each window's start: 0 for the warm-up, then
+    // 1..reps.
+    Measurement measure(const Kernel &kernel, const WindowSpec &spec, const std::function<bool()> &cancelled,
+                        const std::function<void(int window)> &progress = {});
+
+    // Worker threads alive in this process, all pools (tests: a pool's
+    // threads are gone once it is destroyed).
+    static int liveThreads();
+
+private:
+    enum class Job { None, Prepare, Window, Release, Quit };
+    struct Worker {
+        std::thread thread;
+        std::unique_ptr<KernelThread> state;
+        // Results of the last window (written by the worker, read after it reports done).
+        std::uint64_t units = 0;
+        double seconds = 0;  // E_t
+        std::uint64_t sink = 0;
+        std::uint64_t nextUnit = 0;  // this thread's unit counter in the current measurement
+        std::optional<std::string> failure;
+        bool wrongResult = false;    // the failure is a golden mismatch
+    };
+
+    void workerMain(int index);
+    // Hands `job` to every worker and waits until all have finished it.
+    void runJob(Job job, std::chrono::milliseconds length, const std::function<bool()> &cancelled, bool &wasCancelled);
+
+    Options m_options;
+    std::vector<Worker> m_workers;
+    std::atomic<bool> m_pinned{false};
+    const Kernel *m_kernel = nullptr;
+
+    std::mutex m_mutex;
+    std::condition_variable m_wake;   // workers wait for a new generation
+    std::condition_variable m_done;   // the coordinator waits for `m_finished`
+    std::uint64_t m_generation = 0;
+    Job m_job = Job::None;
+    int m_finished = 0;
+    Clock::time_point m_windowStart;
+    std::atomic<bool> m_stop{false};
+};
+
+} // namespace sb::cpu

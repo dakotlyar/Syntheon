@@ -14,7 +14,8 @@ std::optional<double> parseStubScale(const QString &text);
 
 // Phase 1 stubs take about 10-30 s each (P20). SYNBENCH_STUB_SCALE (a factor,
 // e.g. 0.05) shortens that for tests; SYNBENCH_SMOKE=1 implies 0.03. The real
-// tests of later phases don't use this.
+// CPU test scales its measurement windows by the same factor (Phase 2 §12,
+// tests/cpu/engine/time_scale.h); a packaged build is always at 1.
 double stubTimeScale();
 void setStubTimeScale(double scale);  // tests
 

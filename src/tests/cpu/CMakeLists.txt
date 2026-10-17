@@ -1,6 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-add_library(synbench_test_cpu STATIC cpu_test.h cpu_test.cpp)
-target_link_libraries(synbench_test_cpu PUBLIC synbench_core synbench_test_common)
+add_library(synbench_test_cpu STATIC
+    cpu_test.h cpu_test.cpp
+    # The measurement engine (Phase 2 design §4).
+    engine/kernel.h
+    engine/opaque.h
+    engine/platform_threads.h engine/platform_threads.cpp
+    engine/time_scale.h engine/time_scale.cpp
+    engine/worker_pool.h engine/worker_pool.cpp
+)
+target_link_libraries(synbench_test_cpu PUBLIC synbench_core synbench_test_common synbench_isa)
+find_package(Threads REQUIRED)
+target_link_libraries(synbench_test_cpu PRIVATE Threads::Threads)
 # The pinned compression libraries (cmake/ThirdParty.cmake), for the
 # compression sub-test. Linked from the start so every build, the ARM64 cross
 # builds included, compiles them.
