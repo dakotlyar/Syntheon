@@ -423,12 +423,12 @@ private slots:
                                      QStringLiteral("chart:Temperature (k10temp Tctl, °C)")}));
         const auto &kpis = std::get<KpisBlock>(d.blocks[0].content).items;
         // Dave, 2026-10-18 (validation): CPU score, single-thread mark,
-        // threads, then the paths and the temperature.
+        // threads, then the two paths; no peak temperature (it's on the chart).
         QStringList kpiLabels;
         for (const KpiItem &k : kpis)
             kpiLabels << k.label;
         QCOMPARE(kpiLabels, (QStringList{QStringLiteral("CPU score"), QStringLiteral("Single-thread mark"), QStringLiteral("Threads used"),
-                                      QStringLiteral("SIMD path"), QStringLiteral("Encryption path"), QStringLiteral("Peak temperature")}));
+                                      QStringLiteral("SIMD path"), QStringLiteral("Encryption path")}));
         QCOMPARE(kpis[0].value.text, QStringLiteral("875"));
         QCOMPARE(kpis[2].value.metricKey, QStringLiteral("threads"));
         QCOMPARE(kpis[2].unitOverride, QStringLiteral("threads"));
@@ -436,8 +436,6 @@ private slots:
         QCOMPARE(kpis[3].unitOverride, QStringLiteral("512-bit"));
         QCOMPARE(kpis[4].value.text, QStringLiteral("AES-NI"));
         QCOMPARE(kpis[4].unitOverride, QStringLiteral("+ VAES · SHA-NI"));
-        QCOMPARE(kpis[5].value.text, QStringLiteral("95 °C"));
-        QCOMPARE(kpis[5].unitOverride, QStringLiteral("k10temp Tctl"));
         const auto &groups = std::get<TableBlock>(d.blocks[1].content);
         QCOMPARE(groups.rows.size(), 8);
         QCOMPARE(groups.rows[1][2].text, QStringLiteral("91,800 MFLOPS\nprimes 2,140 MOps/s"));
@@ -697,8 +695,8 @@ private slots:
                 const auto *table = std::get_if<TableBlock>(&b.content);
                 if (!table)
                     continue;
-                const bool mayPair = b.title.startsWith(QStringLiteral("Compression")) || b.title.startsWith(QStringLiteral("Single-thread"));
-                QVERIFY2(table->fullWidth == !mayPair, qPrintable(QStringLiteral("%1: %2").arg(QLatin1StringView(what), b.title)));
+                // Dave, 2026-10-18: nothing pairs on the CPU page.
+                QVERIFY2(table->fullWidth, qPrintable(QStringLiteral("%1: %2").arg(QLatin1StringView(what), b.title)));
             }
         };
         TestResult r = mockupResult();

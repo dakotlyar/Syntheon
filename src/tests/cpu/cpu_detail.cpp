@@ -106,12 +106,6 @@ std::pair<QString, QString> splitCryptoPath(const QString &s)
     return {first.value(0), rest.join(QStringLiteral(" · "))};
 }
 
-// "Peak temperature (k10temp Tctl)" -> "k10temp Tctl".
-QString sensorOf(const QString &label)
-{
-    return splitParenthesis(label).second;
-}
-
 // The cores in single.cores ("integer 0,5,5,0,5 · FP …"), in CPU order
 // ("<group>:<index>" sorts by group, then index).
 QStringList coresUsed(const QString &cores)
@@ -188,8 +182,9 @@ DetailLayout CpuTest::detail(const TestResult &r) const
 
     // 1. KPIs.
     // Dave, 2026-10-18 (validation): CPU score, single-thread mark, threads,
-    // then the paths and the temperature, so the page says at once that the
-    // test ran on every thread.
+    // then the two paths, so the page says at once that the test ran on every
+    // thread. Five boxes, one row at 1100 px; the peak temperature is on the
+    // temperature chart, not here.
     KpisBlock kpis;
     if (r.score)
         kpis.items.append({QStringLiteral("CPU score"), DetailCell::literal(Units::format(*r.score, QStringLiteral("points"), false)),
@@ -206,10 +201,6 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         const auto [main, rest] = splitCryptoPath(crypto);
         kpis.items.append({QStringLiteral("Encryption path"), DetailCell::literal(main), rest});
     }
-    if (const Metric *t = r.metric(QStringLiteral("temp.max")); t && t->isNumeric())
-        kpis.items.append({QStringLiteral("Peak temperature"),
-                           DetailCell::literal(Units::format(std::get<double>(t->value), QStringLiteral("°C"))),
-                           sensorOf(t->label)});
     if (!kpis.items.isEmpty())
         d.blocks.append({{}, kpis});
 
@@ -281,6 +272,7 @@ DetailLayout CpuTest::detail(const TestResult &r) const
 
     // 3 and 5: Compression and Single-thread, a side-by-side pair.
     TableBlock comp;
+    comp.fullWidth = true;  // Dave, 2026-10-18: nothing pairs on the CPU page
     comp.columns = {QStringLiteral("Codec"), QStringLiteral("Compress"), QStringLiteral("Decompress"), QStringLiteral("Ratio")};
     bool anyCodec = false;
     for (const cpu::Codec c : cpu::kCodecs) {
@@ -312,6 +304,7 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         else
             title = prefix + QStringLiteral(" · CPU %1").arg(cores.join(QStringLiteral(", ")));
         TableBlock st;
+        st.fullWidth = true;  // its own row, with the all-threads note right under it
         st.columns = {QStringLiteral("Part"), QStringLiteral("Result")};
         st.rows.append({DetailCell::literal(QStringLiteral("Integer")), DetailCell::literal(withUnit(r, QStringLiteral("single.int")))});
         st.rows.append({DetailCell::literal(QStringLiteral("Floating point")), DetailCell::literal(withUnit(r, QStringLiteral("single.fp")))});
