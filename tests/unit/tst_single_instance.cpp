@@ -332,8 +332,15 @@ private slots:
     void selfCheckRunsWithoutADisplayOrRoot()
     {
 #if defined(SYNBENCH_EXE) && defined(Q_OS_UNIX)
+        // --synbench-selfcheck returns from main() before any storage or
+        // settings exist (src/app/self_check.cpp only checks the helper);
+        // the scratch data and settings make even a direct run, outside
+        // CTest's environment, unable to reach the real ones if that changes.
+        QTemporaryDir scratch;
         QProcess p;
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("SYNBENCH_DATA_DIR"), scratch.filePath(QStringLiteral("data")));
+        env.insert(QStringLiteral("SYNBENCH_SETTINGS_FILE"), scratch.filePath(QStringLiteral("settings.ini")));
         env.remove(QStringLiteral("DISPLAY"));
         env.remove(QStringLiteral("WAYLAND_DISPLAY"));
         env.remove(QStringLiteral("APPIMAGE"));
