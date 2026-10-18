@@ -1,3 +1,7 @@
 Captured on Knowhere (ASUS TUF Gaming A14 FA401EA, AMD Ryzen AI MAX+ 392,
 CachyOS) on 2026-10-15 with tests/fixtures/capture-linux.sh, as a normal
 user. No serial numbers, UUIDs or battery manufacturer/model strings.
+
+The telemetry files (hwmon temperatures, cpufreq/scaling_cur_freq and the
+ACPI platform profile) were added on 2026-10-18 from a capture with the
+extended script, without changing the files captured before.

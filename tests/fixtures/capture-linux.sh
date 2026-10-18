@@ -53,7 +53,8 @@ for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
     for f in topology/core_id topology/physical_package_id topology/die_id topology/cluster_id \
              topology/thread_siblings_list topology/core_cpus_list cpu_capacity acpi_cppc/highest_perf \
              cpufreq/cpuinfo_max_freq cpufreq/cpuinfo_min_freq cpufreq/base_frequency \
-             regs/identification/midr_el1; do
+             cpufreq/scaling_cur_freq thermal_throttle/core_throttle_count \
+             thermal_throttle/package_throttle_count regs/identification/midr_el1; do
         copy "$cpu/$f"
     done
     for idx in "$cpu"/cache/index*; do
@@ -61,6 +62,17 @@ for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
         for f in level type size shared_cpu_list; do copy "$idx/$f"; done
     done
 done
+
+# Temperature sensors and the power profile, for the CPU test's telemetry
+# (Phase 2 §8.1): each hwmon's class link, name and temp*_input / temp*_label.
+for hw in /sys/class/hwmon/hwmon[0-9]*; do
+    link "$hw"
+    real=$(readlink -f "$hw")
+    copy "$real/name"
+    for f in "$real"/temp[0-9]*_input "$real"/temp[0-9]*_label; do copy "$f"; done
+done
+copy /sys/firmware/acpi/platform_profile
+copy /sys/firmware/acpi/platform_profile_choices
 
 # GPUs and NPUs: PCI ids, VRAM size and the driver link.
 for dev in /sys/class/drm/card[0-9]* /sys/class/accel/accel[0-9]*; do
