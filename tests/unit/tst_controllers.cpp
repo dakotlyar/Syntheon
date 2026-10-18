@@ -432,6 +432,15 @@ private slots:
         QCOMPARE(c.inspectFolder(other), QStringLiteral("database"));
         QVERIFY(!c.moveHistoryTo(other).isEmpty());  // refused: no merging
         QCOMPARE(c.runCount(), 1);
+        // While something holds the storage lock the location can't change,
+        // and the message says who holds it (AP-5 L6).
+        c.lock(QStringLiteral("recovery"), QStringLiteral("Checking earlier runs…"));
+        QVERIFY(c.openHistoryIn(other).contains(QLatin1StringView("earlier runs are being checked")));
+        QVERIFY(c.moveHistoryTo(other).contains(QLatin1StringView("earlier runs are being checked")));
+        c.unlock(QStringLiteral("recovery"));
+        c.lock(QStringLiteral("run"), QStringLiteral("A run is active"));
+        QVERIFY(c.openHistoryIn(other).contains(QLatin1StringView("while a run is active")));
+        c.unlock(QStringLiteral("run"));
         QCOMPARE(c.openHistoryIn(other), QString());
         QCOMPARE(c.runCount(), 3);  // that folder's own history
         QVERIFY(QFile::exists(QDir(b).filePath(QStringLiteral("synbench.db"))));  // the old one untouched

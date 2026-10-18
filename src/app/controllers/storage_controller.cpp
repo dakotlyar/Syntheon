@@ -167,8 +167,23 @@ QString StorageController::inspectFolder(const QString &folder)
     return QStringLiteral("unusable");
 }
 
+// Why the location can't change now, by who holds the lock (AP-5 L6: the
+// recovery check isn't "a run"); empty if nothing does.
+QString StorageController::busyMessage() const
+{
+    if (m_locks.isEmpty())
+        return {};
+    if (m_locks.contains(QStringLiteral("run")))
+        return QStringLiteral("The data location can't change while a run is active.");
+    if (m_locks.contains(QStringLiteral("recovery")))
+        return QStringLiteral("The data location can't change while earlier runs are being checked. Try again in a moment.");
+    return QStringLiteral("The data location can't change right now: %1").arg(m_locks.first());
+}
+
 QString StorageController::moveHistoryTo(const QString &folder)
 {
+    if (const QString busy = busyMessage(); !busy.isEmpty())
+        return busy;
     const Storage::MoveResult r = m_storage.moveTo(folder);
     switch (r.status) {
     case Storage::MoveStatus::Moved:
@@ -187,6 +202,8 @@ QString StorageController::moveHistoryTo(const QString &folder)
 
 QString StorageController::openHistoryIn(const QString &folder)
 {
+    if (const QString busy = busyMessage(); !busy.isEmpty())
+        return busy;
     return apply(m_storage.switchTo(folder));
 }
 

@@ -108,6 +108,7 @@ private:
     SettingsStore &m_settings;
     StartupProblem m_problem = StartupProblem::None;
     QString m_message;
+    QString busyMessage() const;
     QMap<QString, QString> m_locks;  // key -> reason, in key order
 };
 
