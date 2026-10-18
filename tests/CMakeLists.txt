@@ -8,13 +8,65 @@ find_package(Qt6 REQUIRED COMPONENTS Test)
 # instead of leaving an empty log) and writes verbose results to
 # <build>/test-logs/<name>.txt as well as stdout, so CI can upload them.
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test-logs")
+
+# No test may reach the user's real history or settings. In process, every
+# test binary links tests/support/test_isolation.cpp (Qt test mode plus a
+# guard that aborts unless the locations are under "qttest"). Around that,
+# CTest runs every Qt test with scratch data/settings for any SynBench it
+# launches (SYNBENCH_DATA_DIR, SYNBENCH_SETTINGS_FILE; dev-hook builds) and,
+# on Unix, with HOME and the XDG data/config homes in <build>/test-home; the
+# test_home fixture empties that first and fails afterwards if anything
+# SynBench appeared outside Qt's test-mode root (tests/check_test_home.cmake).
+set(SB_TEST_HOME "${CMAKE_BINARY_DIR}/test-home")
+set(SB_TEST_ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen"
+    "SYNBENCH_DATA_DIR=${SB_TEST_HOME}/scratch/data"
+    "SYNBENCH_SETTINGS_FILE=${SB_TEST_HOME}/scratch/settings.ini")
+set(SB_TEST_FIXTURES "")
+if(UNIX)
+    list(APPEND SB_TEST_ENVIRONMENT
+        "HOME=${SB_TEST_HOME}"
+        "XDG_DATA_HOME=${SB_TEST_HOME}/.local/share"
+        "XDG_CONFIG_HOME=${SB_TEST_HOME}/.config")
+    set(SB_TEST_FIXTURES test_home)
+    add_test(NAME test_home_setup
+        COMMAND ${CMAKE_COMMAND} "-DHOME_DIR=${SB_TEST_HOME}" -DMODE=setup -P "${CMAKE_CURRENT_SOURCE_DIR}/check_test_home.cmake")
+    add_test(NAME test_home_untouched
+        COMMAND ${CMAKE_COMMAND} "-DHOME_DIR=${SB_TEST_HOME}" -DMODE=check -P "${CMAKE_CURRENT_SOURCE_DIR}/check_test_home.cmake")
+    set_tests_properties(test_home_setup PROPERTIES FIXTURES_SETUP test_home)
+    set_tests_properties(test_home_untouched PROPERTIES FIXTURES_CLEANUP test_home)
+endif()
+
+# ...and both guards must themselves fail on a planted case: a binary that
+# turns test mode off, and a test HOME holding a real-looking history folder.
+qt_add_executable(planted_isolation "${CMAKE_CURRENT_SOURCE_DIR}/support/planted_isolation.cpp"
+                                    "${CMAKE_CURRENT_SOURCE_DIR}/support/test_isolation.cpp")
+target_link_libraries(planted_isolation PRIVATE Qt6::Core)
+add_test(NAME test_isolation_rejects_planted COMMAND planted_isolation)
+set_tests_properties(test_isolation_rejects_planted PROPERTIES
+    PASS_REGULAR_EXPRESSION "is not a Qt test location" FAIL_REGULAR_EXPRESSION "planted test ran")
+if(UNIX)
+    set(_planted_home "${CMAKE_CURRENT_BINARY_DIR}/planted-home/test-home")
+    file(MAKE_DIRECTORY "${_planted_home}/.local/share/SynBench" "${_planted_home}/.qttest/share/SynBench")
+    add_test(NAME test_home_untouched_rejects_planted
+        COMMAND ${CMAKE_COMMAND} "-DHOME_DIR=${_planted_home}" -DMODE=check -P "${CMAKE_CURRENT_SOURCE_DIR}/check_test_home.cmake")
+    set_tests_properties(test_home_untouched_rejects_planted PROPERTIES
+        PASS_REGULAR_EXPRESSION "test[ \n]+HOME:[ \n]+\\.local/share/SynBench\n"
+        FAIL_REGULAR_EXPRESSION "\\.qttest/share/SynBench")
+endif()
+
+function(synbench_isolate_test name)
+    set_tests_properties(${name} PROPERTIES ENVIRONMENT "${SB_TEST_ENVIRONMENT}" FIXTURES_REQUIRED "${SB_TEST_FIXTURES}")
+endfunction()
+
 function(synbench_add_unit_test name)
     cmake_parse_arguments(ARG "" "" "SOURCES;LIBS" ${ARGN})
-    qt_add_executable(${name} ${ARG_SOURCES} "${PROJECT_SOURCE_DIR}/tests/support/crash_handler.cpp")
+    qt_add_executable(${name} ${ARG_SOURCES} "${PROJECT_SOURCE_DIR}/tests/support/crash_handler.cpp"
+                                             "${PROJECT_SOURCE_DIR}/tests/support/test_isolation.cpp")
     target_link_libraries(${name} PRIVATE Qt6::Test ${ARG_LIBS})
     add_test(NAME ${name}
         COMMAND ${name} -v2 -o "${CMAKE_BINARY_DIR}/test-logs/${name}.txt,txt" -o "-,txt")
-    set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    synbench_isolate_test(${name})
 endfunction()
 
 add_subdirectory(unit)
