@@ -155,17 +155,39 @@ void AppController::refreshPower()
         const BatteryInfo b = sysinfo::readBatteryNow();
         QMetaObject::invokeMethod(this, [this, b] {
             m_powerBusy = false;
-            const bool changed = b.present != m_info.battery.present || b.acOnline != m_info.battery.acOnline
-                                 || qRound(b.chargePct) != qRound(m_info.battery.chargePct);
-            // Keep the one-off fields (design capacity, health, cycles) from the full snapshot.
-            m_info.battery.present = b.present;
-            m_info.battery.acOnline = b.acOnline;
-            m_info.battery.chargePct = b.chargePct;
-            if (changed)
-                emit powerChanged();
+            applyPower(b);
         });
     });
 }
+
+void AppController::applyPower(BatteryInfo b)
+{
+#ifdef SYNBENCH_DEV_HOOKS
+    if (m_powerForTest)
+        b = *m_powerForTest;
+#endif
+    const bool changed = b.present != m_info.battery.present || b.acOnline != m_info.battery.acOnline
+                         || qRound(b.chargePct) != qRound(m_info.battery.chargePct);
+    // Keep the one-off fields (design capacity, health, cycles) from the full snapshot.
+    m_info.battery.present = b.present;
+    m_info.battery.acOnline = b.acOnline;
+    m_info.battery.chargePct = b.chargePct;
+    if (changed)
+        emit powerChanged();
+}
+
+#ifdef SYNBENCH_DEV_HOOKS
+void AppController::setPowerForTest(std::optional<BatteryInfo> power)
+{
+    m_powerForTest = std::move(power);
+    if (!m_infoReady)
+        return;  // the start-up snapshot applies it
+    if (m_powerForTest)
+        applyPower(*m_powerForTest);
+    else
+        refreshPower();  // back to the real readings now, not at the next poll
+}
+#endif
 
 void AppController::startHelper()
 {
@@ -197,6 +219,13 @@ void AppController::start()
         const SystemInfo info = sysinfo::collectSystemInfo();
         QMetaObject::invokeMethod(this, [this, info] {
             m_info = info;
+#ifdef SYNBENCH_DEV_HOOKS
+            if (m_powerForTest) {
+                m_info.battery.present = m_powerForTest->present;
+                m_info.battery.acOnline = m_powerForTest->acOnline;
+                m_info.battery.chargePct = m_powerForTest->chargePct;
+            }
+#endif
             sysinfo::addOpenGlInfo(m_info);  // GUI thread
             m_infoReady = true;
             qCInfo(lcApp) << "system info collected for" << m_info.machineLabel();

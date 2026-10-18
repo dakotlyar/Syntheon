@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "app/controllers/app_controller.h"
 #include "app/models/options_model.h"
 #include "core/options.h"
 #include "tests/common/stub_clock.h"
@@ -32,6 +33,20 @@ public:
 
     // Stubs run at this fraction of their real time (tests only).
     Q_INVOKABLE void setStubScale(double scale) { sb::tests::setStubTimeScale(scale); }
+
+    // The power state the app sees (AppController::setPowerForTest), so a
+    // test doesn't depend on the host being on AC, on battery or without one.
+    // chargePct -1 is "unknown". clearPower() goes back to the real readings.
+    inline static sb::AppController *app = nullptr;
+    Q_INVOKABLE void setPower(bool present, bool acOnline, double chargePct)
+    {
+        sb::BatteryInfo b;
+        b.present = present;
+        b.acOnline = acOnline;
+        b.chargePct = chargePct;
+        app->setPowerForTest(b);
+    }
+    Q_INVOKABLE void clearPower() { app->setPowerForTest(std::nullopt); }
 
     Q_INVOKABLE QObject *allKindsModel()
     {

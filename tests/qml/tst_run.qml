@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
 import SynBench
+import SynBenchTest
 
 // The Run screen on the real controllers (stubs, probes, selection rules).
 TestCase {
@@ -80,20 +81,50 @@ TestCase {
         compare(RunController.selectedCount, 0)
     }
 
-    function test_batteryPreconditionsBlockStartUntilOverridden() {
+    // The power state is faked (the input only, via Fixtures.setPower), so
+    // this is the same on any host; the preconditions come from it as usual.
+    function test_batteryPreconditionsBlockStartUntilOverridden_data() {
+        return [
+            { tag: "on AC", present: true, ac: true, charge: 100, notMet: ["unplugged"] },
+            { tag: "on battery, full", present: true, ac: false, charge: 100, notMet: [] },
+            { tag: "on battery, low", present: true, ac: false, charge: 40, notMet: ["charged"] },
+            { tag: "no battery", present: false, ac: false, charge: -1, notMet: ["battery", "unplugged", "charged"] },
+        ]
+    }
+
+    function test_batteryPreconditionsBlockStartUntilOverridden(data) {
+        Fixtures.setPower(data.present, data.ac, data.charge)
         const screen = createTemporaryObject(screenComponent, test)
         mouseClick(row(screen, "battery"))
+        const notMet = function() {
+            return RunController.preconditions.filter(p => p.state === "notmet").map(p => p.id).sort()
+        }
         tryVerify(function() { return RunController.preconditions.length > 0 }, 5000)
-        // Knowhere on AC, or a CI box with no battery: either way something is NotMet.
-        verify(!findChild(screen, "runButton").enabled)
-        verify(RunController.problems.length > 0)
-        const problems = findChild(screen, "problem")
-        verify(problems !== null)
-        // The Phase 1 override clears them.
-        RunController.setOption("battery", "override_preconditions", true)
-        tryVerify(function() { return RunController.canStart }, 5000)
-        verify(findChild(screen, "runButton").enabled)
-        RunController.setOption("battery", "override_preconditions", false)
+        tryCompare(notMet(), "length", data.notMet.length, 5000)
+        compare(notMet(), data.notMet.slice().sort())
+        const button = findChild(screen, "runButton")
+        if (data.notMet.length === 0) {
+            // Nothing NotMet: Start is open without the override.
+            tryVerify(function() { return RunController.canStart }, 5000)
+            verify(button.enabled)
+            verify(findChild(screen, "problem") === null)
+        } else {
+            // Something NotMet: Start stays blocked...
+            verify(!RunController.canStart)
+            verify(!button.enabled)
+            verify(RunController.problems.length > 0)
+            verify(findChild(screen, "problem") !== null)
+            // ...until the Phase 1 override clears it.
+            RunController.setOption("battery", "override_preconditions", true)
+            tryVerify(function() { return RunController.canStart }, 5000)
+            verify(button.enabled)
+            compare(notMet(), [])
+            RunController.setOption("battery", "override_preconditions", false)
+        }
+    }
+
+    function cleanup() {
+        Fixtures.clearPower()
     }
 
     function test_optionChangesTheEstimate() {

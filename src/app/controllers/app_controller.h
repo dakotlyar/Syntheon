@@ -10,6 +10,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 #ifdef Q_OS_LINUX
 #include "privileged/linux_client/linux_helper_client.h"
@@ -95,6 +96,12 @@ public:
         m_info = info;
         m_infoReady = true;  // no signals: the run controller isn't probing in a unit test
     }
+    // Test hook: report this power state (present, AC, charge) in place of
+    // the machine's, from the start-up snapshot and every 5 s poll alike, so
+    // a test is the same on AC, on battery or without one. Only the input is
+    // faked: preconditions and the header are computed from it as usual.
+    // nullopt goes back to the real readings (read again at once).
+    void setPowerForTest(std::optional<BatteryInfo> power);
 #endif
     PrivilegedOps &privileged();
     // Fails every pending privileged request at once (a blocked probe or
@@ -148,6 +155,10 @@ private:
     QString m_section = QStringLiteral("run");
     QTimer m_powerTimer;
     bool m_powerBusy = false;
+#ifdef SYNBENCH_DEV_HOOKS
+    std::optional<BatteryInfo> m_powerForTest;
+#endif
+    void applyPower(BatteryInfo read);
     bool m_noElevation = false;
     UnavailablePrivilegedOps m_unavailable;
 };
