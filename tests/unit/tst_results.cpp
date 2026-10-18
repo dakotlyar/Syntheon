@@ -348,7 +348,7 @@ private slots:
         tests::setStubTimeScale(0.3);
         startRuntime();
         RunController &rc = m_rt->run();
-        rc.toggle(QStringLiteral("cpu"));
+        rc.toggle(QStringLiteral("gpu"));
         rc.toggle(QStringLiteral("ram"));
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
@@ -401,7 +401,7 @@ private slots:
 
         QVERIFY(res.openRun({}));  // an older run is showing, not pinned
         QSignalSpy finished(&rc, &RunController::runFinished);
-        rc.toggle(QStringLiteral("cpu"));
+        rc.toggle(QStringLiteral("gpu"));
         QVERIFY(rc.start());
         QVERIFY(finished.wait(60000));
         QCOMPARE(res.uuid(), rc.runUuid());  // followed it
@@ -413,7 +413,7 @@ private slots:
         // ...but the next run un-pins it and is followed.
         finished.clear();
         rc.clearSelection();
-        rc.toggle(QStringLiteral("cpu"));
+        rc.toggle(QStringLiteral("gpu"));
         QVERIFY(rc.start());
         QVERIFY(!res.pinned());
         QVERIFY(finished.wait(60000));

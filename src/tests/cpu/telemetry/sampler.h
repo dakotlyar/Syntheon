@@ -4,14 +4,21 @@
 // The 1 Hz telemetry sampler (Phase 2 design §8.1): a thread that runs
 // through the whole CPU test and reads the clock of the CPUs running it (the
 // scope the test sets: the pinned core during the single-thread mark, all
-// CPUs after), the temperature and the performance limit. Each sample costs
-// microseconds. Times are seconds since start().
+// CPUs after), the temperature and the performance limit. Times are seconds
+// since start().
+//
+// A reading is usually microseconds, but an ACPI or embedded-controller
+// sensor can take hundreds of milliseconds, so Stop must never wait for one:
+// stopWithin() gives the thread a short time to finish and otherwise leaves
+// it to end on its own (it owns its Source and its samples through a shared
+// state, and calls nothing of the caller's once stopped); joinAbandoned()
+// joins such threads later (the next run, and at exit).
 
 #include "tests/cpu/telemetry/telemetry.h"
 
 #include <chrono>
-#include <condition_variable>
-#include <mutex>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -28,14 +35,23 @@ struct Sample {
 class Sampler
 {
 public:
-    explicit Sampler(Source &source, std::chrono::milliseconds period = std::chrono::milliseconds(1000));
-    ~Sampler();  // stops and joins
+    explicit Sampler(std::shared_ptr<Source> source, std::chrono::milliseconds period = std::chrono::milliseconds(1000));
+    ~Sampler();  // stop()
     Sampler(const Sampler &) = delete;
     Sampler &operator=(const Sampler &) = delete;
 
+    // Called on the sampler's thread after each sample, never after stop()
+    // or stopWithin() has returned (set before start()).
+    void setOnSample(std::function<void(const Sample &)> onSample);
     // Starts the thread; the first sample is taken at once.
     void start();
+    // Stops and joins (waits for a reading in progress).
     void stop();
+    // Stops, waiting at most `wait` for a reading in progress; true if the
+    // thread ended (and was joined), false if it was left to end by itself.
+    bool stopWithin(std::chrono::milliseconds wait);
+    // Joins the threads stopWithin() left behind (each ends after its reading).
+    static void joinAbandoned();
 
     // Which CPUs' clock the following samples read (thread-safe).
     void setScope(const ClockScope &scope);
@@ -45,16 +61,8 @@ public:
     std::vector<Sample> samples() const;
 
 private:
-    void loop();
-
-    Source &m_source;
-    const std::chrono::milliseconds m_period;
-    std::chrono::steady_clock::time_point m_start{};
-    mutable std::mutex m_mutex;
-    std::condition_variable m_wake;
-    bool m_stop = false;
-    ClockScope m_scope;
-    std::vector<Sample> m_samples;
+    struct State;
+    std::shared_ptr<State> m_state;
     std::thread m_thread;
 };
 

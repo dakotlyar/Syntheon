@@ -15,7 +15,7 @@ const QStringList &canonical()
         QStringLiteral("fps"),    QStringLiteral("Mpx/s"), QStringLiteral("Gpx/s"),  QStringLiteral("MOps/s"),
         QStringLiteral("MFLOPS"), QStringLiteral("tok/s"), QStringLiteral("inf/s"),  QStringLiteral("it/s"),
         QStringLiteral("W"),      QStringLiteral("Wh"),    QStringLiteral("%"),      QStringLiteral("MT/s"),
-        QStringLiteral("points"), QString(),
+        QStringLiteral("points"), QStringLiteral("MHz"), QStringLiteral("°C"), QString(),
     };
     return units;
 }
@@ -33,6 +33,12 @@ QString formatNumber(double value, const QString &unit)
     QLocale locale(QLocale::English, QLocale::UnitedStates);
     if (unit == QLatin1StringView("MT/s"))
         locale.setNumberOptions(QLocale::OmitGroupSeparator);
+
+    // Clocks and temperatures are whole numbers ("4,612 MHz", "95 °C").
+    if (unit == QLatin1StringView("MHz") || unit == QStringLiteral("°C")) {
+        const long long whole = std::llround(value);
+        return locale.toString(whole == 0 ? 0LL : whole);
+    }
 
     // Counts ("2 channels", "24 threads") are whole numbers.
     if (unit.isEmpty() && std::fabs(value - std::round(value)) < 1e-9)

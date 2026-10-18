@@ -34,7 +34,7 @@ TestCase {
 
     function test_2_aRunShowsQueueLogAndStop() {
         RunController.clearSelection()
-        RunController.toggle("cpu")
+        RunController.toggle("gpu")
         RunController.toggle("ram")
         const screen = createTemporaryObject(screenComponent, test)
         const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
@@ -47,7 +47,7 @@ TestCase {
         verify(findChild(screen, "stopRun").visible)
         compare(findChild(screen, "viewResults").text, "View results so far")
         compare(screen.title, "Running 2 tests")
-        verify(findChild(screen, "queue-cpu") !== null)
+        verify(findChild(screen, "queue-gpu") !== null)
         verify(findChild(screen, "queue-ram") !== null)
         compare(AppController.section, "progress")
 
@@ -77,9 +77,9 @@ TestCase {
         verify(!findChild(screen, "stopRun").visible)
         compare(findChild(screen, "viewResults").text, "View results")
         compare(screen.title, "Run of 2 tests")
-        compare(findChild(findChild(screen, "queue-cpu"), "state").text, "✓ done")
+        compare(findChild(findChild(screen, "queue-gpu"), "state").text, "✓ done")
         compare(findChild(findChild(screen, "queue-ram"), "state").text, "✓ done")
-        verify(findChild(findChild(screen, "queue-cpu"), "stage").text.indexOf("Done") === 0)
+        verify(findChild(findChild(screen, "queue-gpu"), "stage").text.indexOf("Done") === 0)
         verify(!findChild(screen, "restartBanner").visible)
     }
 

@@ -6,6 +6,7 @@ add_subdirectory(worker)
 
 add_library(synbench_test_cpu STATIC
     cpu_test.h cpu_test.cpp
+    cpu_context.h cpu_context.cpp
     # The measurement engine (Phase 2 design §4).
     engine/kernel.h
     engine/opaque.h
@@ -28,9 +29,9 @@ add_library(synbench_test_cpu STATIC
 target_link_libraries(synbench_test_cpu PUBLIC synbench_core synbench_test_common synbench_isa synbench_cpu_kernels)
 find_package(Threads REQUIRED)
 target_link_libraries(synbench_test_cpu PRIVATE Threads::Threads)
-# Windows telemetry reads PDH counters (§8.1).
+# Windows: telemetry reads PDH counters (§8.1), the power profile powrprof.
 if(WIN32)
-    target_link_libraries(synbench_test_cpu PRIVATE pdh)
+    target_link_libraries(synbench_test_cpu PRIVATE pdh powrprof)
 endif()
 # The pinned compression libraries (cmake/ThirdParty.cmake), for the
 # compression sub-test. Linked from the start so every build, the ARM64 cross

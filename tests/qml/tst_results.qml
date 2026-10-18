@@ -38,7 +38,7 @@ TestCase {
 
     function test_1_summaryRowsAndDetail() {
         Fixtures.setStubScale(0.02)
-        runAndWait(["cpu", "ram", "storage"])
+        runAndWait(["gpu", "ram", "storage"])
         const screen = createTemporaryObject(screenComponent, test)
         Results.openRun("")
         tick()
@@ -46,9 +46,9 @@ TestCase {
         compare(findChild(screen, "overallScore").text, Results.overallText)
         verify(!findChild(screen, "partialMarker").visible)
         verify(!findChild(screen, "statusBadge").visible)
-        for (const id of ["cpu", "ram", "storage"])
+        for (const id of ["gpu", "ram", "storage"])
             verify(rowFor(screen, id) !== null, id)
-        verify(findChild(rowFor(screen, "cpu"), "score").text.length > 0)
+        verify(findChild(rowFor(screen, "gpu"), "score").text.length > 0)
 
         // A row opens that test's detail page; the rail's Results stays selected.
         verify(!Results.detailOpen)
@@ -77,14 +77,14 @@ TestCase {
         // A Battery run, then a later standard run: the later run's Detail
         // gets a "Battery" tab labelled as coming from a separate run.
         runAndWait(["battery"], [["battery", "override_preconditions", true], ["battery", "profile", "light"]])
-        runAndWait(["cpu"])
+        runAndWait(["gpu"])
         const screen = createTemporaryObject(screenComponent, test)
         Results.openRun("")
         tick()
         compare(Results.rows.length, 1)
         const tabs = Results.detailTabs.map(function(t) { return t.id })
-        compare(tabs, ["cpu", "battery"])
-        Results.showDetail("cpu")
+        compare(tabs, ["gpu", "battery"])
+        Results.showDetail("gpu")
         tick()
         verify(!findChild(screen, "separateRunNote").visible)
         mouseClick(findChild(screen, "dtab-battery"))
@@ -110,7 +110,7 @@ TestCase {
         tryVerify(function() { return view.count > 0 }, 5000)
         const all = view.count
         const filter = findChild(screen, "logTestFilter")
-        filter.chosen("cpu")
+        filter.chosen("gpu")
         verify(view.count > 0 && view.count <= all)
         filter.chosen("ram")  // not in this run's log
         compare(view.count, 0)
@@ -126,7 +126,7 @@ TestCase {
     function test_3b_liveLogSurvivesATestFinishing() {
         Fixtures.setStubScale(0.15)
         RunController.clearSelection()
-        for (const id of ["cpu", "ram", "storage"]) RunController.toggle(id)
+        for (const id of ["gpu", "ram", "storage"]) RunController.toggle(id)
         const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         const updated = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runUpdated" })
         verify(RunController.start())
@@ -179,7 +179,7 @@ TestCase {
     function test_4_stoppedRunShowsPartialMarker() {
         Fixtures.setStubScale(0.15)
         RunController.clearSelection()
-        RunController.toggle("cpu")
+        RunController.toggle("gpu")
         RunController.toggle("ram")
         const spy = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         verify(RunController.start())
@@ -197,8 +197,9 @@ TestCase {
         compare(findChild(screen, "statusBadge").text, "Stopped")
         verify(findChild(screen, "partialMarker").visible)  // N2
         verify(findChild(screen, "overallNote").text.indexOf("Partial") === 0)
-        // RAM was either mid-run (Stopped) or never started (Not run).
-        verify(["Stopped", "Not run"].indexOf(findChild(rowFor(screen, "ram"), "score").text) >= 0)
+        // RAM runs first (catalog order); GPU was either mid-run (Stopped)
+        // or never started (Not run).
+        verify(["Stopped", "Not run"].indexOf(findChild(rowFor(screen, "gpu"), "score").text) >= 0)
         Fixtures.setStubScale(0.02)
     }
 

@@ -101,6 +101,8 @@ private slots:
         FakeProbeContext ctx;
         QSet<int> kinds;
         for (const auto &t : m_registry.tests()) {
+            if (t->info().id == QLatin1StringView("cpu"))
+                continue;  // the real CPU test (Phase 2), not a stub
             const Availability a = t->probe(ctx);
             const OptionSchema s = effectiveOptionSchema(*t, ctx, a);
             if (a.state == Availability::State::Unavailable) {
@@ -142,7 +144,7 @@ private slots:
 
     void everyStubRunsAndScoresNearItsTarget()
     {
-        const QHash<QString, double> targets = {{QStringLiteral("cpu"), 1284}, {QStringLiteral("ram"), 612},
+        const QHash<QString, double> targets = {{QStringLiteral("ram"), 612},
                                                 {QStringLiteral("storage"), 938}, {QStringLiteral("gpu"), 1206},
                                                 {QStringLiteral("ai"), 772}};
         for (const QString &id : targets.keys()) {
@@ -162,7 +164,7 @@ private slots:
                     QVERIFY2(Units::isCanonical(m.unit), qPrintable(m.unit));
             }
             // Sub-scores add up to the total, apart from metrics that belong to
-            // no sub-test (CPU's single-thread mark).
+            // no sub-test.
             double sum = 0;
             for (const SubResult &s : t.subResults) {
                 QCOMPARE(s.status, Status::Ok);
@@ -184,30 +186,28 @@ private slots:
     void seededVariation()
     {
         const QVariantMap seed1{{QStringLiteral("seed"), 1.0}}, seed2{{QStringLiteral("seed"), 2.0}};
-        const RunRecord a = runOne(QStringLiteral("cpu"), seed1), b = runOne(QStringLiteral("cpu"), seed1);
-        const RunRecord c = runOne(QStringLiteral("cpu"), seed2);
+        const RunRecord a = runOne(QStringLiteral("gpu"), seed1), b = runOne(QStringLiteral("gpu"), seed1);
+        const RunRecord c = runOne(QStringLiteral("gpu"), seed2);
         QCOMPARE(a.tests[0].metrics, b.tests[0].metrics);  // same seed, same numbers
         QCOMPARE(a.tests[0].score, b.tests[0].score);
         QVERIFY(a.tests[0].metrics != c.tests[0].metrics);
         // ±5 % around the example value.
-        const double v = std::get<double>(a.tests[0].metric(QStringLiteral("int_fp.int"))->value);
-        QVERIFY(v > 152400 * 0.95 && v < 152400 * 1.05);
+        const double v = std::get<double>(a.tests[0].metric(QStringLiteral("native2d.shapes"))->value);
+        QVERIFY(v > 2.94 * 0.95 && v < 2.94 * 1.05);
     }
 
     void subTestSelection()
     {
-        const RunRecord run = runOne(QStringLiteral("cpu"), {{QStringLiteral("subtests"), QStringList{QStringLiteral("sort"), QStringLiteral("int_fp")}},
-                                                             {QStringLiteral("single_thread"), false}});
+        const RunRecord run = runOne(QStringLiteral("gpu"), {{QStringLiteral("subtests"), QStringList{QStringLiteral("fill2d"), QStringLiteral("scenes3d")}}});
         const TestResult &t = run.tests[0];
         QCOMPARE(t.subResults.size(), 2);
-        QCOMPARE(t.subResults[0].id, QStringLiteral("int_fp"));  // declaration order
-        QVERIFY(t.metric(QStringLiteral("sort.rate")));
-        QVERIFY(!t.metric(QStringLiteral("simd.ops")));
-        QVERIFY(!t.metric(QStringLiteral("single.mark")));
+        QCOMPARE(t.subResults[0].id, QStringLiteral("scenes3d"));  // declaration order
+        QVERIFY(t.metric(QStringLiteral("fill2d.opengl")));
+        QVERIFY(!t.metric(QStringLiteral("native2d.shapes")));
         QVERIFY(t.score);
         // Nothing selected is rejected before the run starts.
         Orchestrator o(m_registry, *m_sink, m_inhibitor, fastConfig());
-        QVERIFY(!o.start({{QStringLiteral("cpu"), {{QStringLiteral("subtests"), QStringList{}}}}}, {}).ok);
+        QVERIFY(!o.start({{QStringLiteral("gpu"), {{QStringLiteral("subtests"), QStringList{}}}}}, {}).ok);
     }
 
     void gpuAndAiFollowTheirSelections()
@@ -247,7 +247,7 @@ private slots:
 
     void simulateModes()
     {
-        const RunRecord err = runOne(QStringLiteral("cpu"), {{QStringLiteral("simulate"), QStringLiteral("error")}});
+        const RunRecord err = runOne(QStringLiteral("gpu"), {{QStringLiteral("simulate"), QStringLiteral("error")}});
         QCOMPARE(err.tests[0].status, Status::Error);
         QVERIFY(err.tests[0].statusReason.startsWith(QLatin1StringView("Simulated error")));
         QVERIFY(!err.tests[0].score);
@@ -274,7 +274,7 @@ private slots:
 
         // Unknown modes are rejected up front.
         Orchestrator o2(m_registry, *m_sink, m_inhibitor, fastConfig());
-        QVERIFY(!o2.start({{QStringLiteral("cpu"), {{QStringLiteral("simulate"), QStringLiteral("explode")}}}}, {}).ok);
+        QVERIFY(!o2.start({{QStringLiteral("gpu"), {{QStringLiteral("simulate"), QStringLiteral("explode")}}}}, {}).ok);
     }
 
     // AP-5 #12: odd stub-scale text and seed values are handled, not undefined.
@@ -287,7 +287,7 @@ private slots:
         // A seed from the UI can be anything a number box lets through.
         tests::setStubTimeScale(0.02);
         for (double seed : {-5.0, 1e300, 4294967296.0 * 3})
-            QCOMPARE(runOne(QStringLiteral("cpu"), {{QStringLiteral("seed"), seed}}).tests[0].status, Status::Ok);
+            QCOMPARE(runOne(QStringLiteral("gpu"), {{QStringLiteral("seed"), seed}}).tests[0].status, Status::Ok);
         tests::setStubTimeScale(0.02);
     }
 
@@ -311,7 +311,7 @@ private slots:
             PrivilegedOps &privileged() override { return ops; }
         };
         tests::setStubTimeScale(0.02);
-        for (const QString &id : {QStringLiteral("cpu"), QStringLiteral("ram"), QStringLiteral("battery")}) {
+        for (const QString &id : {QStringLiteral("gpu"), QStringLiteral("ram"), QStringLiteral("battery")}) {
             LastSliceContext ctx;
             OptionValues o;
             if (id == QLatin1StringView("battery"))
@@ -343,14 +343,14 @@ private slots:
     // limit has a floor that doesn't shrink with the time scale.
     void timeLimitHasAFloorBelowRealTime()
     {
-        const ITest *cpu = m_registry.find(QStringLiteral("cpu"));
+        const ITest *gpu = m_registry.find(QStringLiteral("gpu"));
         tests::setStubTimeScale(0.03);
-        QVERIFY(cpu->timeLimit({}) >= std::chrono::seconds(15));
+        QVERIFY(gpu->timeLimit({}) >= std::chrono::seconds(15));
         tests::setStubTimeScale(1.0);
-        QCOMPARE(cpu->timeLimit({}), std::chrono::seconds(48));  // 2 x 24 s, as before
+        QCOMPARE(gpu->timeLimit({}), std::chrono::seconds(48));  // 2 x 24 s, as before
         tests::setStubTimeLimitFloor(std::chrono::seconds(3));
         tests::setStubTimeScale(0.03);
-        QCOMPARE(cpu->timeLimit({}), std::chrono::seconds(3));
+        QCOMPARE(gpu->timeLimit({}), std::chrono::seconds(3));
         tests::resetStubTimeLimitFloor();
         QCOMPARE(m_registry.find(QStringLiteral("battery"))->timeLimit({}), std::chrono::seconds(0));
         tests::setStubTimeScale(0.02);
@@ -361,7 +361,7 @@ private slots:
     {
         QElapsedTimer t;
         t.start();
-        const RunRecord run = runOne(QStringLiteral("cpu"));
+        const RunRecord run = runOne(QStringLiteral("gpu"));
         const qint64 ms = t.elapsed();
         QCOMPARE(run.tests[0].status, Status::Ok);
         QVERIFY2(ms >= 24 * 20 - 30 && ms < 24 * 20 + 1500, qPrintable(QString::number(ms)));  // 24 s x 0.02 = 480 ms
@@ -373,7 +373,7 @@ private slots:
         Orchestrator o(m_registry, *m_sink, m_inhibitor, fastConfig());
         QSignalSpy finished(&o, &Orchestrator::runFinished);
         QSignalSpy started(&o, &Orchestrator::testStarted);
-        QVERIFY(o.start({{QStringLiteral("cpu"), {}}, {QStringLiteral("ram"), {}}}, {}).ok);
+        QVERIFY(o.start({{QStringLiteral("gpu"), {}}, {QStringLiteral("ram"), {}}}, {}).ok);
         QVERIFY(started.wait(5000));
         QTest::qWait(200);
         o.stop();

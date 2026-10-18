@@ -60,7 +60,7 @@ TestCase {
             // Earlier tests may have cleared the history: make a run to clear.
             Fixtures.setStubScale(0.02)
             RunController.clearSelection()
-            RunController.toggle("cpu")
+            RunController.toggle("gpu")
             const spy = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
             verify(RunController.start())
             spy.wait(60000)

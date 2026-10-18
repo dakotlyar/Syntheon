@@ -26,6 +26,8 @@ synbench_add_unit_test(tst_cpu_compress SOURCES tst_cpu_compress.cpp
     LIBS synbench_test_cpu synbench::zlib synbench::zstd synbench::lz4 synbench::lzma)
 target_compile_definitions(tst_cpu_compress PRIVATE SB_DEBUG_BUILD=$<IF:$<CONFIG:Debug>,1,0>)
 synbench_add_unit_test(tst_cpu_telemetry SOURCES tst_cpu_telemetry.cpp LIBS synbench_test_cpu)
+synbench_add_unit_test(tst_cpu_test SOURCES tst_cpu_test.cpp LIBS synbench_test_cpu Qt6::Core)
+add_dependencies(tst_cpu_test synbench-cpucrypto)
 synbench_add_unit_test(tst_cpu_crypto SOURCES tst_cpu_crypto.cpp LIBS synbench_test_cpu Qt6::Core)
 add_dependencies(tst_cpu_crypto synbench-cpucrypto)
 # A fake worker for the client's checks (no OpenSSL, no Qt; never installed).

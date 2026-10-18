@@ -37,6 +37,12 @@ private slots:
         QTest::newRow("carry 99.96") << 99.96 << "ns" << "100 ns";
         QTest::newRow("carry 0.996") << 0.996 << "s" << "1.0 s";
         QTest::newRow("nan") << qQNaN() << "s" << "— s";
+        // Phase 2 (§9): clocks and temperatures are whole numbers.
+        QTest::newRow("clock") << 4612.4 << "MHz" << "4,612 MHz";
+        QTest::newRow("clock small") << 812.6 << "MHz" << "813 MHz";
+        QTest::newRow("temperature") << 94.6 << "°C" << "95 °C";
+        QTest::newRow("temperature low") << 7.4 << "°C" << "7 °C";
+        QTest::newRow("temperature below zero") << -0.4 << "°C" << "0 °C";
     }
 
     void format()
@@ -58,7 +64,9 @@ private slots:
         QVERIFY(Units::isCanonical(QStringLiteral("µs")));
         QVERIFY(Units::isCanonical(QString()));
         QVERIFY(!Units::isCanonical(QStringLiteral("MiB/s")));
-        QCOMPARE(Units::canonical().size(), 22);
+        QVERIFY(Units::isCanonical(QStringLiteral("MHz")));
+        QVERIFY(Units::isCanonical(QStringLiteral("°C")));
+        QCOMPARE(Units::canonical().size(), 24);
     }
 };
 

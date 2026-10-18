@@ -154,6 +154,10 @@ public:
     // Workers whose placement failed (pinning, or a processor-group
     // assignment on Windows): they run where the OS puts them. For the log.
     int placementFailures() const { return m_placementFailures.load(); }
+    // Where the workers are pinned right now (unranked: unpinned). Read it on
+    // the coordinator, e.g. in measure()'s progress callback: at each window's
+    // start it is that window's core (decision D picks before the callback).
+    isa::CoreChoice currentCore() const { return m_core; }
 
 private:
     enum class Job { None, Prepare, Window, Pin, Quit };

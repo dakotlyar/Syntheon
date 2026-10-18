@@ -184,8 +184,8 @@ private slots:
     // last, and stops promptly.
     void sampler()
     {
-        FakeSource source;
-        Sampler s(source, 20ms);
+        const auto fake = std::make_shared<FakeSource>();
+        Sampler s(fake, 20ms);
         QCOMPARE(s.now(), 0.0);
         s.start();
         std::this_thread::sleep_for(70ms);
@@ -207,6 +207,50 @@ private slots:
         // No more samples after stop().
         std::this_thread::sleep_for(50ms);
         QCOMPARE(s.samples().size(), v.size());
+    }
+
+    // AP-5: a sensor read can take hundreds of milliseconds (ACPI, an
+    // embedded controller). stopWithin() doesn't wait for it, and the
+    // callback is never called after it has returned.
+    void slowSensorDoesNotHoldStop()
+    {
+        struct SlowSource : FakeSource {
+            std::optional<double> temperatureC() override
+            {
+                std::this_thread::sleep_for(400ms);
+                return 50.0;
+            }
+        };
+        std::atomic<int> callbacks{0};
+        std::atomic<bool> stopped{false};
+        std::atomic<int> callbacksAfterStop{0};
+        std::chrono::steady_clock::time_point destroyAt;
+        {
+            Sampler s(std::make_shared<SlowSource>(), 20ms);
+            s.setOnSample([&](const Sample &) {
+                ++callbacks;
+                if (stopped)
+                    ++callbacksAfterStop;
+            });
+            s.start();
+            std::this_thread::sleep_for(500ms);  // one reading done, the second under way
+            const auto t0 = std::chrono::steady_clock::now();
+            QVERIFY(!s.stopWithin(50ms));        // left to end by itself
+            stopped = true;
+            const auto took = std::chrono::steady_clock::now() - t0;
+            QVERIFY2(took < 250ms, qPrintable(QString::number(std::chrono::duration<double, std::milli>(took).count())));
+            QVERIFY(callbacks.load() >= 1);
+            destroyAt = std::chrono::steady_clock::now();
+        }
+        // The destructor doesn't wait either: the thread was already left.
+        QVERIFY(std::chrono::steady_clock::now() - destroyAt < 50ms);
+        Sampler::joinAbandoned();  // the reading ends; the thread exits
+        QCOMPARE(callbacksAfterStop.load(), 0);
+        // A quick source ends within the wait and is joined.
+        Sampler quick(std::make_shared<FakeSource>(), 20ms);
+        quick.start();
+        std::this_thread::sleep_for(30ms);
+        QVERIFY(quick.stopWithin(50ms));
     }
 
     void sampleStatistics()

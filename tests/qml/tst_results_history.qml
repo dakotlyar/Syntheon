@@ -45,7 +45,7 @@ TestCase {
     }
 
     function test_2_tickTwoThenCompare() {
-        oneRun("cpu")
+        oneRun("gpu")
         oneRun("ram")
         const h = createTemporaryObject(historyComponent, test)
         tick()
