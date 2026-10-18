@@ -6,12 +6,14 @@
 //
 //   Linux    clock: cpuN/cpufreq/scaling_cur_freq, averaged over the CPUs
 //            running the test; temperature: hwmon by name priority (k10temp
-//            Tctl/Tccd, coretemp "Package id 0", cpu_thermal / *-thermal,
-//            then acpitz "ACPI zone"); Intel thermal_throttle counters
+//            Tdie/Tctl/Tccd, coretemp "Package id 0", a cpu*-thermal zone,
+//            another *-thermal zone, then acpitz "ACPI zone"); Intel
+//            thermal_throttle counters
 //   Windows  PDH: % Processor Performance × Processor Frequency / 100 (the
 //            _Total instance, or the pinned core's "<group>,<index>"); the
 //            thermal zones' High Precision Temperature (labelled as an ACPI
-//            zone, which may not be the CPU sensor); % Performance Limit
+//            zone, which may not be the CPU sensor); % Performance Limit.
+//            Not thread-safe: only the sampler's thread reads it
 //
 // The Linux readers are pure functions over a sysfs root ("/sys" live, a
 // fixture tree in the tests). A Source wraps the live readings for the
@@ -39,15 +41,18 @@ struct TempSource {
     std::string label;
 };
 // The CPU temperature sensor under <sysfsRoot>/class/hwmon, by name priority:
-// k10temp (Tctl, else Tdie, else the first Tccd), coretemp ("Package id 0",
-// else its first input), cpu_thermal or a name ending in "-thermal" (its
+// k10temp (Tdie, else Tctl, else the first Tccd: on Zen 1 / Zen+ Tctl is
+// Tdie plus an offset), coretemp ("Package id 0", else its first input),
+// cpu_thermal or a "cpu…-thermal" zone, another "…-thermal" zone (their
 // first input), then acpitz ("ACPI zone"). nullopt if none is there.
 std::optional<TempSource> linuxTempSource(const std::string &sysfsRoot);
 // A hwmon temp*_input in °C.
 std::optional<double> readHwmonCelsius(const std::string &inputPath);
 
-// The sum of every CPU's thermal_throttle/core_throttle_count and
-// package_throttle_count (Intel; world-readable). nullopt if no CPU has them.
+// Every CPU's thermal_throttle/core_throttle_count plus each package's
+// package_throttle_count once (by topology/physical_package_id; every CPU
+// of a package shows the same count). Intel; world-readable. nullopt if no
+// CPU has them.
 std::optional<std::uint64_t> linuxThrottleCount(const std::string &sysfsRoot);
 
 // --- Windows helpers (pure) ---

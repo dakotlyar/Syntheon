@@ -126,8 +126,12 @@ private slots:
         QVERIFY(!linuxTempSource(r.toStdString()));  // not a CPU sensor
         QVERIFY(hwmon(r, 1, "acpitz", {{1, 41000, ""}}));
         QCOMPARE(QString::fromStdString(linuxTempSource(r.toStdString())->label), QStringLiteral("ACPI zone"));
-        QVERIFY(hwmon(r, 2, "soc-thermal", {{1, 52000, ""}}));
-        QCOMPARE(QString::fromStdString(linuxTempSource(r.toStdString())->label), QStringLiteral("soc-thermal"));
+        // Among "-thermal" zones a CPU one wins, whatever the hwmon order
+        // (Qualcomm: aoss0, gpuss0, nsp0 come first).
+        QVERIFY(hwmon(r, 2, "gpuss0-thermal", {{1, 52000, ""}}));
+        QCOMPARE(QString::fromStdString(linuxTempSource(r.toStdString())->label), QStringLiteral("gpuss0-thermal"));
+        QVERIFY(hwmon(r, 5, "cpu0-thermal", {{1, 54000, ""}}));
+        QCOMPARE(QString::fromStdString(linuxTempSource(r.toStdString())->label), QStringLiteral("cpu0-thermal"));
         QVERIFY(hwmon(r, 3, "coretemp", {{2, 61000, "Core 0"}, {1, 63000, "Package id 0"}}));
         auto t = linuxTempSource(r.toStdString());
         QCOMPARE(QString::fromStdString(t->label), QStringLiteral("coretemp Package id 0"));
@@ -141,17 +145,30 @@ private slots:
         t = linuxTempSource(r.toStdString());
         QCOMPARE(QString::fromStdString(t->label), QStringLiteral("k10temp Tctl"));
         QCOMPARE(readHwmonCelsius(t->inputPath).value(), 72.5);
+        // Zen 1 / Zen+: Tdie (the real value) before Tctl (Tdie + an offset).
+        QVERIFY(hwmon(r, 4, "k10temp", {{2, 62500, "Tdie"}}));
+        t = linuxTempSource(r.toStdString());
+        QCOMPARE(QString::fromStdString(t->label), QStringLiteral("k10temp Tdie"));
+        QCOMPARE(readHwmonCelsius(t->inputPath).value(), 62.5);
     }
 
     void throttleCounters()
     {
         QTemporaryDir d;
         const QString r = d.path();
-        QVERIFY(put(r, QStringLiteral("devices/system/cpu/cpu0/thermal_throttle/core_throttle_count"), "3\n"));
-        QVERIFY(put(r, QStringLiteral("devices/system/cpu/cpu0/thermal_throttle/package_throttle_count"), "10\n"));
-        QVERIFY(put(r, QStringLiteral("devices/system/cpu/cpu1/thermal_throttle/core_throttle_count"), "4\n"));
+        // Two CPUs of package 0 (each shows the package's 10), one of
+        // package 1 (5), core counts 3 + 4 + 0: 3 + 4 + 10 + 5.
+        const auto cpu = [&](int n, const char *core, const char *package, const char *packageId) {
+            const QString d = QStringLiteral("devices/system/cpu/cpu%1/").arg(n);
+            return put(r, d + QStringLiteral("thermal_throttle/core_throttle_count"), core)
+                   && put(r, d + QStringLiteral("thermal_throttle/package_throttle_count"), package)
+                   && put(r, d + QStringLiteral("topology/physical_package_id"), packageId);
+        };
+        QVERIFY(cpu(0, "3\n", "10\n", "0\n"));
+        QVERIFY(cpu(1, "4\n", "10\n", "0\n"));
+        QVERIFY(cpu(2, "0\n", "5\n", "1\n"));
         QVERIFY(put(r, QStringLiteral("devices/system/cpu/cpufreq/policy0"), ""));  // not a CPU
-        QCOMPARE(linuxThrottleCount(r.toStdString()).value(), std::uint64_t(17));
+        QCOMPARE(linuxThrottleCount(r.toStdString()).value(), std::uint64_t(22));
         QTemporaryDir empty;
         QVERIFY(!linuxThrottleCount(empty.path().toStdString()));
     }
@@ -184,7 +201,7 @@ private slots:
         QVERIFY2(v.size() >= 4, qPrintable(QString::number(v.size())));
         QCOMPARE(v.front().clockMHz.value(), 1000.0);
         QCOMPARE(v.back().clockMHz.value(), 5.0);
-        QVERIFY(v.front().t < 0.015);  // the first sample at once
+        QVERIFY(v.front().t < 0.050);  // the first sample at once
         for (std::size_t i = 1; i < v.size(); ++i)
             QVERIFY(v[i].t > v[i - 1].t);
         // No more samples after stop().

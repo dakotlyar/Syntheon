@@ -131,7 +131,9 @@ std::optional<TempSource> linuxTempSource(const std::string &sysfsRoot)
         std::string label;
         if (name == "k10temp") {
             rank = 0;
-            for (const char *l : {"Tctl", "Tdie"}) {
+            // Tdie first: on Zen 1 / Zen+ Tctl is Tdie plus a 10-27 °C offset
+            // (fan control), so it would overstate the temperature.
+            for (const char *l : {"Tdie", "Tctl"}) {
                 if ((index = withLabel(l))) {
                     label = l;
                     break;
@@ -152,11 +154,13 @@ std::optional<TempSource> linuxTempSource(const std::string &sysfsRoot)
             label = "coretemp" + (inputs.at(*index).empty() ? std::string() : " " + inputs.at(*index));
         } else if (name == "cpu_thermal"
                    || (name.size() > 8 && name.compare(name.size() - 8, 8, "-thermal") == 0)) {
-            rank = 2;
+            // A CPU zone ("cpu_thermal", "cpu0-thermal") before the SoC's
+            // other zones (Qualcomm: aoss0-thermal, gpuss0-thermal, nsp0-thermal).
+            rank = name.compare(0, 3, "cpu") == 0 ? 2 : 3;
             index = inputs.begin()->first;
             label = name;
         } else if (name == "acpitz") {
-            rank = 3;
+            rank = 4;
             index = inputs.begin()->first;
             label = "ACPI zone";
         } else {
@@ -183,19 +187,28 @@ std::optional<std::uint64_t> linuxThrottleCount(const std::string &sysfsRoot)
     const fs::path base = fs::path(sysfsRoot) / "devices" / "system" / "cpu";
     std::uint64_t sum = 0;
     bool any = false;
+    std::map<long long, std::uint64_t> packages;  // physical_package_id -> its count (every CPU of it shows the same)
     std::error_code ec;
     for (const fs::directory_entry &e : fs::directory_iterator(base, ec)) {
         const std::string name = e.path().filename().string();
         if (name.size() <= 3 || name.compare(0, 3, "cpu") != 0
             || !std::all_of(name.begin() + 3, name.end(), [](char c) { return c >= '0' && c <= '9'; }))
             continue;
-        for (const char *f : {"core_throttle_count", "package_throttle_count"}) {
-            if (const auto v = readInteger(e.path() / "thermal_throttle" / f); v && *v >= 0) {
-                sum += std::uint64_t(*v);
-                any = true;
-            }
+        if (const auto v = readInteger(e.path() / "thermal_throttle" / "core_throttle_count"); v && *v >= 0) {
+            sum += std::uint64_t(*v);
+            any = true;
+        }
+        if (const auto v = readInteger(e.path() / "thermal_throttle" / "package_throttle_count"); v && *v >= 0) {
+            // Once per package, not once per CPU in it. Without a package id,
+            // the CPU counts as a package of its own.
+            const long long package = readInteger(e.path() / "topology" / "physical_package_id")
+                                          .value_or(-1 - std::atoll(name.c_str() + 3));
+            packages[package] = std::max(packages[package], std::uint64_t(*v));
+            any = true;
         }
     }
+    for (const auto &[package, count] : packages)
+        sum += count;
     if (!any)
         return std::nullopt;
     return sum;
@@ -261,9 +274,13 @@ private:
 #endif
 
 #if defined(_WIN32)
-// PDH: one query holding every counter, collected once per reading. Rate
-// counters need two collections; the first reading after construction
-// primes them (the constructor collects once).
+// PDH: one query holding every counter, collected at most once per sampler
+// tick. The processor counters are wildcards, so every core's instance
+// ("<group>,<index>") and _Total come from the same collections: a core the
+// single-thread mark moves to has a value at once. Rate counters need two
+// collections: the constructor makes the first, and the first reading is
+// taken no sooner than 200 ms later. Not thread-safe: one thread (the
+// sampler) reads it.
 class WindowsSource : public Source
 {
 public:
@@ -273,11 +290,12 @@ public:
             m_query = nullptr;
             return;
         }
-        addCounter(L"\\Processor Information(_Total)\\% Processor Performance", m_perfTotal);
-        addCounter(L"\\Processor Information(_Total)\\Processor Frequency", m_freqTotal);
+        addCounter(L"\\Processor Information(*)\\% Processor Performance", m_perf);
+        addCounter(L"\\Processor Information(*)\\Processor Frequency", m_freq);
         addCounter(L"\\Processor Information(_Total)\\% Performance Limit", m_limit);
         addCounter(L"\\Thermal Zone Information(*)\\High Precision Temperature", m_thermal);
         PdhCollectQueryData(m_query);
+        m_lastCollect = GetTickCount64();
     }
     ~WindowsSource() override
     {
@@ -286,47 +304,24 @@ public:
     }
     std::optional<double> clockMHz(const ClockScope &scope) override
     {
-        if (!m_query)
+        if (!m_query || !collect())
             return std::nullopt;
-        PDH_HCOUNTER perf = m_perfTotal, freq = m_freqTotal;
-        if (!scope.allCpus && scope.core.ranked) {
-            // The pinned core's own instance, "<group>,<index>", added on first use.
-            const int key = isa::windowsKey(scope.core.group, scope.core.cpu);
-            if (m_coreCounters.find(key) == m_coreCounters.end()) {
-                const std::wstring instance = std::to_wstring(scope.core.group) + L"," + std::to_wstring(scope.core.cpu);
-                PDH_HCOUNTER p = nullptr, f = nullptr;
-                addCounter((L"\\Processor Information(" + instance + L")\\% Processor Performance").c_str(), p);
-                addCounter((L"\\Processor Information(" + instance + L")\\Processor Frequency").c_str(), f);
-                m_coreCounters[key] = {p, f};
-                PdhCollectQueryData(m_query);  // prime the new rate counter
-            }
-            perf = m_coreCounters[key].first;
-            freq = m_coreCounters[key].second;
-        }
-        collect();
-        const auto p = value(perf), f = value(freq);
+        const std::wstring instance = !scope.allCpus && scope.core.ranked
+                                          ? std::to_wstring(scope.core.group) + L"," + std::to_wstring(scope.core.cpu)
+                                          : std::wstring(L"_Total");
+        const auto p = instanceValue(m_perf, instance), f = instanceValue(m_freq, instance);
         if (!p || !f)
             return std::nullopt;
         return pdhClockMHz(*p, *f);
     }
     std::optional<double> temperatureC() override
     {
-        if (!m_query || !m_thermal)
+        if (!m_query || !collect())
             return std::nullopt;
-        collect();
         // Every thermal zone; the hottest.
-        DWORD size = 0, count = 0;
-        if (PdhGetFormattedCounterArrayW(m_thermal, PDH_FMT_DOUBLE, &size, &count, nullptr) != PDH_MORE_DATA)
-            return std::nullopt;
-        std::vector<unsigned char> buffer(size);
-        auto *items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_W *>(buffer.data());
-        if (PdhGetFormattedCounterArrayW(m_thermal, PDH_FMT_DOUBLE, &size, &count, items) != ERROR_SUCCESS)
-            return std::nullopt;
         std::optional<double> hottest;
-        for (DWORD i = 0; i < count; ++i) {
-            if (items[i].FmtValue.CStatus != PDH_CSTATUS_VALID_DATA && items[i].FmtValue.CStatus != PDH_CSTATUS_NEW_DATA)
-                continue;
-            const double c = tenthsOfKelvinToCelsius(items[i].FmtValue.doubleValue);
+        for (const auto &[name, v] : values(m_thermal)) {
+            const double c = tenthsOfKelvinToCelsius(v);
             if (!hottest || c > *hottest)
                 hottest = c;
         }
@@ -339,10 +334,14 @@ public:
     std::optional<std::uint64_t> throttleCount() override { return std::nullopt; }
     std::optional<double> performanceLimitPercent() override
     {
-        if (!m_query)
+        if (!m_query || !collect() || !m_limit)
             return std::nullopt;
-        collect();
-        return value(m_limit);
+        PDH_FMT_COUNTERVALUE v;
+        if (PdhGetFormattedCounterValue(m_limit, PDH_FMT_DOUBLE, nullptr, &v) != ERROR_SUCCESS)
+            return std::nullopt;
+        if (v.CStatus != PDH_CSTATUS_VALID_DATA && v.CStatus != PDH_CSTATUS_NEW_DATA)
+            return std::nullopt;
+        return v.doubleValue;
     }
 
 private:
@@ -352,31 +351,50 @@ private:
         if (PdhAddEnglishCounterW(m_query, path, 0, &counter) != ERROR_SUCCESS)
             counter = nullptr;
     }
-    // One collection per sampler tick, however many readings it makes.
-    void collect()
+    // Collects when 200 ms have passed since the last collection; false
+    // until the first reading after the constructor's is possible.
+    bool collect()
     {
         const ULONGLONG now = GetTickCount64();
         if (now - m_lastCollect >= 200) {
             PdhCollectQueryData(m_query);
             m_lastCollect = now;
+            m_collected = true;
         }
+        return m_collected;
     }
-    static std::optional<double> value(PDH_HCOUNTER counter)
+    // A wildcard counter's instances and values.
+    static std::vector<std::pair<std::wstring, double>> values(PDH_HCOUNTER counter)
     {
+        std::vector<std::pair<std::wstring, double>> out;
         if (!counter)
-            return std::nullopt;
-        PDH_FMT_COUNTERVALUE v;
-        if (PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, nullptr, &v) != ERROR_SUCCESS)
-            return std::nullopt;
-        if (v.CStatus != PDH_CSTATUS_VALID_DATA && v.CStatus != PDH_CSTATUS_NEW_DATA)
-            return std::nullopt;
-        return v.doubleValue;
+            return out;
+        DWORD size = 0, count = 0;
+        if (PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &size, &count, nullptr) != PDH_MORE_DATA)
+            return out;
+        std::vector<unsigned char> buffer(size);
+        auto *items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_W *>(buffer.data());
+        if (PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &size, &count, items) != ERROR_SUCCESS)
+            return out;
+        for (DWORD i = 0; i < count; ++i) {
+            if (items[i].FmtValue.CStatus == PDH_CSTATUS_VALID_DATA || items[i].FmtValue.CStatus == PDH_CSTATUS_NEW_DATA)
+                out.emplace_back(items[i].szName, items[i].FmtValue.doubleValue);
+        }
+        return out;
+    }
+    static std::optional<double> instanceValue(PDH_HCOUNTER counter, const std::wstring &instance)
+    {
+        for (const auto &[name, v] : values(counter)) {
+            if (name == instance)
+                return v;
+        }
+        return std::nullopt;
     }
 
     PDH_HQUERY m_query = nullptr;
-    PDH_HCOUNTER m_perfTotal = nullptr, m_freqTotal = nullptr, m_limit = nullptr, m_thermal = nullptr;
-    std::map<int, std::pair<PDH_HCOUNTER, PDH_HCOUNTER>> m_coreCounters;
+    PDH_HCOUNTER m_perf = nullptr, m_freq = nullptr, m_limit = nullptr, m_thermal = nullptr;
     ULONGLONG m_lastCollect = 0;
+    bool m_collected = false;
 };
 #endif
 
