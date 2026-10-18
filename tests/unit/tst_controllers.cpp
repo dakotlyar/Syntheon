@@ -408,6 +408,10 @@ private slots:
         QCOMPARE(c.inspectFolder(b), QStringLiteral("empty"));
         QCOMPARE(c.inspectFolder(dir.filePath(QStringLiteral("missing"))), QStringLiteral("unusable"));
         QCOMPARE(c.moveHistoryTo(b), QString());  // moved, never merged
+        // A new location starts the recovery check, which holds the storage
+        // lock in the background: let it finish (under load it can still be
+        // running when the next location change comes, which is refused).
+        rt.startup().waitForRecovery();
         QCOMPARE(c.runCount(), 1);
         QVERIFY(c.dataLocation().endsWith(QStringLiteral("b")));
         QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("a/synbench.db"))));
