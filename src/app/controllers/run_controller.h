@@ -74,6 +74,8 @@ public:
     int selectedCount() const { return m_selection.selectedCount(); }
     bool runsAloneSelected() const { return m_selection.runsAloneSelected(); }
     QString estimateText() const;
+    // "45 s", "4 min 30 s", "1 h 05 min" (the ETA's and the estimates' wording).
+    static QString durationText(qint64 secs);
     QString runButtonText() const;
     bool canStart() const;
     QStringList problems() const;

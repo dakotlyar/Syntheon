@@ -326,8 +326,17 @@ DetailLayout CpuTest::detail(const TestResult &r) const
             const QString name = windowName(code);
             if (!name.isEmpty() && detail.startsWith(name + QStringLiteral(": "))) {
                 throttled = code;
-                const qsizetype open = detail.lastIndexOf(QStringLiteral("(")), close = detail.lastIndexOf(QStringLiteral(")"));
-                const QString drop = open >= 0 && close > open ? detail.mid(open, close - open + 1) : QString();
+                // The drop: "(−15%)" of a clock detail, or "(rate −30%)" of a
+                // rate-only one ("Integer: rate −30% from the first …").
+                const QString what = detail.mid(name.size() + 2).section(QStringLiteral("; "), 0, 0);
+                QString drop;
+                if (what.startsWith(QStringLiteral("rate "))) {
+                    drop = QStringLiteral("(rate %1)").arg(what.section(QLatin1Char(' '), 1, 1));
+                } else {
+                    const qsizetype open = what.lastIndexOf(QStringLiteral("(")), close = what.lastIndexOf(QStringLiteral(")"));
+                    if (open >= 0 && close > open)
+                        drop = what.mid(open, close - open + 1);
+                }
                 const bool codec = code >= kWinCompress && code < kWinCompress + 2 * int(cpu::kCodecCount);
                 throttledLabel = (codec ? name.section(QLatin1Char(' '), 0, 0) : name) + (drop.isEmpty() ? QString() : QStringLiteral(" ") + drop);
             }
@@ -342,13 +351,19 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         chart.seriesKeys = {clock->key};
         chart.xAxis = timeAxis(*clock);
         chart.yUnit = QStringLiteral("MHz");
-        mark(chart.annotations, kWinSingleInt, QStringLiteral("Single-thread"));
-        mark(chart.annotations, kWinInt, QStringLiteral("Integer"));
+        // The stage labels; the throttled window's label replaces the one at
+        // the same place ("Integer (rate −30%)", or "xz (−15%)" for Compression).
         const bool compressThrottled = throttled >= kWinCompress && throttled < kWinCompress + 2 * int(cpu::kCodecCount);
-        if (!compressThrottled)
-            mark(chart.annotations, kWinCompress, QStringLiteral("Compression"));
-        mark(chart.annotations, kWinAesHw, QStringLiteral("Encryption"));
-        mark(chart.annotations, kWinPhysics, QStringLiteral("Physics"));
+        const std::pair<int, QString> stages[] = {{kWinSingleInt, QStringLiteral("Single-thread")},
+                                                  {kWinInt, QStringLiteral("Integer")},
+                                                  {kWinCompress, QStringLiteral("Compression")},
+                                                  {kWinAesHw, QStringLiteral("Encryption")},
+                                                  {kWinPhysics, QStringLiteral("Physics")}};
+        for (const auto &[code, label] : stages) {
+            if (code == throttled || (code == kWinCompress && compressThrottled))
+                continue;
+            mark(chart.annotations, code, label);
+        }
         if (throttled)
             mark(chart.annotations, throttled, throttledLabel);
         std::sort(chart.annotations.begin(), chart.annotations.end(),

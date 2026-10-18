@@ -253,14 +253,22 @@ QAbstractItemModel *RunController::log()
     return m_log.get();
 }
 
-namespace {
+namespace sbdetail {
 
-// "45 s", "4 min 30 s", "5 min": seconds below 90 s, else minutes and the
-// seconds to the nearest 10 (as the CPU test's log says "about 4 min 30 s").
+// "45 s", "4 min 30 s", "5 min", "1 h 05 min": seconds below 90 s; then
+// minutes and the seconds to the nearest 10 (as the CPU test's log says
+// "about 4 min 30 s"); from an hour, hours and the minutes to the nearest
+// minute.
 QString durationText(qint64 secs)
 {
     if (secs < 90)
         return QCoreApplication::translate("RunController", "%1 s").arg(std::max<qint64>(secs, 1));
+    if (secs >= 3600 - 30) {
+        const qint64 totalMinutes = (secs + 30) / 60;
+        return QCoreApplication::translate("RunController", "%1 h %2 min")
+            .arg(totalMinutes / 60)
+            .arg(totalMinutes % 60, 2, 10, QLatin1Char('0'));
+    }
     qint64 m = secs / 60, s = (secs % 60 + 5) / 10 * 10;
     if (s == 60) {
         ++m;
@@ -270,7 +278,12 @@ QString durationText(qint64 secs)
                   : QCoreApplication::translate("RunController", "%1 min %2 s").arg(m).arg(s);
 }
 
-} // namespace
+} // namespace sbdetail
+
+QString RunController::durationText(qint64 secs)
+{
+    return sbdetail::durationText(secs);
+}
 
 void RunController::refreshEta()
 {
@@ -295,7 +308,7 @@ void RunController::refreshEta()
                 remaining += left;
             }
             const qint64 secs = qint64(std::llround(remaining));
-            text = tr("about %1 left").arg(durationText(secs));
+            text = tr("about %1 left").arg(sbdetail::durationText(secs));
         }
     }
     if (text != m_etaText) {
@@ -516,7 +529,7 @@ QString RunController::estimateText() const
             secs += t->estimate(v).count();
         }
     }
-    return tr("estimated %1").arg(durationText(secs));
+    return tr("estimated %1").arg(sbdetail::durationText(secs));
 }
 
 QString RunController::estimateOf(const QString &testId)
@@ -525,7 +538,7 @@ QString RunController::estimateOf(const QString &testId)
     if (!t)
         return {};
     const qint64 secs = t->estimate(valuesFor(testId)).count();
-    return tr("~%1").arg(durationText(secs));
+    return tr("~%1").arg(sbdetail::durationText(secs));
 }
 
 QString RunController::runButtonText() const

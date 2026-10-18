@@ -623,27 +623,39 @@ void CpuRun::singleThread()
     bool anyUnpinned = false;
     const auto noteCores = [&](const char *what, const char *key, const Measurement &m) {
         QStringList list;
+        QStringList stayed;      // repetitions whose re-pin failed (the core they stayed on known)
+        QString stayedOn;
+        bool pinned = false;
         for (std::size_t i = 0; i < m.reps.size(); ++i) {
             const cpu::RepSample &rep = m.reps[i];
             if (!rep.core.ranked) {
                 anyUnpinned = true;
                 list << QStringLiteral("-");
-            } else {
-                list << coreName(rep.core);
-                if (std::none_of(used.begin(), used.end(), [&](const isa::CoreChoice &c) {
-                        return c.cpu == rep.core.cpu && c.group == rep.core.group;
-                    }))
-                    used.push_back(rep.core);
+                continue;
             }
-            if (rep.repickFailed)
-                m_ctx.log(LogLevel::Warning, QStringLiteral("Single-thread %1: couldn't move to the quietest core before "
-                                                            "repetition %2; it stayed on CPU %3")
-                                                 .arg(QLatin1StringView(what))
-                                                 .arg(i + 1)
-                                                 .arg(coreName(rep.core)));
+            pinned = true;
+            list << coreName(rep.core);
+            if (std::none_of(used.begin(), used.end(), [&](const isa::CoreChoice &c) {
+                    return c.cpu == rep.core.cpu && c.group == rep.core.group;
+                }))
+                used.push_back(rep.core);
+            if (rep.repickFailed) {
+                stayed << QString::number(i + 1);
+                stayedOn = coreName(rep.core);
+            }
         }
         perMeasurement << QStringLiteral("%1 %2").arg(QLatin1StringView(what), list.join(QLatin1Char(',')));
+        // Unpinned (the pin failed at the start, already logged once, or no
+        // ranking): no per-measurement core line, nothing per repetition.
+        if (!pinned)
+            return;
         m_ctx.log(LogLevel::Info, QStringLiteral("%1 on CPU %2").arg(QLatin1StringView(key), list.join(QStringLiteral(", "))));
+        // A re-pin that failed after a good pin: once per measurement, with
+        // the core it stayed on.
+        if (!stayed.isEmpty())
+            m_ctx.log(LogLevel::Warning, QStringLiteral("Single-thread %1: couldn't move to the quietest core before "
+                                                        "repetition %2; it stayed on CPU %3")
+                                             .arg(QLatin1StringView(what), stayed.join(QStringLiteral(", ")), stayedOn));
     };
 
     const cpu::IntKernel ik;

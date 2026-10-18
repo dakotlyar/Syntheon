@@ -73,6 +73,14 @@ public:
         }
         return false;
     }
+    int count(const QString &part) const
+    {
+        std::lock_guard lock(m_mutex);
+        int n = 0;
+        for (const auto &l : m_logs)
+            n += l.second.contains(part) ? 1 : 0;
+        return n;
+    }
     QString allLogs() const
     {
         std::lock_guard lock(m_mutex);
@@ -583,6 +591,27 @@ private slots:
         QVERIFY(!r.metric(QStringLiteral("crypto.sha256.sw")));
     }
 
+    // Zeb: a rate-only throttle replaces its stage's chart label, not a
+    // second bare one ("Integer / Integer").
+    void rateOnlyThrottleLabel()
+    {
+        TestResult r = mockupResult();
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("throttle.detail"))
+                m.value = QStringLiteral("Integer: rate −30% from the first repetition to the last");
+        }
+        tests::CpuTest t;
+        const DetailLayout d = t.detail(r);
+        QStringList labels;
+        for (const DetailBlock &b : d.blocks) {
+            if (b.title.startsWith(QStringLiteral("Clock")))
+                for (const ChartAnnotation &a : std::get<LineChartBlock>(b.content).annotations)
+                    labels << a.label;
+        }
+        QCOMPARE(labels, (QStringList{QStringLiteral("Single-thread"), QStringLiteral("Integer (rate −30%)"), QStringLiteral("Compression"),
+                                      QStringLiteral("Encryption"), QStringLiteral("Physics")}));
+    }
+
     // Dave / AP-5 L4: cores are listed in CPU order.
     void coreOrder()
     {
@@ -622,7 +651,11 @@ private slots:
         r = t.run(b, {});
         qunsetenv("SYNBENCH_CPU_FORCE_PIN");
         QCOMPARE(std::get<QString>(r.metric(QStringLiteral("single.cpu"))->value), QStringLiteral("unpinned (pinning failed)"));
-        QVERIFY(b.logged(QStringLiteral("couldn't pin the thread")));
+        // Logged once, and never "CPU -1" or a core line per measurement (Zeb).
+        QCOMPARE(b.count(QStringLiteral("couldn't pin the thread")), 1);
+        QCOMPARE(b.count(QStringLiteral("couldn't move to the quietest core")), 0);
+        QCOMPARE(b.count(QStringLiteral("CPU -1")), 0);
+        QCOMPARE(b.count(QStringLiteral(" on CPU ")), 0);
         qputenv("SYNBENCH_CPU_FAKE_THROTTLE", "counters");
         FakeRunContext c;
         r = t.run(c, {});

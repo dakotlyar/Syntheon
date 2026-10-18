@@ -268,6 +268,20 @@ private slots:
 
     // Zeb: the ETA counts down inside a running test (it used to move only
     // when a test finished), and durations read "4 min 30 s" like the log.
+    void durationWording()
+    {
+        QCOMPARE(RunController::durationText(0), QStringLiteral("1 s"));
+        QCOMPARE(RunController::durationText(45), QStringLiteral("45 s"));
+        QCOMPARE(RunController::durationText(89), QStringLiteral("89 s"));
+        QCOMPARE(RunController::durationText(90), QStringLiteral("1 min 30 s"));
+        QCOMPARE(RunController::durationText(270), QStringLiteral("4 min 30 s"));
+        QCOMPARE(RunController::durationText(299), QStringLiteral("5 min"));
+        QCOMPARE(RunController::durationText(3565), QStringLiteral("59 min 30 s"));
+        QCOMPARE(RunController::durationText(3580), QStringLiteral("1 h 00 min"));
+        QCOMPARE(RunController::durationText(3900), QStringLiteral("1 h 05 min"));
+        QCOMPARE(RunController::durationText(7200), QStringLiteral("2 h 00 min"));
+    }
+
     void etaCountsDownWithinATest()
     {
         tests::setStubTimeScale(1.0);
