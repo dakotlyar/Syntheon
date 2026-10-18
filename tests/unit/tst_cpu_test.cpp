@@ -417,18 +417,27 @@ private slots:
         QCOMPARE(kinds, (QStringList{QStringLiteral("kpis"), QStringLiteral("table:Sub-tests (all threads)"), QStringLiteral("note"),
                                      QStringLiteral("table:Encryption"), QStringLiteral("note"),
                                      QStringLiteral("table:Compression (MB/s)"),
-                                     QStringLiteral("table:Single-thread · pinned per repetition (CPU 0, 5)"),
+                                     QStringLiteral("table:Single-thread part (one core on purpose) · CPU 0, 5"),
+                                     QStringLiteral("note"),
                                      QStringLiteral("chart:Clock (CPUs running the test, MHz)"),
                                      QStringLiteral("chart:Temperature (k10temp Tctl, °C)")}));
         const auto &kpis = std::get<KpisBlock>(d.blocks[0].content).items;
-        QCOMPARE(kpis.size(), 5);
-        QCOMPARE(kpis[1].value.text, QStringLiteral("AVX-512"));
-        QCOMPARE(kpis[1].unitOverride, QStringLiteral("512-bit"));
-        QCOMPARE(kpis[2].value.text, QStringLiteral("AES-NI"));
-        QCOMPARE(kpis[2].unitOverride, QStringLiteral("+ VAES · SHA-NI"));
-        QCOMPARE(kpis[3].unitOverride, QStringLiteral("logical CPUs"));
-        QCOMPARE(kpis[4].value.text, QStringLiteral("95 °C"));
-        QCOMPARE(kpis[4].unitOverride, QStringLiteral("k10temp Tctl"));
+        // Dave, 2026-10-18 (validation): CPU score, single-thread mark,
+        // threads, then the paths and the temperature.
+        QStringList kpiLabels;
+        for (const KpiItem &k : kpis)
+            kpiLabels << k.label;
+        QCOMPARE(kpiLabels, (QStringList{QStringLiteral("CPU score"), QStringLiteral("Single-thread mark"), QStringLiteral("Threads used"),
+                                      QStringLiteral("SIMD path"), QStringLiteral("Encryption path"), QStringLiteral("Peak temperature")}));
+        QCOMPARE(kpis[0].value.text, QStringLiteral("875"));
+        QCOMPARE(kpis[2].value.metricKey, QStringLiteral("threads"));
+        QCOMPARE(kpis[2].unitOverride, QStringLiteral("threads"));
+        QCOMPARE(kpis[3].value.text, QStringLiteral("AVX-512"));
+        QCOMPARE(kpis[3].unitOverride, QStringLiteral("512-bit"));
+        QCOMPARE(kpis[4].value.text, QStringLiteral("AES-NI"));
+        QCOMPARE(kpis[4].unitOverride, QStringLiteral("+ VAES · SHA-NI"));
+        QCOMPARE(kpis[5].value.text, QStringLiteral("95 °C"));
+        QCOMPARE(kpis[5].unitOverride, QStringLiteral("k10temp Tctl"));
         const auto &groups = std::get<TableBlock>(d.blocks[1].content);
         QCOMPARE(groups.rows.size(), 8);
         QCOMPARE(groups.rows[1][2].text, QStringLiteral("91,800 MFLOPS\nprimes 2,140 MOps/s"));
@@ -449,9 +458,10 @@ private slots:
         QCOMPARE(comp.rows[0][2].text, QStringLiteral("6,380"));
         QCOMPARE(comp.rows[0][3].text, QStringLiteral("3.12"));
         const auto &st = std::get<TableBlock>(d.blocks[6].content);
+        QCOMPARE(std::get<NoteBlock>(d.blocks[7].content).text, QStringLiteral("Every other sub-test runs on all 24 threads."));
         QCOMPARE(st.rows[3][1].text, QStringLiteral("921"));
         // The clock chart's labels: the throttled window replaces "Compression".
-        const auto &clock = std::get<LineChartBlock>(d.blocks[7].content);
+        const auto &clock = std::get<LineChartBlock>(d.blocks[8].content);
         QStringList labels;
         for (const ChartAnnotation &a : clock.annotations)
             labels << a.label;
@@ -459,7 +469,7 @@ private slots:
                                       QStringLiteral("Encryption"), QStringLiteral("Physics")}));
         QCOMPARE(clock.xAxis.tickLabels, (QStringList{QStringLiteral("0 s"), QStringLiteral("60 s"), QStringLiteral("120 s"),
                                                       QStringLiteral("180 s"), QStringLiteral("240 s"), QStringLiteral("270 s")}));
-        const auto &temp = std::get<LineChartBlock>(d.blocks[8].content);
+        const auto &temp = std::get<LineChartBlock>(d.blocks[9].content);
         labels.clear();
         for (const ChartAnnotation &a : temp.annotations)
             labels << a.label;
@@ -629,7 +639,7 @@ private slots:
         QStringList titles;
         for (const DetailBlock &b : d.blocks)
             titles << b.title;
-        QVERIFY2(titles.contains(QStringLiteral("Single-thread · pinned per repetition (CPU 0, 5, 7)")),
+        QVERIFY2(titles.contains(QStringLiteral("Single-thread part (one core on purpose) · CPU 0, 5, 7")),
                  qPrintable(titles.join(QStringLiteral(" | "))));
     }
 
@@ -645,13 +655,17 @@ private slots:
                  QStringLiteral("unpinned (no core ranking available)"));
         bool unpinnedTitle = false;
         for (const DetailBlock &b : t.detail(r).blocks)
-            unpinnedTitle = unpinnedTitle || b.title == QStringLiteral("Single-thread · unpinned");
+            unpinnedTitle = unpinnedTitle || b.title == QStringLiteral("Single-thread part (one core on purpose) · unpinned");
         QVERIFY(unpinnedTitle);
         qputenv("SYNBENCH_CPU_FORCE_PIN", "fail");
         FakeRunContext b;
         r = t.run(b, {});
         qunsetenv("SYNBENCH_CPU_FORCE_PIN");
         QCOMPARE(std::get<QString>(r.metric(QStringLiteral("single.cpu"))->value), QStringLiteral("unpinned (pinning failed)"));
+        bool failedTitle = false;
+        for (const DetailBlock &blk : t.detail(r).blocks)
+            failedTitle = failedTitle || blk.title == QStringLiteral("Single-thread part (one core on purpose) · unpinned (pinning failed)");
+        QVERIFY(failedTitle);
         // Logged once, and never "CPU -1" or a core line per measurement (Zeb).
         QCOMPARE(b.count(QStringLiteral("couldn't pin the thread")), 1);
         QCOMPARE(b.count(QStringLiteral("couldn't move to the quietest core")), 0);

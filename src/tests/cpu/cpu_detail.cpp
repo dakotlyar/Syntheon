@@ -187,9 +187,17 @@ DetailLayout CpuTest::detail(const TestResult &r) const
     d.subtitle = parts.join(QStringLiteral(" · "));
 
     // 1. KPIs.
+    // Dave, 2026-10-18 (validation): CPU score, single-thread mark, threads,
+    // then the paths and the temperature, so the page says at once that the
+    // test ran on every thread.
     KpisBlock kpis;
+    if (r.score)
+        kpis.items.append({QStringLiteral("CPU score"), DetailCell::literal(Units::format(*r.score, QStringLiteral("points"), false)),
+                           QStringLiteral("points")});
     if (r.metric(QStringLiteral("single.mark")))
         kpis.items.append({QStringLiteral("Single-thread mark"), DetailCell::metric(QStringLiteral("single.mark")), QStringLiteral("points")});
+    if (r.metric(QStringLiteral("threads")))
+        kpis.items.append({QStringLiteral("Threads used"), DetailCell::metric(QStringLiteral("threads")), QStringLiteral("threads")});
     if (!simdPath.isEmpty()) {
         const auto [path, width] = splitParenthesis(simdPath);
         kpis.items.append({QStringLiteral("SIMD path"), DetailCell::literal(path), width});
@@ -198,8 +206,6 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         const auto [main, rest] = splitCryptoPath(crypto);
         kpis.items.append({QStringLiteral("Encryption path"), DetailCell::literal(main), rest});
     }
-    if (r.metric(QStringLiteral("threads")))
-        kpis.items.append({QStringLiteral("Threads used"), DetailCell::metric(QStringLiteral("threads")), QStringLiteral("logical CPUs")});
     if (const Metric *t = r.metric(QStringLiteral("temp.max")); t && t->isNumeric())
         kpis.items.append({QStringLiteral("Peak temperature"),
                            DetailCell::literal(Units::format(std::get<double>(t->value), QStringLiteral("°C"))),
@@ -292,13 +298,19 @@ DetailLayout CpuTest::detail(const TestResult &r) const
     if (r.metric(QStringLiteral("single.int")) || r.metric(QStringLiteral("single.fp"))
         || r.metric(QStringLiteral("single.compress"))) {
         const QStringList cores = coresUsed(text(r, QStringLiteral("single.cores")));
+        // Dave, 2026-10-18 (validation): the title says the single core is on
+        // purpose, so nobody reads the whole test as one-core.
+        const QString prefix = QStringLiteral("Single-thread part (one core on purpose)");
+        const QString where = text(r, QStringLiteral("single.cpu"));
         QString title;
-        if (text(r, QStringLiteral("single.cpu")).startsWith(QLatin1StringView("unpinned")) || cores.isEmpty())
-            title = QStringLiteral("Single-thread · unpinned");
+        if (where.startsWith(QLatin1StringView("unpinned (pinning failed)")))
+            title = prefix + QStringLiteral(" · unpinned (pinning failed)");
+        else if (where.startsWith(QLatin1StringView("unpinned")) || cores.isEmpty())
+            title = prefix + QStringLiteral(" · unpinned");
         else if (cores.size() == 1)
-            title = QStringLiteral("Single-thread · pinned to CPU %1").arg(cores.front());
+            title = prefix + QStringLiteral(" · pinned to CPU %1").arg(cores.front());
         else
-            title = QStringLiteral("Single-thread · pinned per repetition (CPU %1)").arg(cores.join(QStringLiteral(", ")));
+            title = prefix + QStringLiteral(" · CPU %1").arg(cores.join(QStringLiteral(", ")));
         TableBlock st;
         st.columns = {QStringLiteral("Part"), QStringLiteral("Result")};
         st.rows.append({DetailCell::literal(QStringLiteral("Integer")), DetailCell::literal(withUnit(r, QStringLiteral("single.int")))});
@@ -310,6 +322,9 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         st.rows.append({DetailCell::literal(QStringLiteral("Single-thread mark")),
                         DetailCell::literal(mark ? Units::format(*mark, QStringLiteral("points"), false) : QStringLiteral("—"))});
         d.blocks.append({title, st});
+        if (const auto threads = number(r, QStringLiteral("threads")))
+            d.blocks.append({{}, NoteBlock{QStringLiteral("Every other sub-test runs on all %1 threads.").arg(std::lround(*threads)),
+                                           Tone::Neutral}});
     }
 
     // 6. The two charts, one series each, with the windows labelled.
