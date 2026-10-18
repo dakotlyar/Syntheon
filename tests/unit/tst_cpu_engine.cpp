@@ -961,10 +961,11 @@ private slots:
         QCOMPARE(wrongCpu.load(), 0);
     }
 
-    // Decision D: before each repetition (not the warm-up) the pool samples
+    // Decision D: before the warm-up and each repetition the pool samples
     // idle time for 250 ms, outside the window, and re-pins to the quieter
     // candidate; each repetition records where it ran. Injected samples make
-    // the second CPU the quieter one in repetitions 1 and 3, the first in 2.
+    // the second CPU the quieter one for the warm-up (the pool starts on the
+    // first) and repetitions 1 and 3, the first in 2.
     void repickPerRepetition()
     {
         const std::vector<sb::isa::CoreChoice> cpus = twoCpus();
@@ -978,7 +979,7 @@ private slots:
         o.idleSampler = [&] {
             const int call = int(sampledAt.size());
             sampledAt.push_back(Clock::now());
-            const int rep = call / 2 + 1;
+            const int rep = call / 2;  // 0: the warm-up
             const bool second = call % 2 == 1;
             const std::uint64_t quiet = second ? 25 : 0, busy = second ? 5 : 0;
             return rep == 2 ? sb::isa::IdleSample{{100, quiet}, {200, busy}}
@@ -990,16 +991,19 @@ private slots:
         const Measurement m = pool.measure(k, {20ms, 100ms, 3}, [] { return false; },
                                            [&](int w) { k.startWindow(w); });
         QVERIFY(m.ok());
-        QCOMPARE(sampledAt.size(), std::size_t(6));  // two per repetition, none for the warm-up
+        QCOMPARE(sampledAt.size(), std::size_t(8));  // two per window, the warm-up included
         QCOMPARE(m.reps.size(), std::size_t(3));
-        const int want[] = {cpus[0].cpu, cpus[1].cpu, cpus[0].cpu, cpus[1].cpu};  // warm-up = pinTo
+        const int want[] = {cpus[1].cpu, cpus[1].cpu, cpus[0].cpu, cpus[1].cpu};
+        for (int w = 0; w <= 3; ++w) {
+            // 250 ms of sampling, all before the window started...
+            const auto first = sampledAt[std::size_t(2 * w)], second = sampledAt[std::size_t(2 * w + 1)];
+            QVERIFY(second - first >= 250ms);
+            QVERIFY(k.windowStarts()[std::size_t(w)] >= second);
+        }
         for (int r = 1; r <= 3; ++r) {
             QVERIFY(m.reps[std::size_t(r - 1)].core.ranked);
             QCOMPARE(m.reps[std::size_t(r - 1)].core.cpu, want[r]);
-            // 250 ms of sampling, all before the window started...
-            const auto first = sampledAt[std::size_t(2 * r - 2)], second = sampledAt[std::size_t(2 * r - 1)];
-            QVERIFY(second - first >= 250ms);
-            QVERIFY(k.windowStarts()[std::size_t(r)] >= second);
+            QVERIFY(!m.reps[std::size_t(r - 1)].repickFailed);
             // ...so the repetition's own time doesn't include it.
             QVERIFY2(m.reps[std::size_t(r - 1)].seconds < 0.100 + 0.150,
                      qPrintable(QString::number(m.reps[std::size_t(r - 1)].seconds)));
@@ -1011,6 +1015,50 @@ private slots:
         }
         QCOMPARE(wrong, 0);
         QCOMPARE(pool.placementFailures(), 0);
+    }
+
+    // AP-5 M1: a re-pin that fails leaves the thread where it was, and the
+    // repetition says so: its core is the one it really ran on. (A CPU
+    // number past the platform's limit makes pinCurrentThread() fail.)
+    void failedRepickKeepsCore()
+    {
+        const std::vector<sb::isa::CoreChoice> cpus = twoCpus();
+        if (cpus.empty())
+            QSKIP("needs a CPU to pin to");
+        sb::isa::CoreChoice bad = cpus[0];
+        bad.cpu = 1 << 20;
+        WorkerPool::Options o;
+        o.threads = 1;
+        o.pinTo = cpus[0];
+        o.pickFrom = {{cpus[0], {0}}, {bad, {1}}};
+        o.sampleFor = 10ms;
+        int calls = 0;
+        o.idleSampler = [&] {
+            // Repetition 2 (windows 0, 1, 2: calls 4 and 5) finds `bad` quieter.
+            const bool second = calls % 2 == 1;
+            const bool badQuieter = calls / 2 == 2;
+            ++calls;
+            const std::uint64_t quiet = second ? 25 : 0, busy = second ? 5 : 0;
+            return badQuieter ? sb::isa::IdleSample{{0, busy}, {1, quiet}} : sb::isa::IdleSample{{0, quiet}, {1, busy}};
+        };
+        WorkerPool pool(std::move(o));
+        WhereKernel k;
+        const Measurement m = pool.measure(k, {10ms, 50ms, 3}, [] { return false; }, [&](int w) { k.startWindow(w); });
+        QVERIFY(m.ok());
+        QCOMPARE(m.reps.size(), std::size_t(3));
+        for (int r = 1; r <= 3; ++r) {
+            QVERIFY(m.reps[std::size_t(r - 1)].core.ranked);
+            QCOMPARE(m.reps[std::size_t(r - 1)].core.cpu, cpus[0].cpu);
+            QCOMPARE(m.reps[std::size_t(r - 1)].repickFailed, r == 2);
+        }
+        QVERIFY(pool.pinned());
+        QCOMPARE(pool.placementFailures(), 1);
+        int wrong = 0;
+        for (const WhereKernel::Unit &u : k.units()) {
+            if (currentCpu() >= 0 && u.cpu != cpus[0].cpu)
+                ++wrong;
+        }
+        QCOMPARE(wrong, 0);
     }
 
     // One candidate: nothing to choose, so no sampling.
@@ -1057,7 +1105,7 @@ private slots:
         Clock::time_point cancelledAt{};
         std::uint64_t wait0 = 0;
         o.idleSampler = [&] {
-            // Repetition 1's first sample: cancel 100 ms into the sampling.
+            // The warm-up's first sample: cancel 100 ms into the sampling.
             if (++samples == 1) {
                 cancelledAt = Clock::now() + 100ms;
                 wait0 = runQueueWaitNs();

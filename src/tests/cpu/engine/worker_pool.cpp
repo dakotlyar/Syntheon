@@ -281,6 +281,7 @@ bool WorkerPool::repick(const std::function<bool()> &cancelled, bool &wasCancell
     }
     const isa::CoreChoice pick =
         isa::quietestCandidate(m_options.pickFrom, before, sample ? sample() : isa::sampleIdle());
+    m_repickFailed = false;
     if (m_core.ranked && pick.cpu == m_core.cpu && pick.group == m_core.group)
         return true;
     {
@@ -289,8 +290,10 @@ bool WorkerPool::repick(const std::function<bool()> &cancelled, bool &wasCancell
     }
     bool unused = false;
     runJob(Job::Pin, {}, {}, unused);
-    const bool failed = std::any_of(m_workers.begin(), m_workers.end(), [](const Worker &w) { return w.pinFailed; });
-    m_core = failed ? isa::CoreChoice{} : pick;
+    // A failed pin leaves the thread's affinity as it was: m_core stays.
+    m_repickFailed = std::any_of(m_workers.begin(), m_workers.end(), [](const Worker &w) { return w.pinFailed; });
+    if (!m_repickFailed)
+        m_core = pick;
     return true;
 }
 
@@ -341,6 +344,10 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
     runJob(Job::Prepare, {}, {}, wasCancelled);
     if (failed())
         return finish();
+    if (m_options.pickFrom.size() > 1 && !repick(cancelled, wasCancelled)) {
+        m.outcome = Measurement::Outcome::Cancelled;
+        return finish();
+    }
     if (progress)
         progress(0);
     runJob(Job::Window, spec.warmup, cancelled, wasCancelled);
@@ -369,6 +376,7 @@ Measurement WorkerPool::measure(const Kernel &kernel, const WindowSpec &spec, co
         RepSample s;
         s.stopSet = m_stopSet;
         s.core = m_core;
+        s.repickFailed = m_repickFailed;
         // A collective kernel's threads share each unit's work.
         const double work = kernel.workPerUnit() / (m_unitBarrier ? double(threads()) : 1.0);
         for (const Worker &w : m_workers) {
