@@ -373,6 +373,20 @@ private slots:
         QCOMPARE(quietestCandidate(top, before, {{0, 101}, {1, 101}, {2, 101}, {3, 125}}).cpu, 0);
     }
 
+    // A mixed tie set (a 2-thread core and a 1-thread core at the same
+    // ranking): idle is compared per logical CPU, not summed, so two
+    // half-busy threads don't beat one idle one.
+    void mixedSmtTieSet()
+    {
+        const std::vector<CoreCandidate> top = {{{true, 0, 0, 0, "test"}, {0, 1}}, {{true, 2, 0, 0, "test"}, {2}}};
+        const IdleSample before{{0, 0}, {1, 0}, {2, 0}};
+        // Sums 30 against 25; means 15 against 25.
+        QCOMPARE(quietestCandidate(top, before, {{0, 15}, {1, 15}, {2, 25}}).cpu, 2);
+        // Both threads idle: means 25 against 25, a tie, so the earlier one.
+        QCOMPARE(quietestCandidate(top, before, {{0, 25}, {1, 25}, {2, 25}}).cpu, 0);
+        QCOMPARE(quietestCandidate(top, before, {{0, 25}, {1, 24}, {2, 25}}).cpu, 2);
+    }
+
     // One core at the top (the ARM fixture's single 1024-capacity core): it
     // is the choice however busy it was.
     void singleCoreTied()

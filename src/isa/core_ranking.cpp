@@ -267,7 +267,7 @@ CoreChoice quietestCandidate(const std::vector<CoreCandidate> &candidates, const
                              const IdleSample &after)
 {
     const CoreCandidate *best = nullptr;
-    std::uint64_t bestIdle = 0;
+    double bestIdle = 0;
     for (const CoreCandidate &c : candidates) {
         std::uint64_t idle = 0;
         for (const int key : c.smtKeys) {
@@ -276,9 +276,12 @@ CoreChoice quietestCandidate(const std::vector<CoreCandidate> &candidates, const
             if (b != before.end() && a != after.end() && a->second > b->second)
                 idle += a->second - b->second;
         }
-        if (!best || idle > bestIdle) {
+        // The mean per logical CPU, so a 2-thread core isn't favoured over a
+        // 1-thread core in a mixed tie set just for having two.
+        const double mean = c.smtKeys.empty() ? 0.0 : double(idle) / double(c.smtKeys.size());
+        if (!best || mean > bestIdle) {
             best = &c;
-            bestIdle = idle;
+            bestIdle = mean;
         }
     }
     return best ? best->core : CoreChoice{};

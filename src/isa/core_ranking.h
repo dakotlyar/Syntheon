@@ -101,8 +101,9 @@ std::vector<CoreCandidate> windowsTopCandidates(const std::vector<CpuSetRecord> 
                                                 const std::vector<std::vector<int>> &cores);
 
 // The candidate whose physical core was idle the most between the two
-// samples (summed over its SMT keys; a key missing from either sample counts
-// as never idle). Ties: the earlier candidate. Unranked if there are none.
+// samples: the mean over its SMT keys, so cores with and without SMT compare
+// fairly (a key missing from either sample counts as never idle). Ties: the
+// earlier candidate. Unranked if there are none.
 CoreChoice quietestCandidate(const std::vector<CoreCandidate> &candidates, const IdleSample &before,
                              const IdleSample &after);
 
