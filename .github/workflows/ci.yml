@@ -133,6 +133,13 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          # Every failed check with its context first (a failure early in a
+          # long log falls outside the last 100 lines), and the first run's
+          # logs kept beside the rerun's (the rerun overwrites them; a flake
+          # that passes on the rerun left no trace before).
+          grep -n -B2 -A6 "^FAIL!" build/linux-x64-release/test-logs/*.txt || true
+          mkdir -p build/linux-x64-release/test-logs/first-run
+          cp build/linux-x64-release/test-logs/*.txt build/linux-x64-release/test-logs/first-run/ 2>/dev/null || true
           for f in build/linux-x64-release/test-logs/*.txt; do
             [ -f "$f" ] || continue
             echo "::group::$f (last 100 lines)"; tail -n 100 "$f"; echo "::endgroup::"
@@ -259,6 +266,13 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          # Every failed check with its context first (a failure early in a
+          # long log falls outside the last 100 lines), and the first run's
+          # logs kept beside the rerun's (the rerun overwrites them; a flake
+          # that passes on the rerun left no trace before).
+          grep -n -B2 -A6 "^FAIL!" build/windows-x64-release/test-logs/*.txt || true
+          mkdir -p build/windows-x64-release/test-logs/first-run
+          cp build/windows-x64-release/test-logs/*.txt build/windows-x64-release/test-logs/first-run/ 2>/dev/null || true
           for f in build/windows-x64-release/test-logs/*.txt; do
             [ -f "$f" ] || continue
             echo "::group::$f (last 100 lines)"; tail -n 100 "$f"; echo "::endgroup::"
