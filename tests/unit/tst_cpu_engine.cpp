@@ -161,30 +161,37 @@ public:
         return t;
     }
     // For measure()'s progress callback (on the coordinator): the window
-    // that starts now. Also notes the coordinator's run-queue wait so far.
+    // that starts now.
     void startWindow(int window)
     {
         m_window = window;
         m_windowStarts.push_back(Clock::now());
-        m_coordinatorWaits.push_back(runQueueWaitNs());
     }
-    // After measure() returns, on the same thread: the last window's end.
-    void finished() { m_coordinatorWaits.push_back(runQueueWaitNs()); }
-    // The coordinator's run-queue wait during window `window` (Linux; else 0).
-    double coordinatorWaitSeconds(int window) const
+    // For measure()'s cancel callback (on the coordinator, every poll): notes
+    // when it polled, in which window, and its run-queue wait so far (Linux;
+    // else 0). Never cancels.
+    struct Poll {
+        Clock::time_point at;
+        std::uint64_t waitNs;
+        int window;
+    };
+    bool poll()
     {
-        return double(m_coordinatorWaits[std::size_t(window) + 1] - m_coordinatorWaits[std::size_t(window)]) / 1e9;
+        m_polls.push_back({Clock::now(), runQueueWaitNs(), m_window.load()});
+        return false;
     }
+    const std::vector<Poll> &polls() const { return m_polls; }
     // Read once measure() has returned (the pool's joins order the writes).
     const std::vector<Unit> &units(int thread) const { return m_units[std::size_t(thread)]; }
     Clock::time_point windowStart(int window) const { return m_windowStarts[std::size_t(window)]; }
+    int window() const { return m_window.load(); }  // the current window (on the coordinator)
 
 private:
     std::function<std::uint64_t(int)> m_steps;
     mutable std::vector<std::vector<Unit>> m_units;
     std::atomic<int> m_window{-1};
     std::vector<Clock::time_point> m_windowStarts;
-    std::vector<std::uint64_t> m_coordinatorWaits;
+    std::vector<Poll> m_polls;
 };
 
 double secondsOf(Clock::duration d)
@@ -287,17 +294,29 @@ QString checkRepetitions(const Measurement &m, const RecordingKernel &k, int thr
         if (stopSet <= earliest)
             return QStringLiteral("repetition %1 has no stop time").arg(r);
         // ...and the coordinator set it at the deadline: within one poll
-        // interval (50 ms) of it plus 200 ms, beyond the time it spent
-        // waiting on a run queue in that window (Linux; a CPU other programs
+        // interval (50 ms) of it plus 200 ms, beyond the time it waited on a
+        // run queue where that could delay it (Linux; a CPU other programs
         // hold delayed it by up to 380 ms beside 6 busy loops on 4 CPUs).
-        const double late = secondsOf(stopSet - earliest) - secondsOf(window) - k.coordinatorWaitSeconds(r);
+        // Only the last poll interval counts: the coordinator sets stop
+        // right after the poll that finds the deadline passed (the window's
+        // last poll before stopSet), and every poll before that one came
+        // before the deadline, so waiting earlier can't delay it.
+        std::vector<RecordingKernel::Poll> polls;
+        for (const RecordingKernel::Poll &p : k.polls()) {
+            if (p.window == r && p.at <= stopSet)
+                polls.push_back(p);
+        }
+        if (polls.size() < 2)
+            return QStringLiteral("repetition %1 has %2 polls before its stop").arg(r).arg(polls.size());
+        const double lastWait = double(polls.back().waitNs - polls[polls.size() - 2].waitNs) / 1e9;
+        const double late = secondsOf(stopSet - earliest) - secondsOf(window) - lastWait;
         if (late > 0.050 + 0.200)
             return QStringLiteral("repetition %1: stop was set %2 ms after the window started (window %3 ms; the "
-                                  "coordinator waited %4 ms for a CPU)")
+                                  "coordinator waited %4 ms for a CPU in its last poll interval)")
                 .arg(r)
                 .arg(secondsOf(stopSet - earliest) * 1000, 0, 'f', 1)
                 .arg(secondsOf(window) * 1000, 0, 'f', 0)
-                .arg(k.coordinatorWaitSeconds(r) * 1000, 0, 'f', 1);
+                .arg(lastWait * 1000, 0, 'f', 1);
         std::uint64_t units = 0;
         std::vector<Clock::time_point> ends;
         std::vector<std::uint64_t> counts;
@@ -402,8 +421,7 @@ private slots:
         WorkerPool pool({n, {}});
         QCOMPARE(pool.threads(), n);
         constexpr auto window = 600ms;
-        const Measurement m = pool.measure(k, {100ms, window, 3}, [] { return false; }, [&](int w) { k.startWindow(w); });
-        k.finished();
+        const Measurement m = pool.measure(k, {100ms, window, 3}, [&] { return k.poll(); }, [&](int w) { k.startWindow(w); });
         QVERIFY2(m.ok(), m.error.c_str());
         QCOMPARE(int(m.reps.size()), 3);
         const QString problem = checkRepetitions(m, k, n, window);
@@ -427,8 +445,7 @@ private slots:
         RecordingKernel k(2, [shortUnit](int t) { return t == 0 ? shortUnit : 40 * shortUnit; });
         WorkerPool pool({2, {}});
         constexpr auto window = 300ms;
-        const Measurement m = pool.measure(k, {50ms, window, 3}, [] { return false; }, [&](int w) { k.startWindow(w); });
-        k.finished();
+        const Measurement m = pool.measure(k, {50ms, window, 3}, [&] { return k.poll(); }, [&](int w) { k.startWindow(w); });
         QVERIFY2(m.ok(), m.error.c_str());
         QCOMPARE(int(m.reps.size()), 3);
         const QString problem = checkRepetitions(m, k, 2, window);
@@ -450,12 +467,10 @@ private slots:
     // path). A
     // coordinator that polls too slowly sleeps and units that ignore the stop
     // work: neither is waiting, so both still fail. The poll itself is bound
-    // too: seeing the cancel takes at most 50 ms + 75 ms beyond the
-    // coordinator's own run-queue wait (timer granularity, and load delays
-    // schedstat doesn't count: up to 100 ms beside 6 busy loops on 4 CPUs;
-    // a 150 ms poll measured 153-180 ms idle, so it still fails). Elsewhere the waits read
-    // as 0 and both bounds are on wall time (Windows raises the coordinator's
-    // priority). On a failure the message splits the time.
+    // too: the median time between two polls in the same window, less the
+    // coordinator's run-queue wait between them, is at most 60 ms. Elsewhere
+    // the waits read as 0 and both bounds are on wall time (Windows raises
+    // the coordinator's priority). On a failure the message splits the time.
     void stopWithin250ms()
     {
         const int n = testThreads();
@@ -468,7 +483,7 @@ private slots:
                 w.push_back(runQueueWaitNs(tid));
             return w;
         };
-        const Clock::time_point begin = Clock::now();
+        int repPolls = 0;
         Clock::time_point cancelledAt{}, seenAt{};
         bool armed = false;
         std::uint64_t coordAtCancel = 0, coordAtSeen = 0;
@@ -477,6 +492,7 @@ private slots:
             k, {100ms, 10000ms, 5},
             [&] {
                 const auto now = Clock::now();
+                k.poll();
                 if (armed) {
                     if (seenAt == Clock::time_point{}) {
                         seenAt = now;
@@ -485,7 +501,9 @@ private slots:
                     }
                     return true;
                 }
-                if (now - begin >= 300ms) {
+                // Raised in repetition 1's 5th poll, inside the window (so
+                // there are poll intervals to check whatever the poll rate).
+                if (k.window() == 1 && ++repPolls == 5) {
                     armed = true;
                     cancelledAt = now;
                     coordAtCancel = runQueueWaitNs();
@@ -512,7 +530,6 @@ private slots:
         }
         const auto ms = [](Clock::duration d) { return QString::number(secondsOf(d) * 1000, 'f', 1); };
         const double tookMs = secondsOf(returnedAt - cancelledAt) * 1000;
-        const double sawMs = secondsOf(seenAt - cancelledAt) * 1000;
         const QString detail =
             QStringLiteral("Stop took %1 ms, %2 ms of it other programs' (run-queue waits on the critical path: %3 "
                            "before the coordinator saw it, %4 after): the coordinator saw it after %5 ms (it polls "
@@ -526,7 +543,22 @@ private slots:
                 .arg(ms(lastEnd - seenAt))
                 .arg(inFlight.join(QStringLiteral(", ")))
                 .arg(ms(returnedAt - lastEnd));
-        QVERIFY2(sawMs - toSeenWait < 50 + 75, qPrintable(QStringLiteral("the poll is too slow. ") + detail));
+        // The poll interval: the median over the measurement of the time
+        // between two polls in the same window, less the coordinator's
+        // run-queue wait between them.
+        std::vector<double> intervals;
+        const std::vector<RecordingKernel::Poll> &polls = k.polls();
+        for (std::size_t i = 1; i < polls.size(); ++i) {
+            if (polls[i].window == polls[i - 1].window)
+                intervals.push_back(secondsOf(polls[i].at - polls[i - 1].at) * 1000
+                                    - double(polls[i].waitNs - polls[i - 1].waitNs) / 1e6);
+        }
+        QVERIFY(intervals.size() >= 3);
+        const double medianPoll = medianOf(intervals);
+        QVERIFY2(medianPoll <= 60, qPrintable(QStringLiteral("the poll is too slow: every %1 ms (median of %2). ")
+                                                  .arg(medianPoll, 0, 'f', 1)
+                                                  .arg(intervals.size())
+                                              + detail));
         QVERIFY2(tookMs - loadMs < 250, qPrintable(detail));
     }
 
