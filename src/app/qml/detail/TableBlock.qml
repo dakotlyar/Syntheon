@@ -5,7 +5,11 @@ import QtQuick.Layouts
 import SynBench
 
 // A table of already-formatted cells; the first column left, the rest right in
-// the data font.
+// the data font. Columns are sized to their content (the widest header or
+// cell line, a cell may hold several lines): the value columns get what they
+// need, the first column the rest. When even that doesn't fit (a narrow
+// window), the first column gives way first (down to 30%), then every column
+// shrinks in proportion and the cells wrap.
 Box {
     id: root
 
@@ -15,6 +19,54 @@ Box {
 
     implicitHeight: content.implicitHeight
     clip: true
+
+    readonly property int gap: 12
+    readonly property real available: Math.max(0, width - 24 - gap * Math.max(0, columns.length - 1))
+
+    // Fonts the cells use, for measuring.
+    SbText { id: headProbe; visible: false; kind: "label"; font.capitalization: Font.MixedCase }
+    SbText { id: bodyProbe; visible: false; kind: "body"; font.pixelSize: 13 }
+    SbText { id: dataProbe; visible: false; kind: "data"; font.pixelSize: 13 }
+    FontMetrics { id: headMetrics; font: headProbe.font }
+    FontMetrics { id: bodyMetrics; font: bodyProbe.font }
+    FontMetrics { id: dataMetrics; font: dataProbe.font }
+
+    function lineWidth(metrics, text, spacing) {
+        let w = 0
+        for (const line of String(text).split("\n"))
+            w = Math.max(w, metrics.advanceWidth(line) + spacing * line.length)
+        return Math.ceil(w) + 2
+    }
+    // What each column needs to show its widest header or cell line.
+    readonly property var needs: {
+        const n = columns.length
+        const out = []
+        for (let c = 0; c < n; ++c)
+            out.push(lineWidth(headMetrics, headerText(columns[c]), headProbe.font.letterSpacing))
+        for (const row of rows) {
+            for (let c = 0; c < Math.min(n, row.length); ++c)
+                out[c] = Math.max(out[c], lineWidth(c === 0 ? bodyMetrics : dataMetrics, row[c], 0))
+        }
+        return out
+    }
+    readonly property var widths: {
+        const need = needs
+        const n = need.length
+        if (n === 0)
+            return []
+        const total = need.reduce((a, b) => a + b, 0)
+        if (total <= available) {
+            const w = need.slice()
+            w[0] += available - total  // the first column takes the spare room
+            return w
+        }
+        const rest = total - need[0]
+        const first = Math.min(need[0], available * 0.3)
+        if (first + rest <= available)
+            return [available - rest].concat(need.slice(1))
+        return need.map(x => x * available / total)
+    }
+    function columnWidth(i) { return widths.length > i ? widths[i] : 0 }
 
     readonly property var unitHeaders: ["ns", "µs", "ms", "s", "min", "fps", "GB/s", "MB/s", "IOPS", "MT/s", "Gpx/s",
                                         "Mpx/s", "MOps/s", "MFLOPS", "tok/s", "inf/s", "it/s", "W", "Wh", "%", "points"]
@@ -39,18 +91,18 @@ Box {
             Layout.fillWidth: true
             implicitHeight: headRow.implicitHeight + 16
             color: Theme.sunk
-            RowLayout {
+            Row {
                 id: headRow
-                anchors.fill: parent
+                anchors.left: parent.left; anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 12; anchors.rightMargin: 12
-                spacing: 12
+                spacing: root.gap
                 Repeater {
                     model: root.columns
                     delegate: SbText {
                         required property string modelData
                         required property int index
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: index === 0 ? 2 : 1
+                        width: root.columnWidth(index)
                         horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
                         // Capitals by hand: automatic capitalisation would turn
                         // "µs" into a Greek capital Mu and "GB/s" into "GB/S".
@@ -75,18 +127,18 @@ Box {
                     anchors.bottom: parent.bottom
                     width: parent.width; height: 1; color: Theme.line
                 }
-                RowLayout {
+                Row {
                     id: rowLayout
-                    anchors.fill: parent
+                    anchors.left: parent.left; anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
                     anchors.leftMargin: 12; anchors.rightMargin: 12
-                    spacing: 12
+                    spacing: root.gap
                     Repeater {
                         model: tableRow.modelData
                         delegate: SbText {
                             required property string modelData
                             required property int index
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: index === 0 ? 2 : 1
+                            width: root.columnWidth(index)
                             horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
                             text: modelData
                             kind: index === 0 ? "body" : "data"
