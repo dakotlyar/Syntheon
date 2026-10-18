@@ -628,11 +628,15 @@ private slots:
         r = t.run(c, {});
         qunsetenv("SYNBENCH_CPU_FAKE_THROTTLE");
         QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle"))->value), QStringLiteral("Detected"));
-        QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle.detail"))->value),
-                 QStringLiteral("Intel throttle counters rose by 12"));
-        QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle.note"))->value),
-                 QStringLiteral("Throttling detected: the CPU's throttle counters rose by 12 during the test. The score is not "
-                                "adjusted."));
+        // The counters always show in the detail; at 1% of real time a rate
+        // dip in some window can fire rule 3 as well, which then leads it
+        // (and the note), so only the counters-only case checks the note.
+        const QString detail = std::get<QString>(r.metric(QStringLiteral("throttle.detail"))->value);
+        QVERIFY2(detail.endsWith(QStringLiteral("Intel throttle counters rose by 12")), qPrintable(detail));
+        if (detail == QStringLiteral("Intel throttle counters rose by 12"))
+            QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle.note"))->value),
+                     QStringLiteral("Throttling detected: the CPU's throttle counters rose by 12 during the test. The score is "
+                                    "not adjusted."));
     }
 
     // Zeb M1: the Sub-tests and Encryption tables are always full width, so

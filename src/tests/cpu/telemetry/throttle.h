@@ -50,7 +50,8 @@ ThrottleVerdict detectThrottle(const std::vector<WindowTrace> &windows, std::opt
 
 // `throttle.detail`: "xz compression: clock 4.9 → 4.1 GHz (−16%)", "xz
 // compression: rate −9% from the first repetition to the last", "Intel
-// throttle counters rose by 12"; "" when not detected.
+// throttle counters rose by 12" (added after a window's detail, "; Intel …",
+// when the counters rose too); "" when not detected.
 std::string throttleDetail(const ThrottleVerdict &v);
 // The Detail page's note (wording approved by Dave 2026-10-16): "Throttling
 // detected in xz compression: clock speed fell from 4.6 to 3.9 GHz (−15%) at

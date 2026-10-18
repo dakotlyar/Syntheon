@@ -324,6 +324,10 @@ private slots:
         v = detectThrottle({}, 10, 22);
         QVERIFY(v.detected && v.counters);
         QCOMPARE(throttleDetail(v), std::string("Intel throttle counters rose by 12"));
+        // Both: the window's detail, then the counters.
+        v = detectThrottle({window("Physics", {100, 95, 90}, {})}, 10, 22);
+        QCOMPARE(throttleDetail(v), std::string("Physics: rate \u221210% from the first repetition to the last; Intel "
+                                                "throttle counters rose by 12"));
         v = detectThrottle({}, 10, 10);
         QVERIFY(!v.detected);
         v = detectThrottle({}, std::nullopt, 22);

@@ -85,10 +85,11 @@ std::string throttleDetail(const ThrottleVerdict &v)
         return {};
     if (v.window.empty())
         return "Intel throttle counters rose by " + std::to_string(v.counterRise);
+    const std::string counters = v.counters ? "; Intel throttle counters rose by " + std::to_string(v.counterRise) : std::string();
     if (!v.byRate)
         return v.window + ": clock " + fixed(*v.fromMHz / 1000, 1) + " → " + fixed(*v.toMHz / 1000, 1) + " GHz ("
-               + minusPercent(v.dropPercent) + ")";
-    return v.window + ": rate " + minusPercent(v.dropPercent) + " from the first repetition to the last";
+               + minusPercent(v.dropPercent) + ")" + counters;
+    return v.window + ": rate " + minusPercent(v.dropPercent) + " from the first repetition to the last" + counters;
 }
 
 std::string throttleNote(const ThrottleVerdict &v)
