@@ -22,13 +22,24 @@ set(SB_TEST_HOME "${CMAKE_BINARY_DIR}/test-home")
 # The runtime folder holds the single-instance sockets, and a Unix socket
 # path has room for 104 bytes (macOS; 108 on Linux); "<runtime>/synbench/synbench-<key>.sock"
 # adds 36. A deep build tree (a worktree under a long scratch path) gets a
-# short per-build folder in /tmp instead of <test-home>/run.
+# short per-build folder instead of <test-home>/run: under the user's own
+# XDG_RUNTIME_DIR at configure time (/run/user/<uid>: private, cleared at
+# logout), or in /tmp only when there is none. The setup step refuses a
+# symlink or a folder the current user doesn't own.
 set(SB_TEST_RUNTIME "${SB_TEST_HOME}/run")
 string(LENGTH "${SB_TEST_RUNTIME}" _sb_runtime_len)
 if(_sb_runtime_len GREATER 68)
     string(SHA1 _sb_build_hash "${CMAKE_BINARY_DIR}")
     string(SUBSTRING "${_sb_build_hash}" 0 12 _sb_build_hash)
-    set(SB_TEST_RUNTIME "/tmp/synbench-test-run-${_sb_build_hash}")
+    set(_sb_runtime_parent "/tmp")
+    if(IS_ABSOLUTE "$ENV{XDG_RUNTIME_DIR}" AND IS_DIRECTORY "$ENV{XDG_RUNTIME_DIR}")
+        set(_sb_runtime_parent "$ENV{XDG_RUNTIME_DIR}")
+    endif()
+    set(SB_TEST_RUNTIME "${_sb_runtime_parent}/synbench-test-run-${_sb_build_hash}")
+    string(LENGTH "${SB_TEST_RUNTIME}" _sb_runtime_len)
+    if(_sb_runtime_len GREATER 68)
+        set(SB_TEST_RUNTIME "/tmp/synbench-test-run-${_sb_build_hash}")
+    endif()
 endif()
 set(SB_TEST_ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen"
@@ -69,6 +80,14 @@ if(UNIX)
     set_tests_properties(test_home_untouched_rejects_planted PROPERTIES
         PASS_REGULAR_EXPRESSION "test[ \n]+HOME:[ \n]+\\.local/share/SynBench\n"
         FAIL_REGULAR_EXPRESSION "\\.qttest/share/SynBench")
+    # ...and the setup refuses a runtime folder that is a planted symlink.
+    set(_planted_link "${CMAKE_CURRENT_BINARY_DIR}/planted-runtime/synbench-test-run-000000000000")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/planted-runtime/victim")
+    file(CREATE_LINK "${CMAKE_CURRENT_BINARY_DIR}/planted-runtime/victim" "${_planted_link}" SYMBOLIC)
+    add_test(NAME test_home_setup_rejects_symlinked_runtime
+        COMMAND ${CMAKE_COMMAND} "-DHOME_DIR=${CMAKE_CURRENT_BINARY_DIR}/planted-runtime/test-home"
+                "-DRUNTIME_DIR=${_planted_link}" -DMODE=setup -P "${CMAKE_CURRENT_SOURCE_DIR}/check_test_home.cmake")
+    set_tests_properties(test_home_setup_rejects_symlinked_runtime PROPERTIES PASS_REGULAR_EXPRESSION "is a symlink")
 endif()
 
 function(synbench_isolate_test name)
