@@ -26,15 +26,18 @@ if(NOT HOME_DIR OR NOT HOME_DIR MATCHES "/test-home$")
 endif()
 set(runtime_file "${HOME_DIR}/runtime-dir")
 
-# The uid owning <path> ("" if unknown). GNU stat takes -c, BSD stat -f.
+# The uid owning <path> ("" if it can't be read): GNU stat -c %u, or, on
+# Darwin/BSD only, stat -f %u (on GNU, -f means file-system status).
+execute_process(COMMAND uname -s OUTPUT_VARIABLE kernel OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 function(owner_of path out)
-    execute_process(COMMAND stat -c %u "${path}" OUTPUT_VARIABLE o OUTPUT_STRIP_TRAILING_WHITESPACE
-                    RESULT_VARIABLE r ERROR_QUIET)
-    if(NOT r EQUAL 0)
-        execute_process(COMMAND stat -f %u "${path}" OUTPUT_VARIABLE o OUTPUT_STRIP_TRAILING_WHITESPACE
-                        RESULT_VARIABLE r ERROR_QUIET)
+    if(kernel MATCHES "Darwin|BSD")
+        set(args -f %u)
+    else()
+        set(args -c %u)
     endif()
-    if(NOT r EQUAL 0)
+    execute_process(COMMAND stat ${args} "${path}" OUTPUT_VARIABLE o OUTPUT_STRIP_TRAILING_WHITESPACE
+                    RESULT_VARIABLE r ERROR_QUIET)
+    if(NOT r EQUAL 0 OR NOT o MATCHES "^[0-9]+$")
         set(o "")
     endif()
     set(${out} "${o}" PARENT_SCOPE)
@@ -53,6 +56,9 @@ function(require_ours path what)
         message(FATAL_ERROR "${what} ${path} doesn't exist or isn't a folder")
     endif()
     owner_of("${path}" owner)
+    if(owner STREQUAL "")
+        message(FATAL_ERROR "${what} ${path}: can't read the owner; refusing it")
+    endif()
     if(NOT owner STREQUAL me)
         message(FATAL_ERROR "${what} ${path} is owned by uid '${owner}', not yours ('${me}'); refusing it")
     endif()
@@ -72,6 +78,9 @@ function(remove_recorded_runtime)
         require_ours("${dir}" "runtime folder")
         file(REMOVE_RECURSE "${dir}")
     endif()
+    # Gone with its folder: a later run without the setup fixture then gets
+    # test_isolation's "run the tests through ctest", not a deleted path.
+    file(REMOVE "${runtime_file}")
 endfunction()
 
 if(MODE STREQUAL "setup")
@@ -83,6 +92,9 @@ if(MODE STREQUAL "setup")
             message(FATAL_ERROR "XDG_RUNTIME_DIR ${parent} doesn't exist or is a symlink; re-run in a user session")
         endif()
         owner_of("${parent}" owner)
+        if(owner STREQUAL "")
+            message(FATAL_ERROR "XDG_RUNTIME_DIR ${parent}: can't read the owner; re-run in a user session")
+        endif()
         if(NOT owner STREQUAL me)
             message(FATAL_ERROR "XDG_RUNTIME_DIR ${parent} isn't yours (uid '${owner}', you are '${me}'); "
                                 "re-run in your own user session, not under sudo")
