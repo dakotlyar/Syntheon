@@ -137,7 +137,8 @@ See [BUILDING.md](BUILDING.md). To add a test, see
 ## Licence
 
 GPL-3.0-or-later (see `LICENSE`). SynBench includes zlib, Zstandard, LZ4, XZ
-Utils (liblzma), OpenSSL (libcrypto), Qt and the Archivo and IBM Plex fonts,
-each under its own licence: their notices are in `THIRD-PARTY-NOTICES.txt`,
+Utils (liblzma), OpenSSL (libcrypto), Qt (with the third-party code Qt itself
+bundles, and ICU on Linux) and the Archivo and IBM Plex fonts, each under its
+own licence: their notices are in `THIRD-PARTY-NOTICES.txt`,
 which every package installs beside `LICENSE.txt` (`share/doc/synbench/` in
 the AppImage) and which **Settings > Licences** shows.

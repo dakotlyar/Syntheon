@@ -238,4 +238,4 @@ set(SYNBENCH_OPENSSL_BAKED_PREFIX "${_ossl_baked}")
 # the source only arrives at build time and the notices are written at configure.
 synbench_add_notice(NAME "OpenSSL (libcrypto)" VERSION ${SYNBENCH_OPENSSL_VERSION} LICENCE "Apache-2.0"
     FILE "${CMAKE_CURRENT_LIST_DIR}/openssl/LICENSE-OpenSSL-3.txt"
-    NOTE "Only libcrypto is used, linked statically into synbench-cpucrypto.")
+    NOTE "Only libcrypto is used, linked statically into synbench-cpucrypto.\nModified (Apache-2.0 section 4(b)): SynBench's build applies two small patches to Windows-only code: OPENSSL_armcap honoured on Windows ARM64 (cmake/openssl/patch-win-armcap.cmake) and an uninitialised registry handle set to NULL in get_windows_regdirs (cmake/openssl/patch-win-defaults.cmake).")

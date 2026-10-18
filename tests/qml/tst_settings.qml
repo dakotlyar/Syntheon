@@ -57,7 +57,7 @@ TestCase {
         const dialog = findChild(screen, "licencesDialog")
         tryVerify(function() { return dialog.opened }, 5000)
         const text = findChild(dialog.contentItem, "noticesText").text
-        for (const name of ["zlib", "Zstandard", "LZ4", "liblzma", "OpenSSL", "Qt", "Archivo", "IBM Plex"])
+        for (const name of ["zlib", "Zstandard", "LZ4", "liblzma", "OpenSSL", "Qt", "Third-party code inside Qt", "Archivo", "IBM Plex"])
             verify(text.indexOf(name) >= 0, name)
         mouseClick(findChild(dialog.footer, "closeLicences"))
         tryVerify(function() { return !dialog.visible }, 5000)

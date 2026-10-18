@@ -62,6 +62,9 @@ synbench_add_notice(NAME "Qt" VERSION ${Qt6_VERSION} LICENCE "LGPL-3.0-only"
 synbench_add_notice(NAME "Archivo font" LICENCE "OFL-1.1" FILE "${PROJECT_SOURCE_DIR}/assets/fonts/OFL-Archivo.txt")
 synbench_add_notice(NAME "IBM Plex Sans and IBM Plex Mono fonts" LICENCE "OFL-1.1"
     FILE "${PROJECT_SOURCE_DIR}/assets/fonts/OFL-IBMPlex.txt")
+# The code bundled inside Qt's deployment, and ICU on Linux (AP-5 M3).
+include(QtNotices)
+synbench_add_qt_deployment_notices()
 synbench_write_third_party_notices()
 
 add_subdirectory(src)

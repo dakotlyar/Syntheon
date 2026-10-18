@@ -36,11 +36,41 @@ if(UNIX AND SYNBENCH_PYTHON3 AND TARGET Qt6::qmllint)
                 "$<TARGET_FILE:Qt6::qmllint>" "${PROJECT_SOURCE_DIR}/packaging/checks/qmllint-gate.py")
 endif()
 
-# THIRD-PARTY-NOTICES.txt covers everything shipped (D11), each with its text.
+# THIRD-PARTY-NOTICES.txt has a section, with its licence text, for each
+# component SynBench ships that isn't its own (D11): the pinned libraries,
+# OpenSSL, Qt, the code bundled inside Qt (from Qt's SBOM, cmake/QtNotices.cmake),
+# ICU on Linux, and the fonts. The list is kept here by hand, not derived from
+# the deployed files.
+set(_notices_expect
+    "zlib ${SYNBENCH_ZLIB_VERSION}|This software is provided 'as-is'"
+    "Zstandard (zstd) ${SYNBENCH_ZSTD_VERSION}|Redistribution and use in source and binary forms"
+    "LZ4 (library) ${SYNBENCH_LZ4_VERSION}|Redistribution and use in source and binary forms"
+    "XZ Utils (liblzma) ${SYNBENCH_XZ_VERSION}|Permission to use, copy, modify, and/or distribute"
+    "OpenSSL (libcrypto) ${SYNBENCH_OPENSSL_VERSION}|Apache License"
+    "Qt ${Qt6_VERSION}|GNU LESSER GENERAL PUBLIC LICENSE"
+    "Third-party code inside Qt ${Qt6_VERSION}|Permission is hereby granted"
+    "Archivo font|SIL OPEN FONT LICENSE Version 1.1"
+    "IBM Plex Sans and IBM Plex Mono fonts|SIL OPEN FONT LICENSE Version 1.1")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND _notices_expect "ICU ${SYNBENCH_QT_NOTICE_ICU}|UNICODE, INC. LICENSE AGREEMENT")
+endif()
+list(JOIN _notices_expect "@@" _notices_expect_arg)
 add_test(NAME third_party_notices
     COMMAND "${CMAKE_COMMAND}" "-DNOTICES=${PROJECT_BINARY_DIR}/THIRD-PARTY-NOTICES.txt"
-            "-DEXPECT=zlib ${SYNBENCH_ZLIB_VERSION}|This software is provided 'as-is';Zstandard (zstd) ${SYNBENCH_ZSTD_VERSION}|Redistribution and use in source and binary forms;LZ4 (library) ${SYNBENCH_LZ4_VERSION}|Redistribution and use in source and binary forms;XZ Utils (liblzma) ${SYNBENCH_XZ_VERSION}|Permission to use, copy, modify, and/or distribute;OpenSSL (libcrypto) ${SYNBENCH_OPENSSL_VERSION}|Apache License;Qt ${Qt6_VERSION}|GNU LESSER GENERAL PUBLIC LICENSE;Archivo font|SIL OPEN FONT LICENSE Version 1.1;IBM Plex Sans and IBM Plex Mono fonts|SIL OPEN FONT LICENSE Version 1.1"
+            "-DEXPECT=${_notices_expect_arg}"
             -P "${PROJECT_SOURCE_DIR}/cmake/CheckThirdPartyNotices.cmake")
+# The check must fail on a missing section and on a section without its
+# licence text (AP-5 L2): planted entries that the file doesn't have.
+add_test(NAME third_party_notices_rejects_missing_section
+    COMMAND "${CMAKE_COMMAND}" "-DNOTICES=${PROJECT_BINARY_DIR}/THIRD-PARTY-NOTICES.txt"
+            "-DEXPECT=zlib ${SYNBENCH_ZLIB_VERSION}|This software is provided 'as-is'@@Not a shipped component|anything"
+            -P "${PROJECT_SOURCE_DIR}/cmake/CheckThirdPartyNotices.cmake")
+add_test(NAME third_party_notices_rejects_missing_text
+    COMMAND "${CMAKE_COMMAND}" "-DNOTICES=${PROJECT_BINARY_DIR}/THIRD-PARTY-NOTICES.txt"
+            "-DEXPECT=zlib ${SYNBENCH_ZLIB_VERSION}|SIL OPEN FONT LICENSE Version 1.1"
+            -P "${PROJECT_SOURCE_DIR}/cmake/CheckThirdPartyNotices.cmake")
+set_tests_properties(third_party_notices_rejects_missing_section third_party_notices_rejects_missing_text
+    PROPERTIES WILL_FAIL TRUE)
 
 # The built libcrypto has the hardware AES and SHA-256 code (§11.2), and the
 # check fails without it (AP-5 M1, M2): on a library that isn't libcrypto

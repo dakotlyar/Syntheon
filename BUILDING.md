@@ -13,8 +13,14 @@ also writes `<build>/THIRD-PARTY-NOTICES.txt` (`cmake/ThirdPartyNotices.cmake`),
 which the app embeds (Settings > Licences) and every package installs beside
 `LICENSE.txt`. A new third-party library follows the same pattern: pin it in
 `cmake/ThirdParty.cmake` (URL + SHA-256, static, its warnings off) and add its
-licence with `synbench_add_notice()`; the `third_party_notices` CTest fails if a
-shipped component has no section.
+licence with `synbench_add_notice()`. The code bundled inside Qt (PCRE2,
+HarfBuzz, libpng, libjpeg, md4c, double-conversion, …) and, on Linux, ICU get
+their sections from Qt's own SBOM (`<Qt>/sbom/*.spdx.json`, `cmake/QtNotices.cmake`),
+with licence texts from `packaging/licenses/`. The `third_party_notices` CTest
+checks the file against a hand-kept list of the components SynBench ships
+(each section and a phrase of its licence text); it doesn't inspect the
+deployed files, so a new shipped component needs its line in
+`tests/CMakeLists.txt` too.
 
 The build also compiles **OpenSSL 3.5.9** (libcrypto, static; `cmake/OpenSSL.cmake`)
 with its own Perl `Configure`, so it needs **Perl** (on Windows a native one,

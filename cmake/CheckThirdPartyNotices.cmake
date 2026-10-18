@@ -3,7 +3,7 @@
 # component's licence text. Run as a CTest test:
 #   cmake -DNOTICES=<build>/THIRD-PARTY-NOTICES.txt "-DEXPECT=<title>|<phrase>;..." -P cmake/CheckThirdPartyNotices.cmake
 # Each EXPECT entry is a section title and a phrase that must follow it (from
-# that component's licence text).
+# that component's licence text); entries are separated by ';' or "@@".
 # Run with cmake -P: the policies of the project's minimum (a script gets
 # none from the project, and CMake 3.x would run it with OLD ones).
 cmake_minimum_required(VERSION 3.25)
@@ -11,6 +11,8 @@ if(NOT EXISTS "${NOTICES}")
     message(FATAL_ERROR "${NOTICES} does not exist")
 endif()
 file(READ "${NOTICES}" text)
+# Entries may also be separated by "@@" (a ';' doesn't survive add_test).
+string(REPLACE "@@" ";" EXPECT "${EXPECT}")
 set(missing "")
 foreach(entry IN LISTS EXPECT)
     string(REPLACE "|" ";" parts "${entry}")
