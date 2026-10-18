@@ -15,8 +15,8 @@
 // repetitions, with spread = (max - min) / median.
 //
 // The coordinator is the thread that calls measure() (the CPU test's run()
-// thread). It polls `cancelled` every 50 ms; the workers never call into the
-// test's context. Stop therefore returns within about 150 ms: a poll, plus
+// thread). It polls `cancelled` every 50 ms, and once more at the end of each
+// window; the workers never call into the test's context. Stop therefore returns within about 150 ms: a poll, plus
 // the unit each worker is in. A unit that can run longer (a codec call on a
 // 256 KiB block) polls KernelThread::cancelRequested(), set on a cancel,
 // every 64 KiB and returns early; a cancelled unit is neither counted nor

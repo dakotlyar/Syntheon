@@ -259,6 +259,13 @@ void WorkerPool::runJob(Job job, std::chrono::milliseconds length, const std::fu
                 m_cancel = true;
             }
         }
+        // And once more now that they have: a cancel that came while the
+        // last units finished is seen here, not a poll interval into the
+        // next window.
+        if (!wasCancelled && cancelled && cancelled()) {
+            wasCancelled = true;
+            m_cancel = true;
+        }
     }
     m_done.wait(lock, [&] { return m_finished == n; });
 }

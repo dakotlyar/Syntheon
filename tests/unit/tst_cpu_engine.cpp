@@ -553,6 +553,11 @@ private slots:
                 intervals.push_back(secondsOf(polls[i].at - polls[i - 1].at) * 1000
                                     - double(polls[i].waitNs - polls[i - 1].waitNs) / 1e6);
         }
+        // And this cancel was seen within one poll interval (+10 ms for
+        // timers) beyond the coordinator's wait: it came inside a window, and
+        // a cancel at a window's end is seen at once (cancelAtWindowChangeover).
+        const double sawMs = secondsOf(seenAt - cancelledAt) * 1000;
+        QVERIFY2(sawMs - toSeenWait < 50 + 10, qPrintable(QStringLiteral("the cancel was seen late. ") + detail));
         QVERIFY(intervals.size() >= 3);
         const double medianPoll = medianOf(intervals);
         QVERIFY2(medianPoll <= 60, qPrintable(QStringLiteral("the poll is too slow: every %1 ms (median of %2). ")
@@ -560,6 +565,53 @@ private slots:
                                                   .arg(intervals.size())
                                               + detail));
         QVERIFY2(tookMs - loadMs < 250, qPrintable(detail));
+    }
+
+    // A cancel that comes while a window's last units finish (after stop is
+    // set) is seen within one poll interval: the coordinator polls once more
+    // when they have finished, rather than a poll interval into the next
+    // window. One thread with 175 ms units: the deadline (100 ms) falls in
+    // the first unit, the coordinator polls at 150 ms while it finishes, and
+    // the cancel raised in that poll is seen when the unit ends, about 25 ms
+    // later; without the end-of-window poll, repetition 1 starts and sees it
+    // 50 ms in. On a loaded CPU the unit can outlast the next poll, which
+    // then sees it: one interval (+10 ms for timers), beyond the
+    // coordinator's run-queue wait (Linux; else 0).
+    void cancelAtWindowChangeover()
+    {
+        RecordingKernel k(1, [steps = chainStepsFor(175ms)](int) { return steps; });
+        WorkerPool pool({1, {}});
+        Clock::time_point armedAt{}, seenAt{};
+        std::uint64_t waitAtArm = 0, waitAtSeen = 0;
+        const Measurement m = pool.measure(
+            k, {100ms, 100ms, 3},
+            [&] {
+                const auto now = Clock::now();
+                if (armedAt != Clock::time_point{}) {
+                    if (seenAt == Clock::time_point{}) {
+                        seenAt = now;
+                        waitAtSeen = runQueueWaitNs();
+                    }
+                    return true;
+                }
+                // The warm-up's first poll after stop was set (at the 100 ms
+                // deadline; the next poll is 50 ms later): its unit is still
+                // running.
+                if (k.window() == 0 && now - k.windowStart(0) >= 125ms) {
+                    armedAt = now;
+                    waitAtArm = runQueueWaitNs();
+                }
+                return false;
+            },
+            [&](int w) { k.startWindow(w); });
+        QCOMPARE(m.outcome, Measurement::Outcome::Cancelled);
+        QVERIFY(m.reps.empty());
+        QCOMPARE(k.window(), 0);  // repetition 1 never started
+        const double sawMs = secondsOf(seenAt - armedAt) * 1000, waitMs = double(waitAtSeen - waitAtArm) / 1e6;
+        QVERIFY2(sawMs - waitMs < 50 + 10, qPrintable(QStringLiteral("the cancel was seen %1 ms after it came (%2 ms of "
+                                                                "it waiting for a CPU)")
+                                                     .arg(sawMs, 0, 'f', 1)
+                                                     .arg(waitMs, 0, 'f', 1)));
     }
 
     // Phase 1 threading rule 4: the workers are gone when the pool is.
