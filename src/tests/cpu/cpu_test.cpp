@@ -215,6 +215,10 @@ private:
     void planBudget();
     void report();
     void enterWindow(const QString &stage, int window, int reps, double budgetAt, double length);
+    // A stage outside the measurement windows ("Preparing", "zlib prepare").
+    void enterStage(const QString &stage, double budgetAt);
+    // Between prepare steps: true (and the run stopped) if Stop came.
+    bool stopRequested();
 
     Step measure(WorkerPool &pool, const cpu::Kernel &kernel, const WindowSpec &spec, const QString &stage, int code,
                  bool single);
@@ -263,6 +267,11 @@ private:
     std::vector<tel::WindowTrace> m_traces;
     std::vector<QPointF> m_windowMarks;
     double m_worstSpread = 0;
+    // A single-thread part that didn't give a result ("<part>: <reason>"):
+    // no single.mark, and the test is Partial (AP-5 M1).
+    QString m_singleProblem;
+    // When the multi-thread part started (clock.avg's span; < 0: not yet).
+    double m_multiThreadStart = -1;
     std::optional<std::uint64_t> m_throttleBefore;
 
     // Shared inputs (made once in prepare(), read-only after).
@@ -300,6 +309,25 @@ void CpuRun::report()
         stage = m_stage;
     }
     m_ctx.progress(fraction, stage);
+}
+
+void CpuRun::enterStage(const QString &stage, double budgetAt)
+{
+    {
+        std::lock_guard lock(m_progressMutex);
+        m_stage = stage;
+        m_windowBudgetAt = budgetAt;
+        m_windowLength = 0;
+        m_windowStartedAt = m_sampler.now();
+    }
+    report();
+}
+
+bool CpuRun::stopRequested()
+{
+    if (cancelled())
+        m_stopped = true;
+    return m_stopped;
 }
 
 void CpuRun::enterWindow(const QString &stage, int window, int reps, double budgetAt, double length)
@@ -342,6 +370,13 @@ CpuRun::Step CpuRun::measure(WorkerPool &pool, const cpu::Kernel &kernel, const 
         });
     s.end = m_sampler.now();
     m_budgetDone = base + budget(specIn, single);
+#if defined(SYNBENCH_DEV_HOOKS)
+    // Tests: SYNBENCH_CPU_FAIL=<stage> makes that measurement a wrong result.
+    if (s.m.ok() && qEnvironmentVariable("SYNBENCH_CPU_FAIL") == stage) {
+        s.m.outcome = Measurement::Outcome::WrongResult;
+        s.m.error = "forced wrong result (SYNBENCH_CPU_FAIL)";
+    }
+#endif
     if (s.m.outcome == Measurement::Outcome::Cancelled)
         m_stopped = true;
     if (s.m.ok())
@@ -372,6 +407,13 @@ CpuRun::Step CpuRun::crypto(cpu::CryptoAlg alg, bool software, const WindowSpec 
     });
     s.end = m_sampler.now();
     m_budgetDone = base + budget(specIn, false);
+#if defined(SYNBENCH_DEV_HOOKS)
+    if (out.ok() && qEnvironmentVariable("SYNBENCH_CPU_FAIL") == stage) {
+        out.status = cpu::CryptoOutcome::Status::Failed;
+        out.wrongResult = true;
+        out.error = QStringLiteral("forced wrong result (SYNBENCH_CPU_FAIL)");
+    }
+#endif
     if (out.status == cpu::CryptoOutcome::Status::Cancelled)
         m_stopped = true;
     if (out.ok())
@@ -458,6 +500,8 @@ bool CpuRun::groupFailed(int index, const Step &s, const QString &what)
         if (index >= 0 && m_groupStatus[index] == Status::Ok) {
             m_groupStatus[index] = Status::Error;
             m_groupReason[index] = reason;
+        } else if (index < 0 && m_singleProblem.isEmpty()) {
+            m_singleProblem = QStringLiteral("%1: %2").arg(what, reason);  // AP-5 M1
         }
     }
     return true;
@@ -465,7 +509,7 @@ bool CpuRun::groupFailed(int index, const Step &s, const QString &what)
 
 void CpuRun::prepare()
 {
-    enterWindow(QStringLiteral("Preparing"), 0, 0, 0, 3);
+    enterStage(QStringLiteral("Preparing"), 0);
     // §4.4: the background load in the second before the run, before any of
     // our own work.
     if (const auto load = cpu::sampleBackgroundLoadPercent(1000ms, [this] { return cancelled(); })) {
@@ -495,7 +539,9 @@ void CpuRun::prepare()
         m_ctx.log(LogLevel::Warning, QStringLiteral("Debug build: the compression libraries aren't optimised, so these "
                                                     "numbers are for local checks only"));
 
-    // The shared inputs.
+    // The shared inputs, with a Stop check between them (each takes well
+    // under the 250 ms Stop allows on Knowhere; none can be interrupted).
+    enterStage(QStringLiteral("Preparing inputs"), 1);
     try {
         m_corpus = std::make_unique<cpu::CorpusData>(cpu::makeCorpusData(m_threads));
         if (m_corpus->crc != cpu::golden::kCorpusCrc32)
@@ -507,15 +553,25 @@ void CpuRun::prepare()
         m_corpus.reset();
         m_corpusProblem = QStringLiteral("couldn't make the corpus: %1").arg(QString::fromLocal8Bit(e.what()));
     }
+    if (stopRequested())
+        return;
     m_primes = std::make_unique<cpu::PrimesKernel>();
+    if (stopRequested())
+        return;
     m_simdInputs = std::make_unique<cpu::SimdInputs>();
+    if (stopRequested())
+        return;
     m_simd = cpu::chooseSimdPath(isa::detect(), *m_simdInputs);
+    if (stopRequested())
+        return;
     // "SIMD: AVX-512 path selected (…)": the path without its width, as in the mockup.
     QString simdNote = qs(m_simd.note);
     const QString pathName = QString::fromLatin1(isa::simdPathName(m_simd.path));
     simdNote.replace(pathName + QStringLiteral(" path"), pathName.section(QStringLiteral(" ("), 0, 0) + QStringLiteral(" path"));
     m_ctx.log(m_simd.warning ? LogLevel::Warning : LogLevel::Info, QStringLiteral("SIMD: %1").arg(simdNote));
     m_sortArena = std::make_unique<cpu::SortArena>();
+    if (stopRequested())
+        return;
     m_budgetDone = 3;
 }
 
@@ -601,6 +657,8 @@ void CpuRun::singleThread()
                                              .arg(ck.sizeMismatches()));
     } else {
         m_ctx.log(LogLevel::Error, QStringLiteral("Single-thread compression: %1").arg(m_corpusProblem));
+        if (m_singleProblem.isEmpty())
+            m_singleProblem = QStringLiteral("Single-thread compression: %1").arg(m_corpusProblem);
         m_budgetDone += budget(kStCompress, true);
     }
     m_sampler.setScope({true, {}});
@@ -628,16 +686,20 @@ void CpuRun::singleThread()
         if (o.pinTo.ranked)
             where = QStringLiteral("unpinned (pinning failed)");
     } else {
+        // In CPU order (AP-5 L4): "CPU 0 and 5", "CPU 0, 5 and 7".
+        std::sort(used.begin(), used.end(), [](const isa::CoreChoice &x, const isa::CoreChoice &y) {
+            return std::make_pair(x.group, x.cpu) < std::make_pair(y.group, y.cpu);
+        });
         QStringList names;
         for (const isa::CoreChoice &c : used)
             names << coreName(c);
+        const QString list = cpuListText(names);
         if (o.pickFrom.size() <= 1)
-            where = QStringLiteral("CPU %1 (top-ranked core)").arg(names.join(QStringLiteral(", ")));
+            where = QStringLiteral("CPU %1 (top-ranked core)").arg(list);
         else if (used.size() == 1)
-            where = QStringLiteral("CPU %1 (the quietest top-ranked core)").arg(names.front());
+            where = QStringLiteral("CPU %1 (the quietest top-ranked core)").arg(list);
         else
-            where = QStringLiteral("CPU %1 (the quietest top-ranked core, chosen per repetition)")
-                        .arg(names.join(QStringLiteral(" and ")));
+            where = QStringLiteral("CPU %1 (the quietest top-ranked core, chosen per repetition)").arg(list);
     }
     m_r.metrics.append(textMetric(QStringLiteral("single.cpu"), {}, QStringLiteral("Single-thread core"), where));
     if (!perMeasurement.isEmpty())
@@ -648,6 +710,7 @@ void CpuRun::singleThread()
 void CpuRun::integer()
 {
     groupBegin(0);
+    m_multiThreadStart = m_sampler.now();
     const cpu::IntKernel k;
     const Step s = measure(*m_pool, k, kMtInt, QStringLiteral("Integer"), kWinInt, false);
     if (!groupFailed(0, s, QStringLiteral("Integer"))) {
@@ -726,11 +789,7 @@ void CpuRun::compression()
         const QString key = QString::fromLatin1(cpu::codecKey(codec));
         // The unscored prep step: the whole corpus compressed, for the
         // decompress units and the ratio.
-        {
-            std::lock_guard lock(m_progressMutex);
-            m_stage = QStringLiteral("%1 prepare").arg(name);
-        }
-        report();
+        enterStage(QStringLiteral("%1 prepare").arg(name), m_budgetDone);
         std::optional<cpu::CompressedSet> set;
         try {
             set = cpu::compressCorpus(codec, *m_corpus, m_threads, [this] { return cancelled(); });
@@ -803,6 +862,8 @@ void CpuRun::encryption()
         {cpu::CryptoAlg::Sha256, true, "crypto.sha256.sw", "SHA-256", kWinShaSw},
     };
     bool pathLogged = false;
+    std::map<int, double> hardwareMbps;  // by algorithm
+    QString hardwareFeatures;
     for (const Part &p : parts) {
         if (m_stopped)
             break;
@@ -813,12 +874,31 @@ void CpuRun::encryption()
         if (m_stopped)
             break;
         if (!out.ok()) {
-            m_ctx.log(p.software ? LogLevel::Warning : LogLevel::Error, QStringLiteral("%1: %2").arg(stage, out.error));
-            if (!p.software && m_groupStatus[4] == Status::Ok) {
+            // A wrong result is an Error on either path (it means a miscompile
+            // or a hardware fault, whichever path showed it); the software
+            // path failing to run is only a warning (it isn't scored).
+            const bool error = !p.software || out.wrongResult;
+            m_ctx.log(error ? LogLevel::Error : LogLevel::Warning, QStringLiteral("%1: %2").arg(stage, out.error));
+            if (error && m_groupStatus[4] == Status::Ok) {
                 m_groupStatus[4] = Status::Error;
                 m_groupReason[4] = out.error;
             }
             continue;
+        }
+        if (!p.software) {
+            hardwareMbps[int(p.alg)] = out.medianMbps;
+            hardwareFeatures = out.features;
+        } else if (const auto it = hardwareMbps.find(int(p.alg)); it != hardwareMbps.end()) {
+            // §5.5: on a CPU with the instructions the software path must be
+            // clearly slower; if not, the mask may not have taken (AP-5 L2).
+            const QStringList f = hardwareFeatures.split(QLatin1Char(','), Qt::SkipEmptyParts);
+            const bool has = p.alg == cpu::CryptoAlg::AesGcm ? f.contains(QStringLiteral("aes"))
+                                                             : f.contains(QStringLiteral("sha")) || f.contains(QStringLiteral("sha2"));
+            if (has && out.medianMbps >= 0.9 * it->second)
+                m_ctx.log(LogLevel::Warning, QStringLiteral("%1: the software path may not have been forced (%2 against %3 "
+                                                            "on the hardware path)")
+                                                 .arg(label, number(out.medianMbps, QStringLiteral("MB/s")),
+                                                      number(it->second, QStringLiteral("MB/s"))));
         }
         if (!p.software && !pathLogged) {
             pathLogged = true;
@@ -909,8 +989,13 @@ void CpuRun::finish(TestResult &r)
     for (const tel::Sample &s : samples) {
         if (s.clockMHz) {
             clock.points.append({s.t, *s.clockMHz});
-            clockSum += *s.clockMHz;
-            ++clockCount;
+            // clock.avg (§2): the multi-thread part only, from the first
+            // multi-thread window to the end (not the idle prepare, the
+            // background-load second or the single-thread core).
+            if (m_multiThreadStart >= 0 && s.t >= m_multiThreadStart) {
+                clockSum += *s.clockMHz;
+                ++clockCount;
+            }
         }
         if (s.temperatureC) {
             temp.points.append({s.t, *s.temperatureC});
@@ -930,7 +1015,7 @@ void CpuRun::finish(TestResult &r)
         r.series.append(marks);
     }
     if (clockCount > 0)
-        r.metrics.append(metric(QStringLiteral("clock.avg"), {}, QStringLiteral("Average clock"), clockSum / clockCount,
+        r.metrics.append(metric(QStringLiteral("clock.avg"), {}, QStringLiteral("Average clock (multi-thread)"), clockSum / clockCount,
                                 QStringLiteral("MHz"), Direction::Neutral));
     if (peak)
         r.metrics.append(metric(QStringLiteral("temp.max"), {},
@@ -1013,11 +1098,25 @@ TestResult CpuRun::run()
         r.status = Status::Error;
         r.statusReason = firstProblem;
     }
+    // A single-thread part that failed: the mark is missing, so the result is
+    // Partial even when every group ran (the CPU score itself is still there).
+    if (!m_singleProblem.isEmpty() && r.status != Status::Error) {
+        const QString st = QStringLiteral("single-thread mark incomplete: %1").arg(m_singleProblem);
+        r.statusReason = r.status == Status::Ok ? st : r.statusReason + QStringLiteral("; ") + st;
+        r.status = Status::Partial;
+    }
     m_ctx.progress(1.0, QStringLiteral("Done"));
     return r;
 }
 
 } // namespace
+
+QString cpuListText(const QStringList &cores)
+{
+    if (cores.size() <= 1)
+        return cores.join(QString());
+    return cores.mid(0, cores.size() - 1).join(QStringLiteral(", ")) + QStringLiteral(" and ") + cores.last();
+}
 
 CpuTest::CpuTest()
 {

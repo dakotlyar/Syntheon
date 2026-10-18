@@ -112,7 +112,8 @@ QString sensorOf(const QString &label)
     return splitParenthesis(label).second;
 }
 
-// The cores in single.cores ("integer 0,5,5,0,5 · FP …"), in first-use order.
+// The cores in single.cores ("integer 0,5,5,0,5 · FP …"), in CPU order
+// ("<group>:<index>" sorts by group, then index).
 QStringList coresUsed(const QString &cores)
 {
     QStringList out;
@@ -122,6 +123,11 @@ QStringList coresUsed(const QString &cores)
                 out << c;
         }
     }
+    const auto key = [](const QString &c) {
+        return c.contains(QLatin1Char(':')) ? std::make_pair(c.section(QLatin1Char(':'), 0, 0).toInt(), c.section(QLatin1Char(':'), 1).toInt())
+                                            : std::make_pair(0, c.toInt());
+    };
+    std::sort(out.begin(), out.end(), [&](const QString &a, const QString &b) { return key(a) < key(b); });
     return out;
 }
 

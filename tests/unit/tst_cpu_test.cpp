@@ -342,7 +342,8 @@ private slots:
     void stopInEachPhase_data()
     {
         QTest::addColumn<QString>("stage");
-        for (const char *stage : {"Single-thread integer", "Primes", "zlib prepare", "xz compress", "AES-256-GCM", "Physics"})
+        for (const char *stage : {"Preparing", "Preparing inputs", "Single-thread integer", "Primes", "zlib prepare",
+                                  "xz compress", "AES-256-GCM", "Physics"})
             QTest::newRow(stage) << QString::fromLatin1(stage);
     }
     void stopInEachPhase()
@@ -490,6 +491,63 @@ private slots:
         const auto &g2 = std::get<TableBlock>(d.blocks[1].content);
         QCOMPARE(g2.rows[5][2].text, QStringLiteral("Not run"));  // sorting
         QVERIFY(std::get<NoteBlock>(d.blocks.last().content).text.startsWith(QStringLiteral("Stopped before the end")));
+    }
+
+    // AP-5 M1: a single-thread part that fails makes the test Partial (the
+    // mark is missing); the groups and the CPU score are unaffected.
+    void singleThreadPartFails()
+    {
+        qputenv("SYNBENCH_CPU_FAIL", "Single-thread floating point");
+        tests::CpuTest t;
+        FakeRunContext ctx;
+        const TestResult r = t.run(ctx, {});
+        qunsetenv("SYNBENCH_CPU_FAIL");
+        QCOMPARE(r.status, Status::Partial);
+        QVERIFY2(r.statusReason.startsWith(QStringLiteral("single-thread mark incomplete: Single-thread floating point: ")),
+                 qPrintable(r.statusReason));
+        QVERIFY(!r.metric(QStringLiteral("single.fp")));
+        QVERIFY(!r.metric(QStringLiteral("single.mark")));  // only with all three parts
+        QVERIFY(r.metric(QStringLiteral("single.int")) && r.metric(QStringLiteral("single.compress")));
+        for (const SubResult &s : r.subResults)
+            QCOMPARE(s.status, Status::Ok);
+        QVERIFY(t.score(r).total);
+    }
+
+    // AP-5 L2: a wrong result on the software encryption path is an Error,
+    // like one on the hardware path (a worker that can't run there is only
+    // a warning).
+    void softwareWrongResultIsAnError()
+    {
+        qputenv("SYNBENCH_CPU_FAIL", "SHA-256 (software path)");
+        tests::CpuTest t;
+        FakeRunContext ctx;
+        const TestResult r = t.run(ctx, {});
+        qunsetenv("SYNBENCH_CPU_FAIL");
+        QCOMPARE(r.status, Status::Partial);
+        for (const SubResult &s : r.subResults)
+            QCOMPARE(s.status, s.id == QLatin1StringView("crypto") ? Status::Error : Status::Ok);
+        QVERIFY(r.metric(QStringLiteral("crypto.sha256")));  // the hardware path's numbers are kept
+        QVERIFY(!r.metric(QStringLiteral("crypto.sha256.sw")));
+    }
+
+    // Dave / AP-5 L4: cores are listed in CPU order.
+    void coreOrder()
+    {
+        QCOMPARE(tests::cpuListText({QStringLiteral("0")}), QStringLiteral("0"));
+        QCOMPARE(tests::cpuListText({QStringLiteral("0"), QStringLiteral("5")}), QStringLiteral("0 and 5"));
+        QCOMPARE(tests::cpuListText({QStringLiteral("0"), QStringLiteral("5"), QStringLiteral("7")}), QStringLiteral("0, 5 and 7"));
+        TestResult r = mockupResult();
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("single.cores"))
+                m.value = QStringLiteral("integer 7,5,5,0,7 · FP 5,5,5,5,5 · compression 0,0,0,0,0");
+        }
+        tests::CpuTest t;
+        const DetailLayout d = t.detail(r);
+        QStringList titles;
+        for (const DetailBlock &b : d.blocks)
+            titles << b.title;
+        QVERIFY2(titles.contains(QStringLiteral("Single-thread · pinned per repetition (CPU 0, 5, 7)")),
+                 qPrintable(titles.join(QStringLiteral(" | "))));
     }
 
     void options()

@@ -24,6 +24,11 @@ DetailLayout withNotAvailableState(DetailLayout layout, const TestResult &result
     return na;
 }
 
+bool isMarkerSeries(const Series &s)
+{
+    return s.key.endsWith(QLatin1StringView(".windows"));
+}
+
 DetailLayout genericDetailLayout(const TestResult &result)
 {
     DetailLayout layout;
@@ -49,6 +54,8 @@ DetailLayout genericDetailLayout(const TestResult &result)
     }
 
     for (const Series &s : result.series) {
+        if (isMarkerSeries(s))
+            continue;  // window marks, not a measurement: never plotted
         LineChartBlock chart;
         chart.seriesKeys = {s.key};
         chart.yUnit = s.yUnit;

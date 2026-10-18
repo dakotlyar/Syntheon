@@ -169,6 +169,7 @@ CryptoOutcome runWorker(QStringList args, const std::optional<Expect> &expect, s
         const QString reason = lastLine(p.readAllStandardError());
         out.error = reason.isEmpty() ? QStringLiteral("The encryption worker exited with code %1").arg(p.exitCode())
                                      : reason;
+        out.wrongResult = reason.contains(QLatin1StringView("wrong result"));
         return out;
     }
     if (!haveResult) {
@@ -181,6 +182,7 @@ CryptoOutcome runWorker(QStringList args, const std::optional<Expect> &expect, s
             problem = CryptoClient::resultProblem(out, expect->alg, expect->threads);
         if (!problem.isEmpty()) {
             out.error = problem;
+            out.wrongResult = out.checksum != CryptoClient::expectedChecksum(expect->alg);
             return out;
         }
     }

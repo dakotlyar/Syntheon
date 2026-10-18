@@ -120,8 +120,14 @@ struct DetailLayout {
     bool operator==(const DetailLayout &) const = default;
 };
 
+// A series that marks where windows start (key "<name>.windows", e.g. the
+// CPU test's telemetry.windows: x = a start time, y = a code), not a
+// measurement: no chart, no comparison, no export treats it as data.
+bool isMarkerSeries(const Series &s);
+
 // The fallback layout (ITest::detail()'s default): KPIs from the headline
-// metrics, a table of every metric, and one chart per series.
+// metrics, a table of every metric, and one chart per series (not the
+// marker series).
 DetailLayout genericDetailLayout(const TestResult &result);
 
 // Every N/A test's Detail page (Dave, 2026-10-17): a result whose status is

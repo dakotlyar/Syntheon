@@ -12,7 +12,7 @@
 // stopWithin() gives the thread a short time to finish and otherwise leaves
 // it to end on its own (it owns its Source and its samples through a shared
 // state, and calls nothing of the caller's once stopped); joinAbandoned()
-// joins such threads later (the next run, and at exit).
+// joins such threads later (the next run), and at exit they are detached.
 
 #include "tests/cpu/telemetry/telemetry.h"
 
@@ -50,7 +50,8 @@ public:
     // Stops, waiting at most `wait` for a reading in progress; true if the
     // thread ended (and was joined), false if it was left to end by itself.
     bool stopWithin(std::chrono::milliseconds wait);
-    // Joins the threads stopWithin() left behind (each ends after its reading).
+    // Joins the threads stopWithin() left behind (each ends after its reading);
+    // any still left at exit are detached, never joined.
     static void joinAbandoned();
 
     // Which CPUs' clock the following samples read (thread-safe).

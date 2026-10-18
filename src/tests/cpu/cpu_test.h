@@ -11,6 +11,9 @@
 
 namespace sb::tests {
 
+// "0", "0 and 5", "0, 5 and 7" (single.cpu's list of cores).
+QString cpuListText(const QStringList &cores);
+
 class CpuTest : public ITest
 {
 public:

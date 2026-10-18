@@ -266,6 +266,22 @@ private slots:
         QCOMPARE(layout.blocks[2].title, QStringLiteral("Latency curve"));
     }
 
+    // A marker series (window starts, Phase 2's telemetry.windows) is never
+    // plotted as if it were a measurement.
+    void genericLayoutSkipsMarkerSeries()
+    {
+        TestResult r = sampleResult();
+        r.series.append({QStringLiteral("telemetry.windows"), QStringLiteral("Measurement windows"), QStringLiteral("Time"),
+                         QStringLiteral("s"), QString(), {{0, 1}, {20, 10}}});
+        QVERIFY(isMarkerSeries(r.series.last()));
+        QVERIFY(!isMarkerSeries(r.series.first()));
+        const DetailLayout layout = genericDetailLayout(r);
+        int charts = 0;
+        for (const DetailBlock &b : layout.blocks)
+            charts += std::holds_alternative<LineChartBlock>(b.content) ? 1 : 0;
+        QCOMPARE(charts, 1);
+    }
+
     void genericLayoutForNotAvailable()
     {
         const DetailLayout layout = genericDetailLayout(TestResult::notAvailable(QStringLiteral("No supported NPU")));

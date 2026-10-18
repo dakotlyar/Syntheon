@@ -66,6 +66,9 @@ struct CryptoOutcome {
     double spread = 0;
     std::uint64_t checksum = 0;
     qint64 pid = 0;     // the worker's process id (the log; tests: nothing left behind)
+    // Failed because a result was wrong (the checksum, or the worker's own
+    // golden check), not because the worker couldn't run.
+    bool wrongResult = false;
     bool ok() const { return status == Status::Ok; }
 };
 

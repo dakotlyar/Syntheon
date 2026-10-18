@@ -28,12 +28,20 @@ struct Sampler::State {
 
 namespace {
 
-// Threads stopWithin() left to end by themselves; joined by joinAbandoned()
-// and, at the latest, at exit.
+// Threads stopWithin() left to end by themselves; joined by joinAbandoned(),
+// detached at exit.
 struct Abandoned {
     std::mutex mutex;
     std::vector<std::thread> threads;
-    ~Abandoned() { joinAll(); }
+    // At exit, detach instead of joining: a sensor read that never returns
+    // (a hung EC) must not hang SynBench's exit (AP-5 L6). The threads own
+    // their state, so detaching them is safe.
+    ~Abandoned()
+    {
+        std::lock_guard lock(mutex);
+        for (std::thread &t : threads)
+            t.detach();
+    }
     void joinAll()
     {
         std::vector<std::thread> t;
