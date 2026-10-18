@@ -9,8 +9,9 @@ application shell: the screens, run orchestration, the history database,
 system information, the privileged-access model and packaging. Phase 2 makes
 the **CPU test real**: seven groups on all threads (integer, floating point +
 primes, SIMD, compression, encryption, sorting, physics) plus a single-thread
-mark, about 4½ minutes, with clock and temperature telemetry. Its scores are
-provisional until it is calibrated. The other six tests are still **stubs
+mark, about 4½ minutes, with clock and temperature telemetry. It is
+calibrated so that the reference machine (Knowhere, a Ryzen AI Max+ 392)
+scores 1,000. The other six tests are still **stubs
 that produce plausible, seeded numbers**; the real ones arrive in later
 phases (see `ideas/` in the staff repository for the plan).
 The last Python release is `v0.2.3`, kept in this repository's history.

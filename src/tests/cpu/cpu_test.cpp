@@ -1161,9 +1161,9 @@ CpuTest::CpuTest()
     m_info.name = QStringLiteral("CPU");
     m_info.summary = QStringLiteral("Integer, FP, SIMD, compression, encryption, sorting, physics");
     m_info.colorToken = QStringLiteral("t-cpu");
-    // Both stay 0 until the anchors are frozen in calibration (task 18).
-    m_info.testVersion = 0;
-    m_info.formulaVersion = 0;
+    // 1 since the anchors were frozen in calibration (task 18, 2026-10-18).
+    m_info.testVersion = 1;
+    m_info.formulaVersion = 1;
     for (const Group &g : kGroups)
         m_info.subTests.append({QLatin1StringView(g.id), QLatin1StringView(g.name), false, true});
 }

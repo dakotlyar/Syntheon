@@ -14,13 +14,14 @@
 //   ST mark     round(1000 x exp(5/12 ln(int/A) + 5/12 ln(fp/A) + 2/12
 //               ln(compress/A))), its own three anchors (§7.4)
 //
-// PROVISIONAL ANCHORS: one full run on Knowhere (Linux, AC, balanced, Steam
-// closed) on 2026-10-18 at 9a964e4, rounded to 3 significant figures, so
-// Knowhere scores about 1,000 while the test is built. Task 18 replaces them
-// with the median of 5 calibration runs and then freezes them; until then
-// testVersion = formulaVersion = 0, so these scores are marked "scoring
-// changed" against real ones. Anchors never change without a formulaVersion
-// bump once frozen.
+// THE ANCHORS ARE FROZEN (task 18, D17): the median of 5 back-to-back full
+// runs on Knowhere (AMD Ryzen AI Max+ 392, CachyOS, AC, balanced platform
+// profile, Steam and the Nextcloud client closed, 2-minute gaps) on
+// 2026-10-18 at 3dd5ffe, rounded to 3 significant figures; Knowhere scores
+// 1,000 (the 5 runs: 1,002 / 1,000 / 1,000 / 1,000 / 1,000, CV 0.09%). Every
+// scored metric's CV over the 5 runs is at most 0.67% (SIMD). The record is in
+// [[Phase 2 - CPU]]. Never change an anchor, a weight or the formula without
+// bumping formulaVersion (and testVersion when the measurement changes).
 
 #include "core/result.h"
 #include "core/scoring.h"
@@ -42,7 +43,7 @@ ScoreBreakdown score(const TestResult &result);
 std::optional<double> singleThreadMark(double singleInt, double singleFp, double singleCompress);
 
 // The single-thread anchors (also used by the tests).
-inline constexpr double kAnchorSingleInt = 12300;      // MOps/s
+inline constexpr double kAnchorSingleInt = 12100;      // MOps/s
 inline constexpr double kAnchorSingleFp = 13100;       // MFLOPS
 inline constexpr double kAnchorSingleCompress = 291;   // MB/s
 

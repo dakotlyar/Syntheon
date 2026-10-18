@@ -211,7 +211,8 @@ private slots:
     {
         tests::CpuTest t;
         QCOMPARE(t.info().id, QStringLiteral("cpu"));
-        QCOMPARE(t.info().testVersion, 0);  // until calibration (task 18)
+        QCOMPARE(t.info().testVersion, 1);  // the anchors frozen in calibration (task 18)
+        QCOMPARE(t.info().formulaVersion, 1);
         QStringList subs;
         for (const SubTestInfo &s : t.info().subTests) {
             subs << s.id;
