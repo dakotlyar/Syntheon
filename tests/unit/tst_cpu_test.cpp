@@ -603,6 +603,38 @@ private slots:
                  qPrintable(titles.join(QStringLiteral(" | "))));
     }
 
+    // Test hooks for Zeb's variants: no core ranking, a failing pin, and a
+    // counters-only throttle.
+    void forcedPinningAndCounters()
+    {
+        tests::CpuTest t;
+        qputenv("SYNBENCH_CPU_FORCE_PIN", "none");
+        FakeRunContext a;
+        TestResult r = t.run(a, {});
+        QCOMPARE(std::get<QString>(r.metric(QStringLiteral("single.cpu"))->value),
+                 QStringLiteral("unpinned (no core ranking available)"));
+        bool unpinnedTitle = false;
+        for (const DetailBlock &b : t.detail(r).blocks)
+            unpinnedTitle = unpinnedTitle || b.title == QStringLiteral("Single-thread · unpinned");
+        QVERIFY(unpinnedTitle);
+        qputenv("SYNBENCH_CPU_FORCE_PIN", "fail");
+        FakeRunContext b;
+        r = t.run(b, {});
+        qunsetenv("SYNBENCH_CPU_FORCE_PIN");
+        QCOMPARE(std::get<QString>(r.metric(QStringLiteral("single.cpu"))->value), QStringLiteral("unpinned (pinning failed)"));
+        QVERIFY(b.logged(QStringLiteral("couldn't pin the thread")));
+        qputenv("SYNBENCH_CPU_FAKE_THROTTLE", "counters");
+        FakeRunContext c;
+        r = t.run(c, {});
+        qunsetenv("SYNBENCH_CPU_FAKE_THROTTLE");
+        QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle"))->value), QStringLiteral("Detected"));
+        QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle.detail"))->value),
+                 QStringLiteral("Intel throttle counters rose by 12"));
+        QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle.note"))->value),
+                 QStringLiteral("Throttling detected: the CPU's throttle counters rose by 12 during the test. The score is not "
+                                "adjusted."));
+    }
+
     // Zeb M1: the Sub-tests and Encryption tables are always full width, so
     // only Compression + Single-thread can pair, whatever the variant.
     void tablesThatMustNotPair()

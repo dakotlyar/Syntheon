@@ -130,7 +130,8 @@ Metric textMetric(const QString &key, const QString &sub, const QString &label, 
 
 #if defined(SYNBENCH_DEV_HOOKS)
 // The dev telemetry-injection hook (§14.3, dev builds only):
-// SYNBENCH_CPU_FAKE_THROTTLE=<stage> (e.g. "xz compress") makes the clock
+// SYNBENCH_CPU_FAKE_THROTTLE=counters makes only the Intel throttle counters
+// rise. SYNBENCH_CPU_FAKE_THROTTLE=<stage> (e.g. "xz compress") makes the clock
 // fall 8% per repetition in that measurement (repetition 5: -32%, well past
 // any real drift) at 95 °C,
 // so the throttling flag, its log line and the Detail note can be seen
@@ -161,10 +162,18 @@ public:
         return m_active ? std::optional<double>(95.0) : t;
     }
     std::string temperatureLabel() const override { return m_inner->temperatureLabel(); }
-    std::optional<std::uint64_t> throttleCount() override { return m_inner->throttleCount(); }
+    // SYNBENCH_CPU_FAKE_THROTTLE=counters: only the Intel counters rise (by
+    // 12, between the run's first and last reading); the clock is real.
+    std::optional<std::uint64_t> throttleCount() override
+    {
+        if (m_stage != QLatin1StringView("counters"))
+            return m_inner->throttleCount();
+        return m_counterReads++ == 0 ? 10 : 22;
+    }
     std::optional<double> performanceLimitPercent() override { return m_inner->performanceLimitPercent(); }
 
 private:
+    int m_counterReads = 0;
     std::unique_ptr<tel::Source> m_inner;
     const QString m_stage;
     std::mutex m_mutex;
@@ -580,6 +589,19 @@ void CpuRun::singleThread()
 {
     WorkerPool::Options o = WorkerPool::singleThreadOptions();
     o.sampleFor = m_sampleFor;
+#if defined(SYNBENCH_DEV_HOOKS)
+    // Tests: SYNBENCH_CPU_FORCE_PIN=none behaves as a machine without a core
+    // ranking; =fail as one whose pinning fails (a CPU number no platform has).
+    if (const QString force = qEnvironmentVariable("SYNBENCH_CPU_FORCE_PIN"); force == QLatin1StringView("none")) {
+        o.pickFrom.clear();
+        o.pinTo = {};
+    } else if (force == QLatin1StringView("fail")) {
+        for (isa::CoreCandidate &c : o.pickFrom)
+            c.core.cpu = 1 << 20;
+        o.pinTo.ranked = true;
+        o.pinTo.cpu = 1 << 20;
+    }
+#endif
     if (o.pickFrom.empty()) {
         m_ctx.log(LogLevel::Info, QStringLiteral("Single-thread runs unpinned (no core ranking available)"));
     } else if (o.pickFrom.size() == 1) {
