@@ -52,10 +52,10 @@ qt_standard_project_setup(REQUIRES 6.12)
 
 synbench_generate_version_header()
 
-add_subdirectory(src)
-
 # THIRD-PARTY-NOTICES.txt: the libraries above (cmake/ThirdParty.cmake), Qt
-# (LGPL-3.0, linked dynamically) and the bundled fonts (OFL-1.1).
+# (LGPL-3.0, linked dynamically) and the bundled fonts (OFL-1.1). Written
+# before src/, which embeds it in the app (Settings > Licences) and installs
+# it beside LICENSE.txt.
 synbench_add_notice(NAME "Qt" VERSION ${Qt6_VERSION} LICENCE "LGPL-3.0-only"
     FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/LGPL-3.0.txt"
     NOTE "SynBench links the Qt libraries dynamically: you may replace them with your own build.\nQt's source code: https://download.qt.io/official_releases/qt/ and https://code.qt.io\nThe LGPL-3.0 adds to the GPL-3.0, whose text is in LICENSE.txt.")
@@ -63,6 +63,9 @@ synbench_add_notice(NAME "Archivo font" LICENCE "OFL-1.1" FILE "${PROJECT_SOURCE
 synbench_add_notice(NAME "IBM Plex Sans and IBM Plex Mono fonts" LICENCE "OFL-1.1"
     FILE "${PROJECT_SOURCE_DIR}/assets/fonts/OFL-IBMPlex.txt")
 synbench_write_third_party_notices()
+
+add_subdirectory(src)
+
 
 if(SYNBENCH_BUILD_TESTS)
     enable_testing()

@@ -66,6 +66,10 @@ try {
     Remove-Item (Join-Path $work 'synbench-cpucrypto.exe')
     Assert-Fails 'synbench-cpucrypto.exe removed'
 
+    Fresh-Copy
+    Remove-Item (Join-Path $work 'THIRD-PARTY-NOTICES.txt')
+    Assert-Fails 'THIRD-PARTY-NOTICES.txt removed'
+
     # 7. an encryption worker of the wrong architecture
     if ($Arch -eq 'arm64') {
         Fresh-Copy

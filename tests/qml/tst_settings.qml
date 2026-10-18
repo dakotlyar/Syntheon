@@ -6,7 +6,8 @@ import SynBench
 import SynBenchTest
 
 // The Settings screen on real controllers: layout and theme apply right away
-// and persist; Clear history asks first and then really clears.
+// and persist; Licences shows the notices; Clear history asks first and then
+// really clears.
 TestCase {
     id: test
     name: "SettingsScreen"
@@ -49,6 +50,19 @@ TestCase {
         compare(spy.signalArguments[0][0], "tabs")
         Settings.layout = "rail"
     }
+    // D11: Settings > Licences shows THIRD-PARTY-NOTICES.txt.
+    function test_licencesShowTheNotices() {
+        const screen = createTemporaryObject(screenComponent, test)
+        mouseClick(findChild(screen, "viewLicences"))
+        const dialog = findChild(screen, "licencesDialog")
+        tryVerify(function() { return dialog.opened }, 5000)
+        const text = findChild(dialog.contentItem, "noticesText").text
+        for (const name of ["zlib", "Zstandard", "LZ4", "liblzma", "OpenSSL", "Qt", "Archivo", "IBM Plex"])
+            verify(text.indexOf(name) >= 0, name)
+        mouseClick(findChild(dialog.footer, "closeLicences"))
+        tryVerify(function() { return !dialog.visible }, 5000)
+    }
+
     function test_showsTheHistoryLocation() {
         const screen = createTemporaryObject(screenComponent, test)
         verify(findChild(screen, "dataPath").text.endsWith("synbench.db"))

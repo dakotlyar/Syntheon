@@ -9,7 +9,12 @@ LZ4, liblzma; `cmake/ThirdParty.cmake` has the versions, URLs and SHA-256
 hashes) into the build tree (`_deps/`), so it needs network access once per
 build tree. `FETCHCONTENT_BASE_DIR` moves that folder elsewhere; it holds the
 libraries' build folders too, so give each build tree its own. The configure
-also writes `<build>/THIRD-PARTY-NOTICES.txt` (`cmake/ThirdPartyNotices.cmake`).
+also writes `<build>/THIRD-PARTY-NOTICES.txt` (`cmake/ThirdPartyNotices.cmake`),
+which the app embeds (Settings > Licences) and every package installs beside
+`LICENSE.txt`. A new third-party library follows the same pattern: pin it in
+`cmake/ThirdParty.cmake` (URL + SHA-256, static, its warnings off) and add its
+licence with `synbench_add_notice()`; the `third_party_notices` CTest fails if a
+shipped component has no section.
 
 The build also compiles **OpenSSL 3.5.9** (libcrypto, static; `cmake/OpenSSL.cmake`)
 with its own Perl `Configure`, so it needs **Perl** (on Windows a native one,
@@ -30,9 +35,13 @@ that went into it; a later configure that finds a matching stamp reuses it
 | `linux-x64-package`, `windows-x64-package`, `linux-arm64-cross`, `windows-arm64-cross` | **off** | off | what ships |
 
 The *developer hooks* are the `SYNBENCH_SMOKE`, `SYNBENCH_TOUR*`,
-`SYNBENCH_STUB_SCALE`, `SYNBENCH_DATA_DIR`, `SYNBENCH_SETTINGS_FILE` and
-`SYNBENCH_NO_ELEVATION` environment variables, the screenshot tour and a few
-test-only functions. They are compiled out when `SYNBENCH_DEV_HOOKS=OFF`
+`SYNBENCH_STUB_SCALE`, `SYNBENCH_DATA_DIR`, `SYNBENCH_SETTINGS_FILE`,
+`SYNBENCH_NO_ELEVATION` and `SYNBENCH_CPU_FAKE_THROTTLE` environment
+variables, the screenshot tour and a few test-only functions.
+`SYNBENCH_STUB_SCALE` (and the smoke run's 0.03) also shortens the real CPU
+test's windows, so its numbers are then meaningless;
+`SYNBENCH_CPU_FAKE_THROTTLE=<stage>` (e.g. `xz compress`) fakes a falling clock
+in that measurement so the throttling flag and note can be checked. They are compiled out when `SYNBENCH_DEV_HOOKS=OFF`
 (packaging presets); the CI packaging jobs prove it with
 `packaging/checks/no-dev-hooks.sh` / `.ps1`. Tests need the hooks, so
 configuring tests without them is an error.

@@ -6,9 +6,13 @@ Every run is saved on your computer, and runs can be compared side by side.
 
 This is **v2**, a native C++/Qt rewrite of the Python SynBench. Phase 1 is the
 application shell: the screens, run orchestration, the history database,
-system information, the privileged-access model and packaging. The seven
-tests are **stubs that produce plausible, seeded numbers**; the real tests
-arrive in later phases (see `ideas/` in the staff repository for the plan).
+system information, the privileged-access model and packaging. Phase 2 makes
+the **CPU test real**: seven groups on all threads (integer, floating point +
+primes, SIMD, compression, encryption, sorting, physics) plus a single-thread
+mark, about 4½ minutes, with clock and temperature telemetry. Its scores are
+provisional until it is calibrated. The other six tests are still **stubs
+that produce plausible, seeded numbers**; the real ones arrive in later
+phases (see `ideas/` in the staff repository for the plan).
 The last Python release is `v0.2.3`, kept in this repository's history.
 
 ## Running it
@@ -90,6 +94,13 @@ is what that means in practice.
 - Only one SynBench runs per history folder; a second launch brings the first
   window forward. Its lock and socket live in your own runtime directory, not
   in the (possibly synced) history folder.
+- **The encryption worker.** The CPU test's encryption part runs in a separate
+  program, `synbench-cpucrypto` (next to `SynBench.exe` on Windows,
+  `usr/libexec/` in the AppImage), with an environment built from scratch (no
+  OpenSSL configuration from yours reaches it), started fresh for each
+  measurement, read through its standard output and killed on Stop. It
+  inherits the app's rights (so it runs elevated on Windows, as you on Linux)
+  and takes no input but its fixed options.
 
 ## Known limits
 
@@ -125,4 +136,8 @@ See [BUILDING.md](BUILDING.md). To add a test, see
 
 ## Licence
 
-GPL-3.0-or-later (see `LICENSE`).
+GPL-3.0-or-later (see `LICENSE`). SynBench includes zlib, Zstandard, LZ4, XZ
+Utils (liblzma), OpenSSL (libcrypto), Qt and the Archivo and IBM Plex fonts,
+each under its own licence: their notices are in `THIRD-PARTY-NOTICES.txt`,
+which every package installs beside `LICENSE.txt` (`share/doc/synbench/` in
+the AppImage) and which **Settings > Licences** shows.

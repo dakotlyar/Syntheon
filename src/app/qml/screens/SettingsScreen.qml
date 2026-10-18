@@ -4,8 +4,8 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import SynBench
 
-// Layout, theme, data location (move or open an existing history, D7) and
-// Clear history. Changes apply right away.
+// Layout, theme, licences (D11), data location (move or open an existing
+// history, D7) and Clear history. Changes apply right away.
 ScreenFrame {
     id: root
 
@@ -40,6 +40,8 @@ ScreenFrame {
             showMessage(qsTr("That folder can't be used: it doesn't exist or isn't writable."), true)
         }
     }
+
+    LicencesDialog { id: licencesDialog; objectName: "licencesDialog" }
 
     FolderDialog {
         id: picker
@@ -100,6 +102,35 @@ ScreenFrame {
                             { value: "dark", label: qsTr("Dark") }]
                     current: Settings.theme
                     onActivated: value => Settings.theme = value
+                }
+            }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }
+
+            // --- Licences (D11) ---
+            GridLayout {
+                Layout.fillWidth: true
+                Layout.margins: 14
+                columns: root.width < 640 ? 1 : 2
+                columnSpacing: 20
+                rowSpacing: 8
+                ColumnLayout {
+                    Layout.preferredWidth: 220
+                    spacing: 2
+                    SbText { text: qsTr("Licences"); font.weight: Font.DemiBold }
+                    SbText {
+                        text: qsTr("The open-source software SynBench includes")
+                        kind: "small"
+                        wrapMode: Text.WordWrap
+                        Layout.preferredWidth: 220
+                    }
+                }
+                RowLayout {
+                    spacing: 8
+                    SbButton {
+                        objectName: "viewLicences"
+                        text: qsTr("View licences…")
+                        onClicked: licencesDialog.open()
+                    }
                 }
             }
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line }

@@ -30,6 +30,12 @@ qt_add_resources(synbench_appcore "synbench_fonts"
         "${PROJECT_SOURCE_DIR}/assets/fonts/IBMPlexMono-Regular.ttf"
         "${PROJECT_SOURCE_DIR}/assets/fonts/IBMPlexMono-Medium.ttf"
 )
+# THIRD-PARTY-NOTICES.txt (D11), shown by Settings > Licences.
+qt_add_resources(synbench_appcore "synbench_notices"
+    PREFIX "/synbench"
+    BASE "${PROJECT_BINARY_DIR}"
+    FILES "${PROJECT_BINARY_DIR}/THIRD-PARTY-NOTICES.txt"
+)
 target_link_libraries(synbench_appcore
     PUBLIC synbench_core synbench_storage synbench_sysinfo synbench_privileged synbench_builtin_tests synbench_power Qt6::Gui Qt6::Network Qt6::Qml Qt6::Quick
     PRIVATE synbench_version)
@@ -94,6 +100,7 @@ qt_add_qml_module(synbench_ui
         qml/detail/DetailPage.qml
         qml/screens/DetailScreen.qml
         qml/dialogs/LogDialog.qml
+        qml/dialogs/LicencesDialog.qml
         qml/screens/RunScreen.qml
         qml/screens/ProgressScreen.qml
         qml/screens/ResultsScreen.qml
@@ -155,16 +162,19 @@ endif()
 # ---------------------------------------------------------------- install tree (packaging)
 # `cmake --install <build> --prefix <dir>` produces what the installers /
 # AppImage pack:
-#   Windows:  <dir>/SynBench.exe + LICENSE.txt + the app-local VC++ and
-#             Universal CRT DLLs (P16); deploy.ps1 then adds Qt
+#   Windows:  <dir>/SynBench.exe + LICENSE.txt + THIRD-PARTY-NOTICES.txt +
+#             the app-local VC++ and Universal CRT DLLs (P16); deploy.ps1
+#             then adds Qt
 #   Linux:    <dir>/bin/SynBench, <dir>/libexec/synbench-helper, the desktop
-#             file, metainfo and icons; packaging/linux/make-appdir.py then
+#             file, metainfo, icons, share/doc/synbench/{LICENSE.txt,
+#             THIRD-PARTY-NOTICES.txt}; packaging/linux/make-appdir.py then
 #             bundles Qt into the AppDir
 # Test-only binaries are never installed (packaging/checks/no-test-binaries.sh).
 include(GNUInstallDirs)
 if(WIN32)
     install(TARGETS synbench_app RUNTIME DESTINATION .)
     install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" DESTINATION . RENAME LICENSE.txt)
+    install(FILES "${PROJECT_BINARY_DIR}/THIRD-PARTY-NOTICES.txt" DESTINATION .)
     # Qt's DLLs, plugins and QML imports are added by packaging/windows/deploy.ps1
     # (windeployqt; for ARM64 it runs the host tool with --qtpaths of the target
     # Qt, which is Qt's documented cross route), not by an install(SCRIPT), so
@@ -199,6 +209,9 @@ else()
     # The AppDir keeps libraries in usr/lib next to usr/bin.
     set_target_properties(synbench_app PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib")
     install(TARGETS synbench_app RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    # The licence and the third-party notices (D11), in the AppImage too.
+    install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/synbench" RENAME LICENSE.txt)
+    install(FILES "${PROJECT_BINARY_DIR}/THIRD-PARTY-NOTICES.txt" DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/synbench")
     if(TARGET synbench-helper)
         install(TARGETS synbench-helper RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}")
     endif()

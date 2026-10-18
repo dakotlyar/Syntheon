@@ -49,6 +49,8 @@ class AppController : public QObject
     Q_PROPERTY(bool emulated READ emulated NOTIFY systemInfoChanged)
     Q_PROPERTY(QString emulationText READ emulationText NOTIFY systemInfoChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
+    // THIRD-PARTY-NOTICES.txt (D11), embedded in the app: Settings > Licences.
+    Q_PROPERTY(QString thirdPartyNotices READ thirdPartyNotices CONSTANT)
 
 public:
     enum class AuthState { Authorising, Ready, Failed };
@@ -108,6 +110,7 @@ public:
     bool emulated() const { return m_info.emulated; }
     QString emulationText() const;
     QString version() const;
+    QString thirdPartyNotices() const;
     // Fresh power state, polled every 5 s while the app runs.
     void refreshPower();
     // The current snapshot with the latest power state, for a run to freeze.

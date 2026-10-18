@@ -8,6 +8,7 @@
 #include "synbench_version.h"
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QLoggingCategory>
 #include <QThreadPool>
 
@@ -130,6 +131,14 @@ QString AppController::emulationText() const
         return {};
     return QStringLiteral("This is the x64 build running emulated on an ARM64 PC, so results are not native. "
                           "Install the ARM64 build for real numbers.");
+}
+
+QString AppController::thirdPartyNotices() const
+{
+    QFile f(QStringLiteral(":/synbench/THIRD-PARTY-NOTICES.txt"));
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    return QString::fromUtf8(f.readAll());
 }
 
 QString AppController::version() const
