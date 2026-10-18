@@ -41,7 +41,7 @@ StubSpec makeSpec()
         for (const Runtime &rt : kRuntimes) {
             const QString runtime = QString::fromLatin1(rt.id);
             s.metrics.append({QString::fromLatin1(w.id) + QLatin1Char('.') + runtime, QString::fromLatin1(w.id),
-                              QStringLiteral("%1 on %2").arg(QString::fromLatin1(w.name), QString::fromLatin1(rt.name)),
+                              QStringLiteral("%1 on %2").arg(QString::fromUtf8(w.name), QString::fromUtf8(rt.name)),
                               QString::fromLatin1(w.unit), w.base * rt.factor, Direction::HigherIsBetter,
                               QLatin1StringView(w.id) == QLatin1StringView("llm") && runtime == QLatin1StringView("llamacpp"),
                               0.25 / 3.0, [runtime](const OptionValues &o) {
@@ -66,7 +66,7 @@ StubSpec makeSpec()
         rt.minSelected = 1;
         QStringList defaults;
         for (const Runtime &r : kRuntimes) {
-            OptionItem item{QString::fromLatin1(r.id), QString::fromLatin1(r.name)};
+            OptionItem item{QString::fromLatin1(r.id), QString::fromUtf8(r.name)};
             if (QLatin1StringView(r.id) == QLatin1StringView("openvino")) {
                 // The editor adds the reason to the label itself.
                 item.enabled = false;
@@ -106,12 +106,12 @@ StubSpec makeSpec()
         for (const QString &rid : runtimes) {
             for (const Runtime &rt : kRuntimes) {
                 if (QString::fromLatin1(rt.id) == rid)
-                    table.columns.append(QString::fromLatin1(rt.name));
+                    table.columns.append(QString::fromUtf8(rt.name));
             }
         }
         for (const Workload &w : kWorkloads) {
             const QString wid = QString::fromLatin1(w.id);
-            QVector<DetailCell> row{DetailCell::literal(QString::fromLatin1(w.name))};
+            QVector<DetailCell> row{DetailCell::literal(QString::fromUtf8(w.name))};
             bool any = false;
             for (const QString &rid : runtimes) {
                 const QString key = wid + QLatin1Char('.') + rid;

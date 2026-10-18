@@ -91,6 +91,18 @@ TestCase {
         verify(!shell.useRail)
     }
 
+    // Zeb: at the 760 px minimum the top tabs all fit; Settings isn't cut off.
+    function test_topTabsFitAt760() {
+        const shell = createTemporaryObject(shellComponent, test, { width: 760 })
+        shell.layout = "tabs"
+        waitForRendering(shell)
+        const strip = nav(shell)
+        const settings = findChild(strip, "nav-settings")
+        verify(settings !== null)
+        const right = settings.mapToItem(strip, settings.width, 0).x
+        verify(right <= strip.width, "Settings ends at " + right + " of " + strip.width)
+    }
+
     function test_navReflectsTheCurrentSection() {
         const shell = createTemporaryObject(shellComponent, test)
         shell.section = "compare"

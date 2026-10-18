@@ -218,6 +218,12 @@ private slots:
         const RunRecord ai = runOne(QStringLiteral("ai"), {{QStringLiteral("runtimes"), QStringList{QStringLiteral("tensorrt")}},
                                                            {QStringLiteral("subtests"), QStringList{QStringLiteral("llm")}}});
         QVERIFY(ai.tests[0].metric(QStringLiteral("llm.tensorrt")));
+        // UTF-8 names reach the labels intact (Zeb: "Ã— real time").
+        const RunRecord speech = runOne(QStringLiteral("ai"), {{QStringLiteral("subtests"), QStringList{QStringLiteral("speech")}}});
+        bool times = false;
+        for (const Metric &m : speech.tests[0].metrics)
+            times = times || m.label.contains(QStringLiteral("× real time"));
+        QVERIFY(times);
         QVERIFY(!ai.tests[0].metric(QStringLiteral("llm.llamacpp")));
         const DetailLayout d = m_registry.find(QStringLiteral("ai"))->detail(ai.tests[0]);
         const auto *table = std::get_if<TableBlock>(&d.blocks.first().content);

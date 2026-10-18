@@ -14,6 +14,9 @@ Rectangle {
     property string current
     property string version
     signal navigate(string id)
+    // Under 900 px the tabs tighten (less padding and spacing), so all seven
+    // fit at the 760 px minimum (Zeb: Settings was cut off).
+    readonly property bool compact: width < 900
 
     implicitHeight: 44
     color: Theme.win
@@ -31,7 +34,7 @@ Rectangle {
         RowLayout {
             id: row
             height: parent.height
-            spacing: 2
+            spacing: root.compact ? 0 : 2
 
             Repeater {
                 model: root.sections
@@ -65,8 +68,8 @@ Rectangle {
                             border.color: Theme.accent
                         }
                         contentItem: RowLayout {
-                            spacing: 8
-                            Item { Layout.preferredWidth: 2 }
+                            spacing: root.compact ? 5 : 8
+                            Item { Layout.preferredWidth: root.compact ? 1 : 2 }
                             Icon {
                                 path: entry.modelData.icon || ""
                                 color: entry.modelData.id === root.current ? Theme.accent : Theme.muted
@@ -76,7 +79,7 @@ Rectangle {
                                 font.weight: Font.Medium
                                 color: entry.modelData.id === root.current ? Theme.ink : Theme.muted
                             }
-                            Item { Layout.preferredWidth: 6 }
+                            Item { Layout.preferredWidth: root.compact ? 3 : 6 }
                         }
                     }
                 }
