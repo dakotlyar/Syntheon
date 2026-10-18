@@ -7,6 +7,7 @@ add_subdirectory(worker)
 add_library(synbench_test_cpu STATIC
     cpu_test.h cpu_test.cpp
     cpu_context.h cpu_context.cpp
+    formula_v1.h formula_v1.cpp
     # The measurement engine (Phase 2 design §4).
     engine/kernel.h
     engine/opaque.h

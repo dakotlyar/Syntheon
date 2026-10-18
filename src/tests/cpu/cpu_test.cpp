@@ -10,6 +10,7 @@
 #include "tests/cpu/engine/platform_threads.h"
 #include "tests/cpu/engine/time_scale.h"
 #include "tests/cpu/engine/worker_pool.h"
+#include "tests/cpu/formula_v1.h"
 #include "tests/cpu/golden/golden.h"
 #include "tests/cpu/kernels/fp_kernel.h"
 #include "tests/cpu/kernels/int_kernel.h"
@@ -153,13 +154,69 @@ Metric textMetric(const QString &key, const QString &sub, const QString &label, 
     return {key, sub, label, value, {}, Direction::Neutral, false};
 }
 
+#if defined(SYNBENCH_DEV_HOOKS)
+// The dev telemetry-injection hook (§14.3, dev builds only):
+// SYNBENCH_CPU_FAKE_THROTTLE=<stage> (e.g. "xz compress") makes the clock
+// fall 4% per repetition in that measurement (repetition 5: -16%) at 95 °C,
+// so the throttling flag, its log line and the Detail note can be seen
+// without a hot machine. The score is untouched: it comes from the rates.
+class InjectingSource : public tel::Source
+{
+public:
+    InjectingSource(std::unique_ptr<tel::Source> inner, QString stage) : m_inner(std::move(inner)), m_stage(std::move(stage)) {}
+    // The stage and window now running (the coordinator; read by the sampler).
+    void setPhase(const QString &stage, int window)
+    {
+        std::lock_guard lock(m_mutex);
+        m_active = stage == m_stage;
+        m_window = window;
+    }
+    std::optional<double> clockMHz(const tel::ClockScope &scope) override
+    {
+        const double base = m_inner->clockMHz(scope).value_or(4600.0);
+        std::lock_guard lock(m_mutex);
+        if (!m_active || m_window < 1)
+            return base;
+        return base * (1.0 - 0.04 * (m_window - 1));
+    }
+    std::optional<double> temperatureC() override
+    {
+        const auto t = m_inner->temperatureC();
+        std::lock_guard lock(m_mutex);
+        return m_active ? std::optional<double>(95.0) : t;
+    }
+    std::string temperatureLabel() const override { return m_inner->temperatureLabel(); }
+    std::optional<std::uint64_t> throttleCount() override { return m_inner->throttleCount(); }
+    std::optional<double> performanceLimitPercent() override { return m_inner->performanceLimitPercent(); }
+
+private:
+    std::unique_ptr<tel::Source> m_inner;
+    const QString m_stage;
+    std::mutex m_mutex;
+    bool m_active = false;
+    int m_window = 0;
+};
+#endif
+
+std::shared_ptr<tel::Source> makeSource()
+{
+#if defined(SYNBENCH_DEV_HOOKS)
+    const QString stage = qEnvironmentVariable("SYNBENCH_CPU_FAKE_THROTTLE");
+    if (!stage.isEmpty())
+        return std::make_shared<InjectingSource>(tel::makeSystemSource(), stage);
+#endif
+    return tel::makeSystemSource();
+}
+
 // One CPU test run: the sequence of §3, with telemetry and progress.
 class CpuRun
 {
 public:
     explicit CpuRun(RunContext &ctx)
-        : m_ctx(ctx), m_source(tel::makeSystemSource()), m_sensor(m_source->temperatureLabel()), m_sampler(m_source),
-          m_threads(cpu::logicalCpuCount())
+        // The sampler's 1 Hz follows the dev time scale (10 ms at 1%), so a
+        // shortened run still has samples in its repetitions.
+        : m_ctx(ctx), m_source(makeSource()), m_sensor(m_source->temperatureLabel()),
+          m_sampler(m_source, cpu::scaledWindow(1000ms)), m_threads(cpu::logicalCpuCount())
     {
     }
 
@@ -269,6 +326,10 @@ void CpuRun::report()
 
 void CpuRun::enterWindow(const QString &stage, int window, int reps, double budgetAt, double length)
 {
+#if defined(SYNBENCH_DEV_HOOKS)
+    if (auto *inject = dynamic_cast<InjectingSource *>(m_source.get()))
+        inject->setPhase(stage, window);
+#endif
     {
         std::lock_guard lock(m_progressMutex);
         m_stage = window == 0 ? stage + QStringLiteral(" · warm-up")
@@ -548,6 +609,22 @@ void CpuRun::singleThread()
         m_budgetDone += budget(kStCompress, true);
     }
     m_sampler.setScope({true, {}});
+
+    // The single-thread mark (§7.4), a headline metric.
+    const Metric *si = m_r.metric(QStringLiteral("single.int"));
+    const Metric *sf = m_r.metric(QStringLiteral("single.fp"));
+    const Metric *sc = m_r.metric(QStringLiteral("single.compress"));
+    if (si && sf && sc) {
+        if (const auto mark = cpu::formula_v1::singleThreadMark(std::get<double>(si->value), std::get<double>(sf->value),
+                                                                std::get<double>(sc->value))) {
+            m_r.metrics.append(metric(QStringLiteral("single.mark"), {}, QStringLiteral("Single-thread mark"), *mark,
+                                      QStringLiteral("points"), Direction::HigherIsBetter, true));
+            m_ctx.log(LogLevel::Info, QStringLiteral("Single-thread mark %1 (integer %2 · FP %3)")
+                                          .arg(number(*mark, QStringLiteral("points")),
+                                               number(std::get<double>(si->value), QStringLiteral("MOps/s")),
+                                               number(std::get<double>(sf->value), QStringLiteral("MFLOPS"))));
+        }
+    }
 
     // single.cpu (§2): which core(s) the single-thread mark ran on.
     QString where;
@@ -1085,10 +1162,9 @@ TestResult CpuTest::run(RunContext &ctx, const OptionValues &)
     return run.run();
 }
 
-ScoreBreakdown CpuTest::score(const TestResult &) const
+ScoreBreakdown CpuTest::score(const TestResult &result) const
 {
-    // The formula comes with task 15 (formula_v1).
-    return {};
+    return cpu::formula_v1::score(result);
 }
 
 } // namespace sb::tests

@@ -18,4 +18,32 @@ std::optional<double> weightedScore(const TestResult &result, double constant,
     return std::round(constant * sum);
 }
 
+GeometricScore weightedGeometricScore(const TestResult &result, double constant, const QVector<GeometricGroup> &groups)
+{
+    GeometricScore out;
+    double logTotal = 0.0;
+    bool complete = !groups.isEmpty();
+    for (const GeometricGroup &g : groups) {
+        double logGroup = 0.0;
+        bool present = !g.metrics.isEmpty();
+        for (const GeometricMetric &k : g.metrics) {
+            const Metric *m = result.metric(k.metricKey);
+            if (!m || !m->isNumeric() || !(std::get<double>(m->value) > 0) || !(k.anchor > 0)) {
+                present = false;
+                break;
+            }
+            logGroup += k.weight * std::log(std::get<double>(m->value) / k.anchor);
+        }
+        if (!present) {
+            complete = false;
+            continue;
+        }
+        out.groups.insert(g.id, std::round(constant * std::exp(logGroup)));
+        logTotal += g.weight * logGroup;
+    }
+    if (complete)
+        out.total = std::round(constant * std::exp(logTotal));
+    return out;
+}
+
 } // namespace sb

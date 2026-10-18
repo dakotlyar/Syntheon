@@ -6,6 +6,8 @@
 
 #include <QTest>
 
+#include <cmath>
+
 using namespace sb;
 
 namespace {
@@ -162,6 +164,63 @@ private slots:
         const auto first = weightedScore(sampleResult(), 3.3, w);
         for (int i = 0; i < 100; ++i)
             QCOMPARE(weightedScore(sampleResult(), 3.3, w), first);
+    }
+
+    // §7.2 / §7.3: the weighted geometric mean, with the design's worked examples.
+    void weightedGeometricScoreFormula()
+    {
+        const auto result = [](std::initializer_list<std::pair<const char *, double>> values) {
+            TestResult r;
+            for (const auto &[key, v] : values)
+                r.metrics.append({QLatin1StringView(key), {}, QString(), v, QString(), Direction::HigherIsBetter, false});
+            return r;
+        };
+        // Seven groups at the design's weights, one metric each, anchors 100.
+        const char *const ids[] = {"int", "fp", "simd", "compress", "crypto", "sort", "physics"};
+        const double w[] = {0.25, 0.25, 0.15, 0.10, 0.10, 0.10, 0.05};
+        QVector<GeometricGroup> groups;
+        for (int i = 0; i < 7; ++i)
+            groups.append({QLatin1StringView(ids[i]), w[i], {{QLatin1StringView(ids[i]), 100.0, 1.0}}});
+        // Everything at the anchors: 1,000; SIMD at half: 1000 x 0.5^0.15 = 901; all at 0.6: 600.
+        auto all = [&](double f, double simd) {
+            return result({{"int", 100 * f}, {"fp", 100 * f}, {"simd", 100 * simd}, {"compress", 100 * f},
+                           {"crypto", 100 * f}, {"sort", 100 * f}, {"physics", 100 * f}});
+        };
+        QCOMPARE(weightedGeometricScore(all(1, 1), 1000, groups).total, std::optional<double>(1000));
+        QCOMPARE(weightedGeometricScore(all(1, 0.5), 1000, groups).total, std::optional<double>(901));
+        QCOMPARE(weightedGeometricScore(all(0.6, 0.6), 1000, groups).total, std::optional<double>(600));
+        const GeometricScore half = weightedGeometricScore(all(1, 0.5), 1000, groups);
+        QCOMPARE(half.groups.value(QStringLiteral("simd")), 500.0);
+        QCOMPARE(half.groups.value(QStringLiteral("int")), 1000.0);
+        // Ratios don't depend on the anchors: doubling one anchor scales every result alike.
+        QVector<GeometricGroup> other = groups;
+        other[2].metrics[0].anchor = 200;
+        const double a = *weightedGeometricScore(all(1, 1), 1000, other).total;
+        const double b = *weightedGeometricScore(all(0.6, 0.6), 1000, other).total;
+        QVERIFY(qAbs(b / a - 0.6) < 0.002);
+        // Inside a group: 80/20 of 2x and 1x = 2^0.8.
+        const QVector<GeometricGroup> fp = {{QStringLiteral("fp"), 1.0, {{QStringLiteral("a"), 1, 0.8}, {QStringLiteral("b"), 1, 0.2}}}};
+        QCOMPARE(weightedGeometricScore(result({{"a", 2}, {"b", 1}}), 1000, fp).total, std::optional<double>(std::round(1000 * std::pow(2, 0.8))));
+    }
+
+    // A missing, text or non-positive metric: that group has no score and
+    // the total is missing; the other groups keep theirs.
+    void weightedGeometricScoreMissingGroup()
+    {
+        TestResult r = sampleResult();
+        const QVector<GeometricGroup> groups = {
+            {QStringLiteral("bw"), 0.5, {{QStringLiteral("bandwidth.read"), 78.4, 1.0}}},
+            {QStringLiteral("gone"), 0.5, {{QStringLiteral("missing"), 1.0, 1.0}}},
+        };
+        GeometricScore s = weightedGeometricScore(r, 1000, groups);
+        QVERIFY(!s.total);
+        QCOMPARE(s.groups.value(QStringLiteral("bw")), 1000.0);
+        QVERIFY(!s.groups.contains(QStringLiteral("gone")));
+        const QVector<GeometricGroup> text = {{QStringLiteral("t"), 1.0, {{QStringLiteral("timings"), 1.0, 1.0}}}};
+        QVERIFY(!weightedGeometricScore(r, 1000, text).total);
+        r.metrics[0].value = 0.0;
+        QVERIFY(!weightedGeometricScore(r, 1000, {groups[0]}).total);
+        QVERIFY(!weightedGeometricScore(r, 1000, {}).total);
     }
 
     void weightedScoreMissingOrTextMetric()

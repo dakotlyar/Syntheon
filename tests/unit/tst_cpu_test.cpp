@@ -9,10 +9,13 @@
 #include "tests/cpu/cpu_test.h"
 #include "tests/cpu/crypto_client.h"
 #include "tests/cpu/engine/platform_threads.h"
+#include "tests/cpu/formula_v1.h"
 
 #include <QTest>
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <chrono>
 #include <mutex>
 
@@ -184,6 +187,81 @@ private slots:
         QVERIFY(ctx.logged(QStringLiteral("SIMD: ")));
         QVERIFY(ctx.logged(QStringLiteral("Encryption: hardware")));
         QVERIFY(ctx.logged(QStringLiteral("single.int on CPU")) || ctx.logged(QStringLiteral("unpinned")));
+        // Task 15: the single-thread mark (a headline metric) and the score.
+        const Metric *mark = r.metric(QStringLiteral("single.mark"));
+        QVERIFY(mark && mark->headline && std::get<double>(mark->value) > 0);
+        QCOMPARE(mark->unit, QStringLiteral("points"));
+        QVERIFY(ctx.logged(QStringLiteral("Single-thread mark ")));
+        const ScoreBreakdown b = t.score(r);
+        QVERIFY(b.total && *b.total > 0);
+        QCOMPARE(b.subScores.size(), 7);
+    }
+
+    // formula v1 (§7): at the anchors everything is 1,000; the weights act
+    // as elasticities; a missing group means no total but keeps the others.
+    void formula()
+    {
+        TestResult r;
+        for (const GeometricGroup &g : cpu::formula_v1::groups()) {
+            for (const GeometricMetric &m : g.metrics)
+                r.metrics.append({m.metricKey, g.id, QString(), m.anchor, QString(), Direction::HigherIsBetter, false});
+        }
+        ScoreBreakdown b = cpu::formula_v1::score(r);
+        QCOMPARE(b.total, std::optional<double>(1000));
+        for (const double v : b.subScores)
+            QCOMPARE(v, 1000.0);
+        // The group weights sum to 1, and each group's metric weights too.
+        double total = 0;
+        for (const GeometricGroup &g : cpu::formula_v1::groups()) {
+            total += g.weight;
+            double inner = 0;
+            for (const GeometricMetric &m : g.metrics)
+                inner += m.weight;
+            QVERIFY(qAbs(inner - 1) < 1e-12);
+        }
+        QVERIFY(qAbs(total - 1) < 1e-12);
+        // SIMD twice as fast: 2^0.15 = +11%.
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("simd.rate"))
+                m.value = std::get<double>(m.value) * 2;
+        }
+        QCOMPARE(cpu::formula_v1::score(r).total, std::optional<double>(1110));
+        // No encryption: no total; the rest keep their sub-scores.
+        r.metrics.erase(std::remove_if(r.metrics.begin(), r.metrics.end(),
+                                       [](const Metric &m) { return m.key.startsWith(QLatin1StringView("crypto.")); }),
+                        r.metrics.end());
+        b = cpu::formula_v1::score(r);
+        QVERIFY(!b.total);
+        QCOMPARE(b.subScores.size(), 6);
+        QCOMPARE(b.subScores.value(QStringLiteral("simd")), 2000.0);
+        // The single-thread mark: 5:5:2.
+        using namespace cpu::formula_v1;
+        QCOMPARE(singleThreadMark(kAnchorSingleInt, kAnchorSingleFp, kAnchorSingleCompress), std::optional<double>(1000));
+        QCOMPARE(singleThreadMark(2 * kAnchorSingleInt, kAnchorSingleFp, kAnchorSingleCompress),
+                 std::optional<double>(std::round(1000 * std::pow(2.0, 5.0 / 12.0))));
+        QCOMPARE(singleThreadMark(kAnchorSingleInt, kAnchorSingleFp, 2 * kAnchorSingleCompress),
+                 std::optional<double>(std::round(1000 * std::pow(2.0, 2.0 / 12.0))));
+        QVERIFY(!singleThreadMark(0, kAnchorSingleFp, kAnchorSingleCompress));
+    }
+
+    // The dev telemetry-injection hook: a forced clock fall in one
+    // measurement raises the throttling flag; the score doesn't change
+    // because of it (it comes from the rates).
+    void injectedThrottle()
+    {
+        qputenv("SYNBENCH_CPU_FAKE_THROTTLE", "xz compress");
+        tests::CpuTest t;
+        FakeRunContext ctx;
+        const TestResult r = t.run(ctx, {});
+        qunsetenv("SYNBENCH_CPU_FAKE_THROTTLE");
+        QCOMPARE(r.status, Status::Ok);
+        QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle"))->value), QStringLiteral("Detected"));
+        const QString detail = std::get<QString>(r.metric(QStringLiteral("throttle.detail"))->value);
+        QVERIFY2(detail.startsWith(QStringLiteral("xz compression: clock ")), qPrintable(detail));
+        QVERIFY(ctx.logged(QStringLiteral("xz compression: clock fell")));
+        QVERIFY(ctx.logged(QStringLiteral("Throttling detected in xz compression")));
+        QVERIFY(ctx.logged(QStringLiteral("at 95 °C")));
+        QVERIFY(t.score(r).total);
     }
 
     // Stop in each phase: the run returns within 250 ms as Cancelled, with

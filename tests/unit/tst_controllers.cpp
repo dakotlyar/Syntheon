@@ -234,7 +234,7 @@ private slots:
         rt.start();
         QTRY_VERIFY_WITH_TIMEOUT(!rt.run().probing(), 20000);
         QTRY_VERIFY_WITH_TIMEOUT(!rt.startup().recovering(), 10000);
-        rt.run().toggle(QStringLiteral("cpu"));
+        rt.run().toggle(QStringLiteral("gpu"));
         QSignalSpy finished(&rt.run(), &RunController::runFinished);
         QVERIFY(rt.run().start());
         QVERIFY(finished.wait(60000));
