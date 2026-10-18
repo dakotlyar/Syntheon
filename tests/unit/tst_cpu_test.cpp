@@ -459,6 +459,7 @@ private slots:
         TestResult r = mockupResult();
         // Encryption failed: Partial, no score.
         r.status = Status::Partial;
+        r.statusReason = QStringLiteral("No CPU score: not every sub-test ran");
         r.score.reset();
         for (SubResult &s : r.subResults) {
             if (s.id == QLatin1StringView("crypto")) {
@@ -479,18 +480,63 @@ private slots:
         for (const DetailBlock &b : d.blocks)
             QVERIFY(b.title != QLatin1StringView("Encryption"));  // no table without numbers
         const auto *last = std::get_if<NoteBlock>(&d.blocks.last().content);
-        QVERIFY(last && last->text.contains(QStringLiteral("crypto: the worker crashed")));
+        QVERIFY2(last && last->text == QStringLiteral("No CPU score: not every sub-test ran. Encryption: the worker crashed."),
+                 last ? qPrintable(last->text) : "no note");
         // Stopped during sorting: what finished, no score.
         r = mockupResult();
         r.status = Status::Cancelled;
         r.score.reset();
         r.subResults.resize(5);
         r.subResults[4].status = Status::Cancelled;
+        for (SubResult &s : r.subResults)
+            s.score.reset();  // a stopped run is never scored (§7.2)
         d = t.detail(r);
         QVERIFY(d.subtitle.startsWith(QStringLiteral("Stopped · ")));
         const auto &g2 = std::get<TableBlock>(d.blocks[1].content);
+        // No Sub-score column, and no CPU score row (Dave, M2).
+        QCOMPARE(g2.columns, (QStringList{QStringLiteral("Group"), QStringLiteral("Weight"), QStringLiteral("Result")}));
+        QCOMPARE(g2.rows.size(), 7);
         QCOMPARE(g2.rows[5][2].text, QStringLiteral("Not run"));  // sorting
         QVERIFY(std::get<NoteBlock>(d.blocks.last().content).text.startsWith(QStringLiteral("Stopped before the end")));
+
+        // Partial through the single-thread mark only: every group there, but
+        // no CPU score, and the note says why (AP-5 M1).
+        r = mockupResult();
+        r.status = Status::Partial;
+        r.statusReason = QStringLiteral("single-thread mark incomplete: Single-thread floating point: a wrong result");
+        const ScoreBreakdown b = t.score(r);
+        QVERIFY(!b.total);
+        QCOMPARE(b.subScores.size(), 7);
+        r.score.reset();
+        d = t.detail(r);
+        QCOMPARE(std::get<NoteBlock>(d.blocks.last().content).text,
+                 QStringLiteral("No CPU score: single-thread mark incomplete: Single-thread floating point: a wrong result."));
+        QVERIFY(d.subtitle.startsWith(QStringLiteral("No CPU score · ")));
+
+        // No SIMD path: the group is N/A, and no "none path" anywhere (AP-5 L3).
+        r = mockupResult();
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("simd.path"))
+                m.value = QStringLiteral("none");
+        }
+        r.metrics.erase(std::remove_if(r.metrics.begin(), r.metrics.end(),
+                                       [](const Metric &m) { return m.key == QLatin1StringView("simd.rate"); }),
+                        r.metrics.end());
+        for (SubResult &s : r.subResults) {
+            if (s.id == QLatin1StringView("simd")) {
+                s.status = Status::NotAvailable;
+                s.score.reset();
+            }
+        }
+        r.status = Status::Partial;
+        r.score.reset();
+        d = t.detail(r);
+        QVERIFY2(!d.subtitle.contains(QStringLiteral("path")), qPrintable(d.subtitle));
+        for (const KpiItem &k : std::get<KpisBlock>(d.blocks[0].content).items)
+            QVERIFY(k.label != QLatin1StringView("SIMD path"));
+        const auto &g3 = std::get<TableBlock>(d.blocks[1].content);
+        QCOMPARE(g3.rows[2][0].text, QStringLiteral("SIMD"));
+        QCOMPARE(g3.rows[2][2].text, QStringLiteral("N/A"));
     }
 
     // AP-5 M1: a single-thread part that fails makes the test Partial (the
@@ -510,7 +556,10 @@ private slots:
         QVERIFY(r.metric(QStringLiteral("single.int")) && r.metric(QStringLiteral("single.compress")));
         for (const SubResult &s : r.subResults)
             QCOMPARE(s.status, Status::Ok);
-        QVERIFY(t.score(r).total);
+        // Partial: the group sub-scores, but no CPU score (AP-5 M1).
+        const ScoreBreakdown b = t.score(r);
+        QVERIFY(!b.total);
+        QCOMPARE(b.subScores.size(), 7);
     }
 
     // AP-5 L2: a wrong result on the software encryption path is an Error,

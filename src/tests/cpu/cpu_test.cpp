@@ -1234,7 +1234,13 @@ TestResult CpuTest::run(RunContext &ctx, const OptionValues &)
 
 ScoreBreakdown CpuTest::score(const TestResult &result) const
 {
-    return cpu::formula_v1::score(result);
+    // A CPU score only for a complete result: a Partial one (a group, or a
+    // single-thread part, missing) keeps its group sub-scores but no total,
+    // even if every group happens to be there (AP-5 M1).
+    ScoreBreakdown b = cpu::formula_v1::score(result);
+    if (result.status != Status::Ok)
+        b.total.reset();
+    return b;
 }
 
 } // namespace sb::tests

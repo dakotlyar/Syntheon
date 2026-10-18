@@ -171,7 +171,9 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         parts << QStringLiteral("No CPU score");
     else if (r.status == Status::Cancelled)
         parts << QStringLiteral("Stopped");
-    const QString simdPath = text(r, QStringLiteral("simd.path"));
+    // No SIMD path (the group N/A): no "none path" anywhere (AP-5 L3).
+    const SubResult *simdSub = sub(r, "simd");
+    const QString simdPath = simdSub && simdSub->status == Status::NotAvailable ? QString() : text(r, QStringLiteral("simd.path"));
     if (!simdPath.isEmpty())
         parts << splitParenthesis(simdPath).first + QStringLiteral(" path");
     if (const auto threads = number(r, QStringLiteral("threads")))
@@ -202,14 +204,21 @@ DetailLayout CpuTest::detail(const TestResult &r) const
     if (!kpis.items.isEmpty())
         d.blocks.append({{}, kpis});
 
-    // 2. The groups.
+    // 2. The groups. A Stopped or Interrupted run is never scored (the
+    // Phase 1 rule, §7.2): its table has no Sub-score column at all.
+    const bool scored = r.status == Status::Ok || r.status == Status::Partial;
     TableBlock groups;
-    groups.columns = {QStringLiteral("Group"), QStringLiteral("Weight"), QStringLiteral("Result"), QStringLiteral("Sub-score")};
+    groups.columns = {QStringLiteral("Group"), QStringLiteral("Weight"), QStringLiteral("Result")};
+    if (scored)
+        groups.columns << QStringLiteral("Sub-score");
     const auto row = [&](const char *id, const QString &name, const char *weight, const QString &result) {
         const SubResult *s = sub(r, id);
         const bool ran = s && s->status == Status::Ok;
-        groups.rows.append({DetailCell::literal(name), DetailCell::literal(QLatin1StringView(weight)),
-                            DetailCell::literal(ran ? result : statusText(s)), DetailCell::literal(subScore(s))});
+        QVector<DetailCell> cells{DetailCell::literal(name), DetailCell::literal(QLatin1StringView(weight)),
+                                  DetailCell::literal(ran ? result : statusText(s))};
+        if (scored)
+            cells << DetailCell::literal(subScore(s));
+        groups.rows.append(cells);
     };
     row("int", QStringLiteral("Integer"), "25%", withUnit(r, QStringLiteral("int.rate")));
     row("fp", QStringLiteral("Floating point + primes"), "25%",
@@ -224,11 +233,13 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         QStringLiteral("64-bit ") + withUnit(r, QStringLiteral("sort.u64")) + QStringLiteral("\nstrings ")
             + withUnit(r, QStringLiteral("sort.str")));
     row("physics", QStringLiteral("Physics (n-body, FP64)"), "5%", withUnit(r, QStringLiteral("physics.nbody")));
-    groups.rows.append({DetailCell::literal(QStringLiteral("CPU score")), DetailCell::literal(QStringLiteral("100%")),
-                        DetailCell::literal(r.score ? QStringLiteral("weighted geometric mean")
-                                                    : QStringLiteral("no score: not every sub-test ran")),
-                        DetailCell::literal(r.score ? Units::format(*r.score, QStringLiteral("points"), false)
-                                                    : QStringLiteral("—"))});
+    if (scored) {
+        groups.rows.append({DetailCell::literal(QStringLiteral("CPU score")), DetailCell::literal(QStringLiteral("100%")),
+                            DetailCell::literal(r.score ? QStringLiteral("weighted geometric mean")
+                                                        : QStringLiteral("no score: not every part ran")),
+                            DetailCell::literal(r.score ? Units::format(*r.score, QStringLiteral("points"), false)
+                                                        : QStringLiteral("—"))});
+    }
     d.blocks.append({QStringLiteral("Sub-tests (all threads)"), groups});
 
     // The throttling note sits between the two tables on purpose (the
@@ -356,16 +367,33 @@ DetailLayout CpuTest::detail(const TestResult &r) const
 
     // 7. Notes.
     if (r.status == Status::Partial) {
+        // Why (the status reason: groups that didn't run, or the single-
+        // thread mark), and each group's problem by its name (AP-5 L4).
         QStringList problems;
         for (const SubResult &s : r.subResults) {
-            if (s.status != Status::Ok)
-                problems << QStringLiteral("%1: %2").arg(s.id, s.reason.isEmpty() ? statusText(&s) : s.reason);
+            if (s.status == Status::Ok)
+                continue;
+            QString name = s.id;
+            for (const SubTestInfo &i : m_info.subTests) {
+                if (i.id == s.id)
+                    name = i.name;
+            }
+            problems << QStringLiteral("%1: %2").arg(name, s.reason.isEmpty() ? statusText(&s) : s.reason);
         }
-        d.blocks.append({{}, NoteBlock{QStringLiteral("No CPU score: not every sub-test ran. ") + problems.join(QStringLiteral("; ")),
-                                       Tone::Warn}});
+        QString why = r.statusReason;
+        if (why.startsWith(QStringLiteral("No CPU score: ")))
+            why = why.mid(14);
+        QString note = QStringLiteral("No CPU score: %1.").arg(why.isEmpty() ? QStringLiteral("not every part ran") : why);
+        if (!problems.isEmpty())
+            note += QLatin1Char(' ') + problems.join(QStringLiteral("; ")) + QLatin1Char('.');
+        d.blocks.append({{}, NoteBlock{note, Tone::Warn}});
     } else if (r.status == Status::Cancelled) {
-        d.blocks.append({{}, NoteBlock{QStringLiteral("Stopped before the end: the parts that finished are shown, and "
-                                                      "there is no CPU score."),
+        d.blocks.append({{}, NoteBlock{QStringLiteral("Stopped before the end: the parts that finished are shown, "
+                                                      "without scores."),
+                                       Tone::Warn}});
+    } else if (r.status == Status::TimedOut || r.status == Status::Interrupted) {
+        d.blocks.append({{}, NoteBlock{QStringLiteral("The test didn't finish: the parts that finished are shown, "
+                                                      "without scores."),
                                        Tone::Warn}});
     }
     if (r.metric(QStringLiteral("emulated")))
