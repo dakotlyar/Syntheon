@@ -194,6 +194,22 @@ private:
     std::vector<Poll> m_polls;
 };
 
+// The bounds on how late a 50 ms poll may come, beyond the coordinator's
+// counted run-queue wait. A single poll: 50 ms + 25 ms (timers, and the
+// hypervisor steal on cloud runners that run_delay doesn't count; AP-5 L1).
+// The median of a measurement's polls: 50 ms + 10 ms. On Windows the waits
+// read as 0 and the timer ticks every 15.625 ms; MSVC's wait_for(50 ms) ends
+// up to a tick later, so polls settle near 62.5 ms: one tick more on both
+// (AP-5 H1). The engine doesn't change the timer resolution (that would
+// change the product's power use).
+#if defined(Q_OS_WIN)
+constexpr double kTimerTickMs = 15.625;
+#else
+constexpr double kTimerTickMs = 0;
+#endif
+constexpr double kPollLateMs = 50 + kTimerTickMs + 25;
+constexpr double kMedianPollMs = 50 + kTimerTickMs + 10;
+
 double secondsOf(Clock::duration d)
 {
     return std::chrono::duration<double>(d).count();
@@ -468,9 +484,10 @@ private slots:
     // coordinator that polls too slowly sleeps and units that ignore the stop
     // work: neither is waiting, so both still fail. The poll itself is bound
     // too: the median time between two polls in the same window, less the
-    // coordinator's run-queue wait between them, is at most 60 ms. Elsewhere
-    // the waits read as 0 and both bounds are on wall time (Windows raises
-    // the coordinator's priority). On a failure the message splits the time.
+    // coordinator's run-queue wait between them, is at most kMedianPollMs
+    // (60 ms; a timer tick more on Windows). Elsewhere the waits read as 0
+    // and both bounds are on wall time (Windows raises the coordinator's
+    // priority). On a failure the message splits the time.
     void stopWithin250ms()
     {
         const int n = testThreads();
@@ -553,14 +570,14 @@ private slots:
                 intervals.push_back(secondsOf(polls[i].at - polls[i - 1].at) * 1000
                                     - double(polls[i].waitNs - polls[i - 1].waitNs) / 1e6);
         }
-        // And this cancel was seen within one poll interval (+10 ms for
-        // timers) beyond the coordinator's wait: it came inside a window, and
-        // a cancel at a window's end is seen at once (cancelAtWindowChangeover).
+        // And this cancel was seen within one poll interval (kPollLateMs)
+        // beyond the coordinator's wait: it came inside a window, and a
+        // cancel at a window's end is seen at once (cancelAtWindowChangeover).
         const double sawMs = secondsOf(seenAt - cancelledAt) * 1000;
-        QVERIFY2(sawMs - toSeenWait < 50 + 10, qPrintable(QStringLiteral("the cancel was seen late. ") + detail));
+        QVERIFY2(sawMs - toSeenWait < kPollLateMs, qPrintable(QStringLiteral("the cancel was seen late. ") + detail));
         QVERIFY(intervals.size() >= 3);
         const double medianPoll = medianOf(intervals);
-        QVERIFY2(medianPoll <= 60, qPrintable(QStringLiteral("the poll is too slow: every %1 ms (median of %2). ")
+        QVERIFY2(medianPoll <= kMedianPollMs, qPrintable(QStringLiteral("the poll is too slow: every %1 ms (median of %2). ")
                                                   .arg(medianPoll, 0, 'f', 1)
                                                   .arg(intervals.size())
                                               + detail));
@@ -575,8 +592,8 @@ private slots:
     // the cancel raised in that poll is seen when the unit ends, about 25 ms
     // later; without the end-of-window poll, repetition 1 starts and sees it
     // 50 ms in. On a loaded CPU the unit can outlast the next poll, which
-    // then sees it: one interval (+10 ms for timers), beyond the
-    // coordinator's run-queue wait (Linux; else 0).
+    // then sees it: one interval (kPollLateMs), beyond the coordinator's
+    // run-queue wait (Linux; else 0).
     void cancelAtWindowChangeover()
     {
         RecordingKernel k(1, [steps = chainStepsFor(175ms)](int) { return steps; });
@@ -608,7 +625,7 @@ private slots:
         QVERIFY(m.reps.empty());
         QCOMPARE(k.window(), 0);  // repetition 1 never started
         const double sawMs = secondsOf(seenAt - armedAt) * 1000, waitMs = double(waitAtSeen - waitAtArm) / 1e6;
-        QVERIFY2(sawMs - waitMs < 50 + 10, qPrintable(QStringLiteral("the cancel was seen %1 ms after it came (%2 ms of "
+        QVERIFY2(sawMs - waitMs < kPollLateMs, qPrintable(QStringLiteral("the cancel was seen %1 ms after it came (%2 ms of "
                                                                 "it waiting for a CPU)")
                                                      .arg(sawMs, 0, 'f', 1)
                                                      .arg(waitMs, 0, 'f', 1)));
