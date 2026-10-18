@@ -14,10 +14,22 @@ file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test-logs")
 # guard that aborts unless the locations are under "qttest"). Around that,
 # CTest runs every Qt test with scratch data/settings for any SynBench it
 # launches (SYNBENCH_DATA_DIR, SYNBENCH_SETTINGS_FILE; dev-hook builds) and,
-# on Unix, with HOME and the XDG data/config homes in <build>/test-home; the
-# test_home fixture empties that first and fails afterwards if anything
+# on Unix, with HOME and the XDG data/config/cache/state homes in
+# <build>/test-home and XDG_RUNTIME_DIR in a private 0700 folder; the
+# test_home fixture recreates those first and fails afterwards if anything
 # SynBench appeared outside Qt's test-mode root (tests/check_test_home.cmake).
 set(SB_TEST_HOME "${CMAKE_BINARY_DIR}/test-home")
+# The runtime folder holds the single-instance sockets, and a Unix socket
+# path has room for 104 bytes (macOS; 108 on Linux); "<runtime>/synbench/synbench-<key>.sock"
+# adds 36. A deep build tree (a worktree under a long scratch path) gets a
+# short per-build folder in /tmp instead of <test-home>/run.
+set(SB_TEST_RUNTIME "${SB_TEST_HOME}/run")
+string(LENGTH "${SB_TEST_RUNTIME}" _sb_runtime_len)
+if(_sb_runtime_len GREATER 68)
+    string(SHA1 _sb_build_hash "${CMAKE_BINARY_DIR}")
+    string(SUBSTRING "${_sb_build_hash}" 0 12 _sb_build_hash)
+    set(SB_TEST_RUNTIME "/tmp/synbench-test-run-${_sb_build_hash}")
+endif()
 set(SB_TEST_ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen"
     "SYNBENCH_DATA_DIR=${SB_TEST_HOME}/scratch/data"
@@ -27,10 +39,14 @@ if(UNIX)
     list(APPEND SB_TEST_ENVIRONMENT
         "HOME=${SB_TEST_HOME}"
         "XDG_DATA_HOME=${SB_TEST_HOME}/.local/share"
-        "XDG_CONFIG_HOME=${SB_TEST_HOME}/.config")
+        "XDG_CONFIG_HOME=${SB_TEST_HOME}/.config"
+        "XDG_CACHE_HOME=${SB_TEST_HOME}/.cache"
+        "XDG_STATE_HOME=${SB_TEST_HOME}/.local/state"
+        "XDG_RUNTIME_DIR=${SB_TEST_RUNTIME}")
     set(SB_TEST_FIXTURES test_home)
     add_test(NAME test_home_setup
-        COMMAND ${CMAKE_COMMAND} "-DHOME_DIR=${SB_TEST_HOME}" -DMODE=setup -P "${CMAKE_CURRENT_SOURCE_DIR}/check_test_home.cmake")
+        COMMAND ${CMAKE_COMMAND} "-DHOME_DIR=${SB_TEST_HOME}" "-DRUNTIME_DIR=${SB_TEST_RUNTIME}" -DMODE=setup
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/check_test_home.cmake")
     add_test(NAME test_home_untouched
         COMMAND ${CMAKE_COMMAND} "-DHOME_DIR=${SB_TEST_HOME}" -DMODE=check -P "${CMAKE_CURRENT_SOURCE_DIR}/check_test_home.cmake")
     set_tests_properties(test_home_setup PROPERTIES FIXTURES_SETUP test_home)
