@@ -10,6 +10,7 @@
 #include "tests/cpu/crypto_client.h"
 #include "tests/cpu/engine/platform_threads.h"
 #include "tests/cpu/formula_v1.h"
+#include "core/detail.h"
 
 #include <QTest>
 
@@ -104,6 +105,78 @@ private:
     SystemSnapshot m_system;
     UnavailablePrivilegedOps m_priv;
 };
+
+// The mockup's completed run (all numbers illustrative, as drawn).
+TestResult mockupResult()
+{
+    TestResult r;
+    r.testId = QStringLiteral("cpu");
+    r.status = Status::Ok;
+    r.score = 875;
+    const auto num = [&](const char *key, const char *sub, double v, const char *unit) {
+        r.metrics.append({QLatin1StringView(key), QLatin1StringView(sub), QString(), v, QLatin1StringView(unit),
+                          Direction::HigherIsBetter, false});
+    };
+    const auto txt = [&](const char *key, const QString &v) {
+        r.metrics.append({QLatin1StringView(key), {}, QString(), v, {}, Direction::Neutral, false});
+    };
+    num("single.int", "", 6710, "MOps/s");
+    num("single.fp", "", 4030, "MFLOPS");
+    num("single.compress", "", 211, "MB/s");
+    num("single.mark", "", 921, "points");
+    txt("single.cpu", QStringLiteral("CPU 0 and 5 (the quietest top-ranked core, chosen per repetition)"));
+    txt("single.cores", QStringLiteral("integer 0,0,5,0,0 · FP 5,0,0,0,5 · compression 0,0,0,0,0"));
+    num("int.rate", "int", 148600, "MOps/s");
+    num("fp.rate", "fp", 91800, "MFLOPS");
+    num("fp.primes", "fp", 2140, "MOps/s");
+    txt("simd.path", QStringLiteral("AVX-512 (512-bit)"));
+    num("simd.rate", "simd", 412000, "MOps/s");
+    const double c[] = {640, 4750, 11300, 47}, dd[] = {6380, 19100, 63800, 1590}, ratio[] = {3.12, 3.36, 2.08, 3.94};
+    const char *keys[] = {"zlib", "zstd", "lz4", "xz"};
+    for (int i = 0; i < 4; ++i) {
+        r.metrics.append({QStringLiteral("compress.%1.c").arg(QLatin1StringView(keys[i])), QStringLiteral("compress"), QString(), c[i],
+                          QStringLiteral("MB/s"), Direction::HigherIsBetter, false});
+        r.metrics.append({QStringLiteral("compress.%1.d").arg(QLatin1StringView(keys[i])), QStringLiteral("compress"), QString(), dd[i],
+                          QStringLiteral("MB/s"), Direction::HigherIsBetter, false});
+        r.metrics.append({QStringLiteral("compress.%1.ratio").arg(QLatin1StringView(keys[i])), QStringLiteral("compress"), QString(),
+                          ratio[i], QString(), Direction::Neutral, false});
+    }
+    txt("crypto.path", QStringLiteral("AES-NI + VAES, SHA-NI"));
+    num("crypto.aes_gcm", "crypto", 96400, "MB/s");
+    num("crypto.sha256", "crypto", 24300, "MB/s");
+    num("crypto.aes_gcm.sw", "crypto", 3120, "MB/s");
+    num("crypto.sha256.sw", "crypto", 6150, "MB/s");
+    num("sort.u64", "sort", 362, "MOps/s");
+    num("sort.str", "sort", 118, "MOps/s");
+    num("physics.nbody", "physics", 2890, "MOps/s");
+    num("threads", "", 24, "");
+    r.metrics.append({QStringLiteral("temp.max"), {}, QStringLiteral("Peak temperature (k10temp Tctl)"), 95.0, QStringLiteral("°C"),
+                      Direction::Neutral, false});
+    txt("throttle", QStringLiteral("Detected"));
+    txt("throttle.detail", QStringLiteral("xz compression: clock 4.6 → 3.9 GHz (−15%)"));
+    txt("throttle.note", QStringLiteral("Throttling detected in xz compression: clock speed fell from 4.6 to 3.9 GHz (−15%) at "
+                                        "95 °C. The score is not adjusted."));
+    const double scores[] = {862, 891, 803, 905, 944, 872, 910};
+    const char *ids[] = {"int", "fp", "simd", "compress", "crypto", "sort", "physics"};
+    for (int i = 0; i < 7; ++i)
+        r.subResults.append({QLatin1StringView(ids[i]), Status::Ok, {}, scores[i]});
+    Series clock{QStringLiteral("telemetry.clock"), QStringLiteral("Clock (CPUs running the test)"), QStringLiteral("Time"),
+                 QStringLiteral("s"), QStringLiteral("MHz"), {}};
+    Series temp{QStringLiteral("telemetry.temp"), QStringLiteral("Temperature (k10temp Tctl)"), QStringLiteral("Time"),
+                QStringLiteral("s"), QStringLiteral("°C"), {}};
+    for (int s = 0; s <= 270; ++s) {
+        clock.points.append({double(s), 4600.0});
+        temp.points.append({double(s), s == 150 ? 95.0 : 70.0});
+    }
+    Series windows{QStringLiteral("telemetry.windows"), QString(), QString(), QStringLiteral("s"), QString(), {}};
+    const std::pair<int, double> starts[] = {{1, 3}, {2, 20}, {3, 37}, {10, 59}, {11, 81}, {12, 103}, {13, 115}, {20, 137},
+                                             {21, 146}, {26, 182}, {27, 192}, {30, 198}, {31, 206}, {32, 214}, {33, 219},
+                                             {40, 224}, {41, 236}, {50, 248}};
+    for (const auto &[code, x] : starts)
+        windows.points.append({x, double(code)});
+    r.series = {clock, temp, windows};
+    return r;
+}
 
 const char *const kScoredKeys[] = {
     "int.rate",         "fp.rate",          "fp.primes",       "simd.rate",        "compress.zlib.c", "compress.zlib.d",
@@ -258,7 +331,7 @@ private slots:
         QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle"))->value), QStringLiteral("Detected"));
         const QString detail = std::get<QString>(r.metric(QStringLiteral("throttle.detail"))->value);
         QVERIFY2(detail.startsWith(QStringLiteral("xz compression: clock ")), qPrintable(detail));
-        QVERIFY(ctx.logged(QStringLiteral("xz compression: clock fell")));
+        QVERIFY(ctx.logged(QStringLiteral("xz compress: clock fell")));  // the log names the stage (mockup)
         QVERIFY(ctx.logged(QStringLiteral("Throttling detected in xz compression")));
         QVERIFY(ctx.logged(QStringLiteral("at 95 °C")));
         QVERIFY(t.score(r).total);
@@ -307,6 +380,116 @@ private slots:
             QCOMPARE(s.status, s.id == QLatin1StringView("crypto") ? Status::Error : Status::Ok);
         QVERIFY(r.metric(QStringLiteral("physics.nbody")));
         QVERIFY(!r.metric(QStringLiteral("crypto.aes_gcm")));
+    }
+
+    // Task 16: the Detail page of the approved mockup, from the mockup's
+    // own (illustrative) numbers.
+    void detailCompleted()
+    {
+        TestResult r = mockupResult();
+        tests::CpuTest t;
+        const DetailLayout d = t.detail(r);
+        QCOMPARE(d.subtitle, QStringLiteral("Score 875 · AVX-512 path · 24 threads · Throttling detected"));
+        QCOMPARE(d.headlineMetrics, QStringList{QStringLiteral("single.mark")});
+        // The order: KPIs, groups, throttle note, Encryption, its note,
+        // Compression + Single-thread (a pair), the two charts.
+        QStringList kinds;
+        for (const DetailBlock &b : d.blocks)
+            kinds << (std::holds_alternative<KpisBlock>(b.content) ? QStringLiteral("kpis")
+                      : std::holds_alternative<TableBlock>(b.content) ? QStringLiteral("table:") + b.title
+                      : std::holds_alternative<NoteBlock>(b.content) ? QStringLiteral("note")
+                      : std::holds_alternative<LineChartBlock>(b.content) ? QStringLiteral("chart:") + b.title
+                                                                           : QStringLiteral("?"));
+        QCOMPARE(kinds, (QStringList{QStringLiteral("kpis"), QStringLiteral("table:Sub-tests (all threads)"), QStringLiteral("note"),
+                                     QStringLiteral("table:Encryption"), QStringLiteral("note"),
+                                     QStringLiteral("table:Compression (MB/s)"),
+                                     QStringLiteral("table:Single-thread · pinned per repetition (CPU 0, 5)"),
+                                     QStringLiteral("chart:Clock (CPUs running the test, MHz)"),
+                                     QStringLiteral("chart:Temperature (k10temp Tctl, °C)")}));
+        const auto &kpis = std::get<KpisBlock>(d.blocks[0].content).items;
+        QCOMPARE(kpis.size(), 5);
+        QCOMPARE(kpis[1].value.text, QStringLiteral("AVX-512"));
+        QCOMPARE(kpis[1].unitOverride, QStringLiteral("512-bit"));
+        QCOMPARE(kpis[2].value.text, QStringLiteral("AES-NI"));
+        QCOMPARE(kpis[2].unitOverride, QStringLiteral("+ VAES · SHA-NI"));
+        QCOMPARE(kpis[3].unitOverride, QStringLiteral("logical CPUs"));
+        QCOMPARE(kpis[4].value.text, QStringLiteral("95 °C"));
+        QCOMPARE(kpis[4].unitOverride, QStringLiteral("k10temp Tctl"));
+        const auto &groups = std::get<TableBlock>(d.blocks[1].content);
+        QCOMPARE(groups.rows.size(), 8);
+        QCOMPARE(groups.rows[1][2].text, QStringLiteral("91,800 MFLOPS\nprimes 2,140 MOps/s"));
+        QCOMPARE(groups.rows[2][0].text, QStringLiteral("SIMD (AVX-512)"));
+        QCOMPARE(groups.rows[4][2].text, QStringLiteral("AES-256-GCM 96,400 MB/s\nSHA-256 24,300 MB/s"));
+        QCOMPARE(groups.rows[7][2].text, QStringLiteral("weighted geometric mean"));
+        QCOMPARE(groups.rows[7][3].text, QStringLiteral("875"));
+        QCOMPARE(groups.rows[0][3].text, QStringLiteral("862"));
+        QCOMPARE(std::get<NoteBlock>(d.blocks[2].content).text,
+                 QStringLiteral("Throttling detected in xz compression: clock speed fell from 4.6 to 3.9 GHz (−15%) at 95 °C. "
+                                "The score is not adjusted."));
+        const auto &enc = std::get<TableBlock>(d.blocks[3].content);
+        QCOMPARE(enc.rows[0][3].text, QStringLiteral("30.9×"));
+        QCOMPARE(enc.rows[1][3].text, QStringLiteral("4.0×"));
+        const auto &comp = std::get<TableBlock>(d.blocks[5].content);
+        QCOMPARE(comp.rows[0][0].text, QStringLiteral("zlib (level 6)"));
+        QCOMPARE(comp.rows[0][1].text, QStringLiteral("640"));
+        QCOMPARE(comp.rows[0][2].text, QStringLiteral("6,380"));
+        QCOMPARE(comp.rows[0][3].text, QStringLiteral("3.12"));
+        const auto &st = std::get<TableBlock>(d.blocks[6].content);
+        QCOMPARE(st.rows[3][1].text, QStringLiteral("921"));
+        // The clock chart's labels: the throttled window replaces "Compression".
+        const auto &clock = std::get<LineChartBlock>(d.blocks[7].content);
+        QStringList labels;
+        for (const ChartAnnotation &a : clock.annotations)
+            labels << a.label;
+        QCOMPARE(labels, (QStringList{QStringLiteral("Single-thread"), QStringLiteral("Integer"), QStringLiteral("xz (−15%)"),
+                                      QStringLiteral("Encryption"), QStringLiteral("Physics")}));
+        QCOMPARE(clock.xAxis.tickLabels, (QStringList{QStringLiteral("0 s"), QStringLiteral("60 s"), QStringLiteral("120 s"),
+                                                      QStringLiteral("180 s"), QStringLiteral("240 s"), QStringLiteral("270 s")}));
+        const auto &temp = std::get<LineChartBlock>(d.blocks[8].content);
+        labels.clear();
+        for (const ChartAnnotation &a : temp.annotations)
+            labels << a.label;
+        QCOMPARE(labels, (QStringList{QStringLiteral("Single-thread"), QStringLiteral("95 °C"), QStringLiteral("Encryption")}));
+    }
+
+    void detailPartialAndStopped()
+    {
+        tests::CpuTest t;
+        TestResult r = mockupResult();
+        // Encryption failed: Partial, no score.
+        r.status = Status::Partial;
+        r.score.reset();
+        for (SubResult &s : r.subResults) {
+            if (s.id == QLatin1StringView("crypto")) {
+                s.status = Status::Error;
+                s.reason = QStringLiteral("the worker crashed");
+                s.score.reset();
+            }
+        }
+        r.metrics.erase(std::remove_if(r.metrics.begin(), r.metrics.end(),
+                                       [](const Metric &m) { return m.key.startsWith(QLatin1StringView("crypto.")); }),
+                        r.metrics.end());
+        DetailLayout d = t.detail(r);
+        QVERIFY(d.subtitle.startsWith(QStringLiteral("No CPU score · ")));
+        const auto &groups = std::get<TableBlock>(d.blocks[1].content);
+        QCOMPARE(groups.rows[4][2].text, QStringLiteral("Error"));
+        QCOMPARE(groups.rows[4][3].text, QStringLiteral("—"));
+        QCOMPARE(groups.rows[7][3].text, QStringLiteral("—"));
+        for (const DetailBlock &b : d.blocks)
+            QVERIFY(b.title != QLatin1StringView("Encryption"));  // no table without numbers
+        const auto *last = std::get_if<NoteBlock>(&d.blocks.last().content);
+        QVERIFY(last && last->text.contains(QStringLiteral("crypto: the worker crashed")));
+        // Stopped during sorting: what finished, no score.
+        r = mockupResult();
+        r.status = Status::Cancelled;
+        r.score.reset();
+        r.subResults.resize(5);
+        r.subResults[4].status = Status::Cancelled;
+        d = t.detail(r);
+        QVERIFY(d.subtitle.startsWith(QStringLiteral("Stopped · ")));
+        const auto &g2 = std::get<TableBlock>(d.blocks[1].content);
+        QCOMPARE(g2.rows[5][2].text, QStringLiteral("Not run"));  // sorting
+        QVERIFY(std::get<NoteBlock>(d.blocks.last().content).text.startsWith(QStringLiteral("Stopped before the end")));
     }
 
     void options()

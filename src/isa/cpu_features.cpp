@@ -340,7 +340,7 @@ std::string describeSimdChoice(const CpuFeatures &f, bool sveInBuild)
     std::string s = std::string(simdPathName(p)) + " path selected";
     switch (p) {
     case SimdPath::Avx512:
-        return s + " (F, BW, DQ, VL; OS ZMM state on)";
+        return s + " (F, BW, DQ, VL; OS saves ZMM state)";
     case SimdPath::Avx2Fma:
         if (f.avx512WithoutOsState)
             return s + " (the CPU has AVX-512, but the OS doesn't save its ZMM state)";

@@ -23,6 +23,8 @@ public:
     std::chrono::seconds timeLimit(const OptionValues &) const override;
     TestResult run(RunContext &ctx, const OptionValues &options) override;
     ScoreBreakdown score(const TestResult &result) const override;
+    // The approved mockup's layout (§10; cpu_detail.cpp).
+    DetailLayout detail(const TestResult &result) const override;
 
     // The fixed budget of a run (§3), in seconds at real time.
     static constexpr int kBudgetSeconds = 270;

@@ -102,8 +102,8 @@ SimdPath bestSimdPath(const CpuFeatures &f, bool sveInBuild = kSveInBuild);
 // "AVX-512 (512-bit)", "AVX2 + FMA (256-bit)", "SSE4.2 (128-bit)", "NEON (128-bit)",
 // "SVE" (the vector length is only known at run time), "none".
 const char *simdPathName(SimdPath p);
-// The log line: which path and why, e.g. "AVX-512 path selected (F, BW, DQ,
-// VL; OS ZMM state on)".
+// The log line: which path and why, e.g. "AVX-512 (512-bit) path selected
+// (F, BW, DQ, VL; OS saves ZMM state)".
 std::string describeSimdChoice(const CpuFeatures &f, bool sveInBuild = kSveInBuild);
 
 } // namespace sb::isa

@@ -84,7 +84,7 @@ private slots:
         QVERIFY(!f.avx512WithoutOsState);
         QCOMPARE(bestSimdPath(f), SimdPath::Avx512);
         QCOMPARE(QString::fromStdString(describeSimdChoice(f)),
-                 QStringLiteral("AVX-512 (512-bit) path selected (F, BW, DQ, VL; OS ZMM state on)"));
+                 QStringLiteral("AVX-512 (512-bit) path selected (F, BW, DQ, VL; OS saves ZMM state)"));
     }
 
     // The CPU has AVX-512 but the OS saves only XMM/YMM (XCR0 bits 5-7 off).

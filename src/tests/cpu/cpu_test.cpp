@@ -6,6 +6,7 @@
 #include "tests/common/stub_clock.h"
 #include "tests/cpu/compress/compress_kernels.h"
 #include "tests/cpu/cpu_context.h"
+#include "tests/cpu/cpu_windows.h"
 #include "tests/cpu/crypto_client.h"
 #include "tests/cpu/engine/platform_threads.h"
 #include "tests/cpu/engine/time_scale.h"
@@ -71,26 +72,6 @@ constexpr Group kGroups[] = {{"int", "Integer"},       {"fp", "Floating point + 
                              {"crypto", "Encryption"},  {"sort", "Sorting"},
                              {"physics", "Physics"}};
 
-// telemetry.windows: each measurement's start (x, s) and what it is (y), for
-// the Detail page's chart labels. Stable forever, like metric keys.
-enum WindowCode {
-    kWinSingleInt = 1,
-    kWinSingleFp = 2,
-    kWinSingleCompress = 3,
-    kWinInt = 10,
-    kWinFp = 11,
-    kWinPrimes = 12,
-    kWinSimd = 13,
-    kWinCompress = 20,  // + 2 x codec index, + 1 for decompression (20..27)
-    kWinAesHw = 30,
-    kWinShaHw = 31,
-    kWinAesSw = 32,
-    kWinShaSw = 33,
-    kWinSortU64 = 40,
-    kWinSortStr = 41,
-    kWinPhysics = 50,
-};
-
 double seconds(std::chrono::milliseconds ms)
 {
     return double(ms.count()) / 1000.0;
@@ -99,13 +80,6 @@ double seconds(std::chrono::milliseconds ms)
 QString qs(const std::string &s)
 {
     return QString::fromStdString(s);
-}
-
-// "2:05"
-QString clockText(double s)
-{
-    const int total = int(s);
-    return QStringLiteral("%1:%2").arg(total / 60).arg(total % 60, 2, 10, QLatin1Char('0'));
 }
 
 QString number(double value, const QString &unit)
@@ -225,6 +199,8 @@ public:
 private:
     // How one measurement went, with what the throttle rule and the chart need.
     struct Step {
+        int code = 0;    // telemetry.windows code
+        QString stage;   // the progress stage ("xz compress"), for the log
         Measurement m;
         std::vector<double> starts;  // each window's start (s since the sampler started); [0] = warm-up
         double end = 0;
@@ -244,8 +220,9 @@ private:
                  bool single);
     Step crypto(cpu::CryptoAlg alg, bool software, const WindowSpec &spec, const QString &stage, int code,
                 cpu::CryptoOutcome &out);
-    tel::WindowTrace trace(const Step &s, const std::vector<double> &rates, const std::string &name) const;
-    void checkThrottle(const tel::WindowTrace &t);
+    tel::WindowTrace trace(const Step &s, const std::vector<double> &rates) const;
+    void checkThrottle(const Step &s, const std::vector<double> &rates);
+    void checkThrottle(const Step &s);
 
     void groupBegin(int index);
     void groupEnd(int index, Status status, const QString &reason = {});
@@ -319,7 +296,8 @@ void CpuRun::report()
         const double now = m_sampler.now();
         const double into = std::clamp(now - m_windowStartedAt, 0.0, m_windowLength);
         fraction = std::clamp((m_windowBudgetAt + into) / m_budgetTotal, 0.0, 0.999);
-        stage = m_stage + QStringLiteral(" · ") + clockText(now);
+        // The app adds the elapsed time ("· 2:05", as in the mockup).
+        stage = m_stage;
     }
     m_ctx.progress(fraction, stage);
 }
@@ -346,6 +324,8 @@ CpuRun::Step CpuRun::measure(WorkerPool &pool, const cpu::Kernel &kernel, const 
 {
     const WindowSpec spec = cpu::scaled(specIn);
     Step s;
+    s.code = code;
+    s.stage = stage;
     const double base = m_budgetDone;
     const double sample = single ? seconds(m_sampleFor) : 0;
     s.m = pool.measure(
@@ -374,6 +354,8 @@ CpuRun::Step CpuRun::crypto(cpu::CryptoAlg alg, bool software, const WindowSpec 
 {
     const WindowSpec spec = cpu::scaled(specIn);
     Step s;
+    s.code = code;
+    s.stage = stage;
     const double base = m_budgetDone;
     cpu::CryptoRunSpec run;
     run.alg = alg;
@@ -397,10 +379,10 @@ CpuRun::Step CpuRun::crypto(cpu::CryptoAlg alg, bool software, const WindowSpec 
     return s;
 }
 
-tel::WindowTrace CpuRun::trace(const Step &s, const std::vector<double> &rates, const std::string &name) const
+tel::WindowTrace CpuRun::trace(const Step &s, const std::vector<double> &rates) const
 {
     tel::WindowTrace t;
-    t.name = name;
+    t.name = windowName(s.code).toStdString();
     t.repRates = rates;
     const std::vector<tel::Sample> samples = m_sampler.samples();
     for (std::size_t r = 0; r < rates.size(); ++r) {
@@ -417,8 +399,17 @@ tel::WindowTrace CpuRun::trace(const Step &s, const std::vector<double> &rates, 
     return t;
 }
 
-void CpuRun::checkThrottle(const tel::WindowTrace &t)
+void CpuRun::checkThrottle(const Step &s)
 {
+    std::vector<double> rates;
+    for (const cpu::RepSample &r : s.m.reps)
+        rates.push_back(r.rate);
+    checkThrottle(s, rates);
+}
+
+void CpuRun::checkThrottle(const Step &s, const std::vector<double> &rates)
+{
+    const tel::WindowTrace t = trace(s, rates);
     m_traces.push_back(t);
     const tel::ThrottleVerdict v = tel::detectThrottle({t}, std::nullopt, std::nullopt);
     if (!v.detected)
@@ -426,14 +417,14 @@ void CpuRun::checkThrottle(const tel::WindowTrace &t)
     const QString at = v.temperatureC ? QStringLiteral(" at %1 °C").arg(std::lround(*v.temperatureC)) : QString();
     if (!v.byRate)
         m_ctx.log(LogLevel::Warning, QStringLiteral("%1: clock fell %2 → %3 GHz (−%4%)%5")
-                                         .arg(qs(t.name))
+                                         .arg(s.stage)
                                          .arg(*v.fromMHz / 1000, 0, 'f', 1)
                                          .arg(*v.toMHz / 1000, 0, 'f', 1)
                                          .arg(std::lround(v.dropPercent))
                                          .arg(at));
     else
         m_ctx.log(LogLevel::Warning, QStringLiteral("%1: the rate fell %2% from the first repetition to the last%3")
-                                         .arg(qs(t.name))
+                                         .arg(s.stage)
                                          .arg(std::lround(v.dropPercent))
                                          .arg(at));
 }
@@ -519,7 +510,11 @@ void CpuRun::prepare()
     m_primes = std::make_unique<cpu::PrimesKernel>();
     m_simdInputs = std::make_unique<cpu::SimdInputs>();
     m_simd = cpu::chooseSimdPath(isa::detect(), *m_simdInputs);
-    m_ctx.log(m_simd.warning ? LogLevel::Warning : LogLevel::Info, QStringLiteral("SIMD: %1").arg(qs(m_simd.note)));
+    // "SIMD: AVX-512 path selected (…)": the path without its width, as in the mockup.
+    QString simdNote = qs(m_simd.note);
+    const QString pathName = QString::fromLatin1(isa::simdPathName(m_simd.path));
+    simdNote.replace(pathName + QStringLiteral(" path"), pathName.section(QStringLiteral(" ("), 0, 0) + QStringLiteral(" path"));
+    m_ctx.log(m_simd.warning ? LogLevel::Warning : LogLevel::Info, QStringLiteral("SIMD: %1").arg(simdNote));
     m_sortArena = std::make_unique<cpu::SortArena>();
     m_budgetDone = 3;
 }
@@ -661,10 +656,7 @@ void CpuRun::integer()
         m_ctx.log(LogLevel::Info, QStringLiteral("Integer %1 (spread %2%)")
                                       .arg(number(s.m.median / 1e6, QStringLiteral("MOps/s")))
                                       .arg(s.m.spread * 100, 0, 'f', 1));
-        std::vector<double> rates;
-        for (const cpu::RepSample &r : s.m.reps)
-            rates.push_back(r.rate);
-        checkThrottle(trace(s, rates, "Integer"));
+        checkThrottle(s);
     }
     groupEnd(0, Status::Ok);
 }
@@ -679,10 +671,7 @@ void CpuRun::floatingPoint()
         fp = s.m.median / 1e6;
         m_r.metrics.append(metric(QStringLiteral("fp.rate"), QStringLiteral("fp"), QStringLiteral("Floating point"), *fp,
                                   QStringLiteral("MFLOPS")));
-        std::vector<double> rates;
-        for (const cpu::RepSample &r : s.m.reps)
-            rates.push_back(r.rate);
-        checkThrottle(trace(s, rates, "Floating point"));
+        checkThrottle(s);
     }
     if (!m_stopped) {
         s = measure(*m_pool, *m_primes, kMtPrimes, QStringLiteral("Primes"), kWinPrimes, false);
@@ -690,10 +679,7 @@ void CpuRun::floatingPoint()
             primes = s.m.median / 1e6;
             m_r.metrics.append(metric(QStringLiteral("fp.primes"), QStringLiteral("fp"), QStringLiteral("Primes"), *primes,
                                       QStringLiteral("MOps/s")));
-            std::vector<double> rates;
-            for (const cpu::RepSample &r : s.m.reps)
-                rates.push_back(r.rate);
-            checkThrottle(trace(s, rates, "Primes"));
+            checkThrottle(s);
         }
     }
     if (fp && primes)
@@ -719,11 +705,8 @@ void CpuRun::simd()
                                   s.m.median / 1e6, QStringLiteral("MOps/s")));
         m_ctx.log(LogLevel::Info, QStringLiteral("SIMD %1 (%2)")
                                       .arg(number(s.m.median / 1e6, QStringLiteral("MOps/s")),
-                                           QString::fromLatin1(isa::simdPathName(m_simd.path))));
-        std::vector<double> rates;
-        for (const cpu::RepSample &r : s.m.reps)
-            rates.push_back(r.rate);
-        checkThrottle(trace(s, rates, "SIMD"));
+                                           QString::fromLatin1(isa::simdPathName(m_simd.path)).section(QStringLiteral(" ("), 0, 0)));
+        checkThrottle(s);
     }
     groupEnd(2, Status::Ok);
 }
@@ -769,10 +752,7 @@ void CpuRun::compression()
             c = s.m.median / 1e6;
             m_r.metrics.append(metric(QStringLiteral("compress.%1.c").arg(key), QStringLiteral("compress"),
                                       QStringLiteral("%1 compress").arg(name), *c, QStringLiteral("MB/s")));
-            std::vector<double> rates;
-            for (const cpu::RepSample &r : s.m.reps)
-                rates.push_back(r.rate);
-            checkThrottle(trace(s, rates, (name + QStringLiteral(" compression")).toStdString()));
+            checkThrottle(s);
         }
         if (ck.sizeMismatches() > 0 || set->sizeMismatches > 0)
             m_ctx.log(LogLevel::Warning, QStringLiteral("%1: %2 compressed sizes differed from the reference (a different "
@@ -789,10 +769,7 @@ void CpuRun::compression()
                                       QStringLiteral("%1 decompress").arg(name), *d, QStringLiteral("MB/s")));
             m_r.metrics.append(metric(QStringLiteral("compress.%1.ratio").arg(key), QStringLiteral("compress"),
                                       QStringLiteral("%1 ratio").arg(name), set->ratio(), QString(), Direction::Neutral));
-            std::vector<double> rates;
-            for (const cpu::RepSample &r : s.m.reps)
-                rates.push_back(r.rate);
-            checkThrottle(trace(s, rates, (name + QStringLiteral(" decompression")).toStdString()));
+            checkThrottle(s);
         }
         if (c && d)
             m_ctx.log(LogLevel::Info, QStringLiteral("%1 %2 / %3 MB/s")
@@ -849,8 +826,8 @@ void CpuRun::encryption()
             m_r.metrics.append(textMetric(QStringLiteral("crypto.path"), QStringLiteral("crypto"), QStringLiteral("Encryption path"), path));
             m_r.metrics.append(textMetric(QStringLiteral("crypto.sw_path"), QStringLiteral("crypto"), QStringLiteral("Software path"),
                                           QStringLiteral("AES and SHA instructions off (SIMD on)")));
-            m_ctx.log(LogLevel::Info, QStringLiteral("Encryption: hardware %1 (OpenSSL %2); software path = AES/SHA off")
-                                          .arg(path, out.openssl));
+            m_ctx.log(LogLevel::Info, QStringLiteral("Encryption: hardware %1; software path = AES/SHA off").arg(path));
+            m_ctx.log(LogLevel::Info, QStringLiteral("Encryption worker: OpenSSL %1").arg(out.openssl));
         }
         m_r.metrics.append(metric(QLatin1StringView(p.key), QStringLiteral("crypto"),
                                   p.software ? label + QStringLiteral(" (software path)") : label, out.medianMbps,
@@ -858,7 +835,7 @@ void CpuRun::encryption()
         m_ctx.log(LogLevel::Info, QStringLiteral("%1 %2 (spread %3%)")
                                       .arg(stage, number(out.medianMbps, QStringLiteral("MB/s")))
                                       .arg(out.spread * 100, 0, 'f', 1));
-        checkThrottle(trace(s, out.repMbps, (p.software ? label + QStringLiteral(" (software)") : label).toStdString()));
+        checkThrottle(s, out.repMbps);
     }
     groupEnd(4, Status::Ok);
 }
@@ -873,10 +850,7 @@ void CpuRun::sorting()
         u64 = s.m.median / 1e6;
         m_r.metrics.append(metric(QStringLiteral("sort.u64"), QStringLiteral("sort"), QStringLiteral("64-bit sort"), *u64,
                                   QStringLiteral("MOps/s")));
-        std::vector<double> rates;
-        for (const cpu::RepSample &r : s.m.reps)
-            rates.push_back(r.rate);
-        checkThrottle(trace(s, rates, "64-bit sort"));
+        checkThrottle(s);
     }
     if (!m_stopped) {
         const cpu::SortStringsKernel strings(*m_sortArena);
@@ -885,10 +859,7 @@ void CpuRun::sorting()
             str = s.m.median / 1e6;
             m_r.metrics.append(metric(QStringLiteral("sort.str"), QStringLiteral("sort"), QStringLiteral("String sort"), *str,
                                       QStringLiteral("MOps/s")));
-            std::vector<double> rates;
-            for (const cpu::RepSample &r : s.m.reps)
-                rates.push_back(r.rate);
-            checkThrottle(trace(s, rates, "string sort"));
+            checkThrottle(s);
         }
     }
     if (u64 && str)
@@ -906,10 +877,7 @@ void CpuRun::physics()
         m_r.metrics.append(metric(QStringLiteral("physics.nbody"), QStringLiteral("physics"), QStringLiteral("Physics (n-body)"),
                                   s.m.median / 1e6, QStringLiteral("MOps/s")));
         m_ctx.log(LogLevel::Info, QStringLiteral("Physics %1").arg(number(s.m.median / 1e6, QStringLiteral("MOps/s"))));
-        std::vector<double> rates;
-        for (const cpu::RepSample &r : s.m.reps)
-            rates.push_back(r.rate);
-        checkThrottle(trace(s, rates, "Physics"));
+        checkThrottle(s);
     }
     groupEnd(6, Status::Ok);
 }
@@ -976,6 +944,9 @@ void CpuRun::finish(TestResult &r)
                                 v.detected ? QStringLiteral("Detected") : QStringLiteral("Not detected")));
     if (v.detected) {
         r.metrics.append(textMetric(QStringLiteral("throttle.detail"), {}, QStringLiteral("Throttling detail"), qs(tel::throttleDetail(v))));
+        // The Detail page's note, as approved (it needs the temperature,
+        // which throttle.detail doesn't carry).
+        r.metrics.append(textMetric(QStringLiteral("throttle.note"), {}, QStringLiteral("Throttling note"), qs(tel::throttleNote(v))));
         m_ctx.log(LogLevel::Warning, qs(tel::throttleNote(v)));
     }
     r.metrics.append(metric(QStringLiteral("stability.spread"), {}, QStringLiteral("Worst spread"), m_worstSpread * 100,
