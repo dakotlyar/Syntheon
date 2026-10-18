@@ -10,6 +10,10 @@ import SynBench
 SbDialog {
     id: dialog
 
+    // Sized and centred on the window, wherever it is declared (Settings
+    // declares it inside its content column).
+    parent: Overlay.overlay
+
     width: Math.min(parent ? parent.width - 48 : 760, 760)
     height: Math.min(parent ? parent.height - 48 : 560, 560)
     padding: 16

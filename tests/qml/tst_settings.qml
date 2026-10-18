@@ -56,6 +56,11 @@ TestCase {
         mouseClick(findChild(screen, "viewLicences"))
         const dialog = findChild(screen, "licencesDialog")
         tryVerify(function() { return dialog.opened }, 5000)
+        // Sized on the window (Zeb: it was 296 px tall inside Settings' column).
+        const win = dialog.parent
+        compare(win.width, test.width)
+        compare(dialog.height, Math.min(win.height - 48, 560))
+        verify(dialog.height > 400)
         const text = findChild(dialog.contentItem, "noticesText").text
         for (const name of ["zlib", "Zstandard", "LZ4", "liblzma", "OpenSSL", "Qt", "Third-party code inside Qt", "Archivo", "IBM Plex"])
             verify(text.indexOf(name) >= 0, name)
