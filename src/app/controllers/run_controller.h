@@ -7,6 +7,7 @@
 #include "storage/sqlite_run_sink.h"
 
 #include <QAbstractItemModel>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 #include <QThreadPool>
@@ -185,6 +186,8 @@ private:
     QHash<QString, double> m_estimateByTest;
     double m_actualMs = 0, m_estimatedMs = 0;
     QStringList m_finishedIds;
+    QString m_currentId;            // the test running now (for the live ETA)
+    QElapsedTimer m_currentClock;   // since it started
     QString m_etaText;
     QStringList m_startErrors;
     QThreadPool m_probePool;  // this controller's probe tasks only

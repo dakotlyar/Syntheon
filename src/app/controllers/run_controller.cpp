@@ -144,6 +144,8 @@ void RunController::connectOrchestrator()
         m_plannedIds = ids;
         m_finishedIds.clear();
         m_actualMs = m_estimatedMs = 0;
+        m_currentId.clear();
+        m_currentClock.invalidate();
         m_runStarted = QDateTime::currentDateTime();
         m_estimateByTest.clear();
         QVector<RunQueueModel::Planned> plan;
@@ -162,6 +164,8 @@ void RunController::connectOrchestrator()
     connect(&m_orchestrator, &Orchestrator::stateChanged, this, [this] { updateRunning(); });
     connect(&m_orchestrator, &Orchestrator::testStarted, this, [this](int index, const QString &id) {
         m_queue->testStarted(index);
+        m_currentId = id;
+        m_currentClock.start();
         m_stage = testName(id);
         m_stageColor = testColor(id);
         emit currentChanged();
@@ -249,6 +253,25 @@ QAbstractItemModel *RunController::log()
     return m_log.get();
 }
 
+namespace {
+
+// "45 s", "4 min 30 s", "5 min": seconds below 90 s, else minutes and the
+// seconds to the nearest 10 (as the CPU test's log says "about 4 min 30 s").
+QString durationText(qint64 secs)
+{
+    if (secs < 90)
+        return QCoreApplication::translate("RunController", "%1 s").arg(std::max<qint64>(secs, 1));
+    qint64 m = secs / 60, s = (secs % 60 + 5) / 10 * 10;
+    if (s == 60) {
+        ++m;
+        s = 0;
+    }
+    return s == 0 ? QCoreApplication::translate("RunController", "%1 min").arg(m)
+                  : QCoreApplication::translate("RunController", "%1 min %2 s").arg(m).arg(s);
+}
+
+} // namespace
+
 void RunController::refreshEta()
 {
     QString text;
@@ -258,16 +281,21 @@ void RunController::refreshEta()
         if (alone) {
             text = tr("runs until the battery is empty");
         } else {
-            double remaining = 0;
-            for (const QString &id : std::as_const(m_plannedIds)) {
-                if (!m_finishedIds.contains(id))
-                    remaining += m_estimateByTest.value(id);
-            }
             // Corrected by how long the finished tests really took vs their estimates.
             const double ratio = m_estimatedMs > 0 ? m_actualMs / m_estimatedMs : 1.0;
-            remaining *= ratio;
+            double remaining = 0;
+            for (const QString &id : std::as_const(m_plannedIds)) {
+                if (m_finishedIds.contains(id))
+                    continue;
+                double left = m_estimateByTest.value(id) * ratio;
+                // The test running now: its estimate less the time it has run
+                // (a live countdown, not a jump at each test's end).
+                if (id == m_currentId && m_currentClock.isValid())
+                    left = std::max(0.0, left - double(m_currentClock.elapsed()) / 1000.0);
+                remaining += left;
+            }
             const qint64 secs = qint64(std::llround(remaining));
-            text = secs >= 90 ? tr("about %1 min left").arg((secs + 59) / 60) : tr("about %1 s left").arg(std::max<qint64>(secs, 1));
+            text = tr("about %1 left").arg(durationText(secs));
         }
     }
     if (text != m_etaText) {
@@ -488,7 +516,7 @@ QString RunController::estimateText() const
             secs += t->estimate(v).count();
         }
     }
-    return secs >= 90 ? tr("estimated %1 min").arg((secs + 59) / 60) : tr("estimated %1 s").arg(std::max<qint64>(secs, 1));
+    return tr("estimated %1").arg(durationText(secs));
 }
 
 QString RunController::estimateOf(const QString &testId)
@@ -497,7 +525,7 @@ QString RunController::estimateOf(const QString &testId)
     if (!t)
         return {};
     const qint64 secs = t->estimate(valuesFor(testId)).count();
-    return secs >= 90 ? tr("~%1 min").arg((secs + 59) / 60) : tr("~%1 s").arg(std::max<qint64>(secs, 1));
+    return tr("~%1").arg(durationText(secs));
 }
 
 QString RunController::runButtonText() const

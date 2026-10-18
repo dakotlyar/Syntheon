@@ -266,6 +266,33 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(rc().canStart(), 5000);
     }
 
+    // Zeb: the ETA counts down inside a running test (it used to move only
+    // when a test finished), and durations read "4 min 30 s" like the log.
+    void etaCountsDownWithinATest()
+    {
+        tests::setStubTimeScale(1.0);
+        startRuntime();
+        rc().toggle(QStringLiteral("cpu"));
+        QCOMPARE(rc().estimateText(), QStringLiteral("estimated 4 min 30 s"));
+        QCOMPARE(rc().estimateOf(QStringLiteral("cpu")), QStringLiteral("~4 min 30 s"));
+        rc().clearSelection();
+        rc().toggle(QStringLiteral("gpu"));  // a 24 s stub
+        QSignalSpy finished(&rc(), &RunController::runFinished);
+        QVERIFY(rc().start());
+        QTRY_VERIFY_WITH_TIMEOUT(rc().runSubtitle().contains(QLatin1StringView("left")), 5000);
+        const auto secondsLeft = [&] {
+            const QString s = rc().runSubtitle();
+            const qsizetype at = s.indexOf(QLatin1StringView("about "));
+            return s.mid(at + 6).section(QLatin1Char(' '), 0, 0).toInt();
+        };
+        const int first = secondsLeft();
+        QTest::qWait(3200);
+        const int later = secondsLeft();
+        QVERIFY2(later < first, qPrintable(QStringLiteral("%1 -> %2").arg(first).arg(later)));
+        rc().stop();
+        QVERIFY(finished.wait(20000));
+    }
+
     void etaAndTitles()
     {
         tests::setStubTimeScale(1.0);
