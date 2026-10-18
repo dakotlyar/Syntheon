@@ -323,6 +323,10 @@ private slots:
     void injectedThrottle()
     {
         qputenv("SYNBENCH_CPU_FAKE_THROTTLE", "xz compress");
+        // 5% of real time: xz's repetitions (80 ms) then always hold a
+        // telemetry sample (every 50 ms), even on a loaded machine; at 1% a
+        // repetition could go unsampled, and a real drift elsewhere won.
+        tests::setStubTimeScale(0.05);
         tests::CpuTest t;
         FakeRunContext ctx;
         const TestResult r = t.run(ctx, {});

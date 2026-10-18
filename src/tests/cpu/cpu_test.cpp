@@ -131,7 +131,8 @@ Metric textMetric(const QString &key, const QString &sub, const QString &label, 
 #if defined(SYNBENCH_DEV_HOOKS)
 // The dev telemetry-injection hook (§14.3, dev builds only):
 // SYNBENCH_CPU_FAKE_THROTTLE=<stage> (e.g. "xz compress") makes the clock
-// fall 4% per repetition in that measurement (repetition 5: -16%) at 95 °C,
+// fall 8% per repetition in that measurement (repetition 5: -32%, well past
+// any real drift) at 95 °C,
 // so the throttling flag, its log line and the Detail note can be seen
 // without a hot machine. The score is untouched: it comes from the rates.
 class InjectingSource : public tel::Source
@@ -151,7 +152,7 @@ public:
         std::lock_guard lock(m_mutex);
         if (!m_active || m_window < 1)
             return base;
-        return base * (1.0 - 0.04 * (m_window - 1));
+        return base * (1.0 - 0.08 * (m_window - 1));
     }
     std::optional<double> temperatureC() override
     {
