@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Qt Quick Test (offscreen): the QML screens and components against real
 # controllers on a temporary history. See tests/qml/main.cpp for the setup.
-qt_add_executable(tst_qml main.cpp "${PROJECT_SOURCE_DIR}/tests/support/crash_handler.cpp"
-                                   "${PROJECT_SOURCE_DIR}/tests/support/test_isolation.cpp")
+qt_add_executable(tst_qml "${PROJECT_SOURCE_DIR}/tests/support/test_isolation.cpp" main.cpp
+                         "${PROJECT_SOURCE_DIR}/tests/support/crash_handler.cpp")
 # The test-only singleton Fixtures (module SynBenchTest), declared at build time
 # so qmllint can check the test files against it (-I <build>/tests/qml).
 qt_add_qml_module(tst_qml

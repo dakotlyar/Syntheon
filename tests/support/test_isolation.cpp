@@ -7,11 +7,23 @@
 //
 //  - At static initialisation, before main() and before anything resolves a
 //    path: QStandardPaths test mode (~/.qttest/... on Linux, ...\qttest on
-//    Windows), and QSettings' INI user/system paths pointed inside it
-//    (QSettings on Windows doesn't follow test mode on its own).
+//    Windows), INI as QSettings' default format (so a plain QSettings() or a
+//    QML Settings never lands in the Windows registry), and the INI
+//    user/system paths pointed inside the test location (QSettings on Windows
+//    doesn't follow test mode on its own).
+//  - That initialisation runs before every other dynamic initialiser of the
+//    test binary, by construction rather than by link order: MSVC puts this
+//    file's initialisers in the "lib" segment (#pragma init_seg(lib), ahead of
+//    all user code), GCC and Clang run init_priority(101) first (lower runs
+//    earlier; 0-100 are reserved for the implementation). The file is also
+//    listed first in each test's sources.
 //  - When the QCoreApplication exists: a guard resolves the data, config and
 //    INI-settings locations and aborts the whole binary unless every one is
 //    under "qttest". A test that defeats the redirect fails, it doesn't run.
+
+#if defined(_MSC_VER)
+#pragma init_seg(lib)
+#endif
 
 #include <QCoreApplication>
 #include <QDir>
@@ -31,6 +43,7 @@ QString testConfigRoot()
 void enableTestPaths()
 {
     QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, testConfigRoot() + QStringLiteral("/user"));
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, testConfigRoot() + QStringLiteral("/system"));
 }
@@ -62,7 +75,16 @@ void checkTestPaths()
     }
 }
 
+struct EnableTestPaths {
+    EnableTestPaths() { enableTestPaths(); }
+};
+
+#if defined(_MSC_VER)
+const EnableTestPaths enableTestPathsFirst;  // init_seg(lib), above
+#else
+const EnableTestPaths enableTestPathsFirst __attribute__((init_priority(101)));
+#endif
+
 }  // namespace
 
-Q_CONSTRUCTOR_FUNCTION(enableTestPaths)
 Q_COREAPP_STARTUP_FUNCTION(checkTestPaths)

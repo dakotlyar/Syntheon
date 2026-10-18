@@ -61,8 +61,9 @@ endfunction()
 
 function(synbench_add_unit_test name)
     cmake_parse_arguments(ARG "" "" "SOURCES;LIBS" ${ARGN})
-    qt_add_executable(${name} ${ARG_SOURCES} "${PROJECT_SOURCE_DIR}/tests/support/crash_handler.cpp"
-                                             "${PROJECT_SOURCE_DIR}/tests/support/test_isolation.cpp")
+    # test_isolation.cpp first (its initialiser is pinned to run first anyway).
+    qt_add_executable(${name} "${PROJECT_SOURCE_DIR}/tests/support/test_isolation.cpp" ${ARG_SOURCES}
+                              "${PROJECT_SOURCE_DIR}/tests/support/crash_handler.cpp")
     target_link_libraries(${name} PRIVATE Qt6::Test ${ARG_LIBS})
     add_test(NAME ${name}
         COMMAND ${name} -v2 -o "${CMAKE_BINARY_DIR}/test-logs/${name}.txt,txt" -o "-,txt")
