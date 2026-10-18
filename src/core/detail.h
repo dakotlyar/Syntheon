@@ -43,6 +43,10 @@ struct KpisBlock {
 struct TableBlock {
     QStringList columns;
     QVector<QVector<DetailCell>> rows;
+    // Never paired with a neighbouring table: always the page's full width.
+    bool fullWidth = false;
+    // Rows drawn in bold (totals: "CPU score", "Single-thread mark").
+    QVector<int> boldRows;
     bool operator==(const TableBlock &) const = default;
 };
 

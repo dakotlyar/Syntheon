@@ -140,19 +140,22 @@ const Series *series(const TestResult &r, const char *key)
     return nullptr;
 }
 
-// Ticks every 60 s and at the end ("0 s · 60 s · … · 270 s").
+// Ticks at 0 s, every 60 s, and at the end ("0 s · 60 s · … · 270 s"); the
+// end replaces a 60 s tick closer than 15 s to it.
 ChartAxis timeAxis(const Series &s)
 {
     ChartAxis a;
     if (s.points.isEmpty())
         return a;
     const double end = s.points.last().x();
-    for (int t = 0; t < end - 15; t += 60) {
+    for (int t = 0; t == 0 || t < end - 15; t += 60) {
         a.tickLabels << QStringLiteral("%1 s").arg(t);
         a.tickValues << t;
     }
-    a.tickLabels << QStringLiteral("%1 s").arg(std::lround(end));
-    a.tickValues << end;
+    if (end > a.tickValues.last() + std::min(15.0, end / 2)) {
+        a.tickLabels << QStringLiteral("%1 s").arg(std::lround(end));
+        a.tickValues << end;
+    }
     return a;
 }
 
@@ -233,7 +236,10 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         QStringLiteral("64-bit ") + withUnit(r, QStringLiteral("sort.u64")) + QStringLiteral("\nstrings ")
             + withUnit(r, QStringLiteral("sort.str")));
     row("physics", QStringLiteral("Physics (n-body, FP64)"), "5%", withUnit(r, QStringLiteral("physics.nbody")));
+    // Full width always, as in the mockup (only Compression + Single-thread pair).
+    groups.fullWidth = true;
     if (scored) {
+        groups.boldRows.append(int(groups.rows.size()));
         groups.rows.append({DetailCell::literal(QStringLiteral("CPU score")), DetailCell::literal(QStringLiteral("100%")),
                             DetailCell::literal(r.score ? QStringLiteral("weighted geometric mean")
                                                         : QStringLiteral("no score: not every part ran")),
@@ -260,6 +266,7 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         };
         encRow(QStringLiteral("AES-256-GCM"), QStringLiteral("crypto.aes_gcm"), QStringLiteral("crypto.aes_gcm.sw"));
         encRow(QStringLiteral("SHA-256"), QStringLiteral("crypto.sha256"), QStringLiteral("crypto.sha256.sw"));
+        enc.fullWidth = true;
         d.blocks.append({QStringLiteral("Encryption"), enc});
         d.blocks.append({{}, NoteBlock{QStringLiteral("Only the hardware path is scored. The software path (AES and SHA "
                                                       "instructions off, SIMD on) is shown for reference."),
@@ -299,6 +306,7 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         st.rows.append({DetailCell::literal(QStringLiteral("Compression (geo-mean of 8)")),
                         DetailCell::literal(withUnit(r, QStringLiteral("single.compress")))});
         const auto mark = number(r, QStringLiteral("single.mark"));
+        st.boldRows.append(int(st.rows.size()));
         st.rows.append({DetailCell::literal(QStringLiteral("Single-thread mark")),
                         DetailCell::literal(mark ? Units::format(*mark, QStringLiteral("points"), false) : QStringLiteral("—"))});
         d.blocks.append({title, st});

@@ -8,14 +8,15 @@ import SynBench
 // the data font. Columns are sized to their content (the widest header or
 // cell line, a cell may hold several lines): the value columns get what they
 // need, the first column the rest. When even that doesn't fit (a narrow
-// window), the first column gives way first (down to 30%), then every column
-// shrinks in proportion and the cells wrap.
+// window), the headers wrap at their spaces first, then the first column gives
+// way (down to 30%), then every column shrinks in proportion and the cells wrap.
 Box {
     id: root
 
     property var block
     readonly property var columns: block ? block.columns : []
     readonly property var rows: block ? block.rows : []
+    readonly property var boldRows: block && block.boldRows ? block.boldRows : []
 
     implicitHeight: content.implicitHeight
     clip: true
@@ -37,6 +38,26 @@ Box {
             w = Math.max(w, metrics.advanceWidth(line) + spacing * line.length)
         return Math.ceil(w) + 2
     }
+    // The widest word of a header (what it needs when it may wrap).
+    function wordWidth(metrics, text, spacing) {
+        let w = 0
+        for (const word of String(text).split(/[ \n]/))
+            w = Math.max(w, metrics.advanceWidth(word) + spacing * word.length)
+        return Math.ceil(w) + 2
+    }
+    // What each column needs when its headers wrap: their widest word, and
+    // the widest cell line.
+    readonly property var compactNeeds: {
+        const n = columns.length
+        const out = []
+        for (let c = 0; c < n; ++c)
+            out.push(wordWidth(headMetrics, headerText(columns[c]), headProbe.font.letterSpacing))
+        for (const row of rows) {
+            for (let c = 0; c < Math.min(n, row.length); ++c)
+                out[c] = Math.max(out[c], lineWidth(c === 0 ? bodyMetrics : dataMetrics, row[c], 0))
+        }
+        return out
+    }
     // What each column needs to show its widest header or cell line.
     readonly property var needs: {
         const n = columns.length
@@ -50,14 +71,23 @@ Box {
         return out
     }
     readonly property var widths: {
-        const need = needs
+        let need = needs
         const n = need.length
         if (n === 0)
             return []
-        const total = need.reduce((a, b) => a + b, 0)
+        let total = need.reduce((a, b) => a + b, 0)
         if (total <= available) {
             const w = need.slice()
             w[0] += available - total  // the first column takes the spare room
+            return w
+        }
+        // Too narrow for one-line headers: they wrap (at a space) before any
+        // cell does.
+        need = compactNeeds
+        total = need.reduce((a, b) => a + b, 0)
+        if (total <= available) {
+            const w = need.slice()
+            w[0] += available - total
             return w
         }
         const rest = total - need[0]
@@ -109,7 +139,7 @@ Box {
                         text: root.headerText(modelData)
                         kind: "label"
                         font.capitalization: Font.MixedCase
-                        elide: Text.ElideRight
+                        wrapMode: Text.WordWrap
                     }
                 }
             }
@@ -143,6 +173,7 @@ Box {
                             text: modelData
                             kind: index === 0 ? "body" : "data"
                             font.pixelSize: 13
+                            font.weight: root.boldRows.indexOf(tableRow.index) >= 0 ? Font.DemiBold : Font.Normal
                             wrapMode: Text.WordWrap
                         }
                     }

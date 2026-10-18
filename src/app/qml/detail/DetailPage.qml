@@ -6,7 +6,8 @@ import SynBench
 
 // Renders a test's DetailLayout, already turned into plain data (P6): one
 // renderer for every test. Charts sit beside the tables that follow them, and
-// consecutive tables pair up, when there is room (as in the mockup).
+// consecutive tables pair up, when there is room (as in the mockup), unless
+// either is marked fullWidth.
 ColumnLayout {
     id: root
 
@@ -26,7 +27,8 @@ ColumnLayout {
                 while (j < list.length && list[j].type === "table" && tail.length < 3) tail.push(list[j++])
                 rows.push(tail.length > 0 ? { kind: "split", blocks: [b].concat(tail) } : { kind: "single", blocks: [b] })
                 i = j
-            } else if (b.type === "table" && i + 1 < list.length && list[i + 1].type === "table") {
+            } else if (b.type === "table" && !b.fullWidth && i + 1 < list.length && list[i + 1].type === "table"
+                       && !list[i + 1].fullWidth) {
                 rows.push({ kind: "pair", blocks: [b, list[i + 1]] })
                 i += 2
             } else {

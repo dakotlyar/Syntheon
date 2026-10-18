@@ -25,7 +25,7 @@ Item {
 
     readonly property real padLeft: 44
     readonly property real padRight: 14
-    readonly property real padTop: 14
+    readonly property real padTop: 26  // room for the unit above the top tick
     readonly property real padBottom: 34
     readonly property real plotW: Math.max(1, width - padLeft - padRight)
     readonly property real plotH: Math.max(1, height - padTop - padBottom)
@@ -33,7 +33,8 @@ Item {
     function niceMax(v) {
         if (v <= 0) return 1
         var p = Math.pow(10, Math.floor(Math.log(v) / Math.LN10))
-        var steps = [1, 2, 2.5, 5, 10]
+        // Ceilings that split into 4 readable ticks (6,000 -> 1,500).
+        var steps = [1, 1.2, 1.6, 2, 2.4, 3, 4, 5, 6, 8, 10]
         for (let i = 0; i < steps.length; ++i)
             if (steps[i] * p >= v) return steps[i] * p
         return 10 * p
@@ -79,6 +80,51 @@ Item {
         return p
     }
 
+    // "1,500", "2.5", "0.25": thousands separators, at most 2 decimals.
+    function tickText(v) {
+        const r = Math.round(v * 100) / 100
+        const decimals = Math.abs(r - Math.round(r)) < 1e-9 ? 0 : Math.abs(r * 10 - Math.round(r * 10)) < 1e-9 ? 1 : 2
+        return r.toLocaleString(Qt.locale("en_US"), 'f', decimals)
+    }
+
+    SbText { id: noteProbe; visible: false; kind: "data"; font.pixelSize: 11 }
+    FontMetrics { id: noteMetrics; font: noteProbe.font }
+    // Where each annotation goes: centred on its x (kept inside the plot),
+    // just above the highest point of the curve under it (never on the
+    // line), and moved up a row while it would overlap a label already
+    // placed (a peak mark next to a window label).
+    readonly property var notePlacement: {
+        const out = []
+        const placed = []
+        const order = annotations.map((a, i) => i).sort((i, j) => annotations[i].x - annotations[j].x)
+        for (const i of order) {
+            const a = annotations[i]
+            const w = noteMetrics.advanceWidth(a.label) + 2
+            const h = noteMetrics.height
+            const x = Math.max(padLeft, Math.min(width - padRight - w, fx(a.x) - w / 2))
+            let top = fy(0)
+            for (const p of points) {
+                const px = fx(p.x)
+                if (px >= x - 2 && px <= x + w + 2)
+                    top = Math.min(top, fy(p.y))
+            }
+            let y = top - h - 4
+            for (let moved = true; moved;) {
+                moved = false
+                for (const r of placed) {
+                    if (x < r.x + r.w + 4 && r.x < x + w + 4 && y < r.y + r.h && r.y < y + h) {
+                        y = r.y - h - 1
+                        moved = true
+                    }
+                }
+            }
+            y = Math.max(0, y)
+            placed.push({ x: x, y: y, w: w, h: h })
+            out[i] = { x: x, y: y }
+        }
+        return out
+    }
+
     Accessible.role: Accessible.Graphic
     Accessible.name: description
     implicitHeight: 240
@@ -96,7 +142,7 @@ Item {
             SbText {
                 x: 0; width: root.padLeft - 8; y: root.fy(gridLine.v) - height / 2
                 horizontalAlignment: Text.AlignRight
-                text: Math.round(gridLine.v * 10) / 10 + (root.yUnit === "%" ? "%" : "")
+                text: root.tickText(gridLine.v) + (root.yUnit === "%" ? "%" : "")
                 kind: "data"; font.pixelSize: 11; color: Theme.muted
             }
         }
@@ -145,16 +191,9 @@ Item {
         model: root.annotations
         delegate: SbText {
             required property var modelData
-            readonly property real nearestY: {
-                var best = 0, d = Infinity
-                for (let i = 0; i < root.points.length; ++i) {
-                    const dx = Math.abs(root.points[i].x - modelData.x)
-                    if (dx < d) { d = dx; best = root.points[i].y }
-                }
-                return best
-            }
-            x: root.fx(modelData.x) - width / 2
-            y: Math.max(0, root.fy(nearestY) - 20)
+            required property int index
+            x: root.notePlacement[index] ? root.notePlacement[index].x : 0
+            y: root.notePlacement[index] ? root.notePlacement[index].y : 0
             text: modelData.label
             kind: "data"; font.pixelSize: 11
         }

@@ -603,6 +603,39 @@ private slots:
                  qPrintable(titles.join(QStringLiteral(" | "))));
     }
 
+    // Zeb M1: the Sub-tests and Encryption tables are always full width, so
+    // only Compression + Single-thread can pair, whatever the variant.
+    void tablesThatMustNotPair()
+    {
+        tests::CpuTest t;
+        const auto check = [&](const TestResult &r, const char *what) {
+            for (const DetailBlock &b : t.detail(r).blocks) {
+                const auto *table = std::get_if<TableBlock>(&b.content);
+                if (!table)
+                    continue;
+                const bool mayPair = b.title.startsWith(QStringLiteral("Compression")) || b.title.startsWith(QStringLiteral("Single-thread"));
+                QVERIFY2(table->fullWidth == !mayPair, qPrintable(QStringLiteral("%1: %2").arg(QLatin1StringView(what), b.title)));
+            }
+        };
+        TestResult r = mockupResult();
+        // Completed, without throttling (no note between the first two tables).
+        r.metrics.erase(std::remove_if(r.metrics.begin(), r.metrics.end(),
+                                       [](const Metric &m) { return m.key == QLatin1StringView("throttle.note"); }),
+                        r.metrics.end());
+        check(r, "completed");
+        TestResult stopped = r;
+        stopped.status = Status::Cancelled;
+        stopped.score.reset();
+        check(stopped, "stopped");
+        TestResult partial = r;
+        partial.status = Status::Partial;
+        partial.score.reset();
+        check(partial, "partial");
+        // The totals are bold.
+        const DetailLayout d = t.detail(r);
+        QCOMPARE(std::get<TableBlock>(d.blocks[1].content).boldRows, QVector<int>{7});
+    }
+
     void options()
     {
         tests::CpuTest t;

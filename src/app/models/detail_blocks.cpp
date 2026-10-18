@@ -74,6 +74,11 @@ QVariantMap table(const TableBlock &b, const DetailBlock &block, const TestResul
     }
     out.insert(QStringLiteral("columns"), b.columns);
     out.insert(QStringLiteral("rows"), rows);
+    out.insert(QStringLiteral("fullWidth"), b.fullWidth);
+    QVariantList bold;
+    for (const int i : b.boldRows)
+        bold.append(i);
+    out.insert(QStringLiteral("boldRows"), bold);
     return out;
 }
 
