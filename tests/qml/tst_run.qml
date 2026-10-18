@@ -100,7 +100,7 @@ TestCase {
             return RunController.preconditions.filter(p => p.state === "notmet").map(p => p.id).sort()
         }
         tryVerify(function() { return RunController.preconditions.length > 0 }, 5000)
-        tryCompare(notMet(), "length", data.notMet.length, 5000)
+        tryVerify(function() { return notMet().length === data.notMet.length }, 5000)
         compare(notMet(), data.notMet.slice().sort())
         const button = findChild(screen, "runButton")
         if (data.notMet.length === 0) {
