@@ -17,6 +17,10 @@
 //    all user code), GCC and Clang run init_priority(101) first (lower runs
 //    earlier; 0-100 are reserved for the implementation). The file is also
 //    listed first in each test's sources.
+//  - On Unix under CTest, XDG_RUNTIME_DIR from the file the test_home
+//    fixture writes (SYNBENCH_TEST_RUNTIME_FILE, tests/check_test_home.cmake):
+//    a private folder chosen at test time, so single-instance sockets never
+//    share the user's real runtime folder. Launched apps inherit it.
 //  - When the QCoreApplication exists: a guard resolves the data, config and
 //    INI-settings locations and aborts the whole binary unless every one is
 //    under "qttest". A test that defeats the redirect fails, it doesn't run.
@@ -32,6 +36,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace {
 
@@ -40,8 +45,35 @@ QString testConfigRoot()
     return QDir(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)).filePath(QStringLiteral("synbench-ini"));
 }
 
+void useFixtureRuntimeDir()
+{
+#ifdef Q_OS_UNIX
+    const QByteArray file = qgetenv("SYNBENCH_TEST_RUNTIME_FILE");
+    if (file.isEmpty())
+        return;  // not under CTest's fixture
+    std::FILE *f = std::fopen(file.constData(), "r");
+    if (!f) {
+        std::fprintf(stderr, "test_isolation: %s is missing; run the tests through ctest (the test_home fixture)\n",
+                     file.constData());
+        std::fflush(stderr);
+        std::_Exit(3);
+    }
+    char path[512] = {};
+    const bool read = std::fgets(path, sizeof path, f) != nullptr;
+    std::fclose(f);
+    path[std::strcspn(path, "\n")] = '\0';
+    if (!read || path[0] != '/') {
+        std::fprintf(stderr, "test_isolation: %s doesn't name a runtime folder\n", file.constData());
+        std::fflush(stderr);
+        std::_Exit(3);
+    }
+    qputenv("XDG_RUNTIME_DIR", QByteArray(path));
+#endif
+}
+
 void enableTestPaths()
 {
+    useFixtureRuntimeDir();
     QStandardPaths::setTestModeEnabled(true);
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, testConfigRoot() + QStringLiteral("/user"));

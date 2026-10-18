@@ -1,66 +1,121 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # The CTest fixture behind "no test reaches the real history or settings".
-# Every Qt test runs with HOME (and XDG_DATA_HOME / XDG_CONFIG_HOME) pointed
-# at <build>/test-home, so on Unix even a broken test can only reach that.
-#   MODE=setup  recreate <build>/test-home before the tests, with its XDG
-#               cache/state folders and the runtime folder (RUNTIME_DIR:
-#               <test-home>/run, or <XDG_RUNTIME_DIR or /tmp>/
-#               synbench-test-run-<hash> for a deep build tree) private, 0700,
-#               as XDG_RUNTIME_DIR must be. A runtime folder outside the home
-#               must not be a symlink and must be owned by the current user,
-#               before and after it is recreated.
-#   MODE=check  after them: fail if anything named SynBench/synbench (any
-#               case) appeared outside .qttest, Qt's test-mode root. That is
-#               a test (or an app it launched) resolving a real default path.
-#               The runtime folder is not checked: its single-instance
-#               sockets and locks belong there.
+# Every Qt test runs with HOME (and the XDG data/config/cache/state homes)
+# pointed at <build>/test-home, so on Unix even a broken test can only reach
+# that, and with a private runtime folder of its own.
+#   MODE=setup  recreate <build>/test-home (its XDG cache/state folders 0700)
+#               and create the runtime folder, chosen now, at test time:
+#               mktemp -d <parent>/synbench-test-run-XXXXXX (atomic, random,
+#               0700), where <parent> is the caller's own XDG_RUNTIME_DIR
+#               (/run/user/<uid>: private, cleared at logout), or /tmp when
+#               XDG_RUNTIME_DIR is unset. An XDG_RUNTIME_DIR that is missing,
+#               a symlink or another user's (sudo ctest) is refused: nothing is
+#               ever created inside another uid's runtime folder. The path
+#               goes to <test-home>/runtime-dir, which every test binary reads
+#               (tests/support/test_isolation.cpp sets XDG_RUNTIME_DIR from it).
+#   MODE=check  after the tests: remove that runtime folder (it must still be
+#               ours and not a symlink), then fail if anything named SynBench
+#               (any case) appeared under the test HOME outside .qttest, Qt's
+#               test-mode root, and scratch: a test (or an app it launched)
+#               resolving a real default path.
 # Usage: cmake -DHOME_DIR=<dir> -DMODE=setup|check -P check_test_home.cmake
 cmake_minimum_required(VERSION 3.25)
 if(NOT HOME_DIR OR NOT HOME_DIR MATCHES "/test-home$")
     message(FATAL_ERROR "HOME_DIR must be a <build>/test-home folder, got '${HOME_DIR}'")
 endif()
+set(runtime_file "${HOME_DIR}/runtime-dir")
+
+# The uid owning <path> ("" if unknown). GNU stat takes -c, BSD stat -f.
+function(owner_of path out)
+    execute_process(COMMAND stat -c %u "${path}" OUTPUT_VARIABLE o OUTPUT_STRIP_TRAILING_WHITESPACE
+                    RESULT_VARIABLE r ERROR_QUIET)
+    if(NOT r EQUAL 0)
+        execute_process(COMMAND stat -f %u "${path}" OUTPUT_VARIABLE o OUTPUT_STRIP_TRAILING_WHITESPACE
+                        RESULT_VARIABLE r ERROR_QUIET)
+    endif()
+    if(NOT r EQUAL 0)
+        set(o "")
+    endif()
+    set(${out} "${o}" PARENT_SCOPE)
+endfunction()
+execute_process(COMMAND id -u OUTPUT_VARIABLE me OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE r)
+if(NOT r EQUAL 0 OR me STREQUAL "")
+    message(FATAL_ERROR "can't tell the current uid (id -u failed)")
+endif()
+
+# FATAL_ERROR unless <path> is a real directory (not a symlink) owned by us.
+function(require_ours path what)
+    if(IS_SYMLINK "${path}")
+        message(FATAL_ERROR "${what} ${path} is a symlink; refusing it")
+    endif()
+    if(NOT IS_DIRECTORY "${path}")
+        message(FATAL_ERROR "${what} ${path} doesn't exist or isn't a folder")
+    endif()
+    owner_of("${path}" owner)
+    if(NOT owner STREQUAL me)
+        message(FATAL_ERROR "${what} ${path} is owned by uid '${owner}', not yours ('${me}'); refusing it")
+    endif()
+endfunction()
+
+# The runtime folder recorded by a setup, removed if it is still ours.
+function(remove_recorded_runtime)
+    if(NOT EXISTS "${runtime_file}")
+        return()
+    endif()
+    file(READ "${runtime_file}" dir)
+    string(STRIP "${dir}" dir)
+    if(NOT dir MATCHES "^/.+/synbench-test-run-[A-Za-z0-9]+$")
+        message(FATAL_ERROR "${runtime_file} names '${dir}', not a synbench-test-run folder")
+    endif()
+    if(EXISTS "${dir}" OR IS_SYMLINK "${dir}")
+        require_ours("${dir}" "runtime folder")
+        file(REMOVE_RECURSE "${dir}")
+    endif()
+endfunction()
+
 if(MODE STREQUAL "setup")
-    if(NOT RUNTIME_DIR STREQUAL "${HOME_DIR}/run" AND NOT RUNTIME_DIR MATCHES "^/.+/synbench-test-run-[0-9a-f]+$")
-        message(FATAL_ERROR "RUNTIME_DIR must be <test-home>/run or <dir>/synbench-test-run-<hash>, got '${RUNTIME_DIR}'")
-    endif()
-    set(outside FALSE)
-    if(NOT RUNTIME_DIR STREQUAL "${HOME_DIR}/run")
-        set(outside TRUE)
-    endif()
-    # A shared parent (/tmp) could hold someone else's folder or a planted
-    # link under the predictable name: refuse rather than use it.
-    function(check_runtime_dir when)
-        if(NOT EXISTS "${RUNTIME_DIR}" AND NOT IS_SYMLINK "${RUNTIME_DIR}")
-            return()
+    set(parent "$ENV{XDG_RUNTIME_DIR}")
+    if(parent STREQUAL "")
+        set(parent "/tmp")
+    else()
+        if(IS_SYMLINK "${parent}" OR NOT IS_DIRECTORY "${parent}")
+            message(FATAL_ERROR "XDG_RUNTIME_DIR ${parent} doesn't exist or is a symlink; re-run in a user session")
         endif()
-        if(IS_SYMLINK "${RUNTIME_DIR}")
-            message(FATAL_ERROR "runtime folder ${RUNTIME_DIR} is a symlink (${when}); refusing it")
+        owner_of("${parent}" owner)
+        if(NOT owner STREQUAL me)
+            message(FATAL_ERROR "XDG_RUNTIME_DIR ${parent} isn't yours (uid '${owner}', you are '${me}'); "
+                                "re-run in your own user session, not under sudo")
         endif()
-        execute_process(COMMAND stat -c %u "${RUNTIME_DIR}" OUTPUT_VARIABLE owner OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE r1)
-        execute_process(COMMAND id -u OUTPUT_VARIABLE me OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE r2)
-        if(NOT r1 EQUAL 0 OR NOT r2 EQUAL 0 OR NOT owner STREQUAL me)
-            message(FATAL_ERROR "runtime folder ${RUNTIME_DIR} is owned by uid '${owner}', not '${me}' (${when}); refusing it")
-        endif()
-    endfunction()
-    if(outside)
-        check_runtime_dir("before setup")
     endif()
-    file(REMOVE_RECURSE "${HOME_DIR}" "${RUNTIME_DIR}")
-    foreach(d "${HOME_DIR}" "${HOME_DIR}/.cache" "${HOME_DIR}/.local/state" "${RUNTIME_DIR}")
+    remove_recorded_runtime()  # a previous run that never reached its check
+    file(REMOVE_RECURSE "${HOME_DIR}")
+    foreach(d "${HOME_DIR}" "${HOME_DIR}/.cache" "${HOME_DIR}/.local/state")
         file(MAKE_DIRECTORY "${d}")
         file(CHMOD "${d}" DIRECTORY_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
     endforeach()
-    if(outside)
-        check_runtime_dir("after setup")
+    execute_process(COMMAND mktemp -d "${parent}/synbench-test-run-XXXXXX"
+                    OUTPUT_VARIABLE runtime OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE r)
+    if(NOT r EQUAL 0 OR NOT runtime MATCHES "^/.+/synbench-test-run-[A-Za-z0-9]+$")
+        message(FATAL_ERROR "mktemp -d in ${parent} failed ('${runtime}')")
     endif()
+    require_ours("${runtime}" "runtime folder")
+    # A Unix socket path holds 104 bytes (macOS; 108 on Linux), and
+    # "<runtime>/synbench/synbench-<key>.sock" adds 36.
+    string(LENGTH "${runtime}" n)
+    if(n GREATER 68)
+        file(REMOVE_RECURSE "${runtime}")
+        message(FATAL_ERROR "runtime folder ${runtime} is too long for the instance sockets (${n} > 68)")
+    endif()
+    file(WRITE "${runtime_file}" "${runtime}\n")
+    message(STATUS "test HOME ${HOME_DIR}; runtime folder ${runtime}")
 elseif(MODE STREQUAL "check")
+    remove_recorded_runtime()
     file(GLOB_RECURSE found LIST_DIRECTORIES true RELATIVE "${HOME_DIR}" "${HOME_DIR}/*")
     set(bad "")
     foreach(f IN LISTS found)
         string(TOLOWER "${f}" lower)
-        if(lower MATCHES "synbench" AND NOT f MATCHES "^\\.qttest(/|$)" AND NOT f MATCHES "^scratch(/|$)"
-           AND NOT f MATCHES "^run(/|$)")
+        if(lower MATCHES "synbench" AND NOT f MATCHES "^\\.qttest(/|$)" AND NOT f MATCHES "^scratch(/|$)")
             list(APPEND bad "${f}")
         endif()
     endforeach()
@@ -68,7 +123,7 @@ elseif(MODE STREQUAL "check")
         list(JOIN bad "\n  " shown)
         message(FATAL_ERROR "A test resolved a real (non-test-mode) SynBench path; created under the test HOME:\n  ${shown}")
     endif()
-    message(STATUS "test HOME clean: nothing SynBench outside .qttest, scratch and run")
+    message(STATUS "test HOME clean: nothing SynBench outside .qttest and scratch")
 else()
     message(FATAL_ERROR "MODE must be setup or check")
 endif()
