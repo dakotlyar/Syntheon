@@ -370,7 +370,7 @@ private:
         if (!counter)
             return out;
         DWORD size = 0, count = 0;
-        if (PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &size, &count, nullptr) != PDH_MORE_DATA)
+        if (PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &size, &count, nullptr) != static_cast<PDH_STATUS>(PDH_MORE_DATA))
             return out;
         std::vector<unsigned char> buffer(size);
         auto *items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_W *>(buffer.data());

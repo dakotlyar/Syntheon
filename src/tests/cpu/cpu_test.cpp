@@ -1055,7 +1055,9 @@ TestResult CpuRun::run()
     if (!m_stopped)
         singleThread();
     if (!m_stopped) {
-        m_pool = std::make_unique<WorkerPool>(WorkerPool::Options{m_threads, {}});
+        WorkerPool::Options all;
+        all.threads = m_threads;
+        m_pool = std::make_unique<WorkerPool>(all);
         if (m_pool->placementFailures() > 0)
             m_ctx.log(LogLevel::Warning, QStringLiteral("%1 worker threads couldn't be placed on their processor group")
                                              .arg(m_pool->placementFailures()));

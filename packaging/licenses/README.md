@@ -8,6 +8,9 @@ For THIRD-PARTY-NOTICES.txt (cmake/ThirdPartyNotices.cmake, cmake/QtNotices.cmak
   bundle (libicu*.so.73, shipped in the AppImage).
 - `spdx/<id>.txt`: the SPDX licence texts (spdx/license-list-data, tag v3.27.0,
   `text/<id>.txt`) of the licences that code bundled inside Qt uses, as Qt's
-  SBOM (`<Qt>/sbom/*.spdx.json`) names them. A licence a newer Qt adds and
+  SBOM (`<Qt>/sbom/*.spdx.json`) names them, checked against the SBOMs of
+  every Qt build CI uses (linux_gcc_64, linux_gcc_arm64, win64_msvc2022_64,
+  win64_msvc2022_arm64_cross_compiled; the Windows ones also bundle zlib and
+  FreeType, hence `Zlib` and `MIT-open-group`). A licence a newer Qt adds and
   that has no file here fails the configure with its id: add its text from the
   same place.
