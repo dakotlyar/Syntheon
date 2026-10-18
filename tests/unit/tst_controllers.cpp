@@ -14,6 +14,7 @@
 #include <QSignalSpy>
 #include <QSqlQuery>
 #include <QTemporaryDir>
+#include <QStandardPaths>
 #include <QTest>
 #include <QUrl>
 
@@ -37,6 +38,17 @@ class TestControllers : public QObject
     Q_OBJECT
 
 private slots:
+    // Qt's test locations: launchProblems() opens, and then deletes, the
+    // default history folder (GenericDataLocation/SynBench). Without this it
+    // was the user's real ~/.local/share/SynBench. The guard refuses to run
+    // anything if the redirect didn't take.
+    void initTestCase()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        QVERIFY2(Storage::defaultDataDir().contains(QLatin1StringView(".qttest")),
+                 qPrintable(QStringLiteral("not a test location: %1").arg(Storage::defaultDataDir())));
+    }
+
     void settingsPersistAndValidate()
     {
         QTemporaryDir dir;
