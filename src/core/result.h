@@ -50,6 +50,11 @@ struct SubResult {
     bool operator==(const SubResult &) const = default;
 };
 
+// The reason the orchestrator records for a test the user stopped, when the
+// test gave none (stored, never translated). The Results row compares
+// against this, not against a translated word, so it shows "Stopped" once.
+inline QString defaultStoppedReason() { return QStringLiteral("Stopped"); }
+
 struct TestResult {
     QString testId;
     int testVersion = 0;

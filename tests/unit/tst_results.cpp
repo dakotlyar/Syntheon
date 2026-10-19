@@ -253,7 +253,7 @@ private slots:
         // A test stopped with the orchestrator's default reason says "Stopped"
         // once (the score column), not twice; a reason with more in it stays.
         const RunRecord stoppedTests = seed(RunStatus::Stopped, QDateTime::currentDateTimeUtc().addSecs(2), {[] {
-                                                TestResult r = TestResult::withStatus(Status::Cancelled, QStringLiteral("Stopped"));
+                                                TestResult r = TestResult::withStatus(Status::Cancelled, defaultStoppedReason());
                                                 r.testId = QStringLiteral("cpu");
                                                 return r;
                                             }(), [] {

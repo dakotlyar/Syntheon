@@ -322,7 +322,7 @@ void finishResult(Shared &s, const Shared::Entry &e, Shared::Cancel cancel, cons
         r.status = Status::TimedOut;
         r.statusReason = QStringLiteral("Exceeded its time limit of %1 s").arg(e.test->timeLimit(e.options).count());
     } else if (cancel == Shared::Cancel::Stopped && r.status == Status::Cancelled && r.statusReason.isEmpty()) {
-        r.statusReason = QStringLiteral("Stopped");
+        r.statusReason = defaultStoppedReason();
     }
 
     applyResultRules(*e.test, r, [&](const QString &message) { s.log(LogLevel::Error, e.testId, message); });
