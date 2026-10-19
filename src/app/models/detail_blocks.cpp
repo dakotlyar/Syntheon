@@ -137,7 +137,9 @@ QVariantList yTicks(const ChartAxis &axis, const QVariantList &points)
             hi = std::max(hi, y);
         }
     }
-    if (!std::isfinite(lo))
+    // Non-finite or denormal data (AP-5 L7): no ticks rather than a loop
+    // that never reaches hi (an infinite hi) or never moves (a start of 0).
+    if (!std::isfinite(lo) || !std::isfinite(hi) || lo < 1e-300 || hi > 1e300)
         return out;
     // From the step at or below the lowest point to the one at or above the highest.
     QVector<double> steps;

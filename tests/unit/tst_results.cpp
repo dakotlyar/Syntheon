@@ -260,6 +260,16 @@ private slots:
         QCOMPARE(labels, (QStringList{QStringLiteral("0.5"), QStringLiteral("1"), QStringLiteral("2"), QStringLiteral("4"),
                                       QStringLiteral("8"), QStringLiteral("16"), QStringLiteral("32"), QStringLiteral("64"),
                                       QStringLiteral("128")}));
+        // AP-5 L7: an infinite or denormal point gives no automatic ticks
+        // (and returns: no endless loop), for both sequences.
+        for (const double bad : {double(INFINITY), 5e-324}) {
+            r.series[0].points.append({2097152, bad});
+            for (const ChartAxis::Scale scale : {ChartAxis::Scale::Log2, ChartAxis::Scale::Log10}) {
+                log.yAxis.scale = scale;
+                QVERIFY(build(log).value(QStringLiteral("yTicks")).toList().isEmpty());
+            }
+            r.series[0].points.removeLast();
+        }
     }
 
     // --- the controller ---
