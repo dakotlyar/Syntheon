@@ -10,6 +10,7 @@
 #include "storage/sqlite_run_sink.h"
 #include "tests/builtin_tests.h"
 #include "tests/common/stub_clock.h"
+#include "tests/common/stub_test.h"
 
 #include <QCborMap>
 #include <QElapsedTimer>
@@ -101,8 +102,8 @@ private slots:
         FakeProbeContext ctx;
         QSet<int> kinds;
         for (const auto &t : m_registry.tests()) {
-            if (t->info().id == QLatin1StringView("cpu"))
-                continue;  // the real CPU test (Phase 2), not a stub
+            if (!dynamic_cast<const tests::StubTest *>(t.get()))
+                continue;  // a real test (CPU from Phase 2, RAM from Phase 3), not a stub
             const Availability a = t->probe(ctx);
             const OptionSchema s = effectiveOptionSchema(*t, ctx, a);
             if (a.state == Availability::State::Unavailable) {
@@ -120,11 +121,12 @@ private slots:
         for (OptionKind k : {OptionKind::Bool, OptionKind::MultiSelect, OptionKind::SingleSelect, OptionKind::DynamicSelect,
                              OptionKind::Number, OptionKind::Path, OptionKind::Info})
             QVERIFY2(kinds.contains(int(k)), qPrintable(QString::number(int(k))));
-        // Both SingleSelect presentations and a disabled item with a reason.
+        // A Segmented SingleSelect and a disabled item with a reason. (The
+        // Dropdown presentation was the RAM stub's "buffer" option, gone with
+        // the real RAM test, Phase 3 N6; tst_options.qml renders one from its
+        // own fixture.)
         QCOMPARE(m_registry.find(QStringLiteral("battery"))->options(ctx, {}).find(QStringLiteral("profile"))->presentation,
                  SelectPresentation::Segmented);
-        QCOMPARE(m_registry.find(QStringLiteral("ram"))->options(ctx, {}).find(QStringLiteral("buffer"))->presentation,
-                 SelectPresentation::Dropdown);
         const auto ai = m_registry.find(QStringLiteral("ai"))->options(ctx, {});
         QVERIFY(!ai.find(QStringLiteral("runtimes"))->item(QStringLiteral("openvino"))->enabled);
     }
@@ -144,8 +146,7 @@ private slots:
 
     void everyStubRunsAndScoresNearItsTarget()
     {
-        const QHash<QString, double> targets = {{QStringLiteral("ram"), 612},
-                                                {QStringLiteral("storage"), 938}, {QStringLiteral("gpu"), 1206},
+        const QHash<QString, double> targets = {{QStringLiteral("storage"), 938}, {QStringLiteral("gpu"), 1206},
                                                 {QStringLiteral("ai"), 772}};
         for (const QString &id : targets.keys()) {
             const RunRecord run = runOne(id);
@@ -231,7 +232,7 @@ private slots:
         QCOMPARE(table->columns, (QStringList{QStringLiteral("Workload"), QStringLiteral("TensorRT")}));
     }
 
-    void storageGridAndRamChart()
+    void storageGrid()
     {
         const TestResult sto = runOne(QStringLiteral("storage")).tests[0];
         const DetailLayout d = m_registry.find(QStringLiteral("storage"))->detail(sto);
@@ -240,15 +241,6 @@ private slots:
         QCOMPARE(grid->rowLabels.size(), 4);
         QCOMPARE(grid->cells[2][0].secondaryMetricKey, QStringLiteral("rnd4k_q32t1.read_iops"));
         QVERIFY(grid->cells[0][0].secondaryMetricKey.isEmpty());
-
-        const TestResult ram = runOne(QStringLiteral("ram")).tests[0];
-        QCOMPARE(ram.series.size(), 1);
-        QCOMPARE(ram.series[0].points.size(), 17);
-        QVERIFY(ram.series[0].points.first().y() < 2 && ram.series[0].points.last().y() > 60);
-        bool chart = false;
-        for (const DetailBlock &b : m_registry.find(QStringLiteral("ram"))->detail(ram).blocks)
-            chart = chart || std::holds_alternative<LineChartBlock>(b.content);
-        QVERIFY(chart);
     }
 
     void simulateModes()
@@ -268,7 +260,7 @@ private slots:
         tests::setStubTimeLimitFloor(std::chrono::seconds(1));
         Orchestrator o(m_registry, *m_sink, m_inhibitor, fastConfig());
         QSignalSpy finished(&o, &Orchestrator::runFinished);
-        QVERIFY(o.start({{QStringLiteral("ram"), {{QStringLiteral("simulate"), QStringLiteral("hang")}}}}, {}).ok);
+        QVERIFY(o.start({{QStringLiteral("storage"), {{QStringLiteral("simulate"), QStringLiteral("hang")}}}}, {}).ok);
         QVERIFY(finished.wait(30000));
         const RunRecord run = finished.last().at(0).value<RunRecord>();
         QCOMPARE(run.status, RunStatus::Interrupted);
@@ -317,7 +309,7 @@ private slots:
             PrivilegedOps &privileged() override { return ops; }
         };
         tests::setStubTimeScale(0.02);
-        for (const QString &id : {QStringLiteral("gpu"), QStringLiteral("ram"), QStringLiteral("battery")}) {
+        for (const QString &id : {QStringLiteral("gpu"), QStringLiteral("storage"), QStringLiteral("battery")}) {
             LastSliceContext ctx;
             OptionValues o;
             if (id == QLatin1StringView("battery"))
@@ -379,7 +371,7 @@ private slots:
         Orchestrator o(m_registry, *m_sink, m_inhibitor, fastConfig());
         QSignalSpy finished(&o, &Orchestrator::runFinished);
         QSignalSpy started(&o, &Orchestrator::testStarted);
-        QVERIFY(o.start({{QStringLiteral("gpu"), {}}, {QStringLiteral("ram"), {}}}, {}).ok);
+        QVERIFY(o.start({{QStringLiteral("gpu"), {}}, {QStringLiteral("storage"), {}}}, {}).ok);
         QVERIFY(started.wait(5000));
         QTest::qWait(200);
         o.stop();
@@ -441,6 +433,12 @@ private slots:
         QVERIFY(minutes > 560 * 0.95 && minutes < 560 * 1.05);
         QCOMPARE(t.series[0].points.size(), 25);
         QVERIFY(t.series[0].points.last().y() < 5);
+        // The stubs' line chart (it was the RAM stub's latency curve until
+        // Phase 3, N6): the drain curve renders from the stored series.
+        bool chart = false;
+        for (const DetailBlock &b : m_registry.find(QStringLiteral("battery"))->detail(t).blocks)
+            chart = chart || std::holds_alternative<LineChartBlock>(b.content);
+        QVERIFY(chart);
         QVERIFY(t.score);
         QVERIFY(!run.overall);  // Battery's overall contribution is a Phase 8 decision
 
