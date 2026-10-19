@@ -42,7 +42,6 @@ AppController::AppController(LaunchProvider launch, LinuxHelperClient::Options o
             [this](LinuxHelperClient::Failure, const QString &message) {
                 m_smbiosRequested = false;  // try again after a successful Retry
                 setAuth(AuthState::Failed, message);
-                applyUdevFallback();
             });
 }
 #else
@@ -232,8 +231,6 @@ void AppController::start()
             qCInfo(lcApp) << "system info collected for" << m_info.machineLabel();
             emit systemInfoChanged();
             emit powerChanged();
-            if (m_noElevation || m_authState == AuthState::Failed)
-                applyUdevFallback();
             readSmbiosWhenReady();
         });
     });
@@ -279,30 +276,16 @@ void AppController::onSmbios(std::optional<SmbiosTables> tables, PrivError error
     if (!tables) {
         // An ordinary error with a reason (D1: nothing is "needs admin").
         qCWarning(lcApp) << "couldn't read SMBIOS:" << error.message;
-        applyUdevFallback();
         return;
     }
     const auto smbios = sysinfo::parseSmbiosTables(*tables);
     if (!smbios) {
         qCWarning(lcApp) << "unrecognised SMBIOS entry point";
-        applyUdevFallback();
         return;
     }
     sysinfo::applySmbios(m_info, *smbios);
     qCInfo(lcApp) << "memory modules:" << m_info.memory.modules.size();
     emit systemInfoChanged();
-}
-
-void AppController::applyUdevFallback()
-{
-#ifdef Q_OS_LINUX
-    if (!m_infoReady || m_info.memory.modulesSource == QLatin1StringView("smbios"))
-        return;
-    if (sysinfo::applyUdevMemory(m_info)) {
-        qCInfo(lcApp) << "memory modules from udev (the helper isn't available):" << m_info.memory.modules.size();
-        emit systemInfoChanged();
-    }
-#endif
 }
 
 QString AppController::systemSummary() const

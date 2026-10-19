@@ -74,9 +74,11 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(c.authState(), AppController::AuthState::Ready, 10000);
         QTRY_VERIFY_WITH_TIMEOUT(c.systemInfoReady(), 20000);
         QTRY_VERIFY_WITH_TIMEOUT(c.memoryModulesKnown(), 10000);
-        const QStringList modules = c.memoryModules();
-        QCOMPARE(modules.size(), 2);
-        QCOMPARE(modules[0], QStringLiteral("DIMM 0: 32 GB LPDDR5 8000 MT/s Samsung K3KL3L30EM-BGCV"));
+        // The modules may first be udev's copy (the collector's baseline,
+        // Phase 3 D11): wait for the helper's tables to replace them.
+        QTRY_COMPARE_WITH_TIMEOUT(c.memoryModules().value(0),
+                                  QStringLiteral("DIMM 0: 32 GB LPDDR5 8000 MT/s Samsung K3KL3L30EM-BGCV"), 10000);
+        QCOMPARE(c.memoryModules().size(), 2);
         QVERIFY(!c.systemSummary().isEmpty());
         QVERIFY(c.privileged().isAvailable());
     }
@@ -90,8 +92,8 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(c.authState(), AppController::AuthState::Failed, 10000);
         QVERIFY(c.authMessage().contains(QLatin1StringView("cancelled")));
         QVERIFY(!c.privileged().isAvailable());
-        // Phase 3 D11: declined, the modules come from udev's copy where
-        // this machine has one (read-only; a CI runner may not).
+        // Phase 3 D11: declined, the modules are the collector's udev
+        // baseline where this machine has one (read-only; a CI runner may not).
         QFile udev(QStringLiteral("/run/udev/data/+dmi:id"));
         const bool haveUdev = udev.open(QIODevice::ReadOnly)
                               && !sysinfo::parseUdevMemoryDevices(QString::fromUtf8(udev.readAll())).isEmpty();

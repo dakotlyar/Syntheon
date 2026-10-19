@@ -10,7 +10,8 @@ namespace sb::sysinfo {
 // The full snapshot except OpenGL (P13: native APIs, no WMI, no shelling
 // out). Takes a few hundred ms (Vulkan instance creation dominates); call it
 // on a pool thread at startup. Memory modules need SMBIOS: on Linux that's
-// root-only, so they arrive later through applySmbios() (task 10).
+// root-only, so they arrive later through applySmbios() (task 10); until
+// then they come from udev's copy (applyUdevMemory), where there is one.
 SystemInfo collectSystemInfo();
 
 // GUI thread only (needs a QGuiApplication): fills apis.openGl*.
@@ -20,11 +21,12 @@ void addOpenGlInfo(SystemInfo &info);
 // still empty) from parsed SMBIOS.
 void applySmbios(SystemInfo &info, const SmbiosInfo &smbios);
 
-// Linux, when the helper isn't available (declined, not authorised, or it
-// couldn't read the tables): the modules from systemd-udev's world-readable
-// copy, <root>/run/udev/data/+dmi:id (Phase 3 D11; no serial numbers, P23).
-// False, and nothing changed, if the file is missing or lists no module.
-// A later applySmbios() (the helper after a Retry) replaces them.
+// Linux: the modules from systemd-udev's world-readable copy of the type-17
+// fields, <root>/run/udev/data/+dmi:id (Phase 3 D11; no serial numbers,
+// P23). collectSystemInfo() applies it as the baseline, so it is what the
+// snapshot has while the helper's prompt is open, or if the helper is
+// declined or can't read the tables; applySmbios() replaces it. False, and
+// nothing changed, if the file is missing or lists no module.
 bool applyUdevMemory(SystemInfo &info, const QString &root = QStringLiteral("/"));
 
 // Raw SMBIOS from PrivilegedOps (Linux: helper READ_SMBIOS, entry point +

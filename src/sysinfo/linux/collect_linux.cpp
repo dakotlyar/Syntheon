@@ -120,6 +120,10 @@ SystemInfo collectSystemInfo()
 #endif
 
     info.memory.totalBytes = linux_sysfs::readMemTotal(root);
+    // The modules' baseline until the helper's SMBIOS tables arrive (they
+    // replace it), and what stays if it never does: udev's world-readable
+    // copy (Phase 3 D11). It holds the same type-17 fields.
+    applyUdevMemory(info, root);
 
     info.gpus = linux_sysfs::readGpus(root);
     const VulkanInfo vk = probeVulkan();

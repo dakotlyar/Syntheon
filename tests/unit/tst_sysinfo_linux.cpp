@@ -4,7 +4,9 @@
 
 #include "fixture_tree.h"
 
+#include <QDir>
 #include <QFile>
+#include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -216,6 +218,33 @@ private slots:
         QVERIFY(!sb::sysinfo::applyUdevMemory(none, kKnowhere));
         QVERIFY(!none.memory.modulesKnown);
         QVERIFY(none.memory.modulesSource.isEmpty());
+    }
+
+    // P23, the way the app reads it (applyUdevMemory on a file tree): udev's
+    // copy holds serial numbers and asset tags; none reaches the snapshot.
+    void udevNeverReadsSerials()
+    {
+        QTemporaryDir root;
+        QVERIFY(QDir(root.path()).mkpath(QStringLiteral("run/udev/data")));
+        QFile f(root.filePath(QStringLiteral("run/udev/data/+dmi:id")));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("I:123\nE:ID_VENDOR=Example\nE:ID_CHASSIS_ASSET_TAG=ASSET-SHOULD-NOT-APPEAR\n"
+                "E:MEMORY_DEVICE_0_SIZE=8589934592\nE:MEMORY_DEVICE_0_TYPE=LPDDR5\n"
+                "E:MEMORY_DEVICE_0_SERIAL_NUMBER=SERIAL-SHOULD-NOT-APPEAR\n"
+                "E:MEMORY_DEVICE_0_ASSET_TAG=ASSET-SHOULD-NOT-APPEAR\n"
+                "E:MEMORY_DEVICE_0_PART_NUMBER=K3KL3L30EM\nE:MEMORY_DEVICE_0_LOCATOR=DIMM 0\n"
+                "E:MEMORY_DEVICE_0_DATA_WIDTH=32\nE:MEMORY_ARRAY_NUM_DEVICES=1\n"
+                "E:MEMORY_DEVICE_4_LOCATOR=DIMMA1\n");  // no size: an empty slot, skipped
+        f.close();
+        SystemInfo info;
+        QVERIFY(sb::sysinfo::applyUdevMemory(info, root.path()));
+        QCOMPARE(info.memory.modules.size(), 1);
+        QCOMPARE(info.memory.modules[0].dataWidth, 32);
+        const QByteArray json = QJsonDocument(info.toJson()).toJson();
+        QVERIFY(!json.contains("SERIAL"));
+        QVERIFY(!json.contains("ASSET"));
+        QVERIFY(json.contains("K3KL3L30EM"));
+        QVERIFY(json.contains("\"modules_source\": \"udev\""));
     }
 };
 

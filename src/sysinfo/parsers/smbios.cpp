@@ -153,7 +153,7 @@ QString smbiosFormFactorName(int formFactor)
     case 0x08: return QStringLiteral("Proprietary Card");
     case 0x09: return QStringLiteral("DIMM");
     case 0x0A: return QStringLiteral("TSOP");
-    case 0x0B: return QStringLiteral("Row of chips");
+    case 0x0B: return QStringLiteral("Row Of Chips");
     case 0x0C: return QStringLiteral("RIMM");
     case 0x0D: return QStringLiteral("SODIMM");
     case 0x0E: return QStringLiteral("SRIMM");
@@ -175,7 +175,12 @@ QVector<SmbiosMemoryDevice> parseUdevMemoryDevices(const QString &text)
         const QRegularExpressionMatch m = it.next();
         const int n = m.captured(1).toInt();
         const QString field = m.captured(2);
-        const QString value = cleanFirmwareString(m.captured(3));
+        QString value = cleanFirmwareString(m.captured(3));
+        // "Other" means as little as "Unknown" (cleaned above), and the
+        // tables' path drops both: the two sources agree (AP-5 L3).
+        if ((m.captured(2) == QLatin1StringView("TYPE") || m.captured(2) == QLatin1StringView("FORM_FACTOR"))
+            && value == QLatin1StringView("Other"))
+            value.clear();
         SmbiosMemoryDevice &d = devices[n];
         const auto number = [&] { return value.toLongLong(); };
         // The whitelist (P23): every other field, SERIAL_NUMBER and

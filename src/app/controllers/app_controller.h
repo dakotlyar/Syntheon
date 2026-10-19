@@ -140,9 +140,6 @@ private:
     void startHelper();
     void readSmbiosWhenReady();
     void onSmbios(std::optional<SmbiosTables> tables, PrivError error);
-    // Linux, the helper not available: the modules from udev's copy
-    // (Phase 3 D11), unless the tables have already been read.
-    void applyUdevFallback();
 
 #ifdef Q_OS_LINUX
     LaunchProvider m_launch;

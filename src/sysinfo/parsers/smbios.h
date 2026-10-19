@@ -28,7 +28,7 @@ struct SmbiosMemoryDevice {
     QString manufacturer, partNumber;
     QString locator, bankLocator;
     // Phase 3 P16: total and data width in bits (0x08, 0x0A), form factor
-    // (0x0E: "DIMM", "SODIMM", "Row of chips", ...), rank (attributes 0x1B
+    // (0x0E: "DIMM", "SODIMM", "Row Of Chips", ...), rank (attributes 0x1B
     // bits 0-3, SMBIOS 2.6+). 0 / empty = unknown.
     int totalWidth = 0, dataWidth = 0;
     QString formFactor;
