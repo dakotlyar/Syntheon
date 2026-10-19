@@ -6,7 +6,9 @@
 #include "sysinfo/parsers/windows_parsers.h"
 
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QTest>
 #include <QtEndian>
 
@@ -183,6 +185,101 @@ private slots:
         const QByteArray json = QJsonDocument(info.toJson()).toJson();
         QVERIFY(!json.contains("SERIAL"));
         QVERIFY(json.contains("K3KL3L30EM-BGCV"));
+    }
+
+    // Phase 3 P16: type 17's total / data width (0x08, 0x0A), form factor
+    // (0x0E) and rank (attributes 0x1B bits 0-3); unknown values stay 0 /
+    // empty; a structure too short for a field leaves it unknown.
+    void smbiosWidthsFormFactorRank()
+    {
+        SmbiosBuilder b;
+        b.add(17, 0x28).word(0x08, 72).word(0x0A, 64).byte(0x0E, 0x09).word(0x0C, 16384).byte(0x12, 0x22)
+            .byte(0x1B, 0xF2);  // rank 2 (bits 4-7 aren't the rank)
+        b.add(17, 0x28).word(0x08, 0xFFFF).word(0x0A, 0xFFFF).byte(0x0E, 0x02).word(0x0C, 8192).byte(0x1B, 0);
+        b.add(17, 0x5C).word(0x08, 16).word(0x0A, 16).byte(0x0E, 0x0B).word(0x0C, 4096).byte(0x12, 0x23).byte(0x1B, 1);
+        b.add(17, 0x1B).word(0x08, 64).word(0x0A, 64).byte(0x0E, 0x0D).word(0x0C, 4096);  // 2.3: no attributes byte
+        const SmbiosInfo s = parseSmbiosTable(b.table(), {3, 6});
+        QCOMPARE(s.memoryDevices.size(), 4);
+        QCOMPARE(s.memoryDevices[0].totalWidth, 72);  // ECC
+        QCOMPARE(s.memoryDevices[0].dataWidth, 64);
+        QCOMPARE(s.memoryDevices[0].formFactor, QStringLiteral("DIMM"));
+        QCOMPARE(s.memoryDevices[0].rank, 2);
+        QCOMPARE(s.memoryDevices[1].totalWidth, 0);
+        QCOMPARE(s.memoryDevices[1].dataWidth, 0);
+        QCOMPARE(s.memoryDevices[1].formFactor, QString());  // Unknown
+        QCOMPARE(s.memoryDevices[1].rank, 0);
+        QCOMPARE(s.memoryDevices[2].dataWidth, 16);  // soldered LPDDR, one 16-bit device
+        QCOMPARE(s.memoryDevices[2].formFactor, QStringLiteral("Row of chips"));
+        QCOMPARE(s.memoryDevices[2].rank, 1);
+        QCOMPARE(s.memoryDevices[3].formFactor, QStringLiteral("SODIMM"));
+        QCOMPARE(s.memoryDevices[3].rank, 0);
+        QCOMPARE(smbiosFormFactorName(0x11), QStringLiteral("CAMM"));
+        QCOMPARE(smbiosFormFactorName(0x01), QString());
+        // ...into the snapshot, with additive keys; unknown ones are null.
+        SystemInfo info;
+        applySmbios(info, s);
+        QCOMPARE(info.memory.modulesSource, QStringLiteral("smbios"));
+        const QJsonObject memory = info.toJson().value(QStringLiteral("memory")).toObject();
+        QCOMPARE(memory.value(QStringLiteral("modules_source")).toString(), QStringLiteral("smbios"));
+        const QJsonObject m0 = memory.value(QStringLiteral("modules")).toArray().at(0).toObject();
+        QCOMPARE(m0.value(QStringLiteral("rank")).toInt(), 2);
+        QCOMPARE(m0.value(QStringLiteral("data_width")).toInt(), 64);
+        QCOMPARE(m0.value(QStringLiteral("total_width")).toInt(), 72);
+        QCOMPARE(m0.value(QStringLiteral("form_factor")).toString(), QStringLiteral("DIMM"));
+        QVERIFY(memory.value(QStringLiteral("modules")).toArray().at(1).toObject().value(QStringLiteral("rank")).isNull());
+    }
+
+    // The Linux fallback (D11) on Tiamat's capture (EXPO on: 6,000 MT/s):
+    // the two populated DIMMs, the empty slots (PRESENT=0) skipped,
+    // "Unknown" values empty.
+    void udevMemoryDevicesTiamat()
+    {
+        const QVector<SmbiosMemoryDevice> d =
+            parseUdevMemoryDevices(fixture(QStringLiteral("linux/tiamat/run/udev/data/+dmi%3Aid")));
+        QCOMPARE(d.size(), 2);
+        QCOMPARE(d[0].locator, QStringLiteral("DIMMA2"));
+        QCOMPARE(d[0].bankLocator, QStringLiteral("P0 CHANNEL A"));
+        QCOMPARE(d[1].locator, QStringLiteral("DIMMB2"));
+        for (const SmbiosMemoryDevice &m : d) {
+            QCOMPARE(m.sizeBytes, qint64(16) << 30);
+            QCOMPARE(m.type, QStringLiteral("DDR5"));
+            QCOMPARE(m.speedMts, 6000);
+            QCOMPARE(m.configuredSpeedMts, 6000);
+            QCOMPARE(m.rank, 2);
+            QCOMPARE(m.dataWidth, 64);
+            QCOMPARE(m.totalWidth, 64);
+            QCOMPARE(m.formFactor, QStringLiteral("DIMM"));
+            QCOMPARE(m.partNumber, QStringLiteral("F5-6000J3038F16G"));
+            QCOMPARE(m.manufacturer, QString());  // "Unknown"
+        }
+        QCOMPARE(estimateMemoryChannels(d), 2);
+        QVERIFY(parseUdevMemoryDevices(QString()).isEmpty());
+    }
+
+    // P23: udev's copy holds serial numbers and asset tags; none reaches
+    // the snapshot (only whitelisted fields are read).
+    void udevNeverReadsSerials()
+    {
+        const QString text = QStringLiteral(
+            "I:123\nE:ID_VENDOR=Example\nE:ID_CHASSIS_ASSET_TAG=ASSET-SHOULD-NOT-APPEAR\n"
+            "E:MEMORY_DEVICE_0_SIZE=8589934592\nE:MEMORY_DEVICE_0_TYPE=LPDDR5\n"
+            "E:MEMORY_DEVICE_0_SERIAL_NUMBER=SERIAL-SHOULD-NOT-APPEAR\n"
+            "E:MEMORY_DEVICE_0_ASSET_TAG=ASSET-SHOULD-NOT-APPEAR\n"
+            "E:MEMORY_DEVICE_0_PART_NUMBER=K3KL3L30EM\nE:MEMORY_DEVICE_0_LOCATOR=DIMM 0\n"
+            "E:MEMORY_DEVICE_0_DATA_WIDTH=32\nE:MEMORY_ARRAY_NUM_DEVICES=1\n");
+        const QVector<SmbiosMemoryDevice> d = parseUdevMemoryDevices(text);
+        QCOMPARE(d.size(), 1);
+        QCOMPARE(d[0].dataWidth, 32);
+        SmbiosInfo s;
+        s.memoryDevices = d;
+        SystemInfo info;
+        applySmbios(info, s);
+        const QByteArray json = QJsonDocument(info.toJson()).toJson();
+        QVERIFY(!json.contains("SERIAL"));
+        QVERIFY(!json.contains("ASSET"));
+        QVERIFY(json.contains("K3KL3L30EM"));
+        // A device without a size (an empty slot that doesn't say PRESENT=0) is skipped.
+        QVERIFY(parseUdevMemoryDevices(QStringLiteral("E:MEMORY_DEVICE_4_LOCATOR=DIMMA1\n")).isEmpty());
     }
 
     void smbiosEntryPointAndWindowsHeader()

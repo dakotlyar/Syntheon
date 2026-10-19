@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "sysinfo/collector.h"
 #include "sysinfo/linux/sysfs_readers.h"
 
 #include "fixture_tree.h"
@@ -193,6 +194,28 @@ private slots:
         QVERIFY(c.features.contains(QStringLiteral("avxvnni")));
         QVERIFY(!c.features.contains(QStringLiteral("avx512f")));
         QVERIFY(!readBattery(kIntel).present);
+    }
+
+    // Phase 3 D11: without the helper, the modules come from udev's copy
+    // in run/udev/data/+dmi:id (Tiamat's capture); a tree without it
+    // (Knowhere's) changes nothing.
+    void udevMemoryFallback()
+    {
+        QTemporaryDir tiamat;
+        QVERIFY(sb::testing::materializeFixture(QStringLiteral(SB_FIXTURES "/linux/tiamat"), tiamat.path()));
+        QVERIFY(QFileInfo::exists(tiamat.path() + QStringLiteral("/run/udev/data/+dmi:id")));
+        SystemInfo info;
+        QVERIFY(sb::sysinfo::applyUdevMemory(info, tiamat.path()));
+        QVERIFY(info.memory.modulesKnown);
+        QCOMPARE(info.memory.modulesSource, QStringLiteral("udev"));
+        QCOMPARE(info.memory.modules.size(), 2);
+        QCOMPARE(info.memory.modules[0].configuredSpeedMts, 6000);
+        QCOMPARE(info.memory.modules[0].rank, 2);
+        QCOMPARE(info.memory.channels, 2);
+        SystemInfo none;
+        QVERIFY(!sb::sysinfo::applyUdevMemory(none, kKnowhere));
+        QVERIFY(!none.memory.modulesKnown);
+        QVERIFY(none.memory.modulesSource.isEmpty());
     }
 };
 

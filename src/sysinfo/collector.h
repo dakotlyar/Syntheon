@@ -20,6 +20,13 @@ void addOpenGlInfo(SystemInfo &info);
 // still empty) from parsed SMBIOS.
 void applySmbios(SystemInfo &info, const SmbiosInfo &smbios);
 
+// Linux, when the helper isn't available (declined, not authorised, or it
+// couldn't read the tables): the modules from systemd-udev's world-readable
+// copy, <root>/run/udev/data/+dmi:id (Phase 3 D11; no serial numbers, P23).
+// False, and nothing changed, if the file is missing or lists no module.
+// A later applySmbios() (the helper after a Retry) replaces them.
+bool applyUdevMemory(SystemInfo &info, const QString &root = QStringLiteral("/"));
+
 // Raw SMBIOS from PrivilegedOps (Linux: helper READ_SMBIOS, entry point +
 // table; Windows: in-process, version + table) -> parsed. nullopt if the
 // entry point is unrecognisable.

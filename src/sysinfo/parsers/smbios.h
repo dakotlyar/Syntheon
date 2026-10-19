@@ -27,6 +27,12 @@ struct SmbiosMemoryDevice {
     int configuredSpeedMts = 0;
     QString manufacturer, partNumber;
     QString locator, bankLocator;
+    // Phase 3 P16: total and data width in bits (0x08, 0x0A), form factor
+    // (0x0E: "DIMM", "SODIMM", "Row of chips", ...), rank (attributes 0x1B
+    // bits 0-3, SMBIOS 2.6+). 0 / empty = unknown.
+    int totalWidth = 0, dataWidth = 0;
+    QString formFactor;
+    int rank = 0;
 };
 
 struct SmbiosInfo {
@@ -52,5 +58,17 @@ std::optional<SmbiosInfo> parseWindowsRawSmbios(const QByteArray &raw);
 int estimateMemoryChannels(const QVector<SmbiosMemoryDevice> &modules);
 
 QString smbiosMemoryTypeName(int type);
+// SMBIOS type 17 form factor names, as systemd's dmi_memory_id spells them
+// (so the udev fallback and the tables agree); empty for Other / Unknown.
+QString smbiosFormFactorName(int formFactor);
+
+// The Linux fallback when the helper isn't available (Phase 3 D11): the
+// type-17 fields systemd-udev keeps in its world-readable
+// /run/udev/data/+dmi:id ("E:MEMORY_DEVICE_<n>_<FIELD>=value"), for the
+// populated devices, in device order. Only a whitelist of fields is read
+// (size, type, speed, configured speed, rank, data/total width, form
+// factor, locator, bank locator, part number, manufacturer): never
+// SERIAL_NUMBER or ASSET_TAG (P23).
+QVector<SmbiosMemoryDevice> parseUdevMemoryDevices(const QString &text);
 
 } // namespace sb::sysinfo

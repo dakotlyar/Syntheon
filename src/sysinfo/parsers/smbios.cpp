@@ -7,6 +7,8 @@
 #include <QSet>
 #include <QtEndian>
 
+#include <map>
+
 namespace sb::sysinfo {
 
 namespace {
@@ -89,6 +91,13 @@ SmbiosMemoryDevice memoryDevice(const Structure &s, SmbiosVersion v)
         const qint64 units = size & 0x7FFF;
         d.sizeBytes = (size & 0x8000) ? units * 1024 : units * 1024 * 1024;  // KB or MB
     }
+    const auto width = [&](int offset) {
+        const int w = s.word(offset);
+        return w > 0 && w != 0xFFFF ? w : 0;
+    };
+    d.totalWidth = width(0x08);
+    d.dataWidth = width(0x0A);
+    d.formFactor = smbiosFormFactorName(s.byte(0x0E));
     d.locator = s.string(0x10);
     d.bankLocator = s.string(0x11);
     d.type = smbiosMemoryTypeName(s.byte(0x12));
@@ -106,6 +115,8 @@ SmbiosMemoryDevice memoryDevice(const Structure &s, SmbiosVersion v)
     if (configured == 0xFFFF && atLeast(v, 3, 3) && s.has(0x58, 4))
         configured = int(s.dword(0x58));
     d.configuredSpeedMts = configured > 0 && configured != 0xFFFF ? configured : 0;
+    if (const int attributes = s.byte(0x1B); attributes > 0)
+        d.rank = attributes & 0x0F;
     return d;
 }
 
@@ -129,6 +140,79 @@ QString smbiosMemoryTypeName(int type)
     case 0x24: return QStringLiteral("HBM3");
     default: return {};
     }
+}
+
+QString smbiosFormFactorName(int formFactor)
+{
+    switch (formFactor) {
+    case 0x03: return QStringLiteral("SIMM");
+    case 0x04: return QStringLiteral("SIP");
+    case 0x05: return QStringLiteral("Chip");
+    case 0x06: return QStringLiteral("DIP");
+    case 0x07: return QStringLiteral("ZIP");
+    case 0x08: return QStringLiteral("Proprietary Card");
+    case 0x09: return QStringLiteral("DIMM");
+    case 0x0A: return QStringLiteral("TSOP");
+    case 0x0B: return QStringLiteral("Row of chips");
+    case 0x0C: return QStringLiteral("RIMM");
+    case 0x0D: return QStringLiteral("SODIMM");
+    case 0x0E: return QStringLiteral("SRIMM");
+    case 0x0F: return QStringLiteral("FB-DIMM");
+    case 0x10: return QStringLiteral("Die");
+    case 0x11: return QStringLiteral("CAMM");
+    default: return {};  // 0x01 Other, 0x02 Unknown, anything newer
+    }
+}
+
+QVector<SmbiosMemoryDevice> parseUdevMemoryDevices(const QString &text)
+{
+    // "E:MEMORY_DEVICE_3_CONFIGURED_SPEED_MTS=6000"
+    static const QRegularExpression line(QStringLiteral(R"(^E:MEMORY_DEVICE_(\d+)_([A-Z_]+)=(.*)$)"),
+                                         QRegularExpression::MultilineOption);
+    std::map<int, SmbiosMemoryDevice> devices;
+    std::map<int, bool> absent;  // PRESENT=0: an empty slot
+    for (auto it = line.globalMatch(text); it.hasNext();) {
+        const QRegularExpressionMatch m = it.next();
+        const int n = m.captured(1).toInt();
+        const QString field = m.captured(2);
+        const QString value = cleanFirmwareString(m.captured(3));
+        SmbiosMemoryDevice &d = devices[n];
+        const auto number = [&] { return value.toLongLong(); };
+        // The whitelist (P23): every other field, SERIAL_NUMBER and
+        // ASSET_TAG among them, is never looked at.
+        if (field == QLatin1StringView("PRESENT"))
+            absent[n] = value == QLatin1StringView("0");
+        else if (field == QLatin1StringView("SIZE"))
+            d.sizeBytes = number();
+        else if (field == QLatin1StringView("TYPE"))
+            d.type = value;
+        else if (field == QLatin1StringView("SPEED_MTS"))
+            d.speedMts = int(number());
+        else if (field == QLatin1StringView("CONFIGURED_SPEED_MTS"))
+            d.configuredSpeedMts = int(number());
+        else if (field == QLatin1StringView("RANK"))
+            d.rank = int(number());
+        else if (field == QLatin1StringView("DATA_WIDTH"))
+            d.dataWidth = int(number());
+        else if (field == QLatin1StringView("TOTAL_WIDTH"))
+            d.totalWidth = int(number());
+        else if (field == QLatin1StringView("FORM_FACTOR"))
+            d.formFactor = value;
+        else if (field == QLatin1StringView("LOCATOR"))
+            d.locator = value;
+        else if (field == QLatin1StringView("BANK_LOCATOR"))
+            d.bankLocator = value;
+        else if (field == QLatin1StringView("PART_NUMBER"))
+            d.partNumber = value;
+        else if (field == QLatin1StringView("MANUFACTURER"))
+            d.manufacturer = value;
+    }
+    QVector<SmbiosMemoryDevice> out;
+    for (const auto &[n, d] : devices) {
+        if (!absent[n] && d.sizeBytes > 0)
+            out.append(d);
+    }
+    return out;
 }
 
 std::optional<SmbiosVersion> parseSmbiosEntryPoint(const QByteArray &ep)

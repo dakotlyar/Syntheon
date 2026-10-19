@@ -43,13 +43,20 @@ struct MemoryModule {
     int speedMts = 0, configuredSpeedMts = 0;
     QString manufacturer, partNumber;
     QString locator, bankLocator;
+    int totalWidth = 0, dataWidth = 0;  // bits; 0 = unknown (Phase 3 P16)
+    QString formFactor;                 // "DIMM", "SODIMM", ...
+    int rank = 0;                       // 0 = unknown
 };
 
 struct MemoryInfo {
     qint64 totalBytes = 0;
-    bool modulesKnown = false;  // false until SMBIOS has been read (Linux: helper)
+    bool modulesKnown = false;  // false until SMBIOS has been read (Linux: helper, or udev's copy)
     QVector<MemoryModule> modules;
     int channels = 0;  // estimate; 0 = unknown
+    // Where the modules came from: "smbios" (the tables: Windows, or the
+    // Linux helper) or "udev" (Linux, the helper not available: systemd-
+    // udev's copy of the type-17 fields, Phase 3 D11). Empty: not known.
+    QString modulesSource;
 };
 
 struct GpuInfo {

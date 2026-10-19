@@ -42,6 +42,7 @@ AppController::AppController(LaunchProvider launch, LinuxHelperClient::Options o
             [this](LinuxHelperClient::Failure, const QString &message) {
                 m_smbiosRequested = false;  // try again after a successful Retry
                 setAuth(AuthState::Failed, message);
+                applyUdevFallback();
             });
 }
 #else
@@ -231,6 +232,8 @@ void AppController::start()
             qCInfo(lcApp) << "system info collected for" << m_info.machineLabel();
             emit systemInfoChanged();
             emit powerChanged();
+            if (m_noElevation || m_authState == AuthState::Failed)
+                applyUdevFallback();
             readSmbiosWhenReady();
         });
     });
@@ -276,16 +279,30 @@ void AppController::onSmbios(std::optional<SmbiosTables> tables, PrivError error
     if (!tables) {
         // An ordinary error with a reason (D1: nothing is "needs admin").
         qCWarning(lcApp) << "couldn't read SMBIOS:" << error.message;
+        applyUdevFallback();
         return;
     }
     const auto smbios = sysinfo::parseSmbiosTables(*tables);
     if (!smbios) {
         qCWarning(lcApp) << "unrecognised SMBIOS entry point";
+        applyUdevFallback();
         return;
     }
     sysinfo::applySmbios(m_info, *smbios);
     qCInfo(lcApp) << "memory modules:" << m_info.memory.modules.size();
     emit systemInfoChanged();
+}
+
+void AppController::applyUdevFallback()
+{
+#ifdef Q_OS_LINUX
+    if (!m_infoReady || m_info.memory.modulesSource == QLatin1StringView("smbios"))
+        return;
+    if (sysinfo::applyUdevMemory(m_info)) {
+        qCInfo(lcApp) << "memory modules from udev (the helper isn't available):" << m_info.memory.modules.size();
+        emit systemInfoChanged();
+    }
+#endif
 }
 
 QString AppController::systemSummary() const
@@ -309,8 +326,14 @@ QStringList AppController::memoryModules() const
         parts << QStringLiteral("%1 GB").arg(double(m.sizeBytes) / (1024.0 * 1024 * 1024), 0, 'f', 0);
         if (!m.type.isEmpty())
             parts << m.type;
+        if (!m.formFactor.isEmpty())
+            parts << m.formFactor;
         if (m.configuredSpeedMts > 0 || m.speedMts > 0)
             parts << QStringLiteral("%1 MT/s").arg(m.configuredSpeedMts > 0 ? m.configuredSpeedMts : m.speedMts);
+        if (m.rank > 0)
+            parts << QStringLiteral("%1R").arg(m.rank);
+        if (m.dataWidth > 0)
+            parts << QStringLiteral("%1-bit").arg(m.dataWidth);
         if (!m.manufacturer.isEmpty())
             parts << m.manufacturer;
         if (!m.partNumber.isEmpty())
@@ -365,10 +388,15 @@ QVariantList AppController::systemRows() const
         const MemoryModule &m = i.memory.modules.first();
         QStringList d;
         if (!m.type.isEmpty())
-            d << m.type;
+            d << (m.formFactor.isEmpty() ? m.type : m.type + QLatin1Char(' ') + m.formFactor);
         if (m.configuredSpeedMts > 0 || m.speedMts > 0)
             d << QStringLiteral("%1 MT/s").arg(m.configuredSpeedMts > 0 ? m.configuredSpeedMts : m.speedMts);
         d << (i.memory.modules.size() == 1 ? tr("1 module") : tr("%1 modules").arg(i.memory.modules.size()));
+        // Phase 3 P16, as the first module reports them.
+        if (m.rank > 0)
+            d << QStringLiteral("%1R").arg(m.rank);
+        if (m.dataWidth > 0)
+            d << tr("%1-bit each").arg(m.dataWidth);
         mem += QStringLiteral(", ") + d.join(QStringLiteral(", "));
     } else {
         mem += QStringLiteral(", ") + tr("module details unavailable");

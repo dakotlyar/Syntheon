@@ -85,12 +85,17 @@ QJsonObject SystemInfo::toJson() const
                                    {QStringLiteral("manufacturer"), opt(m.manufacturer)},
                                    {QStringLiteral("part_number"), opt(m.partNumber)},
                                    {QStringLiteral("locator"), opt(m.locator)},
-                                   {QStringLiteral("bank_locator"), opt(m.bankLocator)}});
+                                   {QStringLiteral("bank_locator"), opt(m.bankLocator)},
+                                   {QStringLiteral("rank"), optInt(m.rank)},
+                                   {QStringLiteral("data_width"), optInt(m.dataWidth)},
+                                   {QStringLiteral("total_width"), optInt(m.totalWidth)},
+                                   {QStringLiteral("form_factor"), opt(m.formFactor)}});
     }
     j.insert(QStringLiteral("memory"),
              QJsonObject{{QStringLiteral("total_bytes"), opt(memory.totalBytes)},
                          {QStringLiteral("modules_known"), memory.modulesKnown},
                          {QStringLiteral("modules"), modules},
+                         {QStringLiteral("modules_source"), opt(memory.modulesSource)},
                          {QStringLiteral("channels"), optInt(memory.channels)}});
 
     QJsonArray gpuArray;

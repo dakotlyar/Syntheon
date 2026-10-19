@@ -5,6 +5,7 @@
 #include "app/controllers/storage_controller.h"
 #include "storage/settings_store.h"
 #include "storage/storage.h"
+#include "sysinfo/parsers/smbios.h"
 
 #include <QElapsedTimer>
 #include <QFile>
@@ -89,12 +90,22 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(c.authState(), AppController::AuthState::Failed, 10000);
         QVERIFY(c.authMessage().contains(QLatin1StringView("cancelled")));
         QVERIFY(!c.privileged().isAvailable());
+        // Phase 3 D11: declined, the modules come from udev's copy where
+        // this machine has one (read-only; a CI runner may not).
+        QFile udev(QStringLiteral("/run/udev/data/+dmi:id"));
+        const bool haveUdev = udev.open(QIODevice::ReadOnly)
+                              && !sysinfo::parseUdevMemoryDevices(QString::fromUtf8(udev.readAll())).isEmpty();
+        if (haveUdev)
+            QTRY_VERIFY_WITH_TIMEOUT(c.memoryModulesKnown(), 20000);
 
         c.retryAuth();  // Retry: prompts again
         QCOMPARE(c.authState(), AppController::AuthState::Authorising);
         QTRY_COMPARE_WITH_TIMEOUT(c.authState(), AppController::AuthState::Ready, 10000);
         QCOMPARE(launches, 2);
         QTRY_VERIFY_WITH_TIMEOUT(c.memoryModulesKnown(), 20000);
+        // ...and the helper's tables replace udev's once it is up.
+        QTRY_COMPARE_WITH_TIMEOUT(c.memoryModules().value(0),
+                                  QStringLiteral("DIMM 0: 32 GB LPDDR5 8000 MT/s Samsung K3KL3L30EM-BGCV"), 20000);
 
         c.quit();  // Quit
         QCOMPARE(quit.count(), 1);

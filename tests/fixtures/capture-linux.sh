@@ -108,6 +108,16 @@ for majmin in $(lsblk -rno MAJ:MIN,TYPE | awk '$2=="disk"||$2=="part"{print $1}'
     [[ -f $real/partition ]] && disk=$(dirname "$real")
     for f in device/model queue/rotational; do copy "$disk/$f"; done
 done
+# systemd-udev's world-readable copy of the SMBIOS memory devices (type 17),
+# for the RAM test's fallback readout (Phase 3 D11): the whitelisted fields
+# only. It also holds SERIAL_NUMBER and ASSET_TAG, which are never copied.
+udev=/run/udev/data/+dmi:id
+if [[ -r $udev ]]; then
+    mkdir -p "$out$(dirname "$udev")"
+    grep -E '^E:MEMORY_DEVICE_[0-9]+_(PRESENT|SIZE|TYPE|SPEED_MTS|CONFIGURED_SPEED_MTS|RANK|DATA_WIDTH|TOTAL_WIDTH|FORM_FACTOR|LOCATOR|BANK_LOCATOR|PART_NUMBER|MANUFACTURER)=' \
+        "$udev" > "$out$udev" || rm -f "$out$udev"
+fi
+
 enc() {  # escape the characters Windows forbids in path components
     local s=$1 r="" c i
     for ((i = 0; i < ${#s}; i++)); do

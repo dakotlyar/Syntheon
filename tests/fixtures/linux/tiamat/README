@@ -8,3 +8,8 @@ on CPUs 0-7/16-23, the V-cache CCD; 32 MiB on CPUs 8-15/24-31) and the
 cache line sizes (coherency_line_size, added to the script for this
 capture). The CPPC ranking at capture time: CPUs 9, 13, 25 and 29 at
 highest_perf 236, all on the 32 MiB CCD (amd_x3d_vcache mode "frequency").
+
+run/udev/data/+dmi:id: systemd-udev's copy of the SMBIOS memory devices
+(type 17), for the RAM test's fallback readout (Phase 3 D11), filtered by
+the script to the whitelisted fields (no SERIAL_NUMBER, no ASSET_TAG).
+Captured on 2026-10-19 with EXPO on: 2 x 16 GB DDR5 at 6,000 MT/s, 2R.
