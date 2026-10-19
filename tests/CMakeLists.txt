@@ -117,6 +117,13 @@ if(UNIX AND SYNBENCH_PYTHON3 AND TARGET Qt6::qmllint)
                 "$<TARGET_FILE:Qt6::qmllint>" "${PROJECT_SOURCE_DIR}/packaging/checks/qmllint-gate.py")
 endif()
 
+# tools/cpu-repeatability.py (§14.3) on small histories made with the app's
+# own migrations, in a temporary folder (never the user's history).
+if(SYNBENCH_PYTHON3)
+    add_test(NAME cpu_repeatability_tool
+        COMMAND "${SYNBENCH_PYTHON3}" -I "${PROJECT_SOURCE_DIR}/tests/tools/test_cpu_repeatability.py" "${PROJECT_SOURCE_DIR}")
+endif()
+
 # THIRD-PARTY-NOTICES.txt has a section, with its licence text, for each
 # component SynBench ships that isn't its own (D11): the pinned libraries,
 # OpenSSL, Qt, the code bundled inside Qt (from Qt's SBOM, cmake/QtNotices.cmake),

@@ -183,6 +183,26 @@ The gate reads qmllint's JSON reports because qmllint 6.12's text output
 `pragma ComponentBehavior: Bound` and `required` properties, and every access
 to another object's property is qualified with its id.
 
+## Tools
+
+`tools/cpu-repeatability.py` checks how repeatable the CPU test is (design
+§14.3, the gate is a CV of the CPU score of at most 3% over 5 runs). It reads
+a history read-only (Python 3, standard library only) and prints each run's
+score, group sub-scores, single-thread mark and conditions, then the CVs:
+
+```sh
+# the last 5 scored CPU results (same test and formula version as the newest)
+python3 tools/cpu-repeatability.py ~/.local/share/SynBench/synbench.db
+# Windows: %LOCALAPPDATA%\SynBench\synbench.db; or the folder set in Settings
+python3 tools/cpu-repeatability.py <synbench.db> -n 10 --limit 2
+python3 tools/cpu-repeatability.py <synbench.db> --runs 12,13,15
+```
+
+Exit code 0 when every CV is within the limit, 1 when one isn't (or there is
+too little to compare), 2 for a usage or database problem. It never writes
+to the history, so it's safe while SynBench is open. CTest runs it on
+generated histories (`cpu_repeatability_tool`).
+
 ## Version
 
 `VERSION` holds `YYYY.MM.N`. Dev builds show `-dev+<sha>`; packaging presets
