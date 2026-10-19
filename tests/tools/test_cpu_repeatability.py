@@ -12,7 +12,8 @@ on them:
     is skipped by default and shown, without counting, with --runs;
   * the conditions are reported: battery, throttling, background load;
   * the database is opened read-only: its bytes don't change, and a read-only
-    file works;
+    file works; with a rollback journal nothing is left behind, and with WAL
+    (SynBench's own mode) only a -shm file and an empty -wal file are;
   * usage and database problems exit 2.
 
   test_cpu_repeatability.py <source dir>
@@ -41,8 +42,10 @@ def check(cond, what):
         failures.append(what)
 
 
-def make_db(path, runs):
+def make_db(path, runs, wal=False):
     con = sqlite3.connect(path)
+    if wal:
+        con.execute("PRAGMA journal_mode=WAL")
     for i, m in enumerate(MIGRATIONS, start=1):
         con.executescript(m.read_text(encoding="utf-8"))
         con.execute(f"PRAGMA user_version = {i}")
@@ -107,11 +110,34 @@ with tempfile.TemporaryDirectory() as tmp:
     check(f"Single-thread mark   {want_mark:5.2f}%" in out, f"steady set: the mark's CV is {want_mark:.2f}%")
     check(sum(l.rstrip().endswith("  ok") and "%" in l for l in out.splitlines()) == 9, "steady set: nine CVs (score, seven groups, mark), all ok")
     check(hashlib.sha256(good.read_bytes()).hexdigest() == before, "the database's bytes are unchanged")
-    check(not (tmp / "good.db-wal").exists() and not (tmp / "good.db-journal").exists(), "no journal or WAL file made")
+    check(not (tmp / "good.db-wal").exists() and not (tmp / "good.db-journal").exists(),
+          "rollback-journal history: no journal or WAL file made")
     os.chmod(good, 0o444)
     rc, out, _ = run(good)
     check(rc == 0, "a read-only database file works")
     os.chmod(good, 0o644)
+
+    # 1b. A WAL-mode history, as SynBench writes it, with the app closed (its
+    # -wal checkpointed away). A read-only connection may create a -shm file and
+    # an empty -wal file (which ones depends on the SQLite version; SQLite
+    # 3.54 leaves both); the history itself must not change.
+    waldir = tmp / "wal"
+    waldir.mkdir()
+    waldb = waldir / "synbench.db"
+    make_db(waldb, [steady(k) for k in (0, 2, -1, 3, -2)], wal=True)
+    probe = sqlite3.connect(waldb)
+    check(probe.execute("PRAGMA journal_mode").fetchone()[0] == "wal", "WAL fixture: the history is in WAL mode")
+    probe.close()
+    check(sorted(p.name for p in waldir.iterdir()) == ["synbench.db"], "WAL fixture: only the database before the run")
+    before = hashlib.sha256(waldb.read_bytes()).hexdigest()
+    rc, out, err = run(waldb)
+    check(rc == 0 and "RESULT: PASS" in out, "WAL history: read, PASS")
+    check(hashlib.sha256(waldb.read_bytes()).hexdigest() == before, "WAL history: the database's bytes are unchanged")
+    left = sorted(p.name for p in waldir.iterdir())
+    check(set(left) <= {"synbench.db", "synbench.db-shm", "synbench.db-wal"}, f"WAL history: nothing but -shm/-wal left beside it ({left})")
+    wal = waldir / "synbench.db-wal"
+    check(not wal.exists() or wal.stat().st_size == 0, "WAL history: any -wal left behind is empty (nothing was written)")
+    check("synbench.db" in left, "WAL history: the database is still there")
 
     # 2. One run 10% low: the score's CV is above 3%.
     bad = tmp / "bad.db"

@@ -26,8 +26,10 @@ Usage:
 Exit code: 0 if every CV is within the limit, 1 if any is above it (or fewer
 than 2 values could be compared), 2 for a usage or database problem.
 
-Standard library only; it never writes to the database and never touches the
-network.
+Standard library only; it never modifies the history and never touches the
+network. The database is opened read-only, but SynBench's history is in WAL
+mode, so SQLite may leave a -shm file (and an empty -wal file) next to it
+when SynBench isn't running; they hold no data and SynBench reuses them.
 """
 import argparse
 import math
@@ -121,7 +123,10 @@ def fmt_num(v, digits=0):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="cpu-repeatability.py",
-                                 description="CV of the CPU score, group sub-scores and single-thread mark over saved runs.")
+                                 description="CV of the CPU score, group sub-scores and single-thread mark over saved runs.",
+                                 epilog="The history is opened read-only and never modified. It is in WAL mode, so "
+                                        "SQLite may leave a -shm file (and an empty -wal file) next to it when "
+                                        "SynBench isn't running; they hold no data.")
     ap.add_argument("db", help="path to synbench.db (opened read-only)")
     ap.add_argument("-n", type=int, default=5, help="the last N scored CPU results (default 5)")
     ap.add_argument("--runs", help="comma-separated run ids instead of the last N")

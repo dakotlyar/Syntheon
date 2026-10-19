@@ -199,8 +199,11 @@ python3 tools/cpu-repeatability.py <synbench.db> --runs 12,13,15
 ```
 
 Exit code 0 when every CV is within the limit, 1 when one isn't (or there is
-too little to compare), 2 for a usage or database problem. It never writes
-to the history, so it's safe while SynBench is open. CTest runs it on
+too little to compare), 2 for a usage or database problem. It opens the
+history read-only and never modifies it, so it's safe while SynBench is open.
+The history is in WAL mode, so when SynBench isn't running SQLite may leave a
+`synbench.db-shm` file (and an empty `synbench.db-wal`) next to it; they hold
+no data, and SynBench reuses them. CTest runs it on
 generated histories (`cpu_repeatability_tool`).
 
 ## Version
