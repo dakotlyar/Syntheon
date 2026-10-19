@@ -317,15 +317,25 @@ ScreenFrame {
                                 text: rcell.modelData.kind === "value" ? rcell.modelData.cell.text : ""
                                 kind: "data"; font.pixelSize: 13
                             }
-                            SbText {
-                                objectName: "rawChange"
+                            RowLayout {
                                 Layout.alignment: Qt.AlignRight
-                                visible: text.length > 0
-                                text: rcell.modelData.kind === "value" ? rcell.modelData.cell.changeText : ""
-                                kind: "data"; font.pixelSize: 11
-                                color: rcell.modelData.kind === "value"
-                                       ? (rcell.modelData.cell.direction === "good" ? Theme.good : rcell.modelData.cell.direction === "bad" ? Theme.bad : Theme.muted)
-                                       : Theme.muted
+                                spacing: 6
+                                // D6: the % stays, marked, across a test or formula version change.
+                                Pill {
+                                    objectName: "rawScoringChanged"
+                                    visible: rcell.modelData.kind === "value" && rcell.modelData.cell.scoringChanged === true
+                                    text: qsTr("scoring changed")
+                                    tone: "warn"
+                                }
+                                SbText {
+                                    objectName: "rawChange"
+                                    visible: text.length > 0
+                                    text: rcell.modelData.kind === "value" ? rcell.modelData.cell.changeText : ""
+                                    kind: "data"; font.pixelSize: 11
+                                    color: rcell.modelData.kind === "value"
+                                           ? (rcell.modelData.cell.direction === "good" ? Theme.good : rcell.modelData.cell.direction === "bad" ? Theme.bad : Theme.muted)
+                                           : Theme.muted
+                                }
                             }
                             Item { Layout.fillHeight: true }
                         }
