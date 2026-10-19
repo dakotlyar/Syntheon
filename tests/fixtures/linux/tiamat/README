@@ -13,3 +13,10 @@ run/udev/data/+dmi:id: systemd-udev's copy of the SMBIOS memory devices
 (type 17), for the RAM test's fallback readout (Phase 3 D11), filtered by
 the script to the whitelisted fields (no SERIAL_NUMBER, no ASSET_TAG).
 Captured on 2026-10-19 with EXPO on: 2 x 16 GB DDR5 at 6,000 MT/s, 2R.
+
+Pruned on 2026-10-19 to what the tests read (the CPU and cache topology,
+DMI ids, the udev memory devices, cpuinfo/meminfo/os-release): the PCI
+device tree (hwmon sensors, block devices, a Logitech receiver's
+hidpp_battery) nested deep enough to break a Windows checkout ("Filename
+too long"). The windows_safe_paths test now limits tracked paths to 200
+characters.

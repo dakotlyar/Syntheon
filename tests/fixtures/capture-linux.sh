@@ -66,8 +66,11 @@ done
 # Temperature sensors and the power profile, for the CPU test's telemetry
 # (Phase 2 §8.1): each hwmon's class link, name and temp*_input / temp*_label.
 for hw in /sys/class/hwmon/hwmon[0-9]*; do
-    link "$hw"
     real=$(readlink -f "$hw")
+    # Sensors of USB/HID peripherals (a wireless mouse's battery) aren't the
+    # machine's, and their sysfs paths nest too deep for a Windows checkout.
+    case $real in */usb[0-9]*/* | */hid* | */power_supply/*) continue ;; esac
+    link "$hw"
     copy "$real/name"
     for f in "$real"/temp[0-9]*_input "$real"/temp[0-9]*_label; do copy "$f"; done
 done
@@ -89,8 +92,12 @@ for dev in /sys/class/drm/card[0-9]* /sys/class/accel/accel[0-9]*; do
     copy /sys/module/$driver/version
 done
 
-# Power supplies (no serial_number / manufacturer / model_name).
+# Power supplies (no serial_number / manufacturer / model_name): the
+# system's mains and batteries only, not peripherals (scope=Device: a
+# mouse's or a receiver's battery).
 for ps in /sys/class/power_supply/*; do
+    [[ $(cat "$ps/scope" 2>/dev/null) == Device ]] && continue
+    case $(readlink -f "$ps") in */usb[0-9]*/* | */hid*) continue ;; esac
     for f in type scope online present status capacity energy_full energy_full_design energy_now \
              charge_full charge_full_design charge_now voltage_min_design cycle_count; do
         copy "$ps/$f"
@@ -148,4 +155,17 @@ encode_tree() {  # encode_tree <src> <dst>
 }
 
 encode_tree "$out" "$final"
+
+# A Windows checkout can't hold long paths (MAX_PATH 260 with the runner's
+# D:\a\SynBench\SynBench\ prefix): the windows_safe_paths test fails any
+# tracked path over 200 characters, so say so here, before it's committed.
+limit=200
+prefix=$(git -C "$final" rev-parse --show-prefix 2>/dev/null || true)
+long=$( (cd "$final" && find . -mindepth 1 -print) | sed 's|^\./||' |
+        awk -v p="$prefix" -v n=$limit 'length(p $0) > n { print length(p $0) ": " p $0 }')
+if [[ -n $long ]]; then
+    echo "captured into $final, but these paths are over $limit characters (prune them before committing):" >&2
+    echo "$long" >&2
+    exit 1
+fi
 echo "captured into $final"
