@@ -118,12 +118,20 @@ void WorkerPool::workerMain(int index)
     m_workers[std::size_t(index)].tid = currentThreadId();
     const int count = int(m_workers.size());
     if (!m_options.pinEach.empty()) {
-        // P11: worker i on entry i. A worker past the list's end, or an
-        // unranked entry, runs where the OS puts it.
-        const bool listed = std::size_t(index) < m_options.pinEach.size();
-        if (!listed || !pinCurrentThread(m_options.pinEach[std::size_t(index)])) {
+        // P11: worker i on entry i. A worker past the list's end, or with an
+        // unranked entry, isn't pinned: it runs where the OS puts it (spread
+        // over the processor groups, as an unpinned worker is) and pinned()
+        // is false, but that is no placement failure. A pin that fails is.
+        const std::size_t i = std::size_t(index);
+        if (i < m_options.pinEach.size() && m_options.pinEach[i].ranked) {
+            if (!pinCurrentThread(m_options.pinEach[i])) {
+                m_pinned = false;
+                ++m_placementFailures;
+            }
+        } else {
             m_pinned = false;
-            ++m_placementFailures;
+            if (!spreadOverProcessorGroups(index, count))
+                ++m_placementFailures;
         }
     } else if (m_options.pinTo.ranked) {
         if (!pinCurrentThread(m_options.pinTo)) {

@@ -1258,6 +1258,28 @@ private slots:
         QCOMPARE(wrongCpu.load(), 0);
     }
 
+    // AP-5 L6: a worker past the list, or with an unranked entry, runs
+    // unpinned: pinned() is false but it is no placement failure.
+    void pinEachUnlistedWorkersRunUnpinned()
+    {
+        const std::vector<sb::isa::CoreChoice> cpus = twoCpus();
+        if (cpus.empty())
+            QSKIP("no CPU to pin to");
+        WorkerPool::Options past;
+        past.threads = 2;
+        past.pinEach = {cpus[0]};
+        WorkerPool a(std::move(past));
+        QCOMPARE(a.threads(), 2);
+        QVERIFY(!a.pinned());
+        QCOMPARE(a.placementFailures(), 0);
+        WorkerPool::Options unranked;
+        unranked.pinEach = {cpus[0], sb::isa::CoreChoice{}};
+        WorkerPool b(std::move(unranked));
+        QCOMPARE(b.threads(), 2);
+        QVERIFY(!b.pinned());
+        QCOMPARE(b.placementFailures(), 0);
+    }
+
     // ...and an empty pinEach (the default) leaves the CPU test's pools as
     // they were: unpinned multi-thread workers, a pinned single thread.
     void pinEachDefaultUnchanged()

@@ -128,8 +128,11 @@ public:
         // Phase 3 P11: worker i is pinned to pinEach[i] for the pool's life
         // (the RAM test's all-thread pools: one worker per logical CPU, each
         // on its own). Non-empty: the pool has pinEach.size() workers when
-        // `threads` is 0, and pinTo / pickFrom are not used. Empty (the
-        // default): the placement above, unchanged.
+        // `threads` is 0, and pinTo / pickFrom are not used. A worker past
+        // the list's end, or with an unranked entry, runs unpinned where the
+        // OS puts it (spread over processor groups); pinned() is then false,
+        // but it isn't a placement failure. Empty (the default): the
+        // placement above, unchanged.
         std::vector<isa::CoreChoice> pinEach;
     };
     // The single-thread mark's pool on this machine: one thread on the
