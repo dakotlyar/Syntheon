@@ -339,7 +339,14 @@ void CompareController::rebuildRaw()
             QVariantMap cell{{QStringLiteral("text"), t && m ? formatMetric(*t, key) : QStringLiteral("—")},
                              {QStringLiteral("changeText"), QString()},
                              {QStringLiteral("direction"), QStringLiteral("none")}};
-            if (i != m_baseline && m && bm && m->isNumeric() && bm->isNumeric() && std::get<double>(bm->value) != 0) {
+            // D6, for the raw rows too (Zeb, task 19): another test or formula
+            // version than the baseline's measures differently, so a % against
+            // it means nothing ("+331%" for a stub's mark against v1's).
+            const bool versionDiffers = i != m_baseline && t && base
+                                        && (t->testVersion != base->testVersion || t->formulaVersion != base->formulaVersion);
+            if (versionDiffers && m) {
+                cell.insert(QStringLiteral("changeText"), tr("scoring changed"));
+            } else if (i != m_baseline && m && bm && m->isNumeric() && bm->isNumeric() && std::get<double>(bm->value) != 0) {
                 const double b = std::get<double>(bm->value);
                 const double pct = (std::get<double>(m->value) - b) / std::fabs(b) * 100.0;
                 if (std::isfinite(pct)) {  // a NaN metric gets no change %

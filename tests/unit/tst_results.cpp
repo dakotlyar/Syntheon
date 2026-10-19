@@ -683,6 +683,25 @@ private slots:
         // Dave's N2 decision: no change % on a partial overall (no scary red delta).
         QCOMPARE(overall.value(QStringLiteral("cells")).toList().at(2).toMap().value(QStringLiteral("changeText")).toString(), QString());
         QCOMPARE(overall.value(QStringLiteral("cells")).toList().at(2).toMap().value(QStringLiteral("direction")).toString(), QStringLiteral("none"));
+        // D6 on the raw rows too: against another formula version, the values
+        // without a % (Zeb, task 19: a stub's mark showed "+331%").
+        c.setBaseline(ids[0]);  // v1, CPU 1000; the v2 run is column 0
+        QCOMPARE(c.rawTestId(), QStringLiteral("cpu"));
+        bool sawMark = false;
+        for (const QVariant &v : c.rawRows()) {
+            const QVariantList cells = v.toMap().value(QStringLiteral("cells")).toList();
+            const QVariantMap v2Cell = cells.at(0).toMap();       // formula 2 against the v1 baseline
+            const QVariantMap sameCell = cells.at(2).toMap();     // the Stopped v1 run, same versions
+            if (v.toMap().value(QStringLiteral("label")).toString() == QLatin1StringView("Single-thread mark")) {
+                sawMark = true;
+                QCOMPARE(v2Cell.value(QStringLiteral("changeText")).toString(), QStringLiteral("scoring changed"));
+                QCOMPARE(v2Cell.value(QStringLiteral("direction")).toString(), QStringLiteral("none"));
+                QVERIFY(v2Cell.value(QStringLiteral("text")).toString() != QStringLiteral("—"));  // the value stays
+                QVERIFY(sameCell.value(QStringLiteral("changeText")).toString().endsWith(QLatin1Char('%')));
+            }
+            QVERIFY(!v2Cell.value(QStringLiteral("changeText")).toString().contains(QLatin1Char('%')));
+        }
+        QVERIFY(sawMark);
         QCOMPARE(CompareController::changeText(52.4, true), QStringLiteral("+52% (worse)"));
         QCOMPARE(CompareController::changeText(-12.2, true), QStringLiteral("-12%"));
         QCOMPARE(CompareController::changeText(0.2, false), QStringLiteral("0%"));
