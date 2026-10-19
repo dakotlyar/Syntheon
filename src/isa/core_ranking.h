@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -106,6 +107,10 @@ std::vector<CoreCandidate> windowsTopCandidates(const std::vector<CpuSetRecord> 
 // earlier candidate. Unranked if there are none.
 CoreChoice quietestCandidate(const std::vector<CoreCandidate> &candidates, const IdleSample &before,
                              const IdleSample &after);
+
+// A sysfs CPU list ("0-3,8,10-11"), as in thread_siblings_list and
+// shared_cpu_list.
+std::set<int> parseCpuList(const std::string &text);
 
 // This machine: the platform's tie set (empty: no ranking), and an idle
 // sample of every logical CPU (empty where the platform has none).

@@ -1,0 +1,10 @@
+Captured on Tiamat (MSI MAG X870E TOMAHAWK WIFI, AMD Ryzen 9 9950X3D,
+CachyOS, kernel 7.2.10) on 2026-10-19 with tests/fixtures/capture-linux.sh,
+as a normal user. No serial numbers, UUIDs or battery manufacturer/model
+strings.
+
+For the RAM test's cache topology (Phase 3 P6): the asymmetric L3 (96 MiB
+on CPUs 0-7/16-23, the V-cache CCD; 32 MiB on CPUs 8-15/24-31) and the
+cache line sizes (coherency_line_size, added to the script for this
+capture). The CPPC ranking at capture time: CPUs 9, 13, 25 and 29 at
+highest_perf 236, all on the 32 MiB CCD (amd_x3d_vcache mode "frequency").

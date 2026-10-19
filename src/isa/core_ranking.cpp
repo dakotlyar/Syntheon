@@ -39,30 +39,6 @@ std::optional<long long> readNumber(const std::filesystem::path &file)
     return v;
 }
 
-// A sysfs CPU list ("0-3,8,10-11").
-std::set<int> parseCpuList(const std::string &text)
-{
-    std::set<int> cpus;
-    std::size_t i = 0;
-    while (i < text.size()) {
-        std::size_t end = text.find(',', i);
-        if (end == std::string::npos)
-            end = text.size();
-        const std::string item = text.substr(i, end - i);
-        const std::size_t dash = item.find('-');
-        char *e = nullptr;
-        const long first = std::strtol(item.c_str(), &e, 10);
-        if (e != item.c_str()) {
-            long last = first;
-            if (dash != std::string::npos)
-                last = std::strtol(item.c_str() + dash + 1, &e, 10);
-            for (long c = first; c <= last && c - first < 65536; ++c)
-                cpus.insert(int(c));
-        }
-        i = end + 1;
-    }
-    return cpus;
-}
 
 #if defined(__linux__)
 // The CPUs this process may run on (sched_getaffinity: taskset, cgroups).
@@ -143,6 +119,30 @@ std::vector<int> linuxTopTies(const std::string &sysfsRoot, const std::vector<in
 }
 
 } // namespace
+
+std::set<int> parseCpuList(const std::string &text)
+{
+    std::set<int> cpus;
+    std::size_t i = 0;
+    while (i < text.size()) {
+        std::size_t end = text.find(',', i);
+        if (end == std::string::npos)
+            end = text.size();
+        const std::string item = text.substr(i, end - i);
+        const std::size_t dash = item.find('-');
+        char *e = nullptr;
+        const long first = std::strtol(item.c_str(), &e, 10);
+        if (e != item.c_str()) {
+            long last = first;
+            if (dash != std::string::npos)
+                last = std::strtol(item.c_str() + dash + 1, &e, 10);
+            for (long c = first; c <= last && c - first < 65536; ++c)
+                cpus.insert(int(c));
+        }
+        i = end + 1;
+    }
+    return cpus;
+}
 
 CoreChoice rankLinuxCores(const std::string &sysfsRoot, const std::vector<int> &allowed)
 {

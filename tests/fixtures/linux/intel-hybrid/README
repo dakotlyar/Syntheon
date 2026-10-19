@@ -1,2 +1,7 @@
 Synthetic fixture (hand-written, not captured): an Intel hybrid CPU with one
 P-core (2 threads) and two E-cores, as exposed by the cpu_core/cpu_atom PMUs.
+
+Cache files (added 2026-10-19 for the RAM test's cache topology, Phase 3
+P6), modelled on an Alder Lake part: the P-core has L1d 48K, L1i 32K and a
+private 1280K L2; the two E-cores have L1d 32K and L1i 64K each and share
+a 2048K L2; all four CPUs share a 12288K L3; 64-byte lines.

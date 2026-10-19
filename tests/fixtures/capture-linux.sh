@@ -59,7 +59,7 @@ for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
     done
     for idx in "$cpu"/cache/index*; do
         [[ -d $idx ]] || continue
-        for f in level type size shared_cpu_list; do copy "$idx/$f"; done
+        for f in level type size coherency_line_size shared_cpu_list; do copy "$idx/$f"; done
     done
 done
 
