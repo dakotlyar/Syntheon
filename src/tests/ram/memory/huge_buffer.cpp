@@ -26,13 +26,14 @@ HugeBuffer &HugeBuffer::operator=(HugeBuffer &&other) noexcept
         release();
         m_data = std::exchange(other.m_data, nullptr);
         m_size = std::exchange(other.m_size, 0);
-        m_hugePageSize = other.m_hugePageSize;
-        m_basePageSize = other.m_basePageSize;
+        m_hugePageSize = std::exchange(other.m_hugePageSize, 0);
+        m_basePageSize = std::exchange(other.m_basePageSize, 0);
+        m_length = std::exchange(other.m_length, 0);
         m_error = std::move(other.m_error);
         m_mapStart = std::exchange(other.m_mapStart, nullptr);
         m_mapLength = std::exchange(other.m_mapLength, 0);
         m_thpEnabled = std::move(other.m_thpEnabled);
-        m_largePages = other.m_largePages;
+        m_largePages = std::exchange(other.m_largePages, false);
         m_smallReason = std::move(other.m_smallReason);
         m_notes = std::move(other.m_notes);
     }
@@ -97,12 +98,13 @@ std::optional<std::size_t> parseHugePageSize(const std::string &text)
     return std::size_t(v);
 }
 
-AlignedRange alignedRange(std::uintptr_t base, std::size_t mappedLength, std::size_t alignment, std::size_t size)
+AlignedRange alignedRange(std::uintptr_t base, std::size_t mappedLength, std::size_t alignment, std::size_t size,
+                          std::size_t guard)
 {
     AlignedRange r;
-    r.start = (base + alignment - 1) & ~std::uintptr_t(alignment - 1);
-    r.headTrim = std::size_t(r.start - base);
-    r.tailTrim = mappedLength - r.headTrim - size;
+    r.start = (base + guard + alignment - 1) & ~std::uintptr_t(alignment - 1);
+    r.headTrim = std::size_t(r.start - guard - base);
+    r.tailTrim = mappedLength - r.headTrim - guard - size - guard;
     return r;
 }
 
@@ -117,12 +119,18 @@ std::string formatPageSize(std::size_t bytes)
     return std::to_string(bytes) + " " + units[u];
 }
 
-PageReport linuxPageReport(double percent, std::size_t hugePageSize, std::size_t basePageSize,
+PageReport linuxPageReport(std::optional<double> measured, std::size_t hugePageSize, std::size_t basePageSize,
                            const std::string &thpEnabled)
 {
     PageReport r;
-    r.hugePercent = percent;
     const std::string huge = formatPageSize(hugePageSize), base = formatPageSize(basePageSize);
+    if (!measured) {
+        r.mode = PageReport::Mode::Unknown;
+        r.text = huge + " pages requested (coverage unknown: smaps not readable)";
+        return r;
+    }
+    const double percent = *measured;
+    r.hugePercent = percent;
     if (percent >= 90) {
         r.mode = PageReport::Mode::Huge;
         r.text = huge + " transparent huge pages";
