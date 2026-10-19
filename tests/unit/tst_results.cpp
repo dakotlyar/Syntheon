@@ -250,6 +250,22 @@ private slots:
         QVERIFY(res.overallNote().startsWith(QLatin1StringView("Partial")));
         QCOMPARE(res.overallText(), QStringLiteral("1,284"));
         QCOMPARE(res.rows()[1].toMap().value(QStringLiteral("score")).toString(), QStringLiteral("Not run"));
+        // A test stopped with the orchestrator's default reason says "Stopped"
+        // once (the score column), not twice; a reason with more in it stays.
+        const RunRecord stoppedTests = seed(RunStatus::Stopped, QDateTime::currentDateTimeUtc().addSecs(2), {[] {
+                                                TestResult r = TestResult::withStatus(Status::Cancelled, QStringLiteral("Stopped"));
+                                                r.testId = QStringLiteral("cpu");
+                                                return r;
+                                            }(), [] {
+                                                TestResult r = TestResult::withStatus(Status::Cancelled, QStringLiteral("Stopped during the write pass"));
+                                                r.testId = QStringLiteral("storage");
+                                                return r;
+                                            }()});
+        QVERIFY(res.openRun(stoppedTests.uuid.toString(QUuid::WithoutBraces)));
+        QCOMPARE(res.rows()[0].toMap().value(QStringLiteral("score")).toString(), QStringLiteral("Stopped"));
+        QCOMPARE(res.rows()[0].toMap().value(QStringLiteral("raw")).toString(), QString());
+        QCOMPARE(res.rows()[1].toMap().value(QStringLiteral("score")).toString(), QStringLiteral("Stopped"));
+        QCOMPARE(res.rows()[1].toMap().value(QStringLiteral("raw")).toString(), QStringLiteral("Stopped during the write pass"));
 
         const RunRecord interrupted = seed(RunStatus::Interrupted, QDateTime::currentDateTimeUtc().addSecs(5), {cpuResult(100)});
         QVERIFY(res.openRun(interrupted.uuid.toString(QUuid::WithoutBraces)));

@@ -257,8 +257,13 @@ QString ResultsController::scoreText(const TestResult &t) const
 
 QString ResultsController::rawSummary(const TestResult &t) const
 {
-    if (t.status != Status::Ok && t.status != Status::Partial)
+    if (t.status != Status::Ok && t.status != Status::Partial) {
+        // The score column already says it: a stopped test's default reason
+        // is "Stopped" (the orchestrator's), shown once, not twice (Zeb, task 19).
+        if (t.statusReason.compare(scoreText(t), Qt::CaseInsensitive) == 0)
+            return {};
         return t.statusReason;
+    }
     const ITest *test = m_runController.registry().find(t.testId);
     QStringList parts;
     const DetailLayout layout = test ? test->detail(t) : genericDetailLayout(t);
