@@ -1203,6 +1203,77 @@ private slots:
         QVERIFY(!pool.pinned());
     }
 
+    // Phase 3 P11: Options::pinEach pins worker i to entry i (the list is
+    // reversed, so a pool that pinned by anything but the index fails), and
+    // the pool has one worker per entry.
+    void pinEachPinsWorkerToItsEntry()
+    {
+        std::vector<sb::isa::CoreChoice> cpus = twoCpus();
+        if (cpus.size() < 2)
+            QSKIP("needs two CPUs to pin to");
+        std::reverse(cpus.begin(), cpus.end());
+        WorkerPool::Options o;
+        o.pinEach = cpus;
+        WorkerPool pool(std::move(o));
+        QCOMPARE(pool.threads(), 2);
+        QVERIFY(pool.pinned());
+        QCOMPARE(pool.placementFailures(), 0);
+        QVERIFY(!pool.currentCore().ranked);  // no single core to report
+        std::atomic<int> wrongCpu{0};
+        std::atomic<int> checked{0};
+        struct EachKernel : Kernel {
+            std::vector<int> want;
+            std::atomic<int> *wrong = nullptr;
+            std::atomic<int> *checked = nullptr;
+            std::string name() const override { return "Each"; }
+            double workPerUnit() const override { return 1; }
+            double maxWorkPerCyclePerThread() const override { return 1; }
+            std::unique_ptr<KernelThread> makeThread(int thread) const override
+            {
+                struct T : KernelThread {
+                    int want = -1;
+                    std::atomic<int> *wrong = nullptr;
+                    std::atomic<int> *checked = nullptr;
+                    std::uint64_t unit(std::uint64_t) override
+                    {
+                        std::this_thread::sleep_for(1ms);
+                        if (currentCpu() != want)
+                            ++*wrong;
+                        ++*checked;
+                        return 1;
+                    }
+                };
+                auto t = std::make_unique<T>();
+                t->want = want[std::size_t(thread)];
+                t->wrong = wrong;
+                t->checked = checked;
+                return t;
+            }
+        } each;
+        each.want = {cpus[0].cpu, cpus[1].cpu};
+        each.wrong = &wrongCpu;
+        each.checked = &checked;
+        QVERIFY(pool.measure(each, {10ms, 100ms, 1}, [] { return false; }).ok());
+        QVERIFY(checked.load() > 0);
+        QCOMPARE(wrongCpu.load(), 0);
+    }
+
+    // ...and an empty pinEach (the default) leaves the CPU test's pools as
+    // they were: unpinned multi-thread workers, a pinned single thread.
+    void pinEachDefaultUnchanged()
+    {
+        QVERIFY(WorkerPool::Options{}.pinEach.empty());
+        WorkerPool unpinned({2, {}});
+        QCOMPARE(unpinned.threads(), 2);
+        QVERIFY(!unpinned.pinned());
+        const std::vector<sb::isa::CoreChoice> cpus = twoCpus();
+        if (cpus.empty())
+            QSKIP("no CPU to pin to");
+        WorkerPool single({1, cpus[0]});
+        QVERIFY(single.pinned());
+        QCOMPARE(single.currentCore().cpu, cpus[0].cpu);
+    }
+
     // opaque() keeps values and pointers intact (what it hides is checked by
     // the kernels' golden tables and the plausibility ceiling).
     void opaqueKeepsValues()

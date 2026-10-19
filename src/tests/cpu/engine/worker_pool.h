@@ -125,6 +125,12 @@ public:
         std::vector<isa::CoreCandidate> pickFrom;
         std::chrono::milliseconds sampleFor{250};
         std::function<isa::IdleSample()> idleSampler;  // empty: isa::sampleIdle (tests inject their own)
+        // Phase 3 P11: worker i is pinned to pinEach[i] for the pool's life
+        // (the RAM test's all-thread pools: one worker per logical CPU, each
+        // on its own). Non-empty: the pool has pinEach.size() workers when
+        // `threads` is 0, and pinTo / pickFrom are not used. Empty (the
+        // default): the placement above, unchanged.
+        std::vector<isa::CoreChoice> pinEach;
     };
     // The single-thread mark's pool on this machine: one thread on the
     // top-ranked core, re-picked among the tied ones per repetition.
@@ -135,8 +141,9 @@ public:
     WorkerPool &operator=(const WorkerPool &) = delete;
 
     int threads() const { return int(m_workers.size()); }
-    // Whether the workers of a pool made with a ranked pinTo really are pinned
-    // (false: the call failed and they run unpinned). Settled on construction.
+    // Whether the workers of a pool made with a ranked pinTo (or with
+    // pinEach, every entry ranked) really are pinned (false: a call failed
+    // and that worker runs unpinned). Settled on construction.
     bool pinned() const { return m_pinned.load(); }
 
     // Runs one measurement of `kernel` (blocking). `progress` (optional) is

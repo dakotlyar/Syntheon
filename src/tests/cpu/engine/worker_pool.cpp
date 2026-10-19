@@ -74,8 +74,18 @@ WorkerPool::Options WorkerPool::singleThreadOptions()
 
 WorkerPool::WorkerPool(Options options) : m_options(std::move(options))
 {
-    const int n = m_options.threads > 0 ? m_options.threads : logicalCpuCount();
-    m_pinned = m_options.pinTo.ranked;
+    const bool each = !m_options.pinEach.empty();
+    if (each) {
+        // Decision D's single core doesn't apply to a pool pinned per worker.
+        m_options.pinTo = {};
+        m_options.pickFrom.clear();
+    }
+    const int n = m_options.threads > 0 ? m_options.threads
+                  : each               ? int(m_options.pinEach.size())
+                                       : logicalCpuCount();
+    m_pinned = each ? std::all_of(m_options.pinEach.begin(), m_options.pinEach.end(),
+                                  [](const isa::CoreChoice &c) { return c.ranked; })
+                    : m_options.pinTo.ranked;
     m_workers.resize(std::size_t(n));
     for (int i = 0; i < n; ++i)
         m_workers[std::size_t(i)].thread = std::thread([this, i] { workerMain(i); });
@@ -83,7 +93,7 @@ WorkerPool::WorkerPool(Options options) : m_options(std::move(options))
     // so pinned() is settled from here on.
     bool unused = false;
     runJob(Job::None, {}, {}, unused);
-    if (m_pinned)
+    if (m_pinned && !each)
         m_core = m_options.pinTo;
 }
 
@@ -107,7 +117,15 @@ void WorkerPool::workerMain(int index)
     ++g_liveThreads;
     m_workers[std::size_t(index)].tid = currentThreadId();
     const int count = int(m_workers.size());
-    if (m_options.pinTo.ranked) {
+    if (!m_options.pinEach.empty()) {
+        // P11: worker i on entry i. A worker past the list's end, or an
+        // unranked entry, runs where the OS puts it.
+        const bool listed = std::size_t(index) < m_options.pinEach.size();
+        if (!listed || !pinCurrentThread(m_options.pinEach[std::size_t(index)])) {
+            m_pinned = false;
+            ++m_placementFailures;
+        }
+    } else if (m_options.pinTo.ranked) {
         if (!pinCurrentThread(m_options.pinTo)) {
             m_pinned = false;
             ++m_placementFailures;
