@@ -17,7 +17,8 @@ namespace sb {
 //   table     columns [text], rows [[text]]
 //   grid      columns [text], rows [{label, small, cells:[{main, sub}]}]
 //   linechart points [{x,y}], logX, xTicks [{x,label}], yUnit, annotations
-//             [{x,label}], colorToken
+//             [{x,label}], colorToken, logY, yTicks [{y,label}] (log y
+//             only), markers [{x,y}]
 //   note      text, tone
 //   nastate   body
 //   custom    qmlType, data  (the escape hatch; unknown types show a note)

@@ -66,11 +66,14 @@ struct GridBlock {
 };
 
 struct ChartAxis {
-    enum class Scale { Linear, Log2 };
+    // Log10: a log axis like Log2 (the positions are the same); it differs
+    // only in the ticks chosen when none are given (Phase 3 D13).
+    enum class Scale { Linear, Log2, Log10 };
     Scale scale = Scale::Linear;
     QStringList tickLabels;
     // The x position of each label, in the series' x unit (KiB, minutes). If
-    // shorter than tickLabels, the labels are spread evenly.
+    // shorter than tickLabels, the labels are spread evenly. (The y axis:
+    // see LineChartBlock::yAxis.)
     QVector<double> tickValues;
     bool operator==(const ChartAxis &) const = default;
 };
@@ -86,6 +89,17 @@ struct LineChartBlock {
     ChartAxis xAxis;
     QString yUnit;
     QVector<ChartAnnotation> annotations;
+    // The y axis (Phase 3 D13). Linear, the default, is the chart as it
+    // always was: five grid lines from 0 to a rounded maximum (tickLabels
+    // and tickValues unused). Log2 / Log10: a log axis with a grid line at
+    // each tickValue (labelled tickLabels[i], else the number), spanning the
+    // ticks and the data; with no tickValues, powers of two (Log2) or a
+    // 1-2-5 sequence (Log10) over the data.
+    ChartAxis yAxis;
+    // Open dots on the curve at these x values (the Phase 3 RAM mockup's
+    // scored targets): the series' point at each x; an x the series has no
+    // point at is skipped. Empty by default.
+    QVector<double> markers;
     bool operator==(const LineChartBlock &) const = default;
 };
 

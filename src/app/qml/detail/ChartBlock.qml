@@ -33,6 +33,9 @@ Box {
             xTicks: root.block ? root.block.xTicks : []
             yUnit: root.block ? root.block.yUnit : ""
             annotations: root.block ? root.block.annotations : []
+            logY: root.block && root.block.logY !== undefined ? root.block.logY : false
+            yTicks: root.block && root.block.yTicks !== undefined ? root.block.yTicks : []
+            markers: root.block && root.block.markers !== undefined ? root.block.markers : []
             color: Theme.testColor(root.colorToken)
             description: root.block ? root.block.title : ""
         }

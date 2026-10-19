@@ -3,6 +3,8 @@
 
 #include "core/units.h"
 
+#include <QLocale>
+
 #include <algorithm>
 #include <cmath>
 
@@ -108,6 +110,56 @@ QVariantMap grid(const GridBlock &b, const DetailBlock &block, const TestResult 
     return out;
 }
 
+// A log y axis's grid lines [{y, label}] (LineChartBlock::yAxis): the given
+// ticks, or powers of two / a 1-2-5 sequence spanning the positive data.
+// Empty for a linear axis, which the chart lays out itself.
+QVariantList yTicks(const ChartAxis &axis, const QVariantList &points)
+{
+    QVariantList out;
+    if (axis.scale == ChartAxis::Scale::Linear)
+        return out;
+    const auto tick = [&](double y, const QString &label) {
+        out.append(QVariantMap{{QStringLiteral("y"), y}, {QStringLiteral("label"), label}});
+    };
+    if (!axis.tickValues.isEmpty()) {
+        for (int i = 0; i < axis.tickValues.size(); ++i) {
+            const double y = axis.tickValues[i];
+            if (y > 0)
+                tick(y, i < axis.tickLabels.size() ? axis.tickLabels[i] : QLocale(QLocale::English).toString(y, 'g', 6));
+        }
+        return out;
+    }
+    double lo = INFINITY, hi = -INFINITY;
+    for (const QVariant &v : points) {
+        const double y = v.toMap().value(QStringLiteral("y")).toDouble();
+        if (y > 0) {
+            lo = std::min(lo, y);
+            hi = std::max(hi, y);
+        }
+    }
+    if (!std::isfinite(lo))
+        return out;
+    // From the step at or below the lowest point to the one at or above the highest.
+    QVector<double> steps;
+    if (axis.scale == ChartAxis::Scale::Log2) {
+        for (double y = std::exp2(std::floor(std::log2(lo))); y <= hi * 2; y *= 2)
+            steps.append(y);
+    } else {
+        for (double decade = std::pow(10.0, std::floor(std::log10(lo))); decade <= hi * 10; decade *= 10) {
+            for (const double m : {1.0, 2.0, 5.0})
+                steps.append(m * decade);
+        }
+    }
+    int first = 0, last = int(steps.size()) - 1;
+    while (first + 1 < steps.size() && steps[first + 1] <= lo)
+        ++first;
+    while (last > first && steps[last - 1] >= hi)
+        --last;
+    for (int i = first; i <= last; ++i)
+        tick(steps[i], QLocale(QLocale::English).toString(steps[i], 'g', 6));
+    return out;
+}
+
 QVariantMap lineChart(const LineChartBlock &b, const DetailBlock &block, const TestResult &r, const QString &colorToken)
 {
     QVariantMap out = base(QStringLiteral("linechart"), block.title);
@@ -141,8 +193,24 @@ QVariantMap lineChart(const LineChartBlock &b, const DetailBlock &block, const T
     QVariantList notes;
     for (const ChartAnnotation &a : b.annotations)
         notes.append(QVariantMap{{QStringLiteral("x"), a.x}, {QStringLiteral("label"), a.label}});
+    // The markers: the curve's point at each marker x (within a relative
+    // 1e-9, for values that went through the database).
+    QVariantList markers;
+    for (const double mx : b.markers) {
+        for (const QVariant &v : std::as_const(points)) {
+            const QVariantMap p = v.toMap();
+            const double px = p.value(QStringLiteral("x")).toDouble();
+            if (std::abs(px - mx) <= 1e-9 * std::max(std::abs(px), std::abs(mx))) {
+                markers.append(p);
+                break;
+            }
+        }
+    }
     out.insert(QStringLiteral("points"), points);
-    out.insert(QStringLiteral("logX"), b.xAxis.scale == ChartAxis::Scale::Log2);
+    out.insert(QStringLiteral("logX"), b.xAxis.scale != ChartAxis::Scale::Linear);
+    out.insert(QStringLiteral("logY"), b.yAxis.scale != ChartAxis::Scale::Linear);
+    out.insert(QStringLiteral("yTicks"), yTicks(b.yAxis, points));
+    out.insert(QStringLiteral("markers"), markers);
     out.insert(QStringLiteral("xTicks"), ticks);
     out.insert(QStringLiteral("yUnit"), b.yUnit);
     out.insert(QStringLiteral("annotations"), notes);

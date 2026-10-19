@@ -200,6 +200,68 @@ private slots:
         QCOMPARE(ticks[1].toMap().value(QStringLiteral("x")).toDouble(), (4 + 1048576) / 2.0);
     }
 
+    // Phase 3 D13 and the RAM mockup: LineChartBlock::yAxis and markers.
+    // The default (Linear, no markers) gives the chart exactly what it got
+    // before (no y ticks: it lays out its own five lines; no markers); a log
+    // y axis passes its ticks and labels, or picks 1-2-5 / powers of two
+    // over the data; markers are the curve's points at the given x.
+    void lineChartYAxisAndMarkers()
+    {
+        TestResult r;
+        r.series = {{QStringLiteral("c"), QStringLiteral("C"), {}, {}, QStringLiteral("ns"),
+                     {{4, 0.8}, {24, 0.9}, {220, 2.6}, {5836.8, 9.8}, {1048576, 92}}}};
+        LineChartBlock chart;
+        chart.seriesKeys = {QStringLiteral("c")};
+        chart.xAxis.scale = ChartAxis::Scale::Log2;
+        QCOMPARE(chart.yAxis.scale, ChartAxis::Scale::Linear);
+        QVERIFY(chart.markers.isEmpty());
+        const auto build = [&](const LineChartBlock &b) {
+            DetailLayout layout;
+            layout.blocks.append({QStringLiteral("Latency"), b});
+            return buildDetailBlocks(layout, r, QStringLiteral("t-ram")).first().toMap();
+        };
+        const QVariantMap plain = build(chart);
+        QCOMPARE(plain.value(QStringLiteral("logY")).toBool(), false);
+        QVERIFY(plain.value(QStringLiteral("yTicks")).toList().isEmpty());
+        QVERIFY(plain.value(QStringLiteral("markers")).toList().isEmpty());
+        QCOMPARE(plain.value(QStringLiteral("logX")).toBool(), true);
+
+        // The mockup's axis: given ticks and labels.
+        LineChartBlock log = chart;
+        log.yAxis.scale = ChartAxis::Scale::Log10;
+        log.yAxis.tickValues = {0.5, 1, 2, 5, 10, 20, 50, 100, 200};
+        log.yAxis.tickLabels = {QStringLiteral("0.5"), QStringLiteral("1"), QStringLiteral("2"), QStringLiteral("5"),
+                                QStringLiteral("10"), QStringLiteral("20"), QStringLiteral("50"), QStringLiteral("100"),
+                                QStringLiteral("200")};
+        log.markers = {24, 220, 5836.8, 3000};  // 3000: no point there, skipped
+        const QVariantMap m = build(log);
+        QCOMPARE(m.value(QStringLiteral("logY")).toBool(), true);
+        const QVariantList yt = m.value(QStringLiteral("yTicks")).toList();
+        QCOMPARE(yt.size(), 9);
+        QCOMPARE(yt.first().toMap().value(QStringLiteral("y")).toDouble(), 0.5);
+        QCOMPARE(yt.last().toMap().value(QStringLiteral("label")).toString(), QStringLiteral("200"));
+        const QVariantList mk = m.value(QStringLiteral("markers")).toList();
+        QCOMPARE(mk.size(), 3);
+        QCOMPARE(mk[1].toMap().value(QStringLiteral("x")).toDouble(), 220.0);
+        QCOMPARE(mk[1].toMap().value(QStringLiteral("y")).toDouble(), 2.6);
+
+        // No ticks given: 1-2-5 from below the lowest point to above the highest.
+        log.yAxis.tickValues.clear();
+        log.yAxis.tickLabels.clear();
+        QStringList labels;
+        for (const QVariant &t : build(log).value(QStringLiteral("yTicks")).toList())
+            labels.append(t.toMap().value(QStringLiteral("label")).toString());
+        QCOMPARE(labels, (QStringList{QStringLiteral("0.5"), QStringLiteral("1"), QStringLiteral("2"), QStringLiteral("5"),
+                                      QStringLiteral("10"), QStringLiteral("20"), QStringLiteral("50"), QStringLiteral("100")}));
+        log.yAxis.scale = ChartAxis::Scale::Log2;
+        labels.clear();
+        for (const QVariant &t : build(log).value(QStringLiteral("yTicks")).toList())
+            labels.append(t.toMap().value(QStringLiteral("label")).toString());
+        QCOMPARE(labels, (QStringList{QStringLiteral("0.5"), QStringLiteral("1"), QStringLiteral("2"), QStringLiteral("4"),
+                                      QStringLiteral("8"), QStringLiteral("16"), QStringLiteral("32"), QStringLiteral("64"),
+                                      QStringLiteral("128")}));
+    }
+
     // --- the controller ---
 
     void summaryOfAStoredRun()
