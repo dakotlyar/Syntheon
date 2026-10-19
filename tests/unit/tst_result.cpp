@@ -203,6 +203,47 @@ private slots:
         QCOMPARE(weightedGeometricScore(result({{"a", 2}, {"b", 1}}), 1000, fp).total, std::optional<double>(std::round(1000 * std::pow(2, 0.8))));
     }
 
+    // Phase 3 P2 (§10.1): a lower-is-better metric scores n = A / r. At the
+    // anchors: exactly 1000; a latency at half its anchor: 1000 x 2^(W.v);
+    // mixed with a higher-is-better metric in one group; the default is
+    // higher-is-better.
+    void weightedGeometricLowerIsBetter()
+    {
+        const auto result = [](double latency, double bandwidth) {
+            TestResult r;
+            r.metrics.append({QStringLiteral("latency.dram"), {}, QString(), latency, QStringLiteral("ns"),
+                              Direction::LowerIsBetter, false});
+            r.metrics.append({QStringLiteral("bandwidth.read"), {}, QString(), bandwidth, QStringLiteral("GB/s"),
+                              Direction::HigherIsBetter, false});
+            return r;
+        };
+        QVERIFY(!GeometricMetric{}.lowerIsBetter);
+        GeometricMetric dram{QStringLiteral("latency.dram"), 90.0, 1.0};
+        dram.lowerIsBetter = true;
+        const QVector<GeometricGroup> groups = {{QStringLiteral("latency"), 0.5, {dram}},
+                                                {QStringLiteral("bandwidth"), 0.5, {{QStringLiteral("bandwidth.read"), 70.0, 1.0}}}};
+        QCOMPARE(weightedGeometricScore(result(90, 70), 1000, groups).total, std::optional<double>(1000));
+        // Half the latency is better: 1000 x 2^(W.v) = 2^0.5; the group alone 2x.
+        const GeometricScore half = weightedGeometricScore(result(45, 70), 1000, groups);
+        QCOMPARE(half.total, std::optional<double>(std::round(1000 * std::pow(2, 0.5))));
+        QCOMPARE(half.groups.value(QStringLiteral("latency")), 2000.0);
+        // Double the latency is worse by the same factor.
+        QCOMPARE(weightedGeometricScore(result(180, 70), 1000, groups).total,
+                 std::optional<double>(std::round(1000 * std::pow(2, -0.5))));
+        // Inside a group (D2's DRAM weight 0.75): 1000 x 2^0.75 for the group.
+        GeometricMetric lat{QStringLiteral("latency.dram"), 90.0, 0.75};
+        lat.lowerIsBetter = true;
+        const QVector<GeometricGroup> weighted = {{QStringLiteral("g"), 1.0, {lat, {QStringLiteral("bandwidth.read"), 70.0, 0.25}}}};
+        QCOMPARE(weightedGeometricScore(result(45, 70), 1000, weighted).total,
+                 std::optional<double>(std::round(1000 * std::pow(2, 0.75))));
+        // Half the latency and half the bandwidth cancel at equal weights.
+        lat.weight = 0.5;
+        const QVector<GeometricGroup> mixed = {{QStringLiteral("g"), 1.0, {lat, {QStringLiteral("bandwidth.read"), 70.0, 0.5}}}};
+        QCOMPARE(weightedGeometricScore(result(45, 35), 1000, mixed).total, std::optional<double>(1000));
+        // Not positive: no logarithm, no score (as for higher-is-better).
+        QVERIFY(!weightedGeometricScore(result(0, 70), 1000, groups).total);
+    }
+
     // A missing, text or non-positive metric: that group has no score and
     // the total is missing; the other groups keep theirs.
     void weightedGeometricScoreMissingGroup()

@@ -32,7 +32,8 @@ GeometricScore weightedGeometricScore(const TestResult &result, double constant,
                 present = false;
                 break;
             }
-            logGroup += k.weight * std::log(std::get<double>(m->value) / k.anchor);
+            const double r = std::get<double>(m->value);
+            logGroup += k.weight * std::log(k.lowerIsBetter ? k.anchor / r : r / k.anchor);
         }
         if (!present) {
             complete = false;

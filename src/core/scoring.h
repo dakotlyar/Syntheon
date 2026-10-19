@@ -24,7 +24,8 @@ std::optional<double> weightedScore(const TestResult &result, double constant,
                                     const QVector<ScoreWeight> &weights);
 
 // The weighted geometric mean (Phase 2 design §7.2): each metric is divided
-// by its anchor, n = r / A; a group's score is G = exp(sum v.ln n) with the
+// by its anchor, n = r / A (n = A / r for a lower-is-better metric such as a
+// latency, Phase 3 P2); a group's score is G = exp(sum v.ln n) with the
 // metrics' weights v summing to 1; the total is round(C x exp(sum W.ln G))
 // over the groups, their weights W summing to 1. Unit-free: an anchor only
 // rescales every result by the same factor.
@@ -32,6 +33,9 @@ struct GeometricMetric {
     QString metricKey;
     double anchor = 1.0;
     double weight = 0.0;  // within its group
+    // Phase 3 P2: smaller is better (latency in ns), so n = A / r. Off by
+    // default: every existing formula is unchanged.
+    bool lowerIsBetter = false;
 };
 struct GeometricGroup {
     QString id;      // a sub-test id
