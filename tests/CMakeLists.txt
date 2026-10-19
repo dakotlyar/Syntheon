@@ -358,6 +358,18 @@ set_tests_properties(cmake_scripts_set_policies_rejects_planted PROPERTIES
 # Every tracked path must be checkout-able on Windows.
 add_test(NAME windows_safe_paths
     COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckWindowsPaths.cmake")
+# ...and the length limit fails on a planted 201-character path (the Tiamat
+# capture's sysfs device tree broke the Windows checkout that way), but not
+# on one of exactly 200.
+string(REPEAT "a" 194 _sb_long)
+add_test(NAME windows_safe_paths_rejects_long
+    COMMAND "${CMAKE_COMMAND}" "-DFILES=ok/file;tests/${_sb_long}x"
+            -P "${PROJECT_SOURCE_DIR}/cmake/CheckWindowsPaths.cmake")
+set_tests_properties(windows_safe_paths_rejects_long PROPERTIES
+    PASS_REGULAR_EXPRESSION "201: tests/aaaa" FAIL_REGULAR_EXPRESSION "ok/file")
+add_test(NAME windows_safe_paths_accepts_200
+    COMMAND "${CMAKE_COMMAND}" "-DFILES=tests/${_sb_long}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckWindowsPaths.cmake")
+set_tests_properties(windows_safe_paths_accepts_200 PROPERTIES PASS_REGULAR_EXPRESSION "the longest is 200 characters")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_subdirectory(helper)
 endif()
