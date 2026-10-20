@@ -607,8 +607,8 @@ DetailLayout RamTest::detail(const TestResult &r) const
                                        Tone::Warn}});
     if (text(r, QStringLiteral("power.source")) == QLatin1StringView("Battery"))
         d.blocks.append({{}, NoteBlock{QStringLiteral("On battery"), Tone::Warn}});
-    if (const auto load = number(r, QStringLiteral("background.load")); load && *load >= 10)
-        d.blocks.append({{}, NoteBlock{QStringLiteral("Background load %1% before the run").arg(std::lround(*load)), Tone::Warn}});
+    // No background-load note: Dave, 2026-10-20 (the metric stays, for the
+    // repeatability script).
     return d;
 }
 

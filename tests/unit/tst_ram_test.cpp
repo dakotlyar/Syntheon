@@ -868,7 +868,7 @@ private slots:
     {
         QTest::addColumn<QString>("stage");
         QTest::addColumn<QString>("part");
-        QTest::newRow("latency") << QStringLiteral("Latency L2") << QStringLiteral("latency");
+        QTest::newRow("latency") << QStringLiteral("Latency DRAM") << QStringLiteral("latency");
         QTest::newRow("bandwidth") << QStringLiteral("Copy") << QStringLiteral("bandwidth");
         QTest::newRow("loaded") << QStringLiteral("Loaded latency") << QStringLiteral("loaded");
     }
@@ -892,6 +892,13 @@ private slots:
         if (part == QLatin1StringView("latency")) {
             QVERIFY(r.metric(QStringLiteral("latency.l1")));
             QVERIFY(!r.metric(QStringLiteral("latency.dram")));
+            // AP-5 M1: the targets measured before it are on the curve, in order.
+            const Series *curve = nullptr;
+            for (const Series &s : r.series)
+                curve = s.key == QLatin1StringView("latency_curve") ? &s : curve;
+            QVERIFY(curve);
+            for (qsizetype i = 1; i < curve->points.size(); ++i)
+                QVERIFY2(curve->points[i].x() > curve->points[i - 1].x(), qPrintable(QString::number(curve->points[i].x())));
         }
     }
 };

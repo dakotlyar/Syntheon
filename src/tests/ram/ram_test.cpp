@@ -60,8 +60,6 @@ constexpr WindowSpec kBandwidth{1000ms, 1500ms, kReps};
 constexpr WindowSpec kLoaded{1000ms, 1200ms, kReps};
 // §4.3: the single-thread core's idle sample, once per sub-test.
 constexpr std::chrono::milliseconds kCoreSample{250};
-// §4.5: a background load from this logs a warning (the CPU test's rule).
-constexpr double kBackgroundWarnPercent = 10;
 // D18: the free memory wanted on top of a buffer.
 constexpr std::uint64_t kFreeMargin = 512ull << 20;
 // §5.1: the first grid point has no previous point to size its units from;
@@ -109,8 +107,11 @@ QString coreName(const isa::CoreChoice &c)
 
 QString keyName(int key)
 {
-    // isa::cpuKey: windowsKey(group, index); the CPU number on Linux.
-    return key >= 64 ? QStringLiteral("%1:%2").arg(key / 64).arg(key % 64) : QString::number(key);
+    // isa::cpuKey: windowsKey(group, index) on Windows; the CPU number on
+    // Linux, whatever its size (AP-5 L3).
+    if (kWindows && key >= 64)
+        return QStringLiteral("%1:%2").arg(key / 64).arg(key % 64);
+    return QString::number(key);
 }
 
 // "0–7, 16–23": ascending keys as ranges.
@@ -120,7 +121,7 @@ QString cpuRanges(std::vector<int> keys)
     QStringList parts;
     for (std::size_t i = 0; i < keys.size();) {
         std::size_t j = i;
-        while (j + 1 < keys.size() && keys[j + 1] == keys[j] + 1 && keys[j + 1] / 64 == keys[i] / 64)
+        while (j + 1 < keys.size() && keys[j + 1] == keys[j] + 1 && (!kWindows || keys[j + 1] / 64 == keys[i] / 64))
             ++j;
         parts << (j > i ? keyName(keys[i]) + QStringLiteral("–") + keyName(keys[j]) : keyName(keys[i]));
         i = j + 1;
@@ -345,6 +346,7 @@ private:
     std::optional<QString> shortOfMemory(std::uint64_t bytes) const;
 
     CorePick pickCore();
+    static std::vector<int> smtKeysOf(const isa::CoreChoice &core);
     std::unique_ptr<WorkerPool> chasePool(const isa::CoreChoice &core) const;
     // Builds the cycle over the latency buffer's first `bytes` on `core` and
     // measures it (ns per hop). Nullopt if the group failed or the run stopped.
@@ -504,7 +506,7 @@ CorePick RamRun::pickCore()
         // between L2s), so the first allowed CPU.
         if (!m_allowed.empty()) {
             p.core = m_allowed.front();
-            p.smtKeys = {isa::cpuKey(p.core)};
+            p.smtKeys = smtKeysOf(p.core);
             p.text = QStringLiteral("CPU %1 (no core ranking; first allowed CPU)").arg(coreName(p.core));
         } else {
             p.text = QStringLiteral("unpinned (no core ranking)");
@@ -537,6 +539,16 @@ CorePick RamRun::pickCore()
     }
     p.text = QStringLiteral("CPU %1 (top-ranked core, quietest of CPUs %2)").arg(coreName(p.core), names.join(QStringLiteral(", ")));
     return p;
+}
+
+std::vector<int> RamRun::smtKeysOf(const isa::CoreChoice &core)
+{
+    // The CPUs that share the core's L1d are its SMT siblings (and itself);
+    // without a reported L1, just itself (AP-5 L2).
+    const isa::CacheTopology t = isa::cacheTopologyFor(core);
+    if (const isa::CacheLevel *l1 = t.level(1); l1 && !l1->sharedWith.empty())
+        return l1->sharedWith;
+    return {isa::cpuKey(core)};
 }
 
 std::unique_ptr<WorkerPool> RamRun::chasePool(const isa::CoreChoice &core) const
@@ -589,10 +601,6 @@ void RamRun::prepare()
     if (const auto load = cpu::sampleBackgroundLoadPercent(1000ms, cancelFn())) {
         m_r.metrics.append(number(QStringLiteral("background.load"), {}, QStringLiteral("Background load"), *load,
                                   QStringLiteral("%"), Direction::Neutral));
-        if (*load >= kBackgroundWarnPercent)
-            m_ctx.log(LogLevel::Warning, QStringLiteral("Background load %1% before the run: close other programs for repeatable "
-                                                        "numbers")
-                                             .arg(std::lround(*load)));
     }
     if (stopRequested())
         return;
@@ -848,13 +856,23 @@ bool RamRun::prepareBandwidth()
     {
         std::vector<std::thread> fill;
         fill.reserve(m_slices.size());
-        for (std::size_t i = 0; i < m_slices.size(); ++i) {
-            fill.emplace_back([&, i] {
-                if (i < m_allowed.size())
-                    cpu::pinCurrentThread(m_allowed[i]);
-                if (!m_slices[i]->fill(std::uint64_t(i) + 1, cancelFn()))
-                    stopped = true;
-            });
+        try {
+            for (std::size_t i = 0; i < m_slices.size(); ++i) {
+                fill.emplace_back([&, i] {
+                    if (i < m_allowed.size())
+                        cpu::pinCurrentThread(m_allowed[i]);
+                    if (!m_slices[i]->fill(std::uint64_t(i) + 1, cancelFn()))
+                        stopped = true;
+                });
+            }
+        } catch (const std::exception &e) {
+            // A thread that couldn't be created (AP-5 L7): the ones running
+            // finish their slice and are joined before the part fails.
+            for (std::thread &t : fill)
+                t.join();
+            m_bandwidthProblem = QStringLiteral("couldn't start the threads that fill the bandwidth buffers: %1")
+                                     .arg(QString::fromLocal8Bit(e.what()));
+            return false;
         }
         for (std::thread &t : fill)
             t.join();
@@ -1009,7 +1027,10 @@ void RamRun::loaded()
         specs.push_back({c, m_slices[i]->data(), m_slices[i]->bytes()});
     }
     if (specs.empty())
-        return give(Status::NotAvailable, QStringLiteral("needs at least two cores"));
+        return give(Status::NotAvailable, m_allowed.empty()
+                                              ? QStringLiteral("the load threads can't be placed: this system gives no list of the "
+                                                               "CPUs the test may use")
+                                              : QStringLiteral("needs at least two cores"));
     m_r.metrics.append(text(QStringLiteral("loaded.core"), kLoadedId, QStringLiteral("Loaded-latency core"), pick.text));
     m_r.metrics.append(number(QStringLiteral("loaded.threads"), kLoadedId, QStringLiteral("Load threads"), double(specs.size()),
                               QString(), Direction::Neutral));
@@ -1114,6 +1135,9 @@ void RamRun::finish(TestResult &r)
         // is never in it (no zero on the log axis).
         Series curve{QStringLiteral("latency_curve"), QStringLiteral("Latency by buffer size"), QStringLiteral("Buffer size"),
                      QStringLiteral("KiB"), QStringLiteral("ns"), {}};
+        // Sorted by size whichever way the latency part ended (AP-5 M1: a
+        // target that failed left the ones before it at the end).
+        std::sort(m_curve.begin(), m_curve.end(), [](const ram::CurvePoint &a, const ram::CurvePoint &b) { return a.bytes < b.bytes; });
         for (const ram::CurvePoint &p : m_curve)
             curve.points.append({double(p.bytes) / double(KiB), p.ns});
         r.series.prepend(curve);
