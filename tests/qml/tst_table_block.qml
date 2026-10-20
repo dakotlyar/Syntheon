@@ -56,4 +56,31 @@ TestCase {
         verify(t.widths[1] >= t.needs[1])
         verify(t.widths[0] > t.widths[1])
     }
+
+    // Zeb's Defect B, without an extra glyph (round 4, C1): a cell breaks
+    // only at its spaces and line breaks, and a long identifier also after a
+    // hyphen before a letter; never inside "GB/s", "SUB-SCORE", "128-bit",
+    // "F5-6000J3038F16G" or an underscore name.
+    function test_wrapKeepsUnitsWhole() {
+        const t = createTemporaryObject(tableComponent, test, { block: cpuBlock, width: 600 })
+        waitForRendering(t)
+        const words = s => t.tokens(s).map(x => x.text)
+        compare(words("67.1 GB/s"), ["67.1", "GB/s"])
+        compare(words("SUB-SCORE"), ["SUB-SCORE"])
+        compare(words("6,000 MT/s × 128-bit ÷ 8"), ["6,000", "MT/s", "×", "128-bit", "÷", "8"])
+        compare(words("F5-6000J3038F16G"), ["F5-6000J3038F16G"])
+        compare(words("Socket0_Controller0_ChannelA_DIMM1"), ["Socket0_Controller0_ChannelA_DIMM1"])
+        compare(words("Controller0-ChannelA-DIMM0"), ["Controller0-", "ChannelA-", "DIMM0"])
+        // Wrapping: whole tokens per line, hyphen pieces joined without a space.
+        const m = t.tokenMetrics
+        const narrow = t.wordWidth(m, "Controller0-", 0)
+        compare(t.wrapped("67.1 GB/s", t.wordWidth(m, "GB/s", 0), m, 0), "67.1\nGB/s")
+        compare(t.wrapped("Controller0-ChannelA-DIMM0", narrow, m, 0), "Controller0-\nChannelA-\nDIMM0")
+        compare(t.wrapped("Controller0-ChannelA-DIMM0 (BANK 0)", 10000, m, 0), "Controller0-ChannelA-DIMM0 (BANK 0)")
+        compare(t.wrapped("a\nb c", 10000, m, 0), "a\nb c")
+        // A token wider than the column on its own: null (wraps anywhere).
+        compare(t.wrapped("MTC10F1084S1RC48BA1", 20, m, 0), null)
+        // The sizing uses the same tokens (AP-5 L6): the widest is "GB/s".
+        compare(t.wordWidth(m, "1 GB/s", 0), Math.ceil(m.advanceWidth("GB/s")) + 2)
+    }
 }

@@ -31,6 +31,11 @@ Box {
     FontMetrics { id: headMetrics; font: headProbe.font }
     FontMetrics { id: bodyMetrics; font: bodyProbe.font }
     FontMetrics { id: dataMetrics; font: dataProbe.font }
+    readonly property alias tokenMetrics: dataMetrics  // for tests
+    SbText { id: bodyBoldProbe; visible: false; kind: "body"; font.pixelSize: 13; font.weight: Font.DemiBold }
+    SbText { id: dataBoldProbe; visible: false; kind: "data"; font.pixelSize: 13; font.weight: Font.DemiBold }
+    FontMetrics { id: bodyBoldMetrics; font: bodyBoldProbe.font }
+    FontMetrics { id: dataBoldMetrics; font: dataBoldProbe.font }
 
     function lineWidth(metrics, text, spacing) {
         let w = 0
@@ -38,31 +43,72 @@ Box {
             w = Math.max(w, metrics.advanceWidth(line) + spacing * line.length)
         return Math.ceil(w) + 2
     }
-    // The widest word of a header (what it needs when it may wrap).
-    // What a cell shows: a word joiner (U+2060) after a "/" before a letter
-    // and after a hyphen in a short token, so the wrap never splits a unit
-    // ("GB/|s", "MT/|s") or a short compound ("SUB-|SCORE", "128-|bit";
-    // Zeb's Defect B). Long identifiers keep their hyphens as break points
-    // ("Controller0-ChannelA-DIMM0", N1).
+    // Cells are wrapped here, not by Qt (Zeb C1, Defect B): Qt's line
+    // breaking also breaks after "/" and "-" ("GB/|s", "SUB-|SCORE"), and
+    // stopping it with an invisible joiner needed a glyph no bundled font
+    // has. A cell's tokens are its space-separated words; only a long token
+    // (an identifier like "Controller0-ChannelA-DIMM0") may also break after
+    // its hyphens (N1); underscores never (N2). Both the column sizing and
+    // the wrapping use these tokens (AP-5 L6).
     readonly property int longToken: 16
-    function shown(text) {
-        return String(text).split(" ").map(t => {
-            let out = t.replace(/\/(?=[A-Za-z])/g, "/\u2060")
-            if (t.length < longToken)
-                out = out.replace(/-(?=[A-Za-z0-9])/g, "-\u2060")
-            return out
-        }).join(" ")
+    function tokens(line) {
+        const out = []
+        for (const word of String(line).split(" ")) {
+            // Split after a hyphen before a letter ("Controller0-ChannelA"),
+            // not before a digit ("F5-6000J3038F16G" stays whole).
+            const pieces = []
+            let from = 0
+            if (word.length >= longToken) {
+                for (let i = 1; i < word.length - 1; ++i) {
+                    if (word[i] === "-" && /[A-Za-z]/.test(word[i + 1])) {
+                        pieces.push(word.slice(from, i))
+                        from = i + 1
+                    }
+                }
+            }
+            pieces.push(word.slice(from))
+            for (let i = 0; i < pieces.length; ++i) {
+                const last = i === pieces.length - 1
+                // "Controller0-" "ChannelA-" "DIMM0": hyphen pieces join with
+                // nothing, words with a space.
+                out.push({ text: last ? pieces[i] : pieces[i] + "-", glue: last ? " " : "" })
+            }
+        }
+        return out
     }
-    // Words as Text.Wrap breaks what shown() gives it: at spaces and line
-    // breaks, and after a hyphen before a letter in a long token. Underscores
-    // aren't break points for the wrap, so they stay inside a word
-    // ("Socket0_Controller0_ChannelA_DIMM1", N2).
+    function measure(metrics, text, spacing) {
+        return metrics.advanceWidth(text) + spacing * text.length
+    }
     function wordWidth(metrics, text, spacing) {
         let w = 0
-        const words = String(text).split(/[ \n]/).map(t => t.length >= longToken ? t.replace(/-(?=[A-Za-z])/g, "- ") : t).join(" ")
-        for (const word of words.split(/[ \n]/))
-            w = Math.max(w, metrics.advanceWidth(word) + spacing * word.length)
+        for (const line of String(text).split("\n"))
+            for (const t of tokens(line))
+                w = Math.max(w, measure(metrics, t.text, spacing))
         return Math.ceil(w) + 2
+    }
+    // A cell's text for `width`: its own line breaks kept, each line filled
+    // greedily with whole tokens. Null when a token is wider than the column
+    // on its own: the cell then wraps anywhere (Text.WrapAnywhere).
+    function wrapped(text, width, metrics, spacing) {
+        const lines = []
+        for (const line of String(text).split("\n")) {
+            let current = ""
+            let glue = ""
+            for (const t of tokens(line)) {
+                if (measure(metrics, t.text, spacing) > width + 1)
+                    return null
+                const candidate = current.length === 0 ? t.text : current + glue + t.text
+                if (current.length > 0 && measure(metrics, candidate, spacing) > width + 1) {
+                    lines.push(current)
+                    current = t.text
+                } else {
+                    current = candidate
+                }
+                glue = t.glue
+            }
+            lines.push(current)
+        }
+        return lines.join("\n")
     }
     // What each column needs when its headers wrap: their widest word, and
     // the widest cell line.
@@ -196,12 +242,15 @@ Box {
                         horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
                         // Capitals by hand: automatic capitalisation would turn
                         // "µs" into a Greek capital Mu and "GB/s" into "GB/S".
-                        text: root.shown(root.headerText(modelData))
+                        readonly property string fitted: root.wrapped(root.headerText(modelData), width, headMetrics,
+                                                                      headProbe.font.letterSpacing) ?? ""
+                        // Whole tokens per line (root.wrapped); a token wider
+                        // than the column wraps anywhere instead of running
+                        // into the next one.
+                        text: fitted.length > 0 ? fitted : root.headerText(modelData)
                         kind: "label"
                         font.capitalization: Font.MixedCase
-                        // At a word, else anywhere: a word wider than its
-                        // column wraps instead of running into the next one.
-                        wrapMode: Text.Wrap
+                        wrapMode: fitted.length > 0 ? Text.NoWrap : Text.WrapAnywhere
                     }
                 }
             }
@@ -232,13 +281,18 @@ Box {
                             required property int index
                             width: root.columnWidth(index)
                             horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
-                            text: root.shown(modelData)
+                            readonly property bool bold: root.boldRows.indexOf(tableRow.index) >= 0
+                            readonly property string fitted: root.wrapped(modelData, width,
+                                                                          index === 0 ? (bold ? bodyBoldMetrics : bodyMetrics)
+                                                                                      : (bold ? dataBoldMetrics : dataMetrics), 0) ?? ""
+                            // Whole tokens per line (root.wrapped); a token
+                            // wider than the column (a part number at 760 px,
+                            // Zeb D1) wraps anywhere.
+                            text: fitted.length > 0 ? fitted : modelData
                             kind: index === 0 ? "body" : "data"
                             font.pixelSize: 13
-                            font.weight: root.boldRows.indexOf(tableRow.index) >= 0 ? Font.DemiBold : Font.Normal
-                            // At a word, else anywhere (Zeb D1: a part number
-                            // ran into the next column at 760 px).
-                            wrapMode: Text.Wrap
+                            font.weight: bold ? Font.DemiBold : Font.Normal
+                            wrapMode: fitted.length > 0 ? Text.NoWrap : Text.WrapAnywhere
                         }
                     }
                 }
