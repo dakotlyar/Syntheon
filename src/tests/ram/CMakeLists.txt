@@ -13,6 +13,8 @@ add_library(synbench_test_ram STATIC
     # Loaded latency: the load generator and the five-level measurement (§5.4).
     loaded/load_generator.h loaded/load_generator.cpp
     loaded/loaded_latency.h loaded/loaded_latency.cpp
+    # The memory configuration readout from the run's snapshot (§7; pure).
+    config/readout.h config/readout.cpp
 )
 if(WIN32)
     target_sources(synbench_test_ram PRIVATE memory/huge_buffer_win.cpp)

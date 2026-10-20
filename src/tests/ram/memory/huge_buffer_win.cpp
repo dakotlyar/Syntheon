@@ -127,6 +127,25 @@ void *allocateLarge(std::size_t bytes, std::size_t largePage, std::string &reaso
 
 } // namespace
 
+PageSupport pageSupport()
+{
+    PageSupport s;
+    HANDLE token = nullptr;
+    bool present = false;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        present = lockMemoryPrivilege(token).present;
+        CloseHandle(token);
+    }
+    const SIZE_T large = GetLargePageMinimum();
+    if (present && large > 0) {
+        s.huge = true;
+        s.text = formatPageSize(large) + " large pages available";
+    } else {
+        s.text = "Large pages not available (SeLockMemoryPrivilege not held)";
+    }
+    return s;
+}
+
 HugeBuffer HugeBuffer::allocate(std::size_t bytes)
 {
     HugeBuffer b;

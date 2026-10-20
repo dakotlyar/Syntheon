@@ -110,6 +110,17 @@ private:
     std::vector<std::string> m_notes;
 };
 
+// What probe() and the option tab say before anything is allocated (§2):
+// whether huge / large pages can be had without changing a setting. Linux:
+// THP's "enabled" mode (not "never"); Windows: SeLockMemoryPrivilege in the
+// process token (D10). Whether a buffer really gets them is only known after
+// its first touch (HugeBuffer::settle).
+struct PageSupport {
+    bool huge = false;
+    std::string text;  // "2 MiB transparent huge pages available", "4 KiB pages (THP is off)", ...
+};
+PageSupport pageSupport();
+
 // --- Pure helpers (unit-tested) ---
 
 // smaps (§6.1 step 4): Rss and AnonHugePages (bytes) summed over the

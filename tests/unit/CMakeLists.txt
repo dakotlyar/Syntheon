@@ -31,10 +31,11 @@ synbench_add_unit_test(tst_ram_chase SOURCES tst_ram_chase.cpp LIBS synbench_tes
 synbench_add_unit_test(tst_ram_sweep SOURCES tst_ram_sweep.cpp LIBS synbench_test_ram)
 synbench_add_unit_test(tst_ram_bandwidth SOURCES tst_ram_bandwidth.cpp LIBS synbench_test_ram)
 synbench_add_unit_test(tst_ram_loaded SOURCES tst_ram_loaded.cpp LIBS synbench_test_ram)
-# These two keep threads busy on (up to) every CPU; alone, so a parallel
-# ctest -j doesn't starve the timing-sensitive engine tests' coordinator
+synbench_add_unit_test(tst_ram_test SOURCES tst_ram_test.cpp LIBS synbench_test_ram)
+# These keep threads busy on (up to) every CPU; alone, so a parallel ctest -j
+# doesn't starve the timing-sensitive engine tests' coordinator
 # (tst_cpu_engine's cancelAtWindowChangeover). CI runs ctest serially anyway.
-set_tests_properties(tst_ram_bandwidth tst_ram_loaded PROPERTIES RUN_SERIAL TRUE)
+set_tests_properties(tst_ram_bandwidth tst_ram_loaded tst_ram_test PROPERTIES RUN_SERIAL TRUE)
 synbench_add_unit_test(tst_cpu_telemetry SOURCES tst_cpu_telemetry.cpp LIBS synbench_test_cpu)
 synbench_add_unit_test(tst_cpu_test SOURCES tst_cpu_test.cpp LIBS synbench_test_cpu Qt6::Core)
 add_dependencies(tst_cpu_test synbench-cpucrypto)

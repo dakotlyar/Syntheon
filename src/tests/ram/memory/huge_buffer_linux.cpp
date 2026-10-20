@@ -42,6 +42,22 @@ std::size_t roundUp(std::size_t n, std::size_t to)
 
 } // namespace
 
+PageSupport pageSupport()
+{
+    PageSupport s;
+    const std::string mode = parseThpEnabled(readFile("/sys/kernel/mm/transparent_hugepage/enabled"));
+    const std::size_t huge = parseHugePageSize(readFile("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size"))
+                                 .value_or(kDefaultHugePage);
+    const std::string base = formatPageSize(std::size_t(std::max(4096L, sysconf(_SC_PAGESIZE))));
+    if (mode == "always" || mode == "madvise") {
+        s.huge = true;
+        s.text = formatPageSize(huge) + " transparent huge pages available";
+    } else {
+        s.text = base + (mode.empty() ? " pages (no transparent huge pages)" : " pages (THP is off)");
+    }
+    return s;
+}
+
 HugeBuffer HugeBuffer::allocate(std::size_t bytes)
 {
     HugeBuffer b;
