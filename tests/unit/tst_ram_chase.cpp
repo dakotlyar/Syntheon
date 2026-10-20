@@ -249,6 +249,14 @@ private slots:
         std::vector<CycleUnit> all(10, CycleUnit{run * f, run + 0.0005});
         QVERIFY(qAbs(*cycleCounterRate(all) - 0.8 * f) < 1e-6 * f);
         QVERIFY(qAbs(rate(all) - 10 * double(k) / (10 * (run + 0.0005))) < 1e-6 * truth);
+        // AP-5 round 2: carried from a cleaner earlier window, the rate of a
+        // window whose every unit was preempted is right again; the rate
+        // used is reported (and a lower carried rate changes nothing).
+        double used = 0;
+        QVERIFY(qAbs(*cycleTimedRate(all, k, f, &used) - truth) < 1e-9 * truth);
+        QCOMPARE(used, f);
+        QVERIFY(qAbs(*cycleTimedRate(clean, k, 0.5 * f, &used) - truth) < 1e-9 * truth);
+        QCOMPARE(used, f);
         // Nothing usable: no rate (the caller falls back).
         QVERIFY(!cycleCounterRate({}));
         QVERIFY(!cycleTimedRate({CycleUnit{0, run}, CycleUnit{run * f, 0}}, k));

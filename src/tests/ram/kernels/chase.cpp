@@ -90,11 +90,17 @@ std::optional<double> cycleCounterRate(const std::vector<CycleUnit> &units)
     return ratios[at];
 }
 
-std::optional<double> cycleTimedRate(const std::vector<CycleUnit> &units, std::uint64_t hopsPerUnit)
+std::optional<double> cycleTimedRate(const std::vector<CycleUnit> &units, std::uint64_t hopsPerUnit, double carriedRate,
+                                     double *rateUsed)
 {
-    const std::optional<double> rate = cycleCounterRate(units);
+    std::optional<double> rate = cycleCounterRate(units);
     if (!rate)
         return std::nullopt;
+    // The counter's rate is the machine's: a window whose units were all
+    // preempted reads low, a cleaner earlier window doesn't.
+    rate = std::max(*rate, carriedRate);
+    if (rateUsed)
+        *rateUsed = *rate;
     double cycles = 0;
     std::uint64_t used = 0;
     for (const CycleUnit &u : units) {
@@ -139,21 +145,19 @@ public:
         if (m_cpuStart && m_cpuEnd && *m_cpuEnd > *m_cpuStart && m_units > 0)
             return double(m_units) * double(m_hops) / (*m_cpuEnd - *m_cpuStart);
         if (m_cyclesOk && !m_cycleUnits.empty()) {
-            if (const auto rate = cycleTimedRate(m_cycleUnits, m_hops))
+            double used = 0;
+            if (const auto rate = cycleTimedRate(m_cycleUnits, m_hops, m_bestCycleRate, &used)) {
+                m_bestCycleRate = used;  // carried to the measurement's later windows
                 return rate;
+            }
         }
         return preemptionFreeRate(m_unitSeconds, m_hops);
     }
 
     std::uint64_t unit(std::uint64_t) override
     {
-        if (m_cpuStart) {
-            // Linux: the thread's CPU time; nothing else to time.
-            const void *end = chaseHops(cpu::opaqueValue(m_at), cpu::opaqueValue(m_hops));
-            m_cpuEnd = threadCpuSeconds();
-            ++m_units;
-            return finishUnit(end);
-        }
+        // The unit's wall time is kept on every path (two clock reads per
+        // ~2 ms unit): the fallback if the thread's own time fails.
 #if defined(_WIN32)
         ULONG64 c0 = 0, c1 = 0;
         const bool ok0 = QueryThreadCycleTime(GetCurrentThread(), &c0) != 0;
@@ -162,6 +166,14 @@ public:
         const void *end = chaseHops(cpu::opaqueValue(m_at), cpu::opaqueValue(m_hops));
         const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         m_unitSeconds.push_back(seconds);
+        if (m_cpuStart) {
+            // Linux: the thread's CPU time. A failed read ends that for the
+            // window (AP-5 L, round 2): the wall-time units take over.
+            m_cpuEnd = threadCpuSeconds();
+            if (!m_cpuEnd)
+                m_cpuStart.reset();
+            ++m_units;
+        }
 #if defined(_WIN32)
         const bool ok1 = QueryThreadCycleTime(GetCurrentThread(), &c1) != 0;
         if (ok0 && ok1 && c1 >= c0)
@@ -189,6 +201,7 @@ private:
     std::vector<double> m_unitSeconds;  // this window's units, in order (the fallback)
     std::vector<CycleUnit> m_cycleUnits;  // Windows: each unit's cycles and wall time
     bool m_cyclesOk = true;               // every QueryThreadCycleTime this window worked
+    mutable double m_bestCycleRate = 0;   // the highest calibrated counter rate of this measurement's windows
     std::optional<double> m_cpuStart, m_cpuEnd;  // the thread's CPU time at the window's start / last unit
     std::uint64_t m_units = 0;
 };

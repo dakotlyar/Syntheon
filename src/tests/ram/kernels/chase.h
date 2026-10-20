@@ -21,7 +21,8 @@
 //   Linux (POSIX)  hops over the thread's own CPU time
 //                  (CLOCK_THREAD_CPUTIME_ID) across the window's units:
 //                  whatever the scheduler's slice length, only the time
-//                  the chase ran counts.
+//                  the chase ran counts. If a read fails, that window
+//                  falls back to its units' wall times (preemptionFreeRate).
 //   Windows        GetThreadTimes counts in 15.6 ms ticks, so the thread's
 //                  own time comes from QueryThreadCycleTime instead: a
 //                  counter that only advances while the thread runs (and
@@ -35,10 +36,13 @@
 //                  one odd sample can't set it), and the window's time is
 //                  its cycles / that rate. Sub-unit preemptions (priority
 //                  boosts, DWM, audio, our own raised-priority coordinator
-//                  every 50 ms) are left out as on Linux. If every unit of
-//                  a window lost the core, the rate comes out low and the
-//                  window reads as its wall time: no better than before,
-//                  never worse. If QueryThreadCycleTime fails, the units
+//                  every 50 ms) are left out as on Linux. The rate is the
+//                  machine's, so each window uses the best rate of the
+//                  measurement so far (the warm-up window first): a window
+//                  whose every unit lost the core borrows it, and only a
+//                  measurement with no clean window at all reads as wall
+//                  time (never worse than before). If QueryThreadCycleTime
+//                  fails, the units
 //                  over 2x the median unit are dropped instead
 //                  (preemptionFreeRate; it misses sub-unit preemptions).
 //                  The calibration doesn't care what the counter counts,
@@ -103,9 +107,13 @@ struct CycleUnit {
 // floor(0.9 x (n - 1))-th smallest of the units' cycles / seconds, so one
 // fast outlier can't set it. Nullopt without a usable unit.
 std::optional<double> cycleCounterRate(const std::vector<CycleUnit> &units);
-// Hops per second over the window's cycles / cycleCounterRate(); nullopt
-// without a usable unit.
-std::optional<double> cycleTimedRate(const std::vector<CycleUnit> &units, std::uint64_t hopsPerUnit);
+// Hops per second over the window's cycles / the counter's rate: the
+// larger of this window's cycleCounterRate() and `carriedRate` (the best of
+// the measurement's earlier windows; the rate is the machine's, so a
+// window whose every unit was preempted borrows it). The rate used goes to
+// `rateUsed`. Nullopt without a usable unit.
+std::optional<double> cycleTimedRate(const std::vector<CycleUnit> &units, std::uint64_t hopsPerUnit, double carriedRate = 0,
+                                     double *rateUsed = nullptr);
 
 // A unit over this x the window's median unit time counts as preempted.
 inline constexpr double kPreemptedUnit = 2.0;
