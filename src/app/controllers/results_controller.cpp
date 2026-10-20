@@ -272,7 +272,7 @@ QString ResultsController::rawSummary(const TestResult &t) const
         const Metric *m = t.metric(key);
         if (!m)
             continue;
-        parts.append(QStringLiteral("%1 %2").arg(m->label, formatMetric(t, key)));
+        parts.append(QStringLiteral("%1 %2").arg(layout.headlineLabels.value(key, m->label), formatMetric(t, key)));
         if (parts.size() == 3)
             break;
     }

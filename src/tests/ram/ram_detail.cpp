@@ -234,6 +234,9 @@ DetailLayout RamTest::detail(const TestResult &r) const
 {
     DetailLayout d;
     d.headlineMetrics = {QStringLiteral("latency.dram"), QStringLiteral("bandwidth.read")};
+    // Short enough that the Results row shows the value (Zeb D2); the
+    // metric keeps its full label everywhere else.
+    d.headlineLabels.insert(QStringLiteral("bandwidth.read"), QStringLiteral("Read (all threads)"));
 
     const QString latencyCore = coreOf(text(r, QStringLiteral("latency.core")));
     const QString stCore = coreOf(text(r, QStringLiteral("bandwidth.st.core")));
@@ -368,7 +371,9 @@ DetailLayout RamTest::detail(const TestResult &r) const
                     best = p.x();
                 }
             }
-            if (dist < 0.1)
+            // The DRAM target is the curve's last point, drawn filled as
+            // every chart's last point is (the mockup): no open dot over it.
+            if (dist < 0.1 && best != curve->points.last().x())
                 chart.markers.append(best);
         }
         QStringList title;
@@ -388,11 +393,15 @@ DetailLayout RamTest::detail(const TestResult &r) const
             const QString key = QStringLiteral("latency.l%1").arg(k);
             const QString at = text(r, key + QStringLiteral(".at"));
             QString value = r.metric(key) ? nsOf(r, key, true) : kDash;
+            // Short, so the table fits its 2/5 of a 1100 px row (Zeb D4): a
+            // core without an L3 says "none" in Cache size (the note under the
+            // chart lists the caches); one too close to the L2 says so.
+            QString size = c != caches.end() ? c->size : kDash;
             if (c == caches.end() && k == 3 && !caches.empty())
-                value = fromCurve ? QStringLiteral("no L3 found on the curve") : QStringLiteral("no L3 on this core");
+                size = fromCurve ? QStringLiteral("none found") : QStringLiteral("none");
             else if (c != caches.end() && c->notMeasured)
-                value = QStringLiteral("too close to the L%1").arg(k - 1);
-            lat.rows.append({DetailCell::literal(QStringLiteral("L%1").arg(k)), DetailCell::literal(c != caches.end() ? c->size : kDash),
+                value = QStringLiteral("too close");
+            lat.rows.append({DetailCell::literal(QStringLiteral("L%1").arg(k)), DetailCell::literal(size),
                              DetailCell::literal(at.isEmpty() ? kDash : at), DetailCell::literal(value)});
         }
         const QString dramAt = text(r, QStringLiteral("latency.dram.at"));

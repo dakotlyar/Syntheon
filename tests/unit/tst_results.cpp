@@ -332,6 +332,25 @@ private slots:
         QVERIFY(!res.openRun(QUuid::createUuid().toString(QUuid::WithoutBraces)));
     }
 
+    // Zeb D2: a headline metric with a short Results-row label
+    // (DetailLayout::headlineLabels): the RAM test's all-thread read.
+    void headlineUsesTheShortLabel()
+    {
+        startRuntime();
+        TestResult ram;
+        ram.testId = QStringLiteral("ram");
+        ram.status = Status::Ok;
+        ram.metrics = {{QStringLiteral("latency.dram"), QStringLiteral("latency"), QStringLiteral("DRAM latency"), 75.8,
+                        QStringLiteral("ns"), Direction::LowerIsBetter, true},
+                       {QStringLiteral("bandwidth.read"), QStringLiteral("bandwidth"), QStringLiteral("Read bandwidth (all threads)"),
+                        67.0, QStringLiteral("GB/s"), Direction::HigherIsBetter, true}};
+        const RunRecord run = seed(RunStatus::Completed, QDateTime(QDate(2026, 10, 20), QTime(9, 0), QTimeZone::UTC), {ram});
+        ResultsController &res = m_rt->results();
+        QVERIFY(res.openRun(run.uuid.toString(QUuid::WithoutBraces)));
+        QCOMPARE(res.rows()[0].toMap().value(QStringLiteral("raw")).toString(),
+                 QStringLiteral("DRAM latency 75.8 ns · Read (all threads) 67.0 GB/s"));
+    }
+
     void stoppedRunIsMarkedPartial()
     {
         startRuntime();

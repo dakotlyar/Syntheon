@@ -31,8 +31,6 @@ QString formatNumber(double value, const QString &unit)
         return QStringLiteral("—");
 
     QLocale locale(QLocale::English, QLocale::UnitedStates);
-    if (unit == QLatin1StringView("MT/s"))
-        locale.setNumberOptions(QLocale::OmitGroupSeparator);
 
     // Clocks and temperatures are whole numbers ("4,612 MHz", "95 °C").
     if (unit == QLatin1StringView("MHz") || unit == QStringLiteral("°C")) {

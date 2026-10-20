@@ -25,7 +25,7 @@ private slots:
         QTest::newRow("ones") << 3.14 << "it/s" << "3.1 it/s";
         QTest::newRow("sub-one") << 0.18 << "s" << "0.18 s";
         QTest::newRow("tiny") << 0.001234 << "s" << "0.0012 s";
-        QTest::newRow("mt/s ungrouped") << 5600.0 << "MT/s" << "5600 MT/s";
+        QTest::newRow("mt/s grouped") << 5600.0 << "MT/s" << "5,600 MT/s";
         QTest::newRow("percent") << 98.0 << "%" << "98.0%";
         QTest::newRow("points no unit") << 1284.0 << "points" << "1,284";
         QTest::newRow("unitless") << 12.5 << "" << "12.5";

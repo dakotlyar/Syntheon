@@ -4,6 +4,7 @@
 #include "core/enums.h"
 #include "core/result.h"
 
+#include <QMap>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -138,6 +139,9 @@ struct DetailBlock {
 struct DetailLayout {
     QString subtitle;            // "Score 1,284 · AVX2 path · 16 threads"
     QStringList headlineMetrics; // ordered metric keys for the Results row
+    // A shorter label for a headline metric on the Results row (key ->
+    // label); a key not listed shows the metric's own label.
+    QMap<QString, QString> headlineLabels;
     QVector<DetailBlock> blocks;
     bool operator==(const DetailLayout &) const = default;
 };

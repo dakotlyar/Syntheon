@@ -139,7 +139,9 @@ Box {
                         text: root.headerText(modelData)
                         kind: "label"
                         font.capitalization: Font.MixedCase
-                        wrapMode: Text.WordWrap
+                        // At a word, else anywhere: a word wider than its
+                        // column wraps instead of running into the next one.
+                        wrapMode: Text.Wrap
                     }
                 }
             }
@@ -174,7 +176,9 @@ Box {
                             kind: index === 0 ? "body" : "data"
                             font.pixelSize: 13
                             font.weight: root.boldRows.indexOf(tableRow.index) >= 0 ? Font.DemiBold : Font.Normal
-                            wrapMode: Text.WordWrap
+                            // At a word, else anywhere (Zeb D1: a part number
+                            // ran into the next column at 760 px).
+                            wrapMode: Text.Wrap
                         }
                     }
                 }

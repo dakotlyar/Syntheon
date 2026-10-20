@@ -286,9 +286,12 @@ ScreenFrame {
                         Layout.fillWidth: true
                         Layout.preferredWidth: rcell.modelData.kind === "label" || rcell.modelData.text === qsTr("Metric") ? 2 : 1
                         implicitHeight: rcell.modelData.kind === "head" ? 44 : 46
-                        HoverHandler { id: rawHover; enabled: rcell.modelData.tip !== undefined }
-                        ToolTip.visible: rawHover.hovered && rcell.modelData.tip !== undefined
-                        ToolTip.text: rcell.modelData.tip || ""
+                        // A value too long for its column ends in "…" and shows
+                        // whole in a tooltip (Zeb D3: "CPU 9 (top-ranked c").
+                        readonly property bool valueCut: rcell.modelData.kind === "value" && rawValueText.truncated
+                        HoverHandler { id: rawHover; enabled: rcell.modelData.tip !== undefined || rcell.valueCut }
+                        ToolTip.visible: rawHover.hovered && (rcell.modelData.tip !== undefined || rcell.valueCut)
+                        ToolTip.text: rcell.modelData.tip || (rcell.valueCut ? rcell.modelData.cell.text : "")
                         clip: true
                         Rectangle { anchors.fill: parent; color: rcell.modelData.kind === "head" ? Theme.sunk : "transparent" }
                         Rectangle {
@@ -312,10 +315,13 @@ ScreenFrame {
                             spacing: 0
                             Item { Layout.fillHeight: true }
                             SbText {
+                                id: rawValueText
                                 objectName: "rawValue"
                                 Layout.alignment: Qt.AlignRight
+                                Layout.maximumWidth: Math.max(0, rcell.width - 28)
                                 text: rcell.modelData.kind === "value" ? rcell.modelData.cell.text : ""
                                 kind: "data"; font.pixelSize: 13
+                                elide: Text.ElideRight
                             }
                             RowLayout {
                                 Layout.alignment: Qt.AlignRight

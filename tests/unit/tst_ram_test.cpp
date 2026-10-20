@@ -585,6 +585,7 @@ private slots:
         const DetailLayout d = t.detail(mockupResult());
         QCOMPARE(d.subtitle, QStringLiteral("Score 1,186 · DDR5-6000 · 2 MiB pages · latency on CPU 4"));
         QCOMPARE(d.headlineMetrics, (QStringList{QStringLiteral("latency.dram"), QStringLiteral("bandwidth.read")}));
+        QCOMPARE(d.headlineLabels.value(QStringLiteral("bandwidth.read")), QStringLiteral("Read (all threads)"));  // Zeb D2
         // The mockup's blocks, in order (the renderer makes the rows).
         QCOMPARE(titles(d), (QStringList{QStringLiteral("[kpis]"), QStringLiteral("Sub-tests"),
                                          QStringLiteral("Latency by buffer size (CPU 4 · 2 MiB pages)"), QStringLiteral("Latency (CPU 4)"),
@@ -634,7 +635,7 @@ private slots:
         QCOMPARE(chart->annotations[0].label, QStringLiteral("L1 48 KiB"));
         QCOMPARE(chart->annotations[0].x, 48.0);
         QCOMPARE(chart->annotations[2].label, QStringLiteral("L3 32 MiB"));
-        QCOMPARE(chart->markers, (QVector<double>{24, 220, 5836.8, 1048576}));
+        QCOMPARE(chart->markers, (QVector<double>{24, 220, 5836.8}));  // DRAM is the filled last point
         const TableBlock *lat = tableTitled(d, QStringLiteral("Latency (CPU 4)"));
         QVERIFY(lat && !lat->fullWidth);
         QCOMPARE(cells(*lat, 0), (QStringList{QStringLiteral("L1"), QStringLiteral("48 KiB"), QStringLiteral("24 KiB"), QStringLiteral("0.8 ns")}));
@@ -732,9 +733,9 @@ private slots:
         const DetailLayout d = t.detail(r);
         QCOMPARE(d.subtitle, QStringLiteral("Score 1,186 · 4 KiB pages · latency on CPU 4"));
         const TableBlock *lat = tableTitled(d, QStringLiteral("Latency (CPU 4)"));
-        QCOMPARE(cells(*lat, 2), (QStringList{QStringLiteral("L3"), QStringLiteral("—"), QStringLiteral("—"), QStringLiteral("no L3 on this core")}));
+        QCOMPARE(cells(*lat, 2), (QStringList{QStringLiteral("L3"), QStringLiteral("none"), QStringLiteral("—"), QStringLiteral("—")}));
         QCOMPARE(cells(*tableTitled(d, QStringLiteral("Sub-tests")), 0).at(2), QStringLiteral("DRAM 74.2 ns · L2 2.6 · L1 0.8 ns"));
-        QCOMPARE(chartTitled(d, QStringLiteral("Latency by buffer size"))->markers.size(), 3);
+        QCOMPARE(chartTitled(d, QStringLiteral("Latency by buffer size"))->markers.size(), 2);
         QCOMPARE(tableTitled(d, QStringLiteral("Bandwidth (GB/s)"))->columns.size(), 4);  // no plain-store columns
         QVERIFY(!tableTitled(d, QStringLiteral("Memory configuration (SMBIOS)")));
         const QStringList n = notes(d);

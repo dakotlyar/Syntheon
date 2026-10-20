@@ -14,7 +14,8 @@ bool isCanonical(const QString &unit);
 //   |v| >= 100  -> no decimals, thousands separators   "7,012 MB/s"
 //   |v| >= 1    -> one decimal                          "41.9 GB/s", "3.1 it/s"
 //   |v| <  1    -> two significant figures              "0.18 s"
-// "MT/s" is never grouped ("5600 MT/s"); "%" has no space ("98%").
+// "MT/s" is grouped like the rest ("6,000 MT/s", the Phase 3 RAM page;
+// it was ungrouped until then); "%" has no space ("98%").
 // The format is fixed (en-US style), not locale-dependent, so runs read the
 // same everywhere.
 QString formatNumber(double value, const QString &unit = {});
