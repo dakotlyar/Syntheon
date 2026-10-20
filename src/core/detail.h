@@ -100,6 +100,10 @@ struct LineChartBlock {
     // scored targets): the series' point at each x; an x the series has no
     // point at is skipped. Empty by default.
     QVector<double> markers;
+    // Draw the points in x order instead of the order the series stores
+    // them (Phase 3, the RAM test's loaded latency: stored in load-level
+    // order, drawn by bandwidth). Off by default: every chart as before.
+    bool sortByX = false;
     bool operator==(const LineChartBlock &) const = default;
 };
 

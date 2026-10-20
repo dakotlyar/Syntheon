@@ -456,6 +456,9 @@ DetailLayout RamTest::detail(const TestResult &r) const
         const bool idle = loaded->points.size() == levels + 1;
         LineChartBlock chart;
         chart.seriesKeys = {loaded->key};
+        // Dave, 2026-10-20: drawn by bandwidth, so the line doesn't hook back
+        // at saturation; the series stays in level order for the table.
+        chart.sortByX = true;
         chart.xAxis = loadAxis(*loaded);
         chart.yUnit = QStringLiteral("ns");
         if (idle)

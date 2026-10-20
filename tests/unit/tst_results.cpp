@@ -274,6 +274,31 @@ private slots:
 
     // --- the controller ---
 
+    // Phase 3 (Dave, 2026-10-20): sortByX draws a series stored in another
+    // order (the RAM test's loaded latency, by load level) by x; off, the
+    // stored order is kept.
+    void lineChartSortByX()
+    {
+        TestResult r;
+        r.series = {{QStringLiteral("c"), QStringLiteral("C"), {}, {}, QStringLiteral("ns"),
+                     {{0, 76}, {15.1, 85}, {41.5, 105}, {66.2, 161}, {64.0, 182}, {64.1, 197}}}};
+        LineChartBlock chart;
+        chart.seriesKeys = {QStringLiteral("c")};
+        chart.annotations = {{0, QStringLiteral("Idle 76 ns")}, {64.1, QStringLiteral("Full load 197 ns")}};
+        const auto xs = [&](const LineChartBlock &b) {
+            DetailLayout layout;
+            layout.blocks.append({QStringLiteral("Loaded"), b});
+            const QVariantMap m = buildDetailBlocks(layout, r, QStringLiteral("t-ram")).first().toMap();
+            QList<double> out;
+            for (const QVariant &p : m.value(QStringLiteral("points")).toList())
+                out << p.toMap().value(QStringLiteral("x")).toDouble();
+            return out;
+        };
+        QCOMPARE(xs(chart), (QList<double>{0, 15.1, 41.5, 66.2, 64.0, 64.1}));
+        chart.sortByX = true;
+        QCOMPARE(xs(chart), (QList<double>{0, 15.1, 41.5, 64.0, 64.1, 66.2}));
+    }
+
     void summaryOfAStoredRun()
     {
         startRuntime();

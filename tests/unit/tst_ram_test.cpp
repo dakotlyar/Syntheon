@@ -650,6 +650,7 @@ private slots:
         QCOMPARE(points->boldRows, QVector<int>{5});
         const LineChartBlock *loadedChart = chartTitled(d, QStringLiteral("Loaded latency (latency"));
         QVERIFY(loadedChart);
+        QVERIFY(loadedChart->sortByX);  // drawn by bandwidth (Dave, 2026-10-20)
         QCOMPARE(loadedChart->xAxis.tickLabels, (QStringList{QStringLiteral("0 GB/s"), QStringLiteral("20 GB/s"), QStringLiteral("40 GB/s"),
                                                              QStringLiteral("60 GB/s"), QStringLiteral("80 GB/s")}));
         QCOMPARE(loadedChart->annotations.size(), 2);

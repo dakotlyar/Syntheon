@@ -181,6 +181,10 @@ QVariantMap lineChart(const LineChartBlock &b, const DetailBlock &block, const T
         if (!points.isEmpty())
             break;
     }
+    if (b.sortByX)
+        std::stable_sort(points.begin(), points.end(), [](const QVariant &a, const QVariant &c) {
+            return a.toMap().value(QStringLiteral("x")).toDouble() < c.toMap().value(QStringLiteral("x")).toDouble();
+        });
     QVariantList ticks;
     for (int i = 0; i < b.xAxis.tickLabels.size(); ++i) {
         double x;
