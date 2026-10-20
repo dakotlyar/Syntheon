@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/controllers/app_controller.h"
 
+#include "core/units.h"
+
 #include <QVariantMap>
 
 #include "sysinfo/collector.h"
@@ -312,7 +314,7 @@ QStringList AppController::memoryModules() const
         if (!m.formFactor.isEmpty())
             parts << m.formFactor;
         if (m.configuredSpeedMts > 0 || m.speedMts > 0)
-            parts << QStringLiteral("%1 MT/s").arg(m.configuredSpeedMts > 0 ? m.configuredSpeedMts : m.speedMts);
+            parts << Units::format(m.configuredSpeedMts > 0 ? m.configuredSpeedMts : m.speedMts, QStringLiteral("MT/s"));
         if (m.rank > 0)
             parts << QStringLiteral("%1R").arg(m.rank);
         if (m.dataWidth > 0)
@@ -373,7 +375,7 @@ QVariantList AppController::systemRows() const
         if (!m.type.isEmpty())
             d << (m.formFactor.isEmpty() ? m.type : m.type + QLatin1Char(' ') + m.formFactor);
         if (m.configuredSpeedMts > 0 || m.speedMts > 0)
-            d << QStringLiteral("%1 MT/s").arg(m.configuredSpeedMts > 0 ? m.configuredSpeedMts : m.speedMts);
+            d << Units::format(m.configuredSpeedMts > 0 ? m.configuredSpeedMts : m.speedMts, QStringLiteral("MT/s"));
         d << (i.memory.modules.size() == 1 ? tr("1 module") : tr("%1 modules").arg(i.memory.modules.size()));
         // Phase 3 P16, as the first module reports them.
         if (m.rank > 0)

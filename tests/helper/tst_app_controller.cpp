@@ -77,7 +77,7 @@ private slots:
         // The modules may first be udev's copy (the collector's baseline,
         // Phase 3 D11): wait for the helper's tables to replace them.
         QTRY_COMPARE_WITH_TIMEOUT(c.memoryModules().value(0),
-                                  QStringLiteral("DIMM 0: 32 GB LPDDR5 8000 MT/s Samsung K3KL3L30EM-BGCV"), 10000);
+                                  QStringLiteral("DIMM 0: 32 GB LPDDR5 8,000 MT/s Samsung K3KL3L30EM-BGCV"), 10000);
         QCOMPARE(c.memoryModules().size(), 2);
         QVERIFY(!c.systemSummary().isEmpty());
         QVERIFY(c.privileged().isAvailable());
@@ -107,7 +107,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(c.memoryModulesKnown(), 20000);
         // ...and the helper's tables replace udev's once it is up.
         QTRY_COMPARE_WITH_TIMEOUT(c.memoryModules().value(0),
-                                  QStringLiteral("DIMM 0: 32 GB LPDDR5 8000 MT/s Samsung K3KL3L30EM-BGCV"), 20000);
+                                  QStringLiteral("DIMM 0: 32 GB LPDDR5 8,000 MT/s Samsung K3KL3L30EM-BGCV"), 20000);
 
         c.quit();  // Quit
         QCOMPARE(quit.count(), 1);

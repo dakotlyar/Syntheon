@@ -104,7 +104,8 @@ Box {
             return w
         }
         const rest = total - need[0]
-        const first = Math.min(need[0], available * 0.3)
+        // ...down to 30%, but never below its widest word (AP-5 L6).
+        const first = Math.max(wordNeeds[0], Math.min(need[0], available * 0.3))
         if (first + rest <= available)
             return [available - rest].concat(need.slice(1))
         // Every column gets its widest word, and the room left is shared in
