@@ -14,7 +14,8 @@
 //               Loaded latency (W 0.15): loaded.latency 1.0
 //   RAM score   round(1000 x exp(sum W.ln G)), sub-scores round(1000 x G);
 //               a total only for an Ok result (a Partial keeps the
-//               sub-scores of its complete groups)
+//               sub-scores of its complete groups); a group whose part
+//               isn't Ok has no sub-score, whatever metrics it has
 //
 // Whether the L3 counts is read from the stored cache.levels (scoresL3), so
 // score() stays a pure function of the result.

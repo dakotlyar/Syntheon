@@ -499,6 +499,18 @@ private slots:
         QVERIFY(!b.total);
         QVERIFY(!b.subScores.contains(QStringLiteral("latency")));
         QCOMPARE(b.subScores.value(QStringLiteral("bandwidth")), 1000.0);
+        // AP-5 M2: a part that ended in an Error (a plain-store check failing
+        // after the scored bandwidth measurements) has no sub-score, even with
+        // all its scored metrics there.
+        r = atAnchors(true);
+        r.status = Status::Partial;
+        r.subResults = {{QStringLiteral("latency"), Status::Ok, {}, {}},
+                        {QStringLiteral("bandwidth"), Status::Error, QStringLiteral("Copy bandwidth, plain stores (all threads): ..."), {}},
+                        {QStringLiteral("loaded"), Status::Ok, {}, {}}};
+        b = t.score(r);
+        QVERIFY(!b.total);
+        QVERIFY(!b.subScores.contains(QStringLiteral("bandwidth")));
+        QCOMPARE(b.subScores.size(), 2);
         // Partial: the sub-scores, no total.
         r = atAnchors(true);
         r.status = Status::Partial;

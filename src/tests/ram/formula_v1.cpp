@@ -79,8 +79,16 @@ ScoreBreakdown score(const TestResult &result)
     const GeometricScore s = weightedGeometricScore(result, kScale, groups(scoresL3(result)));
     ScoreBreakdown b;
     b.subScores = s.groups;
-    // Only an Ok result gets a total (§10.2); a Partial keeps the sub-scores.
-    if (result.status == Status::Ok)
+    // A group whose part ended in an Error (or N/A, Stop) gets no sub-score
+    // even if its scored metrics are all there (AP-5 M2: a plain-store
+    // check failing after the scored bandwidth measurements).
+    for (const SubResult &sub : result.subResults) {
+        if (sub.status != Status::Ok && b.subScores.remove(sub.id) > 0)
+            b.total.reset();
+    }
+    // Only an Ok result gets a total (§10.2); a Partial keeps the sub-scores
+    // of its complete parts.
+    if (result.status == Status::Ok && b.subScores.size() == s.groups.size())
         b.total = s.total;
     return b;
 }
