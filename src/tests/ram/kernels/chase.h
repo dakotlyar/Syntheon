@@ -21,11 +21,30 @@
 //   Linux (POSIX)  hops over the thread's own CPU time
 //                  (CLOCK_THREAD_CPUTIME_ID) across the window's units:
 //                  whatever the scheduler's slice length, only the time
-//                  the chase ran counts
-//   Windows        (thread CPU time there is 15.6 ms ticks) hops over the
-//                  time of the units that took at most 2x the window's
-//                  median unit: a quantum lost is tens of ms, far over 2x
-//                  a 2 ms unit, so a preempted unit is dropped
+//                  the chase ran counts.
+//   Windows        GetThreadTimes counts in 15.6 ms ticks, so the thread's
+//                  own time comes from QueryThreadCycleTime instead: a
+//                  counter that only advances while the thread runs (and
+//                  leaves out interrupt and DPC time). Microsoft says not
+//                  to turn its count into seconds with a fixed frequency,
+//                  so each window calibrates it (cycleTimedRate): every unit
+//                  records its cycles and its wall time; a unit that kept
+//                  its core runs the counter at its full rate, a preempted
+//                  one below it, so the counter's rate is a high
+//                  percentile of the units' cycles / second (not the max:
+//                  one odd sample can't set it), and the window's time is
+//                  its cycles / that rate. Sub-unit preemptions (priority
+//                  boosts, DWM, audio, our own raised-priority coordinator
+//                  every 50 ms) are left out as on Linux. If every unit of
+//                  a window lost the core, the rate comes out low and the
+//                  window reads as its wall time: no better than before,
+//                  never worse. If QueryThreadCycleTime fails, the units
+//                  over 2x the median unit are dropped instead
+//                  (preemptionFreeRate; it misses sub-unit preemptions).
+//                  The calibration doesn't care what the counter counts,
+//                  only that it runs at a steady rate while the thread
+//                  runs; on Windows ARM64 that is not documented, and this
+//                  is to be checked on Dragonfire (validation).
 // Both stay a mean over the units (not a median: under load the units'
 // times are skewed by queueing, and loaded latency is an average, as
 // MLC's is). Hops per unit are constant.
@@ -71,8 +90,22 @@ std::uint64_t hopsPerUnit(double estimateNs);
 bool chaseInRange(const void *p, const std::byte *base, std::size_t bytes, std::size_t lineSize);
 
 // The calling thread's CPU time in seconds (CLOCK_THREAD_CPUTIME_ID);
-// nullopt on Windows (the window then uses preemptionFreeRate).
+// nullopt on Windows (see cycleTimedRate).
 std::optional<double> threadCpuSeconds();
+
+// One unit on the Windows path: the thread's cycle count across it
+// (QueryThreadCycleTime) and its wall time.
+struct CycleUnit {
+    double cycles = 0;
+    double seconds = 0;
+};
+// The cycle counter's rate (cycles per second of running) in a window: the
+// floor(0.9 x (n - 1))-th smallest of the units' cycles / seconds, so one
+// fast outlier can't set it. Nullopt without a usable unit.
+std::optional<double> cycleCounterRate(const std::vector<CycleUnit> &units);
+// Hops per second over the window's cycles / cycleCounterRate(); nullopt
+// without a usable unit.
+std::optional<double> cycleTimedRate(const std::vector<CycleUnit> &units, std::uint64_t hopsPerUnit);
 
 // A unit over this x the window's median unit time counts as preempted.
 inline constexpr double kPreemptedUnit = 2.0;

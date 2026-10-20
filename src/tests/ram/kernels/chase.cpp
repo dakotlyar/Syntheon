@@ -9,7 +9,15 @@
 #include <stdexcept>
 #include <vector>
 
-#if !defined(_WIN32)
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
 #include <time.h>
 #endif
 
@@ -67,6 +75,38 @@ std::optional<double> threadCpuSeconds()
 #endif
 }
 
+std::optional<double> cycleCounterRate(const std::vector<CycleUnit> &units)
+{
+    std::vector<double> ratios;
+    ratios.reserve(units.size());
+    for (const CycleUnit &u : units) {
+        if (u.seconds > 0 && u.cycles > 0)
+            ratios.push_back(u.cycles / u.seconds);
+    }
+    if (ratios.empty())
+        return std::nullopt;
+    const auto at = std::size_t(0.9 * double(ratios.size() - 1));
+    std::nth_element(ratios.begin(), ratios.begin() + std::ptrdiff_t(at), ratios.end());
+    return ratios[at];
+}
+
+std::optional<double> cycleTimedRate(const std::vector<CycleUnit> &units, std::uint64_t hopsPerUnit)
+{
+    const std::optional<double> rate = cycleCounterRate(units);
+    if (!rate)
+        return std::nullopt;
+    double cycles = 0;
+    std::uint64_t used = 0;
+    for (const CycleUnit &u : units) {
+        if (u.seconds > 0 && u.cycles > 0) {
+            cycles += u.cycles;
+            ++used;
+        }
+    }
+    const double seconds = cycles / *rate;
+    return seconds > 0 ? std::optional<double>(double(used) * double(hopsPerUnit) / seconds) : std::nullopt;
+}
+
 double latencyNs(double hopsPerSecond)
 {
     return hopsPerSecond > 0 ? 1e9 / hopsPerSecond : 0.0;
@@ -85,42 +125,70 @@ public:
     void beginWindow() override
     {
         m_unitSeconds.clear();
+        m_cycleUnits.clear();
+        m_cyclesOk = true;
         m_units = 0;
         m_cpuStart = threadCpuSeconds();
         m_cpuEnd = m_cpuStart;
     }
 
-    // See the header: the thread's own CPU time where the OS keeps it,
-    // else the window's units without the preempted ones.
+    // See the header: the thread's own time (Linux: its CPU time; Windows:
+    // its calibrated cycle count), else the units without the preempted ones.
     std::optional<double> windowRate() const override
     {
         if (m_cpuStart && m_cpuEnd && *m_cpuEnd > *m_cpuStart && m_units > 0)
             return double(m_units) * double(m_hops) / (*m_cpuEnd - *m_cpuStart);
+        if (m_cyclesOk && !m_cycleUnits.empty()) {
+            if (const auto rate = cycleTimedRate(m_cycleUnits, m_hops))
+                return rate;
+        }
         return preemptionFreeRate(m_unitSeconds, m_hops);
     }
 
     std::uint64_t unit(std::uint64_t) override
     {
-        const auto start = std::chrono::steady_clock::now();
-        const void *end = chaseHops(cpu::opaqueValue(m_at), cpu::opaqueValue(m_hops));
-        m_unitSeconds.push_back(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
         if (m_cpuStart) {
+            // Linux: the thread's CPU time; nothing else to time.
+            const void *end = chaseHops(cpu::opaqueValue(m_at), cpu::opaqueValue(m_hops));
             m_cpuEnd = threadCpuSeconds();
             ++m_units;
+            return finishUnit(end);
         }
+#if defined(_WIN32)
+        ULONG64 c0 = 0, c1 = 0;
+        const bool ok0 = QueryThreadCycleTime(GetCurrentThread(), &c0) != 0;
+#endif
+        const auto start = std::chrono::steady_clock::now();
+        const void *end = chaseHops(cpu::opaqueValue(m_at), cpu::opaqueValue(m_hops));
+        const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        m_unitSeconds.push_back(seconds);
+#if defined(_WIN32)
+        const bool ok1 = QueryThreadCycleTime(GetCurrentThread(), &c1) != 0;
+        if (ok0 && ok1 && c1 >= c0)
+            m_cycleUnits.push_back({double(c1 - c0), seconds});
+        else
+            m_cyclesOk = false;
+#endif
+        return finishUnit(end);
+    }
+
+private:
+    std::uint64_t finishUnit(const void *end)
+    {
         if (!chaseInRange(end, m_base, m_bytes, m_lineSize))
             throw std::runtime_error("the pointer chase left its buffer: possible memory corruption or miscompile");
         m_at = end;
         return std::uint64_t(static_cast<const std::byte *>(end) - m_base);
     }
 
-private:
     const std::byte *m_base;
     std::size_t m_bytes;
     std::size_t m_lineSize;
     std::uint64_t m_hops;
     const void *m_at;
-    std::vector<double> m_unitSeconds;  // this window's units, in order
+    std::vector<double> m_unitSeconds;  // this window's units, in order (the fallback)
+    std::vector<CycleUnit> m_cycleUnits;  // Windows: each unit's cycles and wall time
+    bool m_cyclesOk = true;               // every QueryThreadCycleTime this window worked
     std::optional<double> m_cpuStart, m_cpuEnd;  // the thread's CPU time at the window's start / last unit
     std::uint64_t m_units = 0;
 };

@@ -219,6 +219,41 @@ private slots:
         QVERIFY(!preemptionFreeRate({0.0}, 1000));
     }
 
+    // The Windows timer's calibration (QueryThreadCycleTime), on synthetic
+    // units, so every OS checks the maths: f = 3 GHz, 10 units of 2 ms of
+    // running each.
+    void cycleCalibration()
+    {
+        const double f = 3e9, run = 0.002;
+        const std::uint64_t k = 1000;
+        const double truth = 10 * double(k) / (10 * run);
+        const auto rate = [&](const std::vector<CycleUnit> &u) { return *cycleTimedRate(u, k); };
+        std::vector<CycleUnit> clean(10, CycleUnit{run * f, run});
+        QCOMPARE(*cycleCounterRate(clean), f);
+        QVERIFY(qAbs(rate(clean) - truth) < 1e-9 * truth);
+        // Three preempted units (1.3 ms lost each): their cycles are their
+        // running time, so the rate is unmoved; their wall time isn't used.
+        std::vector<CycleUnit> preempted = clean;
+        for (int i : {1, 4, 7})
+            preempted[std::size_t(i)].seconds = run + 0.0013;
+        QCOMPARE(*cycleCounterRate(preempted), f);
+        QVERIFY(qAbs(rate(preempted) - truth) < 1e-9 * truth);
+        // One fast outlier (a sample reading 1.5 x the counter's rate)
+        // doesn't set the rate: the 90th percentile of 10 is the 9th.
+        std::vector<CycleUnit> outlier = clean;
+        outlier[3].seconds = run / 1.5;
+        QCOMPARE(*cycleCounterRate(outlier), f);
+        // Every unit preempted (each lost 0.5 ms): the rate comes out low
+        // (0.8 f) and the window reads as its wall time, never better.
+        std::vector<CycleUnit> all(10, CycleUnit{run * f, run + 0.0005});
+        QVERIFY(qAbs(*cycleCounterRate(all) - 0.8 * f) < 1e-6 * f);
+        QVERIFY(qAbs(rate(all) - 10 * double(k) / (10 * (run + 0.0005))) < 1e-6 * truth);
+        // Nothing usable: no rate (the caller falls back).
+        QVERIFY(!cycleCounterRate({}));
+        QVERIFY(!cycleTimedRate({CycleUnit{0, run}, CycleUnit{run * f, 0}}, k));
+        QCOMPARE(*cycleCounterRate({CycleUnit{run * f, run}}), f);  // one unit: itself
+    }
+
     // Tiamat, checkpoint 3 (Zeb): a background thread sharing the chase core
     // made 4-12 KiB read 30% slow. Pinned to the same CPU, a competitor busy
     // a third of the time must not move the latency (preempted units left
