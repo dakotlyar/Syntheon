@@ -257,12 +257,31 @@ private slots:
         QCOMPARE(used, f);
         QVERIFY(qAbs(*cycleTimedRate(clean, k, 0.5 * f, &used) - truth) < 1e-9 * truth);
         QCOMPARE(used, f);
-        // AP-5 round 3: a clean window whose counter runs 5% slower (a
-        // counter that follows a downclocked core) keeps its own rate, not
-        // the carried one: its units are 2 ms of running at 0.95 f.
+        // AP-5 round 4 M3 (Dave): the borrow threshold per architecture; both
+        // paths are pure, so both are tested on every OS.
+        // x86-64, an invariant-TSC count: a window whose every unit lost 5%
+        // of its time to preemption (0.95 f) borrows the carried rate and
+        // reads true; 0.995 f is noise and keeps its own.
+        std::vector<CycleUnit> mild(10, CycleUnit{run * f, run / 0.95});
+        QVERIFY(qAbs(*cycleTimedRate(mild, k, f, &used, kBorrowBelowInvariant) - truth) < 1e-9 * truth);
+        QCOMPARE(used, f);
+        std::vector<CycleUnit> noisy(10, CycleUnit{run * f, run / 0.995});
+        cycleTimedRate(noisy, k, f, &used, kBorrowBelowInvariant);
+        QVERIFY(qAbs(used - 0.995 * f) < 1e-6 * f);
+        // ARM64, a counter that may follow the core's clock: a clean window
+        // whose counter runs 5% slower (a downclock, units of 2 ms at
+        // 0.95 f) keeps its own rate and reads true; only a window under
+        // 90% (all preempted, 0.8 f) borrows.
         std::vector<CycleUnit> slower(10, CycleUnit{run * 0.95 * f, run});
-        QVERIFY(qAbs(*cycleTimedRate(slower, k, f, &used) - truth) < 1e-9 * truth);
+        QVERIFY(qAbs(*cycleTimedRate(slower, k, f, &used, kBorrowBelowCoreClock) - truth) < 1e-9 * truth);
         QCOMPARE(used, 0.95 * f);
+        QVERIFY(qAbs(*cycleTimedRate(all, k, f, &used, kBorrowBelowCoreClock) - truth) < 1e-9 * truth);
+        QCOMPARE(used, f);
+#if defined(__aarch64__) || defined(_M_ARM64)
+        QCOMPARE(kBorrowBelow, kBorrowBelowCoreClock);
+#else
+        QCOMPARE(kBorrowBelow, kBorrowBelowInvariant);
+#endif
         // Nothing usable: no rate (the caller falls back).
         QVERIFY(!cycleCounterRate({}));
         QVERIFY(!cycleTimedRate({CycleUnit{0, run}, CycleUnit{run * f, 0}}, k));

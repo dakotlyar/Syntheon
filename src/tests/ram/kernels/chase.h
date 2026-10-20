@@ -37,12 +37,12 @@
 //                  its cycles / that rate. Sub-unit preemptions (priority
 //                  boosts, DWM, audio, our own raised-priority coordinator
 //                  every 50 ms) are left out as on Linux. A window whose
-//                  every unit lost the core calibrates low: when its rate
-//                  is under 90% of the best of the measurement's earlier
-//                  windows (the warm-up first), it borrows that one. A
-//                  window within 10% keeps its own, so a counter that
-//                  follows a downclocked core isn't read as a fast one.
-//                  Only a measurement with no clean window at all reads as
+//                  every unit lost the core calibrates low, and borrows
+//                  the best rate of the measurement's earlier windows (the
+//                  warm-up first): on x86-64 (an invariant-TSC count)
+//                  whenever its own is under 99% of that; on ARM64, whose
+//                  counter may follow a downclocked core, only under 90%
+//                  (kBorrowBelow). Only a measurement with no clean window at all reads as
 //                  wall time (never worse than before). If QueryThreadCycleTime
 //                  fails, the units
 //                  over 2x the median unit are dropped instead
@@ -109,16 +109,28 @@ struct CycleUnit {
 // floor(0.9 x (n - 1))-th smallest of the units' cycles / seconds, so one
 // fast outlier can't set it. Nullopt without a usable unit.
 std::optional<double> cycleCounterRate(const std::vector<CycleUnit> &units);
-// A window's own counter rate under this x the carried one is taken as
-// preempted throughout, and borrows the carried rate.
-inline constexpr double kBorrowBelow = 0.9;
+// A window's own counter rate under borrowBelow x the carried one is taken
+// as preempted throughout, and borrows the carried rate (Dave's call,
+// AP-5 round 4 M3):
+//   - x86-64: QueryThreadCycleTime counts invariant-TSC ticks, so its rate
+//     never really drops; any shortfall is preemption. Borrow below 99%
+//     (1% for noise).
+//   - ARM64: the counter may follow the core's clock (not documented), so
+//     a window a little slower may be a downclock, not preemption. Borrow
+//     only below 90%.
+inline constexpr double kBorrowBelowInvariant = 0.99;
+inline constexpr double kBorrowBelowCoreClock = 0.9;
+#if defined(__aarch64__) || defined(_M_ARM64)
+inline constexpr double kBorrowBelow = kBorrowBelowCoreClock;
+#else
+inline constexpr double kBorrowBelow = kBorrowBelowInvariant;
+#endif
 // Hops per second over the window's cycles / the counter's rate: this
 // window's cycleCounterRate(), or `carriedRate` (the best of the
-// measurement's earlier windows) when its own is under kBorrowBelow x that
-// (a window whose every unit was preempted). The rate used goes to
-// `rateUsed`. Nullopt without a usable unit.
+// measurement's earlier windows) when its own is under `borrowBelow` x
+// that. The rate used goes to `rateUsed`. Nullopt without a usable unit.
 std::optional<double> cycleTimedRate(const std::vector<CycleUnit> &units, std::uint64_t hopsPerUnit, double carriedRate = 0,
-                                     double *rateUsed = nullptr);
+                                     double *rateUsed = nullptr, double borrowBelow = kBorrowBelow);
 
 // A unit over this x the window's median unit time counts as preempted.
 inline constexpr double kPreemptedUnit = 2.0;

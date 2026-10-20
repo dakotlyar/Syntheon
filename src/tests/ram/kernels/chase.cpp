@@ -91,17 +91,15 @@ std::optional<double> cycleCounterRate(const std::vector<CycleUnit> &units)
 }
 
 std::optional<double> cycleTimedRate(const std::vector<CycleUnit> &units, std::uint64_t hopsPerUnit, double carriedRate,
-                                     double *rateUsed)
+                                     double *rateUsed, double borrowBelow)
 {
     std::optional<double> rate = cycleCounterRate(units);
     if (!rate)
         return std::nullopt;
-    // A window whose units were all preempted reads its counter rate low;
-    // then (only then: under 90% of an earlier window's) the earlier rate
-    // is borrowed. A window a little under it is its own: a counter that
-    // follows the core's clock (ARM64?) really runs slower after a
-    // downclock (AP-5 round 3).
-    if (carriedRate > 0 && *rate < kBorrowBelow * carriedRate)
+    // A window whose units were all preempted reads its counter rate low:
+    // it borrows the earlier rate (the threshold per architecture, see
+    // kBorrowBelow in the header).
+    if (carriedRate > 0 && *rate < borrowBelow * carriedRate)
         rate = carriedRate;
     if (rateUsed)
         *rateUsed = *rate;
