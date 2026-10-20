@@ -345,6 +345,13 @@ private:
     void forcedFailure(Measurement &m, const QString &stage) const;
     std::optional<QString> shortOfMemory(std::uint64_t bytes) const;
 
+    // RunContext::setPart, remembered for the SYNBENCH_RAM_FAIL hook.
+    void setPart(const QString &part)
+    {
+        m_part = part;
+        m_ctx.setPart(part);
+    }
+
     CorePick pickCore();
     static std::vector<int> smtKeysOf(const isa::CoreChoice &core);
     std::unique_ptr<WorkerPool> chasePool(const isa::CoreChoice &core) const;
@@ -374,6 +381,7 @@ private:
     double m_budgetTotal = 1, m_budgetDone = 0, m_lastFraction = 0;
 
     TestResult m_r;
+    QString m_part;
     bool m_stopped = false;
     std::map<QString, Status> m_groupStatus;
     std::map<QString, QString> m_groupReason;
@@ -477,9 +485,11 @@ bool RamRun::failed(const QString &group, const Measurement &m, const QString &w
 void RamRun::forcedFailure(Measurement &m, const QString &stage) const
 {
 #if defined(SYNBENCH_DEV_HOOKS)
-    // Tests: SYNBENCH_RAM_FAIL=<stage prefix> makes that measurement a wrong result.
+    // Tests: SYNBENCH_RAM_FAIL=<prefix> makes the first measurement whose
+    // stage, or "<part>: <stage>", starts with it a wrong result
+    // ("Copy", "All-thread bandwidth: Copy"; AP-5 L2).
     const QString fail = qEnvironmentVariable("SYNBENCH_RAM_FAIL");
-    if (m.ok() && !fail.isEmpty() && stage.startsWith(fail)) {
+    if (m.ok() && !fail.isEmpty() && (stage.startsWith(fail) || (m_part + QStringLiteral(": ") + stage).startsWith(fail))) {
         m.outcome = Measurement::Outcome::WrongResult;
         m.error = "forced wrong result (SYNBENCH_RAM_FAIL)";
     }
@@ -596,7 +606,7 @@ std::optional<double> RamRun::chase(WorkerPool &pool, const isa::CoreChoice &cor
 
 void RamRun::prepare()
 {
-    m_ctx.setPart(QStringLiteral("Preparing"));
+    setPart(QStringLiteral("Preparing"));
     report(0, QStringLiteral("Preparing"));
     // §4.5: the background load in the second before the run.
     if (const auto load = cpu::sampleBackgroundLoadPercent(1000ms, cancelFn())) {
@@ -683,7 +693,7 @@ void RamRun::prepare()
 void RamRun::latency()
 {
     groupBegin(kLatency);
-    m_ctx.setPart(QStringLiteral("Latency"));
+    setPart(QStringLiteral("Latency"));
     m_r.metrics.append(text(QStringLiteral("latency.core"), kLatency, QStringLiteral("Latency core"), m_core.text));
     if (!m_latencyProblem.isEmpty()) {
         m_ctx.log(LogLevel::Error, m_latencyProblem);
@@ -931,7 +941,7 @@ void RamRun::bandwidthStep(WorkerPool &pool, bool single)
 void RamRun::bandwidth()
 {
     groupBegin(kBandwidthId);
-    m_ctx.setPart(QStringLiteral("Single-thread bandwidth"));
+    setPart(QStringLiteral("Single-thread bandwidth"));
     const double start = m_budgetDone;
     // §4.3: the core is picked again for the single-thread part.
     const CorePick pick = pickCore();
@@ -972,7 +982,7 @@ void RamRun::bandwidth()
     }
     if (!m_stopped && m_groupStatus[kBandwidthId] == Status::Ok) {
         // §4.2, P11: one worker per logical CPU, worker i pinned to CPU i.
-        m_ctx.setPart(QStringLiteral("All-thread bandwidth"));
+        setPart(QStringLiteral("All-thread bandwidth"));
         WorkerPool::Options o;
         o.threads = m_plan.threads;
         o.pinEach = m_allowed;
@@ -1002,7 +1012,7 @@ void RamRun::bandwidth()
 void RamRun::loaded()
 {
     groupBegin(kLoadedId);
-    m_ctx.setPart(QStringLiteral("Loaded latency"));
+    setPart(QStringLiteral("Loaded latency"));
     const auto give = [&](Status status, const QString &reason) {
         m_ctx.log(status == Status::Error ? LogLevel::Error : LogLevel::Warning, QStringLiteral("Loaded latency: %1").arg(reason));
         groupFail(kLoadedId, status, reason);

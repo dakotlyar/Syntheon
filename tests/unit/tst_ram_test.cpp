@@ -41,7 +41,9 @@ public:
         if (!m_progress.isEmpty() && fraction + 1e-9 < m_progress.last().first)
             m_backwards = true;
         m_progress.append({fraction, stage});
-        if (!m_cancelOn.isEmpty() && stage.startsWith(m_cancelOn) && !m_cancel) {
+        // A stage, or "<part>: <stage>" (the bandwidth parts share stages).
+        const QString withPart = (m_parts.isEmpty() ? QString() : m_parts.last()) + QStringLiteral(": ") + stage;
+        if (!m_cancelOn.isEmpty() && (stage.startsWith(m_cancelOn) || withPart.startsWith(m_cancelOn)) && !m_cancel) {
             m_cancelAt = Clock::now();
             m_cancel = true;
         }
@@ -937,7 +939,7 @@ private slots:
     {
         QTest::addColumn<QString>("stage");
         for (const char *stage : {"Preparing buffers", "Latency curve · 4 KiB", "Latency curve · 1 GiB", "Latency L2",
-                                  "Preparing bandwidth buffers", "Read", "Copy", "Loaded latency · preparing",
+                                  "Preparing bandwidth buffers", "Read", "Copy", "All-thread bandwidth: Copy", "Loaded latency · preparing",
                                   "Loaded latency, full load", "Loaded latency, 2,000 ns delay"})
             QTest::newRow(stage) << QString::fromUtf8(stage);
     }
@@ -972,6 +974,9 @@ private slots:
         QTest::addColumn<QString>("part");
         QTest::newRow("latency") << QStringLiteral("Latency DRAM") << QStringLiteral("latency");
         QTest::newRow("bandwidth") << QStringLiteral("Copy") << QStringLiteral("bandwidth");
+        // AP-5 L2: the all-thread pass, which shares its stages with the
+        // single-thread one, is reached through its part.
+        QTest::newRow("bandwidth, all threads") << QStringLiteral("All-thread bandwidth: Copy") << QStringLiteral("bandwidth");
         QTest::newRow("loaded") << QStringLiteral("Loaded latency") << QStringLiteral("loaded");
     }
     void failingPartIsPartial()
@@ -991,6 +996,11 @@ private slots:
                 QVERIFY2(s.reason.contains(QLatin1StringView("forced wrong result")), qPrintable(s.reason));
         }
         QVERIFY(ctx.logged(QStringLiteral("forced wrong result")));
+        if (stage.startsWith(QLatin1StringView("All-thread"))) {
+            QVERIFY(r.metric(QStringLiteral("bandwidth.st.copy")));  // the single-thread pass finished
+            QVERIFY(r.metric(QStringLiteral("bandwidth.write")));
+            QVERIFY(!r.metric(QStringLiteral("bandwidth.copy")));
+        }
         if (part == QLatin1StringView("latency")) {
             QVERIFY(r.metric(QStringLiteral("latency.l1")));
             QVERIFY(!r.metric(QStringLiteral("latency.dram")));
