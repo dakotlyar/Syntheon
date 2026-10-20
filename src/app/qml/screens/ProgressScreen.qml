@@ -116,16 +116,37 @@ ScreenFrame {
                             Layout.maximumWidth: 220
                             spacing: 0
                             SbText { text: qrow.name; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                            SbText {
-                                objectName: "stage"
-                                text: qrow.stage
-                                kind: "small"
-                                // The middle goes, so the elapsed time at the
-                                // end always shows (Zeb, round 2).
-                                elide: Text.ElideMiddle
+                            // The stage's name elides at its end; the "· rep N of
+                            // 5 · 1:38" tail (or the last "· …" part) always
+                            // shows (Zeb, rounds 2 and 3).
+                            RowLayout {
+                                id: stageRow
+                                readonly property string full: qrow.stage
+                                readonly property int cut: {
+                                    const rep = full.indexOf(" · rep ")
+                                    return rep >= 0 ? rep : full.lastIndexOf(" · ")
+                                }
+                                readonly property color tone: qrow.runState === "error" || qrow.runState === "timed_out"
+                                                              || qrow.runState === "interrupted" ? Theme.bad : Theme.muted
                                 Layout.fillWidth: true
-                                color: qrow.runState === "error" || qrow.runState === "timed_out" || qrow.runState === "interrupted"
-                                       ? Theme.bad : Theme.muted
+                                spacing: 0
+                                SbText {
+                                    objectName: "stage"
+                                    text: stageRow.cut > 0 ? stageRow.full.slice(0, stageRow.cut) : stageRow.full
+                                    kind: "small"
+                                    elide: Text.ElideRight
+                                    Layout.maximumWidth: Math.max(0, stageRow.width - stageTail.implicitWidth)
+                                    color: stageRow.tone
+                                }
+                                SbText {
+                                    id: stageTail
+                                    objectName: "stageTail"
+                                    visible: stageRow.cut > 0
+                                    text: stageRow.cut > 0 ? stageRow.full.slice(stageRow.cut) : ""
+                                    kind: "small"
+                                    color: stageRow.tone
+                                }
+                                Item { Layout.fillWidth: true }
                             }
                         }
                         ProgressTrack {
