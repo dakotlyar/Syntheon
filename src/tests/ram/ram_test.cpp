@@ -429,7 +429,7 @@ std::function<void(int)> RamRun::windowProgress(const QString &stage, const Wind
 {
     return [this, stage, spec, base](int w) {
         const double at = base + (w == 0 ? 0 : seconds(spec.warmup) + seconds(spec.rep) * (w - 1));
-        report(at, w == 0 ? stage + QStringLiteral(" · warm-up") : stage + QStringLiteral(" · rep %1 of %2").arg(w).arg(spec.reps));
+        report(at, w == 0 ? stage + QStringLiteral(" · warming up") : stage + QStringLiteral(" · rep %1 of %2").arg(w).arg(spec.reps));
     };
 }
 

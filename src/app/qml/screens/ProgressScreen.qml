@@ -117,37 +117,50 @@ ScreenFrame {
                             spacing: 0
                             SbText { text: qrow.name; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
                             // The stage's name elides at its end; the "· rep N of
-                            // 5 · 1:38" tail (or the last "· …" part) always
-                            // shows (Zeb, rounds 2-4). Plain positioning inside
-                            // the column's width: a nested RowLayout fed its
-                            // text's width back into the column (C2, AP-5 L5).
+                            // 5 · 1:38" or "· warming up · 1:38" tail (else the
+                            // last "· …" part) always shows (Zeb, rounds 2-5).
+                            // Plain positioning inside the column's width: a
+                            // nested RowLayout fed its text's width back into
+                            // the column (C2, AP-5 L5).
                             Item {
                                 id: stageRow
                                 readonly property string full: qrow.stage
                                 readonly property int cut: {
-                                    const rep = full.indexOf(" · rep ")
-                                    return rep >= 0 ? rep : full.lastIndexOf(" · ")
+                                    for (const mark of [" · rep ", " · warming up"]) {
+                                        const at = full.indexOf(mark)
+                                        if (at >= 0)
+                                            return at
+                                    }
+                                    return full.lastIndexOf(" · ")
                                 }
                                 readonly property color tone: qrow.runState === "error" || qrow.runState === "timed_out"
                                                               || qrow.runState === "interrupted" ? Theme.bad : Theme.muted
                                 Layout.fillWidth: true
                                 implicitWidth: 0
                                 implicitHeight: stageHead.implicitHeight
+                                clip: true  // never past the column (AP-5 round 4 L5)
+                                FontMetrics { id: stageMetrics; font: stageHead.font }
                                 SbText {
                                     id: stageHead
                                     objectName: "stage"
                                     text: stageRow.cut > 0 ? stageRow.full.slice(0, stageRow.cut) : stageRow.full
                                     kind: "small"
                                     elide: Text.ElideRight
-                                    width: Math.max(0, Math.min(implicitWidth, stageRow.width - (stageTail.visible ? stageTail.implicitWidth : 0)))
+                                    width: Math.max(0, Math.min(implicitWidth, stageRow.width - (stageTail.visible ? stageTail.width : 0)))
+                                    // Too narrow for a letter and "…": nothing, not a
+                                    // lone "…" (the tail alone fills the row).
+                                    visible: text.length > 0 && width >= Math.min(implicitWidth, stageMetrics.advanceWidth("W…"))
                                     color: stageRow.tone
                                 }
                                 SbText {
                                     id: stageTail
                                     objectName: "stageTail"
                                     visible: stageRow.cut > 0
-                                    x: Math.min(stageHead.width, stageHead.paintedWidth)
+                                    x: stageHead.visible ? Math.min(stageHead.width, stageHead.paintedWidth) : 0
                                     text: stageRow.cut > 0 ? stageRow.full.slice(stageRow.cut) : ""
+                                    // Wider than the whole column: it elides too.
+                                    width: Math.min(implicitWidth, stageRow.width)
+                                    elide: Text.ElideRight
                                     kind: "small"
                                     color: stageRow.tone
                                 }
