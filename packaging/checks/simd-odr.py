@@ -10,7 +10,11 @@ Otherwise an inline or template function (std::min<float>, say) could be
 emitted there with wide instructions, and the linker could pick that copy
 for a baseline caller: SIGILL on older CPUs.
 
-    simd-odr.py --nm <nm> <isa>=<object> [<isa>=<object> ...] [--expect-violation]
+    simd-odr.py --nm <nm> [bw:]<isa>=<object> [...] [--expect-violation]
+
+The RAM test's bandwidth paths (Phase 3 design §5.3, P8) follow the same
+rule with "bw:" in front: their namespace is sb::ram::bw_<isa> and their
+entry points are sb_bw_<isa>_<op> (read, write, write_nt, copy, copy_nt).
 
 ELF objects (GCC, Clang): `nm -C --defined-only`; a global or weak symbol
 (type T D B R W V u i...) passes if it is the entry point or its demangled
@@ -121,8 +125,13 @@ def exported(kind):
     return kind.isupper() or kind in "uvwi"
 
 
-def violations(nm, isa, path):
-    entry = f"sb_simd_{isa}_unit"
+def violations(nm, family, isa, path):
+    if family == "bw":
+        entry_ok = re.compile(rf"^sb_bw_{re.escape(isa)}_(read|write|write_nt|copy|copy_nt)$").match
+        namespace, scope = f"sb::ram::bw_{isa}::", rf"bw_{re.escape(isa)}@ram@sb@@"
+    else:
+        entry_ok = re.compile(rf"^sb_simd_{re.escape(isa)}_unit$").match
+        namespace, scope = f"sb::cpu::simd_{isa}::", rf"simd_{re.escape(isa)}@cpu@sb@@"
     elf = is_elf(path)
     bad = []
     listed = list(symbols(nm, path, demangle=elf))
@@ -130,20 +139,20 @@ def violations(nm, isa, path):
     for what in initialisers(path, elf, raw):
         bad.append(f"dynamic initialiser: {what}")
     for kind, name in listed:
-        if not exported(kind) or name == entry:
+        if not exported(kind) or entry_ok(name):
             continue
         if elf:
             n = name
             for p in ELF_PREFIXES:
                 if n.startswith(p):
                     n = n[len(p):]
-            if n.startswith(f"sb::cpu::simd_{isa}::"):
+            if n.startswith(namespace):
                 continue
         else:
             if MSVC_CONSTANTS.match(name):
                 continue
             # ?name@<scopes...>@simd_<isa>@cpu@sb@@...: in our namespace.
-            if re.match(rf"^\?+\$?[^@]*@(?:[^@]+@)*?simd_{re.escape(isa)}@cpu@sb@@", name):
+            if re.match(rf"^\?+\$?[^@]*@(?:[^@]+@)*?{scope}", name):
                 continue
         bad.append(f"{kind} {name}")
     return bad
@@ -153,23 +162,26 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--nm", default="nm")
     ap.add_argument("--expect-violation", action="store_true")
-    ap.add_argument("objects", nargs="+", metavar="ISA=OBJECT")
+    ap.add_argument("objects", nargs="+", metavar="[bw:]ISA=OBJECT")
     args = ap.parse_args()
     found = False
     for item in args.objects:
         isa, _, path = item.partition("=")
-        if not path:
-            print(f"simd-odr: '{item}' is not <isa>=<object>", file=sys.stderr)
+        family, _, rest = isa.partition(":")
+        family, isa = (family, rest) if rest else ("simd", isa)
+        if not path or family not in ("simd", "bw"):
+            print(f"simd-odr: '{item}' is not [bw:]<isa>=<object>", file=sys.stderr)
             return 2
         try:
-            bad = violations(args.nm, isa, path)
+            bad = violations(args.nm, family, isa, path)
         except OSError as e:
             print(f"simd-odr: {e}", file=sys.stderr)
             return 2
         if bad:
             found = True
-            print(f"{path} ({isa}): {len(bad)} problem(s): symbols outside sb::cpu::simd_{isa} other than "
-                  f"sb_simd_{isa}_unit, or dynamic initialisers:")
+            where = f"sb::ram::bw_{isa} other than sb_bw_{isa}_*" if family == "bw" else \
+                f"sb::cpu::simd_{isa} other than sb_simd_{isa}_unit"
+            print(f"{path} ({isa}): {len(bad)} problem(s): symbols outside {where}, or dynamic initialisers:")
             for b in bad:
                 print(f"    {b}")
         else:

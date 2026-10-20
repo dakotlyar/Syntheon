@@ -257,10 +257,25 @@ foreach(_s IN LISTS _rk_sources)
         list(APPEND _rk_plain "${_rk_dir}/${_s}")
     endif()
 endforeach()
+# ...and the bandwidth paths (§5.3): the baseline ones the same, the wide
+# ones with their arch flags too.
+get_property(_bw_isas GLOBAL PROPERTY SYNBENCH_BW_ISAS)
+set(_rk_wide "")
+foreach(_isa IN LISTS _bw_isas)
+    get_target_property(_flags synbench_bw_${_isa} SYNBENCH_ARCH_FLAGS)
+    get_target_property(_dir synbench_bw_${_isa} SOURCE_DIR)
+    if(_flags)
+        list(JOIN _flags "," _joined)
+        list(APPEND _rk_wide "${_dir}/bw/bw_${_isa}.cpp=${_joined}")
+    else()
+        list(APPEND _rk_plain "${_dir}/bw/bw_${_isa}.cpp")
+    endif()
+endforeach()
 list(JOIN _rk_plain "|" _rk_plain)
+list(JOIN _rk_wide "|" _rk_wide)
 add_test(NAME ram_kernel_flags
     COMMAND "${CMAKE_COMMAND}" "-DCOMMANDS=${PROJECT_BINARY_DIR}/compile_commands.json" -DCOMPILER=${_k_compiler}
-            "-DPLAIN=${_rk_plain}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckKernelFlags.cmake")
+            "-DPLAIN=${_rk_plain}" "-DWIDE=${_rk_wide}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckKernelFlags.cmake")
 # ...and SB_NO_VECTOR (MSVC's loop pragma) is always followed by a classic
 # loop, anywhere under src/; planted range-fors (on the next line, on the
 # same line, with an init-statement) must each fail.
@@ -315,6 +330,10 @@ if(SYNBENCH_PYTHON3 AND SYNBENCH_NM AND _simd_isas)
             set(SYNBENCH_PLANTED_FLAGS ${_flags})
         endif()
     endforeach()
+    # The RAM test's bandwidth paths too (Phase 3 design §5.3, P8).
+    foreach(_isa IN LISTS _bw_isas)
+        list(APPEND _simd_objects "bw:${_isa}=$<TARGET_OBJECTS:synbench_bw_${_isa}>")
+    endforeach()
     add_test(NAME simd_odr
         COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/simd-odr.py" --nm "${SYNBENCH_NM}"
                 ${_simd_objects})
@@ -327,10 +346,48 @@ if(SYNBENCH_PYTHON3 AND SYNBENCH_NM AND _simd_isas)
         COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/simd-odr.py" --nm "${SYNBENCH_NM}"
                 --expect-violation "planted=$<TARGET_OBJECTS:synbench_simd_planted_init>")
     set_tests_properties(simd_odr_rejects_planted_initialiser PROPERTIES PASS_REGULAR_EXPRESSION "dynamic initialiser")
+    # ...and under the bandwidth paths' rule (the same planted object).
+    add_test(NAME simd_odr_rejects_planted_bw
+        COMMAND "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/simd-odr.py" --nm "${SYNBENCH_NM}"
+                --expect-violation "bw:planted=$<TARGET_OBJECTS:synbench_simd_planted>")
+    set_tests_properties(simd_odr_rejects_planted_bw PROPERTIES PASS_REGULAR_EXPRESSION "outside sb::ram::bw_planted.*\n.*plantedOutside")
     list(JOIN _simd_wide_flags "|" _simd_wide_flags)
     add_test(NAME cpu_simd_flags
         COMMAND "${CMAKE_COMMAND}" "-DCOMMANDS=${PROJECT_BINARY_DIR}/compile_commands.json" -DCOMPILER=${_k_compiler}
                 "-DWIDE=${_simd_wide_flags}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckKernelFlags.cmake")
+endif()
+
+# The RAM test's x64 store variants (Phase 3 design D4, §14.1): the scored
+# write/copy use non-temporal stores and SFENCE, the plain ones don't, and no
+# entry point calls out (packaging/checks/bw-stores.py, on the objects'
+# code); and the check fails on a planted object that breaks each rule.
+if(WIN32)
+    set(SYNBENCH_DISASM "${SYNBENCH_OBJDUMP}")
+else()
+    find_program(SYNBENCH_DISASM NAMES objdump llvm-objdump)
+endif()
+set(_bw_x64 "")
+foreach(_isa IN LISTS _bw_isas)
+    if(_isa MATCHES "^(sse2|avx2)$")
+        list(APPEND _bw_x64 "${_isa}=$<TARGET_OBJECTS:synbench_bw_${_isa}>")
+    endif()
+endforeach()
+if(SYNBENCH_PYTHON3 AND SYNBENCH_DISASM AND _bw_x64)
+    set(_bw_check "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/bw-stores.py" --objdump "${SYNBENCH_DISASM}")
+    add_test(NAME bw_stores COMMAND ${_bw_check} ${_bw_x64})
+    add_subdirectory(bw_planted)
+    foreach(_rule nt plain call)
+        if(_rule STREQUAL "nt")
+            set(_expect "sb_bw_planted_write_nt: no non-temporal store")
+        elseif(_rule STREQUAL "plain")
+            set(_expect "sb_bw_planted_write: non-temporal store")
+        else()
+            set(_expect "sb_bw_planted_copy: (calls out|branches to another symbol)")
+        endif()
+        add_test(NAME bw_stores_rejects_planted_${_rule}
+            COMMAND ${_bw_check} --expect-violation "planted=$<TARGET_OBJECTS:synbench_bw_planted>")
+        set_tests_properties(bw_stores_rejects_planted_${_rule} PROPERTIES PASS_REGULAR_EXPRESSION "${_expect}")
+    endforeach()
 endif()
 
 # The encryption worker's golden table (§5.5) is what the worker computes on

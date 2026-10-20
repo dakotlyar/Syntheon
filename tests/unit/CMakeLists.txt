@@ -29,6 +29,7 @@ target_compile_definitions(tst_cpu_compress PRIVATE SB_DEBUG_BUILD=$<IF:$<CONFIG
 synbench_add_unit_test(tst_ram_memory SOURCES tst_ram_memory.cpp LIBS synbench_test_ram)
 synbench_add_unit_test(tst_ram_chase SOURCES tst_ram_chase.cpp LIBS synbench_test_ram)
 synbench_add_unit_test(tst_ram_sweep SOURCES tst_ram_sweep.cpp LIBS synbench_test_ram)
+synbench_add_unit_test(tst_ram_bandwidth SOURCES tst_ram_bandwidth.cpp LIBS synbench_test_ram)
 synbench_add_unit_test(tst_cpu_telemetry SOURCES tst_cpu_telemetry.cpp LIBS synbench_test_cpu)
 synbench_add_unit_test(tst_cpu_test SOURCES tst_cpu_test.cpp LIBS synbench_test_cpu Qt6::Core)
 add_dependencies(tst_cpu_test synbench-cpucrypto)
@@ -40,7 +41,8 @@ set_target_properties(fake-cpucrypto PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC 
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-tools")
 add_dependencies(tst_cpu_crypto fake-cpucrypto)
 target_compile_definitions(tst_cpu_crypto PRIVATE SB_FAKE_WORKER="$<TARGET_FILE:fake-cpucrypto>")
-foreach(t tst_sysinfo_parsers tst_sysinfo_live tst_sysinfo_linux tst_isa tst_cache_topology tst_cpu_telemetry tst_ram_sweep)
+foreach(t tst_sysinfo_parsers tst_sysinfo_live tst_sysinfo_linux tst_isa tst_cache_topology tst_cpu_telemetry tst_ram_sweep
+         tst_ram_bandwidth)
     if(TARGET ${t})
         target_compile_definitions(${t} PRIVATE SB_FIXTURES="${PROJECT_SOURCE_DIR}/tests/fixtures")
         target_include_directories(${t} PRIVATE "${PROJECT_SOURCE_DIR}/src")
