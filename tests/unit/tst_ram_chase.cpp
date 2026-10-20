@@ -316,11 +316,13 @@ private slots:
         // unit stands out, and only the thread's own CPU time sees through it
         // (a real run with such a competitor on CPU 13 read 0.708 -> 0.817 ns
         // with the unit filter alone).
+        const pid_t parent = getpid();
         const pid_t child = fork();
         if (child == 0) {
-            // Dies with the test, whatever ends it (AP-5 L5).
+            // Dies with the test, whatever ends it (AP-5 L5): the parent
+            // pid is compared, not 1 (systemd --user may be the subreaper).
             prctl(PR_SET_PDEATHSIG, SIGKILL);
-            if (getppid() == 1)
+            if (getppid() != parent)
                 _exit(0);
             sb::cpu::pinCurrentThread(core);
             for (;;) {

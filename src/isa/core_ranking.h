@@ -128,6 +128,9 @@ constexpr int cpuKey(const CoreChoice &c) { return windowsKey(c.group, c.cpu); }
 // thread_siblings_list, Windows RelationProcessorCore; itself where the
 // platform says nothing. Empty for an unranked core.
 std::vector<int> smtSiblingKeys(const CoreChoice &core);
+// Linux, over a sysfs root ("/sys" live, a fixture tree in the tests):
+// cpuN's thread_siblings_list, plus cpuN itself.
+std::vector<int> linuxSmtSiblingKeys(const std::string &sysfsRoot, int cpu);
 
 // Every logical CPU this process may run on, each as a ranked CoreChoice to
 // pin to (source "affinity"), in order: Linux by CPU number

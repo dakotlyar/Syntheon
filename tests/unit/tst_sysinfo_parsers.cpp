@@ -147,6 +147,12 @@ private slots:
                                       {QStringLiteral("P0 CHANNEL B"), {}}, {QStringLiteral("P1 CHANNEL B"), {}}}).channels, 4);
         QCOMPARE(countMemoryChannels({{QStringLiteral("BANK 0"), QStringLiteral("ChannelA-DIMM0")},
                                       {QStringLiteral("BANK 1"), QStringLiteral("ChannelB-DIMM0")}}).channels, 2);
+        // Sockets before "DIMM" too (AP-5): 2 sockets x 2 letters -> 4.
+        QCOMPARE(memoryChannelKey(QStringLiteral("BANK 0"), QStringLiteral("CPU1_DIMM_A1")), QStringLiteral("CPU1 A"));
+        QCOMPARE(countMemoryChannels({{{}, QStringLiteral("CPU1_DIMM_A1")}, {{}, QStringLiteral("CPU2_DIMM_A1")},
+                                      {{}, QStringLiteral("CPU1_DIMM_B1")}, {{}, QStringLiteral("CPU2_DIMM_B1")}}).channels, 4);
+        QCOMPARE(countMemoryChannels({{{}, QStringLiteral("P1-DIMMA1")}, {{}, QStringLiteral("P2-DIMMA1")},
+                                      {{}, QStringLiteral("P1-DIMMB1")}, {{}, QStringLiteral("P2-DIMMB1")}}).channels, 4);
         // Locators that don't say: a guess, flagged.
         const MemoryChannelCount guess = countMemoryChannels({{QStringLiteral("BANK 0"), {}}, {QStringLiteral("BANK 1"), {}}, {QStringLiteral("BANK 2"), {}}});
         QCOMPARE(guess.channels, 2);

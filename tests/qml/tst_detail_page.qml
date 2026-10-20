@@ -150,6 +150,11 @@ TestCase {
         fuzzyCompare(dot.y + 4, chart.fy(197), 1e-6)
         chart.filled = null
         fuzzyCompare(dot.x + 4, chart.fx(66.2), 1e-6)
+        // On a log axis a filled point at 0 isn't drawn on the floor: the
+        // last positive point instead.
+        chart.logY = true
+        chart.filled = { x: 0, y: 0 }
+        fuzzyCompare(dot.x + 4, chart.fx(66.2), 1e-6)
     }
 
     function test_plainTablesStillPair() {

@@ -247,7 +247,9 @@ Item {
     // The last point, or the one `filled` names.
     Rectangle {
         objectName: "endDot"
-        readonly property var at: root.filled ? root.filled : (root.shown.length ? root.shown[root.shown.length - 1] : null)
+        // `filled` obeys the log axis like the points do (no 0 on the floor).
+        readonly property var at: root.filled && (!root.logY || root.filled.y > 0) ? root.filled
+                                  : (root.shown.length ? root.shown[root.shown.length - 1] : null)
         visible: at !== null
         width: 8; height: 8; radius: 4; color: root.color
         x: (at ? root.fx(at.x) : 0) - 4

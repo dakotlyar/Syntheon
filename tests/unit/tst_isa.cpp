@@ -80,6 +80,11 @@ private slots:
         const std::vector<int> keys = sb::isa::smtSiblingKeys(cpus.front());
         QVERIFY(std::find(keys.begin(), keys.end(), sb::isa::cpuKey(cpus.front())) != keys.end());
         QVERIFY(keys.size() <= 8);
+        // From a fixture tree (AP-5: the sysfs root, not "/sys"): Tiamat's
+        // CPU 9 and its sibling 25; a CPU without the file is just itself.
+        const std::string tiamat = fixture("tiamat").toStdString();
+        QCOMPARE(sb::isa::linuxSmtSiblingKeys(tiamat, 9), (std::vector<int>{9, 25}));
+        QCOMPARE(sb::isa::linuxSmtSiblingKeys(tiamat, 999), (std::vector<int>{999}));
     }
 
     void knowhereDecodesAsBefore()

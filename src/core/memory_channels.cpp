@@ -23,8 +23,12 @@ QString memoryChannelKey(const QString &bankLocator, const QString &locator)
         }
     }
     for (const QString &where : {bankLocator, locator}) {
-        if (const auto m = dimm.match(where); m.hasMatch())
-            return m.captured(1).toUpper();
+        if (const auto m = dimm.match(where); m.hasMatch()) {
+            // ...and before "DIMM" too ("CPU1_DIMM_A1", "P2-DIMMA1"; AP-5).
+            QString prefix = where.left(m.capturedStart()).trimmed();
+            prefix.remove(trailing);
+            return (prefix + QLatin1Char(' ') + m.captured(1)).trimmed().toUpper();
+        }
     }
     return {};
 }
