@@ -234,9 +234,12 @@ DetailLayout RamTest::detail(const TestResult &r) const
 {
     DetailLayout d;
     d.headlineMetrics = {QStringLiteral("latency.dram"), QStringLiteral("bandwidth.read")};
-    // Short enough that the Results row shows the value (Zeb D2); the
-    // metric keeps its full label everywhere else.
-    d.headlineLabels.insert(QStringLiteral("bandwidth.read"), QStringLiteral("Read (all threads)"));
+    // Short enough that the Results row shows both values at the 1100 px
+    // default, rail or tabs, with a 3-digit latency (Zeb D2, round 2: "Read
+    // (all threads)" still cut the number at 1100 rail); the metrics keep
+    // their full labels everywhere else.
+    d.headlineLabels.insert(QStringLiteral("latency.dram"), QStringLiteral("DRAM"));
+    d.headlineLabels.insert(QStringLiteral("bandwidth.read"), QStringLiteral("Read"));
 
     const QString latencyCore = coreOf(text(r, QStringLiteral("latency.core")));
     const QString stCore = coreOf(text(r, QStringLiteral("bandwidth.st.core")));

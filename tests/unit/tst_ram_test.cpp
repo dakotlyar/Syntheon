@@ -611,7 +611,8 @@ private slots:
         const DetailLayout d = t.detail(mockupResult());
         QCOMPARE(d.subtitle, QStringLiteral("Score 1,186 · DDR5-6000 · 2 MiB pages · latency on CPU 4"));
         QCOMPARE(d.headlineMetrics, (QStringList{QStringLiteral("latency.dram"), QStringLiteral("bandwidth.read")}));
-        QCOMPARE(d.headlineLabels.value(QStringLiteral("bandwidth.read")), QStringLiteral("Read (all threads)"));  // Zeb D2
+        QCOMPARE(d.headlineLabels.value(QStringLiteral("latency.dram")), QStringLiteral("DRAM"));  // Zeb D2
+        QCOMPARE(d.headlineLabels.value(QStringLiteral("bandwidth.read")), QStringLiteral("Read"));
         // The mockup's blocks, in order (the renderer makes the rows).
         QCOMPARE(titles(d), (QStringList{QStringLiteral("[kpis]"), QStringLiteral("Sub-tests"),
                                          QStringLiteral("Latency by buffer size (CPU 4 · 2 MiB pages)"), QStringLiteral("Latency (CPU 4)"),

@@ -357,7 +357,7 @@ private slots:
         ResultsController &res = m_rt->results();
         QVERIFY(res.openRun(run.uuid.toString(QUuid::WithoutBraces)));
         QCOMPARE(res.rows()[0].toMap().value(QStringLiteral("raw")).toString(),
-                 QStringLiteral("DRAM latency 75.8 ns · Read (all threads) 67.0 GB/s"));
+                 QStringLiteral("DRAM 75.8 ns · Read 67.0 GB/s"));
     }
 
     void stoppedRunIsMarkedPartial()
