@@ -12,17 +12,23 @@
 // median commutes with that monotone map, so the median latency is
 // 1e9 / the median rate.
 //
-// The rate of a window leaves out its preempted units
-// (KernelThread::windowRate): hops over time of the units that took at
-// most 2x the window's median unit. A pinned chase shares its core with
+// The rate of a window leaves out the time the chase didn't have its core
+// (KernelThread::windowRate). A pinned chase shares its core with
 // whatever the OS also runs there until the load balancer moves it away:
 // on Tiamat a background process's thread (about a third of CPU 13) stayed
 // on the chase core for the first second of the grid, and 4-12 KiB read
-// 0.915 ns instead of 0.70. A unit that loses the core for a time slice
-// (milliseconds) takes well over twice as long as the others and is
-// dropped; the rest are still a mean (not a median: under load the units'
-// times are skewed by queueing, and the loaded latency stays an average,
-// as MLC's is). Hops per unit stay constant.
+// 0.915 ns instead of 0.70.
+//   Linux (POSIX)  hops over the thread's own CPU time
+//                  (CLOCK_THREAD_CPUTIME_ID) across the window's units:
+//                  whatever the scheduler's slice length, only the time
+//                  the chase ran counts
+//   Windows        (thread CPU time there is 15.6 ms ticks) hops over the
+//                  time of the units that took at most 2x the window's
+//                  median unit: a quantum lost is tens of ms, far over 2x
+//                  a 2 ms unit, so a preempted unit is dropped
+// Both stay a mean over the units (not a median: under load the units'
+// times are skewed by queueing, and loaded latency is an average, as
+// MLC's is). Hops per unit are constant.
 //
 // Correctness (§5.1, §9): every unit's end pointer must lie inside the
 // buffer, on a line boundary; otherwise the unit throws and the measurement
@@ -63,6 +69,10 @@ std::uint64_t hopsPerUnit(double estimateNs);
 
 // Whether `p` is a line start inside [base, base + bytes).
 bool chaseInRange(const void *p, const std::byte *base, std::size_t bytes, std::size_t lineSize);
+
+// The calling thread's CPU time in seconds (CLOCK_THREAD_CPUTIME_ID);
+// nullopt on Windows (the window then uses preemptionFreeRate).
+std::optional<double> threadCpuSeconds();
 
 // A unit over this x the window's median unit time counts as preempted.
 inline constexpr double kPreemptedUnit = 2.0;

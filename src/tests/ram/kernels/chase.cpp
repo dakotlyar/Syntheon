@@ -9,6 +9,10 @@
 #include <stdexcept>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <time.h>
+#endif
+
 namespace sb::ram {
 
 std::uint64_t hopsPerUnit(double estimateNs)
@@ -51,6 +55,18 @@ std::optional<double> preemptionFreeRate(const std::vector<double> &unitSeconds,
     return seconds > 0 ? std::optional<double>(double(units) * double(hopsPerUnit) / seconds) : std::nullopt;
 }
 
+std::optional<double> threadCpuSeconds()
+{
+#if defined(_WIN32)
+    return std::nullopt;
+#else
+    timespec t{};
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t) != 0)
+        return std::nullopt;
+    return double(t.tv_sec) + double(t.tv_nsec) * 1e-9;
+#endif
+}
+
 double latencyNs(double hopsPerSecond)
 {
     return hopsPerSecond > 0 ? 1e9 / hopsPerSecond : 0.0;
@@ -66,16 +82,32 @@ public:
     {
     }
 
-    void beginWindow() override { m_unitSeconds.clear(); }
+    void beginWindow() override
+    {
+        m_unitSeconds.clear();
+        m_units = 0;
+        m_cpuStart = threadCpuSeconds();
+        m_cpuEnd = m_cpuStart;
+    }
 
-    // The window's rate without its preempted units (see the header).
-    std::optional<double> windowRate() const override { return preemptionFreeRate(m_unitSeconds, m_hops); }
+    // See the header: the thread's own CPU time where the OS keeps it,
+    // else the window's units without the preempted ones.
+    std::optional<double> windowRate() const override
+    {
+        if (m_cpuStart && m_cpuEnd && *m_cpuEnd > *m_cpuStart && m_units > 0)
+            return double(m_units) * double(m_hops) / (*m_cpuEnd - *m_cpuStart);
+        return preemptionFreeRate(m_unitSeconds, m_hops);
+    }
 
     std::uint64_t unit(std::uint64_t) override
     {
         const auto start = std::chrono::steady_clock::now();
         const void *end = chaseHops(cpu::opaqueValue(m_at), cpu::opaqueValue(m_hops));
         m_unitSeconds.push_back(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+        if (m_cpuStart) {
+            m_cpuEnd = threadCpuSeconds();
+            ++m_units;
+        }
         if (!chaseInRange(end, m_base, m_bytes, m_lineSize))
             throw std::runtime_error("the pointer chase left its buffer: possible memory corruption or miscompile");
         m_at = end;
@@ -89,6 +121,8 @@ private:
     std::uint64_t m_hops;
     const void *m_at;
     std::vector<double> m_unitSeconds;  // this window's units, in order
+    std::optional<double> m_cpuStart, m_cpuEnd;  // the thread's CPU time at the window's start / last unit
+    std::uint64_t m_units = 0;
 };
 
 } // namespace

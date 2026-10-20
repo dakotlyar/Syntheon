@@ -16,6 +16,12 @@
 
 #include <QTest>
 
+#if defined(__linux__)
+#include <csignal>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -258,6 +264,30 @@ private slots:
         qInfo("idle %.3f ns (whole window %.3f); with a competitor %.3f ns (whole window %.3f)", idle, wallIdle, busy, wallBusy);
         QVERIFY2(std::abs(idle - wallIdle) < 0.05 * wallIdle, "uncontended: the same as the whole window");
         QVERIFY2(busy < idle * 1.10, qPrintable(QStringLiteral("%1 ns against %2 ns").arg(busy).arg(idle)));
+#if defined(__linux__)
+        // Another PROCESS on the core, in short bursts (0.3 ms busy, 0.6 ms
+        // asleep): the scheduler interleaves it at sub-unit slices, so no
+        // unit stands out, and only the thread's own CPU time sees through it
+        // (a real run with such a competitor on CPU 13 read 0.708 -> 0.817 ns
+        // with the unit filter alone).
+        const pid_t child = fork();
+        if (child == 0) {
+            sb::cpu::pinCurrentThread(core);
+            for (;;) {
+                const auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(300);
+                while (std::chrono::steady_clock::now() < until) {
+                }
+                std::this_thread::sleep_for(std::chrono::microseconds(600));
+            }
+        }
+        QVERIFY(child > 0);
+        double wallFine = 0;
+        const double fine = measure(&wallFine);
+        kill(child, SIGKILL);
+        waitpid(child, nullptr, 0);
+        qInfo("another process in short bursts: %.3f ns (whole window %.3f)", fine, wallFine);
+        QVERIFY2(fine < idle * 1.10, qPrintable(QStringLiteral("%1 ns against %2 ns").arg(fine).arg(idle)));
+#endif
     }
 
     // §5.1, §9: a unit whose end pointer is outside the buffer, or inside
