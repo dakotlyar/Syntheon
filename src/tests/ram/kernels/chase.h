@@ -43,7 +43,8 @@ const void *chaseHops(const void *start, std::uint64_t hops);
 // K for a measurement whose latency is expected to be about `estimateNs`
 // (the previous grid point's; a target's nearest grid point's): 2 ms worth,
 // rounded to a multiple of 16, within [16 Ki, 64 Mi]. A non-positive or
-// non-finite estimate gives the largest K that is 2 ms at 1 ns.
+// non-finite estimate (none known) gives the smallest K, 16 Ki: whatever
+// the real latency, a unit then stays within Stop's 100 ms (AP-5 M3).
 std::uint64_t hopsPerUnit(double estimateNs);
 
 // Whether `p` is a line start inside [base, base + bytes).

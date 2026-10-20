@@ -243,8 +243,11 @@ private slots:
         QCOMPARE(hopsPerUnit(3.0), std::uint64_t(666656));  // 666,666 rounded down to 16
         QCOMPARE(hopsPerUnit(1000.0), kMinHopsPerUnit);     // 2,000: the floor
         QCOMPARE(hopsPerUnit(0.001), kMaxHopsPerUnit);      // 2 G: the ceiling
-        QCOMPARE(hopsPerUnit(0.0), std::uint64_t(2000000)); // no estimate: as at 1 ns
-        QCOMPARE(hopsPerUnit(std::numeric_limits<double>::quiet_NaN()), std::uint64_t(2000000));
+        // No usable estimate: the smallest unit, safe at any latency (AP-5 M3).
+        QCOMPARE(hopsPerUnit(0.0), kMinHopsPerUnit);
+        QCOMPARE(hopsPerUnit(-3.0), kMinHopsPerUnit);
+        QCOMPARE(hopsPerUnit(std::numeric_limits<double>::quiet_NaN()), kMinHopsPerUnit);
+        QCOMPARE(hopsPerUnit(std::numeric_limits<double>::infinity()), kMinHopsPerUnit);
         for (const double e : {0.4, 0.9, 1.7, 4.2, 12.0, 85.0, 140.0, 700.0})
             QCOMPARE(hopsPerUnit(e) % kHopsPerIteration, std::uint64_t(0));
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ChaseKernel(nullptr, 0, kLine, 17));

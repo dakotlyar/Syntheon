@@ -12,7 +12,7 @@ namespace sb::ram {
 std::uint64_t hopsPerUnit(double estimateNs)
 {
     if (!(estimateNs > 0) || !std::isfinite(estimateNs))
-        estimateNs = 1.0;
+        return kMinHopsPerUnit;
     const double raw = kUnitTargetNs / estimateNs;
     const double clamped = std::clamp(raw, double(kMinHopsPerUnit), double(kMaxHopsPerUnit));
     const auto k = std::uint64_t(clamped);
