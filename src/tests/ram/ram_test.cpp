@@ -697,8 +697,12 @@ bool RamRun::latencyGrid()
     double estimate = kFirstGridEstimateNs;
     int index = 0;
     for (const std::uint64_t bytes : m_grid) {
+        // The first point's warm-up is at least a target's (100 ms), not one
+        // lap of 4 KiB: the core has just been idle and its clock is still
+        // ramping (Tiamat: 0.92 ns at 4 KiB against 0.71 ns from 6 KiB on).
+        const auto warmMin = index == 0 ? kTargetWarmMin : kGridWarmMin;
         const WindowSpec spec =
-            cpu::scaled({ram::chaseWarmup(bytes, m_line, estimate, kGridWarmMin, kGridWarmMax), kGridRep, kReps});
+            cpu::scaled({ram::chaseWarmup(bytes, m_line, estimate, warmMin, kGridWarmMax), kGridRep, kReps});
         const auto ns = chase(*pool, m_core.core, bytes, estimate, spec, QStringLiteral("Latency curve · %1").arg(sizeText(bytes)),
                               m_budgetDone + gridPointBudget() * index++);
         if (!ns)
