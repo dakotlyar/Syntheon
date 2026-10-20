@@ -31,6 +31,15 @@
 // B / 2 read + B / 2 written = B (P10). So workPerUnit() is B for all
 // three, in bytes; GB/s = rate / 1e9.
 //
+// The copy's source is rotated (AP-5 M2): the first half never changes, so
+// a destination copied from the same place again would already hold what
+// the check expects, and a copy that did nothing would pass. Each time a
+// destination chunk is copied into, its source starts one 1 MiB cell further
+// round the first half than the last time (wrapping at the half's end, in
+// up to two calls), so what it must hold now differs from what it holds.
+// That needs at least two cells in a half (a slice of 4 MiB or more): a
+// 2 MiB slice's copies are only checked the first time.
+//
 // Threads: an all-thread pool has one slice per worker (worker i reads and
 // writes slice i, which it first touched: §4.2 NUMA); the single-thread
 // pool (one worker) cycles through every slice.
@@ -118,6 +127,10 @@ public:
     // or a copy of [src, src + length) to [dst, dst + length).
     void wrote(std::size_t offset, std::size_t length, std::uint64_t base);
     void copied(std::size_t dstOffset, std::size_t srcOffset, std::size_t length);
+    // The rotation (in cells) for the next copy into the second-half chunk
+    // at `dstOffset`: one more than the last one for that chunk, modulo the
+    // half's cells. Kept in the slice, so it carries on across measurements.
+    std::size_t nextCopyShift(std::size_t dstOffset);
 
 private:
     std::byte *m_data;
@@ -125,6 +138,8 @@ private:
     std::vector<std::uint64_t> m_cellBase;  // V[c]
     // Cells the table can vouch for (false only after a cancelled fill).
     std::vector<bool> m_known;
+    // Per second-half cell: the last copy rotation into the chunk starting there.
+    std::vector<std::uint32_t> m_copyShift;
 };
 
 // P15: a thread above 128 bytes per cycle at 7 GHz is implausible; the
@@ -139,6 +154,8 @@ public:
     // `slices` all the same size; `threads` 1 (every slice, in order) or
     // slices.size() (one each). The slices must have been filled.
     BandwidthKernel(BwPath path, BwVariant variant, std::vector<BandwidthSlice *> slices, int threads);
+    // The same with explicit entry points (tests plant broken ones).
+    BandwidthKernel(const BwFunctions &functions, BwVariant variant, std::vector<BandwidthSlice *> slices, int threads);
     std::string name() const override { return m_name; }
     double workPerUnit() const override { return double(m_block); }
     double maxWorkPerCyclePerThread() const override { return kBwMaxBytesPerCycle; }

@@ -16,6 +16,7 @@
 #include <QTest>
 
 #include <atomic>
+#include <cstring>
 #include <chrono>
 #include <thread>
 
@@ -61,6 +62,17 @@ struct Region {
     std::byte *data = nullptr;
     std::uint64_t *w() const { return reinterpret_cast<std::uint64_t *>(data); }
 };
+
+// A planted copy for the copy-check test: 0 copies, 1 does nothing, 2 copies
+// from one cell too far.
+int g_copyMode = 0;
+void plantedCopy(void *dst, const void *src, std::size_t bytes)
+{
+    if (g_copyMode == 0)
+        std::memcpy(dst, src, bytes);
+    else if (g_copyMode == 2)
+        std::memcpy(dst, static_cast<const std::byte *>(src) + kBwCell, bytes);
+}
 
 std::string fixture(const char *machine)
 {
@@ -220,6 +232,45 @@ private slots:
             QVERIFY(!s.verifyCopySample(4 * MiB, 0, 4 * MiB, salt));
         f.copy(mem.data + 4 * MiB, mem.data, 4 * MiB);
         QVERIFY(s.verifyCopySample(4 * MiB, 0, 4 * MiB, 5));
+    }
+
+    // AP-5 M2: the first half never changes, so without the rotation a
+    // destination copied into again already holds what the check expects.
+    // A copy that does nothing, or copies from the wrong place, must fail
+    // on a later pass too, not only the first.
+    void copyCheckHoldsOnLaterPasses()
+    {
+        const BwPath path = runnablePaths().back();
+        BwFunctions f = bandwidthFunctions(path);
+        f.copy = plantedCopy;
+        const BwVariant copy{BwOp::Copy, BwStores::Plain, false, "copy.plain"};
+        for (const int broken : {1, 2}) {
+            Region mem(8 * MiB);  // one 8 MiB block: one copy unit per pass, 4 cells per half
+            BandwidthSlice s(mem.data, 8 * MiB);
+            QVERIFY(s.fill(11, {}));
+            BandwidthKernel k(f, copy, {&s}, 1);
+            auto t = k.makeThread(0);
+            g_copyMode = 0;
+            for (std::uint64_t u = 0; u < 9; ++u)  // more passes than cells: every rotation, twice
+                t->unit(u);
+            g_copyMode = broken;
+            QVERIFY_THROWS_EXCEPTION(std::runtime_error, t->unit(9));
+            // ...also in a new measurement (a new thread), on the same slice.
+            g_copyMode = 0;
+            auto again = BandwidthKernel(f, copy, {&s}, 1).makeThread(0);
+            again->unit(0);
+            g_copyMode = broken;
+            QVERIFY_THROWS_EXCEPTION(std::runtime_error, again->unit(1));
+        }
+        g_copyMode = 0;
+        // The rotation moves one cell per copy into a chunk, and wraps.
+        Region mem(8 * MiB);
+        BandwidthSlice s(mem.data, 8 * MiB);
+        QCOMPARE(s.nextCopyShift(4 * MiB), std::size_t(1));
+        QCOMPARE(s.nextCopyShift(4 * MiB), std::size_t(2));
+        QCOMPARE(s.nextCopyShift(4 * MiB), std::size_t(3));
+        QCOMPARE(s.nextCopyShift(4 * MiB), std::size_t(0));
+        QCOMPARE(s.nextCopyShift(6 * MiB), std::size_t(1));  // each chunk its own
     }
 
     // Through the engine, single-thread and all-thread: every variant of

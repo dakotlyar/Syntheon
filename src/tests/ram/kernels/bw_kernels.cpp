@@ -121,7 +121,8 @@ BwFunctions bandwidthFunctions(BwPath path)
 // --- BandwidthSlice ---
 
 BandwidthSlice::BandwidthSlice(std::byte *data, std::size_t bytes)
-    : m_data(data), m_bytes(bytes), m_cellBase(bytes / kBwCell), m_known(bytes / kBwCell, false)
+    : m_data(data), m_bytes(bytes), m_cellBase(bytes / kBwCell), m_known(bytes / kBwCell, false),
+      m_copyShift(bytes / kBwCell / 2, 0)
 {
     if (bytes == 0 || bytes % kBwSliceUnit != 0 || reinterpret_cast<std::uintptr_t>(data) % bw::kBwAlign != 0)
         throw std::invalid_argument("BandwidthSlice: a 64-byte aligned multiple of 2 MiB");
@@ -187,6 +188,14 @@ void BandwidthSlice::copied(std::size_t dstOffset, std::size_t srcOffset, std::s
     }
 }
 
+std::size_t BandwidthSlice::nextCopyShift(std::size_t dstOffset)
+{
+    const std::size_t cells = m_bytes / 2 / kBwCell;
+    std::uint32_t &shift = m_copyShift[(dstOffset - m_bytes / 2) / kBwCell];
+    shift = std::uint32_t((shift + 1) % cells);
+    return shift;
+}
+
 // --- BandwidthKernel ---
 
 namespace {
@@ -226,16 +235,27 @@ public:
             break;
         }
         case BwOp::Copy: {
-            const std::size_t half = m_block / 2;
-            const std::size_t src = m_at * half;
-            const std::size_t dst = s.bytes() / 2 + m_at * half;
-            (m_nt ? m_fn.copyNt : m_fn.copy)(cpu::opaqueValue(static_cast<void *>(s.data() + dst)),
-                                             cpu::opaqueValue(static_cast<const void *>(s.data() + src)), half);
-            if (!s.verifyCopySample(dst, src, half, unitIndex))
+            // B / 2 into the second half, from the first half rotated by
+            // nextCopyShift() cells (see the header): one or two pieces.
+            const std::size_t chunk = m_block / 2;
+            const std::size_t sliceHalf = s.bytes() / 2;
+            const std::size_t dst = sliceHalf + m_at * chunk;
+            const std::size_t src = (m_at * chunk + s.nextCopyShift(dst) * kBwCell) % sliceHalf;
+            const std::size_t first = std::min(chunk, sliceHalf - src);
+            const auto copy = m_nt ? m_fn.copyNt : m_fn.copy;
+            copy(cpu::opaqueValue(static_cast<void *>(s.data() + dst)),
+                 cpu::opaqueValue(static_cast<const void *>(s.data() + src)), first);
+            if (first < chunk)
+                copy(cpu::opaqueValue(static_cast<void *>(s.data() + dst + first)),
+                     cpu::opaqueValue(static_cast<const void *>(s.data())), chunk - first);
+            if (!s.verifyCopySample(dst, src, first, unitIndex)
+                || (first < chunk && !s.verifyCopySample(dst + first, 0, chunk - first, unitIndex)))
                 throw std::runtime_error("a sampled line of the copy doesn't match its source: possible miscompile or "
                                          "memory fault");
-            s.copied(dst, src, half);
-            result = s.expectedSum(dst, half);
+            s.copied(dst, src, first);
+            if (first < chunk)
+                s.copied(dst + first, 0, chunk - first);
+            result = s.expectedSum(dst, chunk);
             break;
         }
         }
@@ -260,7 +280,13 @@ private:
 } // namespace
 
 BandwidthKernel::BandwidthKernel(BwPath path, BwVariant variant, std::vector<BandwidthSlice *> slices, int threads)
-    : m_variant(std::move(variant)), m_fn(bandwidthFunctions(path)), m_slices(std::move(slices)), m_threads(threads),
+    : BandwidthKernel(bandwidthFunctions(path), std::move(variant), std::move(slices), threads)
+{
+}
+
+BandwidthKernel::BandwidthKernel(const BwFunctions &functions, BwVariant variant, std::vector<BandwidthSlice *> slices,
+                                 int threads)
+    : m_variant(std::move(variant)), m_fn(functions), m_slices(std::move(slices)), m_threads(threads),
       m_name(opName(m_variant))
 {
     if (m_slices.empty() || (threads != 1 && std::size_t(threads) != m_slices.size()))
