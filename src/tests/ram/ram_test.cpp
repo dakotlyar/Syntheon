@@ -365,6 +365,9 @@ private:
     bool warmUpCore(const isa::CoreChoice &core, const QString &what);
     // What a warm-up on `core` is budgeted (progress).
     double warmBudget(const isa::CoreChoice &core) const;
+    // The warm-up on `core` (picked after the plan, which counted the
+    // latency core's): the total follows its own budget (AP-5 round 4 L3).
+    double rebudgetWarm(const isa::CoreChoice &core);
     std::unique_ptr<WorkerPool> chasePool(const isa::CoreChoice &core) const;
     // Builds the cycle over the latency buffer's first `bytes` on `core` and
     // measures it (ns per hop). Nullopt if the group failed or the run stopped.
@@ -568,8 +571,10 @@ CorePick RamRun::pickCore()
 std::optional<double> topClockMHz(const isa::CoreChoice &core)
 {
 #if defined(__linux__)
+    // A top clock without a readable current one is no use (AP-5 round 4
+    // L4): the warm-up then runs its cap, budgeted so.
     if (core.ranked)
-        return cpu::telemetry::linuxTopClockMHz("/sys", core.cpu);
+        return cpu::telemetry::linuxWatchableTopClockMHz("/sys", core.cpu);
 #else
     (void)core;
 #endif
@@ -581,6 +586,13 @@ double RamRun::warmBudget(const isa::CoreChoice &core) const
     // What a warm-up typically costs: ~1.5 s with a top clock to watch
     // (Tiamat: 0.7-1.4 s), the full cap without one.
     return topClockMHz(core) ? seconds(cpu::scaledWindow(1500ms)) : seconds(cpu::scaledWindow(kWarmCap));
+}
+
+double RamRun::rebudgetWarm(const isa::CoreChoice &core)
+{
+    const double own = warmBudget(core);
+    m_budgetTotal += own - warmBudget(m_core.core);
+    return own;
 }
 
 bool RamRun::warmUpCore(const isa::CoreChoice &core, const QString &what)
@@ -629,7 +641,10 @@ bool RamRun::warmUpCore(const isa::CoreChoice &core, const QString &what)
     } else if (!top) {
         // Dave, 2026-10-20: no honest top clock, so always the full cap.
         m_ctx.log(LogLevel::Info, QStringLiteral("%1: warmed the chase core for %2 s (no top clock to watch)").arg(what).arg(secs, 0, 'f', 1));
-    } else if (clock && ram::warmRatesSteady(rates, 2)) {
+    } else if (!clock) {
+        // A clock that stopped reading during the warm-up.
+        m_ctx.log(LogLevel::Info, QStringLiteral("%1: warmed the chase core for %2 s (its clock couldn't be read)").arg(what).arg(secs, 0, 'f', 1));
+    } else if (ram::warmRatesSteady(rates, 2)) {
         m_ctx.log(LogLevel::Warning, QStringLiteral("%1: the chase core's clock is steady at %2 GHz, below 85% of its top %3 GHz; "
                                                     "measuring anyway")
                                          .arg(what, ghz(*clock), ghz(*top)));
@@ -1047,13 +1062,14 @@ void RamRun::bandwidth()
         return;
     }
     m_budgetDone = std::max(m_budgetDone, start + seconds(m_sampleFor) + 1.5);
+    const double warmShare = rebudgetWarm(pick.core);
     // The picked core may have been idle while the slices filled.
     report(m_budgetDone, QStringLiteral("Single-thread bandwidth · warming up"));
     if (!warmUpCore(pick.core, QStringLiteral("Single-thread bandwidth"))) {
         groupEnd(kBandwidthId);
         return;
     }
-    m_budgetDone += warmBudget(pick.core);
+    m_budgetDone += warmShare;
 
     const QString where = pick.core.ranked ? QStringLiteral("CPU %1").arg(coreName(pick.core)) : QStringLiteral("one unpinned thread");
     m_ctx.log(LogLevel::Info,
@@ -1201,7 +1217,7 @@ void RamRun::loaded()
     const ram::ChaseKernel kernel(m_latencyBuffer.data(), std::size_t(m_dramBytes), m_line,
                                   ram::hopsPerUnit(m_dramNs.value_or(kDefaultDramEstimateNs)));
     const WindowSpec spec = cpu::scaled(kLoaded);
-    const double warmShare = warmBudget(pick.core);
+    const double warmShare = rebudgetWarm(pick.core);
     const double base = m_budgetDone + warmShare;
     // AP-5 M3: the warm-up comes after everything that isn't a measurement
     // (the load threads started and pinned, the chase pool, the spin

@@ -101,6 +101,13 @@ std::optional<double> linuxTopClockMHz(const std::string &sysfsRoot, int cpu)
     return double(*khz) / 1000.0;
 }
 
+std::optional<double> linuxWatchableTopClockMHz(const std::string &sysfsRoot, int cpu)
+{
+    if (!linuxClockMHz(sysfsRoot, {cpu}))
+        return std::nullopt;
+    return linuxTopClockMHz(sysfsRoot, cpu);
+}
+
 std::optional<TempSource> linuxTempSource(const std::string &sysfsRoot)
 {
     // Every hwmon by name, in hwmonN order (the class links resolve to the devices).

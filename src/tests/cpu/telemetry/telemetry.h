@@ -37,6 +37,9 @@ std::optional<double> linuxClockMHz(const std::string &sysfsRoot, const std::vec
 // cpuN/cpufreq/cpuinfo_max_freq (kHz) in MHz: the top clock the driver
 // reports (amd-pstate, intel_pstate: the boost clock). nullopt if absent.
 std::optional<double> linuxTopClockMHz(const std::string &sysfsRoot, int cpu);
+// The top clock when the clock can also be watched: cpuinfo_max_freq and
+// a readable scaling_cur_freq (the RAM test's warm-up, AP-5 round 4 L4).
+std::optional<double> linuxWatchableTopClockMHz(const std::string &sysfsRoot, int cpu);
 
 // A temperature input and how to label it ("k10temp Tctl").
 struct TempSource {

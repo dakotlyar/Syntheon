@@ -106,6 +106,9 @@ private slots:
         // The top clock (the RAM test's warm-up, AP-5 L8): cpuinfo_max_freq.
         QCOMPARE(linuxTopClockMHz(m_knowhere, 0).value(), 5057.467);
         QVERIFY(!linuxTopClockMHz(m_knowhere, 99));
+        // AP-5 round 4 L4: watchable only with a current clock too.
+        QCOMPARE(linuxWatchableTopClockMHz(m_knowhere, 0).value(), 5057.467);
+        QVERIFY(!linuxWatchableTopClockMHz(m_knowhere, 99));
     }
 
     // Knowhere has acpitz, amdgpu, two nvme and k10temp (Tctl): k10temp wins.
