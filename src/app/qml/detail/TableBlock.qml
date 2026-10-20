@@ -39,13 +39,28 @@ Box {
         return Math.ceil(w) + 2
     }
     // The widest word of a header (what it needs when it may wrap).
-    // Words as Text.Wrap breaks them: at spaces and line breaks, and after a
-    // hyphen before a letter ("Controller0-|ChannelA-|DIMM0", Zeb N1).
-    // Underscores and slashes aren't break points for the wrap, so they
-    // stay inside a word ("Socket0_Controller0_ChannelA_DIMM1", N2).
+    // What a cell shows: a word joiner (U+2060) after a "/" before a letter
+    // and after a hyphen in a short token, so the wrap never splits a unit
+    // ("GB/|s", "MT/|s") or a short compound ("SUB-|SCORE", "128-|bit";
+    // Zeb's Defect B). Long identifiers keep their hyphens as break points
+    // ("Controller0-ChannelA-DIMM0", N1).
+    readonly property int longToken: 16
+    function shown(text) {
+        return String(text).split(" ").map(t => {
+            let out = t.replace(/\/(?=[A-Za-z])/g, "/\u2060")
+            if (t.length < longToken)
+                out = out.replace(/-(?=[A-Za-z0-9])/g, "-\u2060")
+            return out
+        }).join(" ")
+    }
+    // Words as Text.Wrap breaks what shown() gives it: at spaces and line
+    // breaks, and after a hyphen before a letter in a long token. Underscores
+    // aren't break points for the wrap, so they stay inside a word
+    // ("Socket0_Controller0_ChannelA_DIMM1", N2).
     function wordWidth(metrics, text, spacing) {
         let w = 0
-        for (const word of String(text).replace(/-(?=[A-Za-z])/g, "- ").split(/[ \n]/))
+        const words = String(text).split(/[ \n]/).map(t => t.length >= longToken ? t.replace(/-(?=[A-Za-z])/g, "- ") : t).join(" ")
+        for (const word of words.split(/[ \n]/))
             w = Math.max(w, metrics.advanceWidth(word) + spacing * word.length)
         return Math.ceil(w) + 2
     }
@@ -181,7 +196,7 @@ Box {
                         horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
                         // Capitals by hand: automatic capitalisation would turn
                         // "µs" into a Greek capital Mu and "GB/s" into "GB/S".
-                        text: root.headerText(modelData)
+                        text: root.shown(root.headerText(modelData))
                         kind: "label"
                         font.capitalization: Font.MixedCase
                         // At a word, else anywhere: a word wider than its
@@ -217,7 +232,7 @@ Box {
                             required property int index
                             width: root.columnWidth(index)
                             horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
-                            text: modelData
+                            text: root.shown(modelData)
                             kind: index === 0 ? "body" : "data"
                             font.pixelSize: 13
                             font.weight: root.boldRows.indexOf(tableRow.index) >= 0 ? Font.DemiBold : Font.Normal
