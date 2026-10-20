@@ -39,9 +39,13 @@ Box {
         return Math.ceil(w) + 2
     }
     // The widest word of a header (what it needs when it may wrap).
+    // Words as Text.Wrap breaks them: at spaces and line breaks, and after a
+    // hyphen before a letter ("Controller0-|ChannelA-|DIMM0", Zeb N1).
+    // Underscores and slashes aren't break points for the wrap, so they
+    // stay inside a word ("Socket0_Controller0_ChannelA_DIMM1", N2).
     function wordWidth(metrics, text, spacing) {
         let w = 0
-        for (const word of String(text).split(/[ \n]/))
+        for (const word of String(text).replace(/-(?=[A-Za-z])/g, "- ").split(/[ \n]/))
             w = Math.max(w, metrics.advanceWidth(word) + spacing * word.length)
         return Math.ceil(w) + 2
     }
@@ -119,9 +123,23 @@ Box {
             const spare = available - wordTotal
             return words.map((x, i) => x + (wantTotal > 0 ? want[i] * spare / wantTotal : spare / n))
         }
-        // ...and only when even that doesn't fit, everything shrinks and
-        // words break.
-        return need.map(x => x * available / total)
+        // ...and when even the widest words don't fit, only the widest
+        // ones break: every column keeps its widest word up to a common cap,
+        // set so the columns fill the width (a long part number wraps
+        // mid-word, "DDR5" and "SIZE" stay whole; Zeb N1).
+        const sorted = words.slice().sort((a, b) => a - b)
+        let cap = available / n
+        let used = 0
+        for (let i = 0; i < n; ++i) {
+            const c = (available - used) / (n - i)
+            if (sorted[i] > c) {
+                cap = c
+                break
+            }
+            used += sorted[i]
+            cap = sorted[i]
+        }
+        return words.map(x => Math.min(x, cap))
     }
     function columnWidth(i) { return widths.length > i ? widths[i] : 0 }
 
