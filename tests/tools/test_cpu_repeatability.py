@@ -269,6 +269,18 @@ with tempfile.TemporaryDirectory() as tmp:
     check(any(l.strip().startswith("L3 latency") and "not measured" in l and "FAIL" not in l for l in out.splitlines()),
           "RAM without an L3: L3 latency is 'not measured', not a failure")
     check("run 4: huge pages 41% (calibration needs 90%)" in out, "RAM: low huge-page coverage is reported")
+    # AP-5 L4: only latency.l3 may be missing everywhere; another scored
+    # metric missing from every run fails the set.
+    nost = tmp / "nost.db"
+    runs = [ram_run(k) for k in (0, 2, -1)]
+    for r in runs:
+        del r["metrics"]["bandwidth.st.copy"]
+    make_ram_db(nost, runs)
+    rc, out, _ = run(nost, "--test", "ram", "--runs", "1,2,3")
+    print(out)
+    check(rc == 1 and "RESULT: FAIL" in out, "RAM without single-thread copy: FAIL")
+    check(any(l.strip().startswith("Copy, one thread") and l.rstrip().endswith("FAIL") for l in out.splitlines()),
+          "RAM: the missing metric's line is flagged")
 
 print(f"{len(failures)} failure(s)")
 sys.exit(1 if failures else 0)

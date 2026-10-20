@@ -14,9 +14,9 @@ the chosen results of one test:
     coverage);
   * the CV (sample standard deviation / mean) of the score, of each group
     sub-score and (CPU) of the single-thread mark or (RAM) of every scored
-    metric, with every CV above the limit flagged. A RAM metric that no run
-    has (latency.l3 on a core without an L3) is listed as not measured and
-    doesn't fail the set.
+    metric, with every CV above the limit flagged. latency.l3 missing from
+    every run (a core without an L3) is listed as not measured and doesn't
+    fail the set; any other scored metric missing fails it.
 
 Usage:
   cpu-repeatability.py <synbench.db> [--test cpu|ram] [-n N] [--runs ID,ID,...] [--limit PCT]
@@ -85,6 +85,8 @@ TESTS = {
             ("bandwidth.st.copy", "Copy, one thread"),
             ("loaded.latency", "Loaded latency (ns)"),
         ],
+        # Absent from every run on a core without an L3 (Phase 3 D1).
+        "optional": ("latency.l3",),
     },
 }
 # §15.1: RAM calibration runs need at least this huge-page coverage.
@@ -253,13 +255,13 @@ def main(argv=None):
     # (label, values, may be absent from every run)
     series = [(f"{name} score", [r["score"] for r in runs], False)] + \
              [(label, [r["subs"][g] for r in runs], False) for g, label in groups] + \
-             [(label, [r["metrics"][k] for r in runs], args.test == "ram") for k, label in spec["metrics"]]
+             [(label, [r["metrics"][k] for r in runs], k in spec.get("optional", ())) for k, label in spec["metrics"]]
     width = max(20, *(len(label) for label, _, _ in series))
     for label, values, optional in series:
         used = sum(isinstance(v, (int, float)) for v in values)
         if optional and used == 0:
-            # A RAM metric no run has: not on this machine (latency.l3
-            # without an L3).
+            # latency.l3, which no run has: a core without an L3. Any other
+            # metric missing everywhere fails the set (AP-5 L4).
             print(f"  {label:<{width}} —      (not measured on these runs)")
             continue
         cv = cv_percent([v if isinstance(v, (int, float)) else None for v in values])
