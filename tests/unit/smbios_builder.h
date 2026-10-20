@@ -49,7 +49,9 @@ public:
         return out;
     }
 
-    // A full table with BIOS, system and two memory devices plus an empty slot.
+    // A full table with BIOS, system, Knowhere's eight memory devices (from
+    // Dave's dmidecode -t 17, 2026-10-20; serials replaced with a marker the
+    // tests look for) plus an empty slot.
     static QByteArray sample()
     {
         SmbiosBuilder b;
@@ -60,18 +62,23 @@ public:
             .str(0x06, "1.0")
             .str(0x07, "SERIAL-SHOULD-NOT-APPEAR")
             .str(0x1A, "TUF Gaming A14");
-        for (int i = 0; i < 2; ++i) {
-            b.add(17, 0x5C)
-                .word(0x0C, 0x7FFF)
-                .dword(0x1C, 32768)  // 32 GiB via extended size
-                .str(0x10, i == 0 ? "DIMM 0" : "DIMM 1")
-                .str(0x11, i == 0 ? "P0 CHANNEL A" : "P0 CHANNEL B")
+        for (const char channel : QByteArrayView("ABCDEFGH")) {
+            b.add(17, 0x64)          // SMBIOS 3.7: 100 bytes
+                .word(0x08, 32)      // total width
+                .word(0x0A, 32)      // data width
+                .word(0x0C, 4096)    // 4 GiB, in MB
+                .byte(0x0E, 0x01)    // form factor: Other
+                .str(0x10, "DIMM 0")
+                .str(0x11, "P0 CHANNEL " + QByteArray(1, channel))
                 .byte(0x12, 0x23)    // LPDDR5
-                .word(0x15, 8000)
-                .str(0x17, "Samsung")
+                .word(0x13, 0x4080)  // synchronous, unbuffered
+                .word(0x15, 8532)
+                .str(0x17, "Micron Technology")
                 .str(0x18, "SERIAL-SHOULD-NOT-APPEAR")
-                .str(0x1A, "K3KL3L30EM-BGCV ")
-                .word(0x20, 8000);
+                .str(0x1A, "MT62F1G32D2DS-023 WT")
+                .byte(0x1B, 1)       // rank 1
+                .word(0x20, 8000)    // configured
+                .word(0x2C, 0x2C80); // module maker: bank 1 (no continuation, parity bit), 0x2C (Micron)
         }
         b.add(17, 0x28).word(0x0C, 0);  // empty slot
         b.add(127, 4);

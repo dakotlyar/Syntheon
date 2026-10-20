@@ -263,9 +263,9 @@ private slots:
         // The task-10 path: SMBIOS through the helper into sysinfo.
         SystemInfo info;
         QVERIFY(sysinfo::applyPrivilegedSmbios(info, c, &error));
-        QCOMPARE(info.memory.modules.size(), 2);
+        QCOMPARE(info.memory.modules.size(), 8);  // Knowhere's (SmbiosBuilder::sample)
         QCOMPARE(info.memory.modules[0].type, QStringLiteral("LPDDR5"));
-        QCOMPARE(info.memory.channels, 2);
+        QCOMPARE(info.memory.channels, 8);
     }
 
     void requestsFromManyThreads()

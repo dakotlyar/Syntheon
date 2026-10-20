@@ -199,8 +199,8 @@ private slots:
     }
 
     // Phase 3 D11: without the helper, the modules come from udev's copy
-    // in run/udev/data/+dmi:id (Tiamat's capture); a tree without it
-    // (Knowhere's) changes nothing.
+    // in run/udev/data/+dmi:id (Tiamat's capture; Knowhere's from its
+    // dmidecode); a tree without it (intel-hybrid) changes nothing.
     void udevMemoryFallback()
     {
         QTemporaryDir tiamat;
@@ -214,8 +214,14 @@ private slots:
         QCOMPARE(info.memory.modules[0].configuredSpeedMts, 6000);
         QCOMPARE(info.memory.modules[0].rank, 2);
         QCOMPARE(info.memory.channels, 2);
+        SystemInfo knowhere;
+        QVERIFY(sb::sysinfo::applyUdevMemory(knowhere, kKnowhere));
+        QCOMPARE(knowhere.memory.modules.size(), 8);
+        QCOMPARE(knowhere.memory.modules[0].configuredSpeedMts, 8000);
+        QCOMPARE(knowhere.memory.modules[0].dataWidth, 32);
+        QCOMPARE(knowhere.memory.channels, 8);
         SystemInfo none;
-        QVERIFY(!sb::sysinfo::applyUdevMemory(none, kKnowhere));
+        QVERIFY(!sb::sysinfo::applyUdevMemory(none, kIntel));
         QVERIFY(!none.memory.modulesKnown);
         QVERIFY(none.memory.modulesSource.isEmpty());
     }

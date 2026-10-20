@@ -110,16 +110,25 @@ private slots:
         QCOMPARE(s.maker, QStringLiteral("ASUSTeK COMPUTER INC."));
         QCOMPARE(s.product, QStringLiteral("TUF Gaming A14 FA401EA"));
         QCOMPARE(s.family, QStringLiteral("TUF Gaming A14"));
-        QCOMPARE(s.memoryDevices.size(), 2);  // the empty slot is skipped
+        // Knowhere's eight devices (dmidecode -t 17); the empty slot is skipped.
+        QCOMPARE(s.memoryDevices.size(), 8);
         const SmbiosMemoryDevice &d = s.memoryDevices[0];
-        QCOMPARE(d.sizeBytes, qint64(32) << 30);
+        QCOMPARE(d.sizeBytes, qint64(4) << 30);
         QCOMPARE(d.type, QStringLiteral("LPDDR5"));
-        QCOMPARE(d.speedMts, 8000);
+        QCOMPARE(d.speedMts, 8532);
         QCOMPARE(d.configuredSpeedMts, 8000);
-        QCOMPARE(d.manufacturer, QStringLiteral("Samsung"));
-        QCOMPARE(d.partNumber, QStringLiteral("K3KL3L30EM-BGCV"));
+        QCOMPARE(d.manufacturer, QStringLiteral("Micron Technology"));
+        QCOMPARE(d.partNumber, QStringLiteral("MT62F1G32D2DS-023 WT"));
+        QCOMPARE(d.locator, QStringLiteral("DIMM 0"));
         QCOMPARE(d.bankLocator, QStringLiteral("P0 CHANNEL A"));
-        QCOMPARE(estimateMemoryChannels(s.memoryDevices), 2);
+        QCOMPARE(s.memoryDevices[7].bankLocator, QStringLiteral("P0 CHANNEL H"));
+        QCOMPARE(d.dataWidth, 32);
+        QCOMPARE(d.totalWidth, 32);
+        QCOMPARE(d.formFactor, QString());  // "Other"
+        QCOMPARE(d.rank, 1);
+        QCOMPARE(d.moduleManufacturerBank, 1);
+        QCOMPARE(d.moduleManufacturerCode, 0x2C);
+        QCOMPARE(estimateMemoryChannels(s.memoryDevices), 8);
     }
 
     // AP-5 L4: one reading of the locators for System info's channel
@@ -240,7 +249,7 @@ private slots:
         applySmbios(info, s);
         const QByteArray json = QJsonDocument(info.toJson()).toJson();
         QVERIFY(!json.contains("SERIAL"));
-        QVERIFY(json.contains("K3KL3L30EM-BGCV"));
+        QVERIFY(json.contains("MT62F1G32D2DS-023 WT"));
     }
 
     // Phase 3 P16: type 17's total / data width (0x08, 0x0A), form factor
@@ -336,6 +345,43 @@ private slots:
         QVERIFY(parseUdevMemoryDevices(QString()).isEmpty());
     }
 
+    // The same on Knowhere (dmidecode -t 17, written as udev's fields): 8
+    // soldered LPDDR5 devices, 32-bit each, one per channel A..H.
+    void udevMemoryDevicesKnowhere()
+    {
+        const QVector<SmbiosMemoryDevice> d =
+            parseUdevMemoryDevices(fixture(QStringLiteral("linux/knowhere/run/udev/data/+dmi%3Aid")));
+        QCOMPARE(d.size(), 8);
+        for (int i = 0; i < 8; ++i) {
+            const SmbiosMemoryDevice &m = d[i];
+            QCOMPARE(m.locator, QStringLiteral("DIMM 0"));
+            QCOMPARE(m.bankLocator, QStringLiteral("P0 CHANNEL %1").arg(QChar(u'A' + i)));
+            QCOMPARE(m.sizeBytes, qint64(4) << 30);
+            QCOMPARE(m.type, QStringLiteral("LPDDR5"));
+            QCOMPARE(m.speedMts, 8532);
+            QCOMPARE(m.configuredSpeedMts, 8000);
+            QCOMPARE(m.rank, 1);
+            QCOMPARE(m.dataWidth, 32);
+            QCOMPARE(m.totalWidth, 32);
+            QCOMPARE(m.formFactor, QString());  // "Other"
+            QCOMPARE(m.manufacturer, QStringLiteral("Micron Technology"));
+            QCOMPARE(m.partNumber, QStringLiteral("MT62F1G32D2DS-023 WT"));
+            QCOMPARE(m.moduleManufacturerBank, 1);
+            QCOMPARE(m.moduleManufacturerCode, 0x2C);
+        }
+        QCOMPARE(estimateMemoryChannels(d), 8);
+        // The table path reads the same devices (SmbiosBuilder::sample()).
+        const QVector<SmbiosMemoryDevice> table = parseSmbiosTable(SmbiosBuilder::sample(), {3, 7}).memoryDevices;
+        QCOMPARE(table.size(), d.size());
+        for (int i = 0; i < 8; ++i) {
+            QCOMPARE(table[i].bankLocator, d[i].bankLocator);
+            QCOMPARE(table[i].dataWidth, d[i].dataWidth);
+            QCOMPARE(table[i].formFactor, d[i].formFactor);
+            QCOMPARE(table[i].manufacturer, d[i].manufacturer);
+            QCOMPARE(table[i].configuredSpeedMts, d[i].configuredSpeedMts);
+        }
+    }
+
     // Type 17's Module Manufacturer ID (SMBIOS 3.2, 0x2C): Tiamat's
     // modules say "Unknown" with Bank 5, 0xCD, which is G.Skill.
     void smbiosModuleManufacturerId()
@@ -417,7 +463,7 @@ private slots:
         const auto s = parseWindowsRawSmbios(raw);
         QVERIFY(s);
         QCOMPARE(s->version.major, 3);
-        QCOMPARE(s->memoryDevices.size(), 2);
+        QCOMPARE(s->memoryDevices.size(), 8);
         qToLittleEndian<quint32>(quint32(table.size() + 1), raw.data() + 4);  // claims too much
         QVERIFY(!parseWindowsRawSmbios(raw));
         QVERIFY(!parseWindowsRawSmbios(QByteArray(3, '\0')));
@@ -431,8 +477,8 @@ private slots:
         QCOMPARE(info.machine.maker, QStringLiteral("From DMI"));
         QCOMPARE(info.machine.model, QStringLiteral("TUF Gaming A14 FA401EA"));
         QVERIFY(info.memory.modulesKnown);
-        QCOMPARE(info.memory.modules.size(), 2);
-        QCOMPARE(info.memory.channels, 2);
+        QCOMPARE(info.memory.modules.size(), 8);
+        QCOMPARE(info.memory.channels, 8);
     }
 
     // --- Windows helpers (portable, task 8) ---
@@ -563,13 +609,13 @@ private slots:
         // Linux shape: entry point + table.
         ops.result = SmbiosTables{QByteArray("_SM3_\x00\x18\x03\x06", 9), 0, 0, SmbiosBuilder::sample()};
         QVERIFY(applyPrivilegedSmbios(info, ops, &error));
-        QCOMPARE(info.memory.modules.size(), 2);
+        QCOMPARE(info.memory.modules.size(), 8);
 
         // Windows shape: version + table, no entry point.
         SystemInfo win;
         ops.result = SmbiosTables{{}, 3, 6, SmbiosBuilder::sample()};
         QVERIFY(applyPrivilegedSmbios(win, ops));
-        QCOMPARE(win.memory.modules.size(), 2);
+        QCOMPARE(win.memory.modules.size(), 8);
 
         // An unrecognisable entry point is refused, not guessed.
         ops.result = SmbiosTables{QByteArray("junk"), 0, 0, SmbiosBuilder::sample()};

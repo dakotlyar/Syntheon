@@ -5,3 +5,12 @@ user. No serial numbers, UUIDs or battery manufacturer/model strings.
 The telemetry files (hwmon temperatures, cpufreq/scaling_cur_freq and the
 ACPI platform profile) were added on 2026-10-18 from a capture with the
 extended script, without changing the files captured before.
+
+run/udev/data/+dmi:id (added 2026-10-20): the SMBIOS memory devices
+(type 17) from Dave's `dmidecode -t 17` on Knowhere, serials and asset
+tags removed, written in systemd's dmi_memory_id spellings with the
+capture script's whitelisted fields (it is not a udev capture: the
+values are dmidecode's). 8 soldered LPDDR5 devices, "DIMM 0" in
+"P0 CHANNEL A" .. "P0 CHANNEL H", 4 GiB, 32-bit each, Form Factor
+"Other", 1R, rated 8,532 MT/s, configured 8,000 MT/s, Micron
+(Bank 1, 0x2C) MT62F1G32D2DS-023 WT.

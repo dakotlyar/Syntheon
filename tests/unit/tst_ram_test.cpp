@@ -196,6 +196,34 @@ SystemSnapshot tiamatSnapshot()
     return s;
 }
 
+// Knowhere (Ryzen AI MAX+ 392) as udev reads it (its dmidecode -t 17,
+// tests/fixtures/linux/knowhere/run/udev): 8 soldered LPDDR5 devices,
+// 32-bit each, one per channel; Form Factor "Other" (none).
+SystemSnapshot knowhereSnapshot()
+{
+    QJsonArray modules;
+    for (const char ch : QByteArrayView("ABCDEFGH"))
+        modules.append(QJsonObject{{QStringLiteral("size_bytes"), 4.0 * 1024 * 1024 * 1024},
+                                   {QStringLiteral("type"), QStringLiteral("LPDDR5")},
+                                   {QStringLiteral("speed_mts"), 8532},
+                                   {QStringLiteral("configured_speed_mts"), 8000},
+                                   {QStringLiteral("manufacturer"), QStringLiteral("Micron Technology")},
+                                   {QStringLiteral("manufacturer_source"), QStringLiteral("smbios")},
+                                   {QStringLiteral("part_number"), QStringLiteral("MT62F1G32D2DS-023 WT")},
+                                   {QStringLiteral("locator"), QStringLiteral("DIMM 0")},
+                                   {QStringLiteral("bank_locator"), QStringLiteral("P0 CHANNEL %1").arg(QLatin1Char(ch))},
+                                   {QStringLiteral("rank"), 1},
+                                   {QStringLiteral("data_width"), 32},
+                                   {QStringLiteral("total_width"), 32}});
+    SystemSnapshot s;
+    s.data.insert(QStringLiteral("memory"), QJsonObject{{QStringLiteral("total_bytes"), 32.0 * 1024 * 1024 * 1024},
+                                                        {QStringLiteral("modules_known"), true},
+                                                        {QStringLiteral("modules_source"), QStringLiteral("udev")},
+                                                        {QStringLiteral("channels"), 8},
+                                                        {QStringLiteral("modules"), modules}});
+    return s;
+}
+
 QString textOf(const TestResult &r, const char *key)
 {
     const Metric *m = r.metric(QLatin1StringView(key));
@@ -544,9 +572,27 @@ private slots:
         // Locators that don't say: the channel estimate x the widest module.
         four = ram::memoryReadout(snapshot({dimm("Slot 1", "", 64), dimm("Slot 2", "", 64), dimm("Slot 3", "", 64), dimm("Slot 4", "", 64)}, 2), false);
         QCOMPARE(widthOf(four), QStringLiteral("128-bit"));
-        // Soldered LPDDR5X (AP-5 M2): its widths add up, whatever the
-        // locators say. Per channel, 32-bit each (a Strix Halo like
-        // Knowhere: 8 x 32 = 256-bit) and 16-bit each (128-bit); 8 x 16-bit
+        // Soldered LPDDR (AP-5 M2): its widths add up, whatever the
+        // locators say. Knowhere's real devices (8 x 32-bit LPDDR5, Form
+        // Factor "Other"): 256-bit, 8 channels, 8,000 x 256 / 8 = 256 GB/s
+        // (its Ryzen AI MAX+ 392 has a 256-bit LPDDR5X bus).
+        {
+            const ram::MemoryReadout k = ram::memoryReadout(knowhereSnapshot(), false);
+            TestResult kt;
+            kt.metrics = k.metrics;
+            QCOMPARE(textOf(kt, "config.width"), QStringLiteral("256-bit"));
+            QCOMPARE(numberOf(kt, "channels"), 8.0);
+            QCOMPARE(numberOf(kt, "speed"), 8000.0);
+            QCOMPARE(numberOf(kt, "config.peak"), 256.0);
+            QCOMPARE(textOf(kt, "config.type"), QStringLiteral("LPDDR5"));
+            QCOMPARE(textOf(kt, "config.modules"), QStringLiteral("8 × 4 GB"));
+            QCOMPARE(textOf(kt, "config.module.1"), QStringLiteral("DIMM 0 (P0 CHANNEL A) · 4 GB · LPDDR5 · 8,000 MT/s · 1R · "
+                                                                    "Micron Technology · MT62F1G32D2DS-023 WT"));
+            qInfo("Knowhere: %s, %s channels, peak %s GB/s, rated %s", qPrintable(textOf(kt, "config.width")),
+                  qPrintable(QString::number(numberOf(kt, "channels"))), qPrintable(QString::number(numberOf(kt, "config.peak"))),
+                  qPrintable(textOf(kt, "config.rated")));
+        }
+        // Synthetic: 16-bit each per channel (128-bit); 8 x 16-bit
         // under "BANK 0" .. "BANK 7", no channel named (128-bit, not the old
         // guess of 2 x 16); two x16 sub-channels under one channel locator
         // (32-bit, not 16).
@@ -556,16 +602,13 @@ private slots:
             o.insert(QStringLiteral("form_factor"), QStringLiteral("Row Of Chips"));
             return o;
         };
-        QJsonArray lp, lp16, banks, sub;
-        for (const char *ch : {"A", "B", "C", "D", "E", "F", "G", "H"}) {
-            lp.append(chip(QStringLiteral("P0 CHANNEL %1").arg(QLatin1StringView(ch)), 32));
+        QJsonArray lp16, banks, sub;
+        for (const char *ch : {"A", "B", "C", "D", "E", "F", "G", "H"})
             lp16.append(chip(QStringLiteral("P0 CHANNEL %1").arg(QLatin1StringView(ch)), 16));
-        }
         for (int i = 0; i < 8; ++i)
             banks.append(chip(QStringLiteral("BANK %1").arg(i), 16));
         sub.append(chip(QStringLiteral("P0 CHANNEL A"), 16));
         sub.append(chip(QStringLiteral("P0 CHANNEL A"), 16));
-        QCOMPARE(widthOf(ram::memoryReadout(snapshot(lp, 8), false)), QStringLiteral("256-bit"));
         QCOMPARE(widthOf(ram::memoryReadout(snapshot(lp16, 8), false)), QStringLiteral("128-bit"));
         QCOMPARE(widthOf(ram::memoryReadout(snapshot(banks, 2), false)), QStringLiteral("128-bit"));
         QCOMPARE(widthOf(ram::memoryReadout(snapshot(sub, 1), false)), QStringLiteral("32-bit"));
