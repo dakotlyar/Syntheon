@@ -12,6 +12,15 @@
 // median commutes with that monotone map, so the median latency is
 // 1e9 / the median rate.
 //
+// The rate of a window is K hops over its MEDIAN unit's time, not the
+// engine's units x K over the window (KernelThread::windowRate). A pinned
+// chase shares its core with whatever the OS also runs there until the
+// load balancer moves it away: on Tiamat a background process's thread
+// (about a third of CPU 13) stayed on the chase core for the first second
+// of the grid, and 4-12 KiB read 0.915 ns instead of 0.70. Preemption makes
+// a few units long; the median unit is untouched by it. Hops per unit stay
+// constant, so it is still a fixed-work time measurement.
+//
 // Correctness (§5.1, §9): every unit's end pointer must lie inside the
 // buffer, on a line boundary; otherwise the unit throws and the measurement
 // is an Error ("the pointer chase left its buffer..."). The end pointer
@@ -22,7 +31,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace sb::ram {
 
@@ -49,6 +60,10 @@ std::uint64_t hopsPerUnit(double estimateNs);
 
 // Whether `p` is a line start inside [base, base + bytes).
 bool chaseInRange(const void *p, const std::byte *base, std::size_t bytes, std::size_t lineSize);
+
+// K hops over the median of a window's unit times (seconds); nullopt for
+// no units.
+std::optional<double> medianUnitRate(std::vector<double> unitSeconds, std::uint64_t hopsPerUnit);
 
 // ns per hop from the engine's hops per second.
 double latencyNs(double hopsPerSecond);

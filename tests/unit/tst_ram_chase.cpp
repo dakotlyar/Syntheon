@@ -6,6 +6,8 @@
 // during a 2 GiB build; n hops = an independent reference walk; the range
 // check fires on planted bad pointers; K per unit is constant and sized as
 // §5.1 says; and a real measurement reads DRAM slower than L1.
+#include "isa/core_ranking.h"
+#include "tests/cpu/engine/platform_threads.h"
 #include "tests/cpu/engine/worker_pool.h"
 #include "tests/ram/kernels/chase.h"
 #include "tests/ram/kernels/cycle_builder.h"
@@ -198,6 +200,62 @@ private slots:
         QCOMPARE(chaseHops(base, 256 * KiB / kLine), static_cast<const void *>(base));
     }
 
+    // A window's rate is K hops over its median unit's time.
+    void medianUnitRateIsTheMiddleUnit()
+    {
+        QVERIFY(!medianUnitRate({}, 1000));
+        QCOMPARE(*medianUnitRate({0.002}, 1000), 500000.0);
+        QCOMPARE(*medianUnitRate({0.009, 0.001, 0.002}, 1000), 500000.0);       // odd: the middle one
+        QCOMPARE(*medianUnitRate({0.004, 0.001, 0.003, 0.002}, 1000), 400000.0);  // even: the mean of the middle two
+        QVERIFY(!medianUnitRate({0.0}, 1000));
+    }
+
+    // Tiamat, checkpoint 3 (Zeb): a background thread sharing the chase core
+    // made 4-12 KiB read 30% slow. Pinned to the same CPU, a competitor busy
+    // a third of the time must not move the latency (the median unit);
+    // over the whole window it would.
+    void contendedCoreReadsTheSameLatency()
+    {
+        const std::vector<sb::isa::CoreChoice> cpus = sb::isa::allowedLogicalCpus();
+        if (cpus.empty())
+            QSKIP("no CPU list to pin to on this platform");
+        const sb::isa::CoreChoice core = cpus.back();
+        std::vector<std::uint64_t> mem(16 * KiB / 8);
+        auto *base = reinterpret_cast<std::byte *>(mem.data());
+        QCOMPARE(buildChaseCycle(base, 16 * KiB, kLine, chaseSeed(16 * KiB), {}), CycleBuild::Ok);
+        const ChaseKernel kernel(base, 16 * KiB, kLine, hopsPerUnit(1.0));
+        sb::cpu::WorkerPool::Options o;
+        o.threads = 1;
+        o.pinTo = core;
+        sb::cpu::WorkerPool pool(o);
+        const sb::cpu::WindowSpec spec{std::chrono::milliseconds(50), std::chrono::milliseconds(200), 5};
+        const auto measure = [&](double *wallNs) {
+            const sb::cpu::Measurement m = pool.measure(kernel, spec, [] { return false; });
+            std::vector<double> wall;
+            for (const sb::cpu::RepSample &r : m.reps)
+                wall.push_back(r.seconds > 0 ? double(r.units) * double(kernel.hops()) / r.seconds : 0);
+            *wallNs = latencyNs(sb::cpu::medianOf(wall));
+            return latencyNs(m.median);
+        };
+        double wallIdle = 0, wallBusy = 0;
+        const double idle = measure(&wallIdle);
+        std::atomic<bool> stop{false};
+        std::thread competitor([&] {
+            sb::cpu::pinCurrentThread(core);
+            while (!stop) {
+                const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(3);
+                while (std::chrono::steady_clock::now() < until) {
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(6));
+            }
+        });
+        const double busy = measure(&wallBusy);
+        stop = true;
+        competitor.join();
+        qInfo("idle %.3f ns (whole window %.3f); with a competitor %.3f ns (whole window %.3f)", idle, wallIdle, busy, wallBusy);
+        QVERIFY2(busy < idle * 1.10, qPrintable(QStringLiteral("%1 ns against %2 ns").arg(busy).arg(idle)));
+    }
+
     // §5.1, §9: a unit whose end pointer is outside the buffer, or inside
     // it but off a line start, is an Error.
     void rangeCheckFiresOnPlantedPointers()
@@ -275,8 +333,9 @@ private slots:
     }
 
     // Through the engine: K stays the unit's work, the rate is hops per
-    // second, and DRAM reads slower than L1 (a factor no loaded runner
-    // closes; no absolute speed is asserted).
+    // second (from the median unit: close to the whole window's on an
+    // uncontended core), and DRAM reads slower than L1 (a factor no loaded
+    // runner closes; no absolute speed is asserted).
     void measuredDramSlowerThanL1()
     {
         const std::size_t small = 16 * KiB, large = 256 * MiB;
@@ -292,7 +351,7 @@ private slots:
             QVERIFY2(m.ok(), m.error.c_str());
             QCOMPARE(k.workPerUnit(), double(k.hops()));
             for (const sb::cpu::RepSample &r : m.reps)
-                QVERIFY(qAbs(r.rate * r.seconds / double(r.units) - double(k.hops())) < 1e-6 * double(k.hops()));
+                QVERIFY(qAbs(r.rate * r.seconds / double(r.units) - double(k.hops())) < 0.25 * double(k.hops()));
             ns[i++] = latencyNs(m.median);
         }
         qInfo("chase: %.2f ns at 16 KiB, %.1f ns at 256 MiB", ns[0], ns[1]);
