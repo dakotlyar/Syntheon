@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "core/memory_channels.h"
 #include "smbios_builder.h"
 #include "sysinfo/collector.h"
 #include "sysinfo/parsers/jep106.h"
@@ -119,6 +120,37 @@ private slots:
         QCOMPARE(d.partNumber, QStringLiteral("K3KL3L30EM-BGCV"));
         QCOMPARE(d.bankLocator, QStringLiteral("P0 CHANNEL A"));
         QCOMPARE(estimateMemoryChannels(s.memoryDevices), 2);
+    }
+
+    // AP-5 L4: one reading of the locators for System info's channel
+    // estimate and the RAM test's bus width (core/memory_channels).
+    void memoryChannelKeys()
+    {
+        QCOMPARE(memoryChannelKey(QStringLiteral("P0 CHANNEL A"), QStringLiteral("DIMMA2")), QStringLiteral("P0 A"));
+        QCOMPARE(memoryChannelKey(QStringLiteral("P1 CHANNEL A"), QStringLiteral("DIMMA2")), QStringLiteral("P1 A"));
+        QCOMPARE(memoryChannelKey(QStringLiteral("BANK 0"), QStringLiteral("Controller0-ChannelA-DIMM0")), QStringLiteral("CONTROLLER0 A"));
+        QCOMPARE(memoryChannelKey(QStringLiteral("BANK 2"), QStringLiteral("Controller1-ChannelA-DIMM0")), QStringLiteral("CONTROLLER1 A"));
+        QCOMPARE(memoryChannelKey(QStringLiteral("Channel-B"), QString()), QStringLiteral("B"));
+        QCOMPARE(memoryChannelKey(QString(), QStringLiteral("ChannelB-DIMM0")), QStringLiteral("B"));
+        QCOMPARE(memoryChannelKey(QStringLiteral("BANK 1"), QStringLiteral("DIMM_B1")), QStringLiteral("B"));
+        QCOMPARE(memoryChannelKey(QStringLiteral("BANK 0"), QStringLiteral("DIMM 0")), QString());
+        // Intel: two controllers x two channels, two DIMMs each -> 4.
+        QList<QPair<QString, QString>> intel;
+        for (const char *c : {"0", "1"})
+            for (const char *ch : {"A", "B"})
+                for (const char *d : {"0", "1"})
+                    intel.append({QStringLiteral("BANK 0"), QStringLiteral("Controller%1-Channel%2-DIMM%3").arg(QLatin1StringView(c), QLatin1StringView(ch), QLatin1StringView(d))});
+        QCOMPARE(countMemoryChannels(intel).channels, 4);
+        QVERIFY(countMemoryChannels(intel).fromLocators);
+        // Dual socket: P0/P1 CHANNEL A..B -> 4; mixed bank/locator naming.
+        QCOMPARE(countMemoryChannels({{QStringLiteral("P0 CHANNEL A"), {}}, {QStringLiteral("P1 CHANNEL A"), {}},
+                                      {QStringLiteral("P0 CHANNEL B"), {}}, {QStringLiteral("P1 CHANNEL B"), {}}}).channels, 4);
+        QCOMPARE(countMemoryChannels({{QStringLiteral("BANK 0"), QStringLiteral("ChannelA-DIMM0")},
+                                      {QStringLiteral("BANK 1"), QStringLiteral("ChannelB-DIMM0")}}).channels, 2);
+        // Locators that don't say: a guess, flagged.
+        const MemoryChannelCount guess = countMemoryChannels({{QStringLiteral("BANK 0"), {}}, {QStringLiteral("BANK 1"), {}}, {QStringLiteral("BANK 2"), {}}});
+        QCOMPARE(guess.channels, 2);
+        QVERIFY(!guess.fromLocators);
     }
 
     void smbiosSizesAndSpeeds()

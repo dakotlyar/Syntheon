@@ -4,7 +4,8 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLocale>
-#include <QRegularExpression>
+#include "core/memory_channels.h"
+
 
 #include <algorithm>
 #include <cmath>
@@ -39,23 +40,6 @@ QString ranksText(const QVector<int> &ranks)
     }
     std::sort(distinct.begin(), distinct.end());
     return distinct.join(QLatin1Char('/'));
-}
-
-// The channel a module sits on, from its bank locator and locator ("P0
-// CHANNEL A" -> "P0 A", "DIMMB2" -> "B"), as System info's channel
-// estimate reads them; empty when they don't say.
-QString channelOf(const QString &bank, const QString &locator)
-{
-    static const QRegularExpression channel(QStringLiteral(R"(CHANNEL[\s_-]*([A-Z0-9]+))"),
-                                            QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression dimm(QStringLiteral(R"(DIMM[\s_-]*([A-Z])\d)"), QRegularExpression::CaseInsensitiveOption);
-    for (const QString &where : {bank, locator}) {
-        if (const auto m = channel.match(where); m.hasMatch())
-            return (where.left(m.capturedStart()).trimmed() + QLatin1Char(' ') + m.captured(1)).trimmed().toUpper();
-    }
-    if (const auto m = dimm.match(bank + QLatin1Char(' ') + locator); m.hasMatch())
-        return m.captured(1).toUpper();
-    return {};
 }
 
 // A field of config.module.N: never the separator itself (AP-5 L5).
@@ -114,11 +98,14 @@ MemoryReadout memoryReadout(const SystemSnapshot &system, bool windows)
     double total = 0;
     int width = 0;
     bool widthKnown = true;
-    // Decision 4 (Dave, 2026-10-20; AP-5 M3): the bus is as wide as the
-    // channels that hold a module, each as wide as its widest module (two
-    // DIMMs on a channel share it, they don't add width).
+    // Decision 4 (Dave, 2026-10-20; AP-5 M3, M2): socketed modules (DIMM,
+    // SODIMM) share their channel, so the bus is as wide as the channels
+    // that hold one, each as wide as its widest module. Soldered memory
+    // (LPDDR, "Row Of Chips") is listed per device or sub-channel, so its
+    // widths add up, whatever the locators say.
     std::map<QString, int> channelWidth;
-    bool channelsKnown = true;
+    QList<QPair<QString, QString>> locators;
+    bool socketed = true;
     int widest = 0;
     int configured = 0, rated = 0;  // the lowest of each (0: none reported)
     QStringList lines;
@@ -140,11 +127,15 @@ MemoryReadout memoryReadout(const SystemSnapshot &system, bool windows)
         else
             widthKnown = false;
         widest = std::max(widest, dataWidth);
-        const QString ch = channelOf(m.value(QStringLiteral("bank_locator")).toString(), m.value(QStringLiteral("locator")).toString());
-        if (ch.isEmpty())
-            channelsKnown = false;
-        else
-            channelWidth[ch] = std::max(channelWidth[ch], dataWidth);
+        const QString formFactor = m.value(QStringLiteral("form_factor")).toString();
+        if (formFactor.isEmpty() ? type.startsWith(QLatin1StringView("LPDDR"), Qt::CaseInsensitive)
+                                 : !formFactor.contains(QLatin1StringView("DIMM"), Qt::CaseInsensitive))
+            socketed = false;
+        const QString bankLocator = m.value(QStringLiteral("bank_locator")).toString();
+        const QString slotLocator = m.value(QStringLiteral("locator")).toString();
+        locators.append({bankLocator, slotLocator});
+        const QString ch = memoryChannelKey(bankLocator, slotLocator);
+        channelWidth[ch] = std::max(channelWidth[ch], dataWidth);
         const int effective = conf > 0 ? conf : speed;
         if (effective > 0)
             configured = configured == 0 ? effective : std::min(configured, effective);
@@ -168,14 +159,15 @@ MemoryReadout memoryReadout(const SystemSnapshot &system, bool windows)
 
     const QString typeText = types.join(QLatin1Char('/'));
     const int channels = memory.value(QStringLiteral("channels")).toInt();
-    if (widthKnown) {
-        if (channelsKnown) {
+    if (widthKnown && socketed) {
+        const MemoryChannelCount count = countMemoryChannels(locators);
+        if (count.fromLocators) {
             width = 0;
             for (const auto &[ch, w] : channelWidth)
                 width += w;
-        } else if (channels > 0) {
-            // The locators don't say: the channel estimate x the widest module.
-            width = std::min(width, channels * widest);
+        } else if (count.channels > 0) {
+            // The locators don't say: the channel guess x the widest module.
+            width = std::min(width, count.channels * widest);
         }
     }
     if (configured > 0)

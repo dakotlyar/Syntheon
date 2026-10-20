@@ -444,15 +444,39 @@ private slots:
         // Locators that don't say: the channel estimate x the widest module.
         four = ram::memoryReadout(snapshot({dimm("Slot 1", "", 64), dimm("Slot 2", "", 64), dimm("Slot 3", "", 64), dimm("Slot 4", "", 64)}, 2), false);
         QCOMPARE(widthOf(four), QStringLiteral("128-bit"));
-        // Soldered LPDDR5X reported per channel, 32-bit each (a Strix Halo
-        // like Knowhere: 8 x 32 = 256-bit), and the 16-bit-per-device kind.
-        QJsonArray lp, lp16;
+        // Soldered LPDDR5X (AP-5 M2): its widths add up, whatever the
+        // locators say. Per channel, 32-bit each (a Strix Halo like
+        // Knowhere: 8 x 32 = 256-bit) and 16-bit each (128-bit); 8 x 16-bit
+        // under "BANK 0" .. "BANK 7", no channel named (128-bit, not the old
+        // guess of 2 x 16); two x16 sub-channels under one channel locator
+        // (32-bit, not 16).
+        const auto chip = [&](const QString &bank, int width) {
+            QJsonObject o = dimm("DIMM 0", qPrintable(bank), width);
+            o.insert(QStringLiteral("type"), QStringLiteral("LPDDR5X"));
+            o.insert(QStringLiteral("form_factor"), QStringLiteral("Row Of Chips"));
+            return o;
+        };
+        QJsonArray lp, lp16, banks, sub;
         for (const char *ch : {"A", "B", "C", "D", "E", "F", "G", "H"}) {
-            lp.append(dimm("DIMM 0", qPrintable(QStringLiteral("P0 CHANNEL %1").arg(QLatin1StringView(ch))), 32));
-            lp16.append(dimm("DIMM 0", qPrintable(QStringLiteral("P0 CHANNEL %1").arg(QLatin1StringView(ch))), 16));
+            lp.append(chip(QStringLiteral("P0 CHANNEL %1").arg(QLatin1StringView(ch)), 32));
+            lp16.append(chip(QStringLiteral("P0 CHANNEL %1").arg(QLatin1StringView(ch)), 16));
         }
+        for (int i = 0; i < 8; ++i)
+            banks.append(chip(QStringLiteral("BANK %1").arg(i), 16));
+        sub.append(chip(QStringLiteral("P0 CHANNEL A"), 16));
+        sub.append(chip(QStringLiteral("P0 CHANNEL A"), 16));
         QCOMPARE(widthOf(ram::memoryReadout(snapshot(lp, 8), false)), QStringLiteral("256-bit"));
         QCOMPARE(widthOf(ram::memoryReadout(snapshot(lp16, 8), false)), QStringLiteral("128-bit"));
+        QCOMPARE(widthOf(ram::memoryReadout(snapshot(banks, 2), false)), QStringLiteral("128-bit"));
+        QCOMPARE(widthOf(ram::memoryReadout(snapshot(sub, 1), false)), QStringLiteral("32-bit"));
+        // An unknown form factor reads by type: LPDDR is soldered.
+        QJsonArray untyped;
+        for (int i = 0; i < 4; ++i) {
+            QJsonObject o = chip(QStringLiteral("BANK %1").arg(i), 32);
+            o.remove(QStringLiteral("form_factor"));
+            untyped.append(o);
+        }
+        QCOMPARE(widthOf(ram::memoryReadout(snapshot(untyped, 2), false)), QStringLiteral("128-bit"));
         // Tiamat (one DIMM per channel) is unchanged above: 128-bit. And a
         // field holding the separator can't break the Modules row (AP-5 L5).
         TestResult x;

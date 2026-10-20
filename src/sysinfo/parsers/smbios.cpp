@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "sysinfo/parsers/smbios.h"
 
+#include "core/memory_channels.h"
 #include "sysinfo/parsers/jep106.h"
 
 #include "sysinfo/parsers/text_parsers.h"
@@ -304,24 +305,12 @@ std::optional<SmbiosInfo> parseWindowsRawSmbios(const QByteArray &raw)
 
 int estimateMemoryChannels(const QVector<SmbiosMemoryDevice> &modules)
 {
-    if (modules.isEmpty())
-        return 0;
-    // "CHANNEL A", "Channel-B", "DIMM_A1", "ChannelA-DIMM0", "P0 CHANNEL C".
-    static const QRegularExpression channel(QStringLiteral(R"(CHANNEL[\s_-]*([A-Z0-9]+))"),
-                                            QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression dimm(QStringLiteral(R"(DIMM[\s_-]*([A-Z])\d)"),
-                                         QRegularExpression::CaseInsensitiveOption);
-    QSet<QString> seen;
-    for (const SmbiosMemoryDevice &m : modules) {
-        const QString where = m.bankLocator + QLatin1Char(' ') + m.locator;
-        auto match = channel.match(where);
-        if (!match.hasMatch())
-            match = dimm.match(where);
-        if (!match.hasMatch())
-            return std::min<int>(modules.size(), 2);
-        seen.insert(match.captured(1).toUpper());
-    }
-    return int(seen.size());
+    // core/memory_channels: the same reading as the RAM test's bus width
+    // (AP-5 L4).
+    QList<QPair<QString, QString>> devices;
+    for (const SmbiosMemoryDevice &m : modules)
+        devices.append({m.bankLocator, m.locator});
+    return countMemoryChannels(devices).channels;
 }
 
 } // namespace sb::sysinfo
