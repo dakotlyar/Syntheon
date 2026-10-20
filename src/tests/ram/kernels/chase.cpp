@@ -28,18 +28,27 @@ bool chaseInRange(const void *p, const std::byte *base, std::size_t bytes, std::
     return at >= lo && at - lo < bytes && (at - lo) % lineSize == 0;
 }
 
-std::optional<double> medianUnitRate(std::vector<double> unitSeconds, std::uint64_t hopsPerUnit)
+std::optional<double> preemptionFreeRate(const std::vector<double> &unitSeconds, std::uint64_t hopsPerUnit)
 {
     if (unitSeconds.empty())
         return std::nullopt;
-    const std::size_t mid = unitSeconds.size() / 2;
-    std::nth_element(unitSeconds.begin(), unitSeconds.begin() + std::ptrdiff_t(mid), unitSeconds.end());
-    double median = unitSeconds[mid];
-    if (unitSeconds.size() % 2 == 0) {
-        const double below = *std::max_element(unitSeconds.begin(), unitSeconds.begin() + std::ptrdiff_t(mid));
+    std::vector<double> sorted = unitSeconds;
+    const std::size_t mid = sorted.size() / 2;
+    std::nth_element(sorted.begin(), sorted.begin() + std::ptrdiff_t(mid), sorted.end());
+    double median = sorted[mid];
+    if (sorted.size() % 2 == 0) {
+        const double below = *std::max_element(sorted.begin(), sorted.begin() + std::ptrdiff_t(mid));
         median = (median + below) / 2;
     }
-    return median > 0 ? std::optional<double>(double(hopsPerUnit) / median) : std::nullopt;
+    double seconds = 0;
+    std::uint64_t units = 0;
+    for (const double s : unitSeconds) {
+        if (s <= kPreemptedUnit * median) {
+            seconds += s;
+            ++units;
+        }
+    }
+    return seconds > 0 ? std::optional<double>(double(units) * double(hopsPerUnit) / seconds) : std::nullopt;
 }
 
 double latencyNs(double hopsPerSecond)
@@ -59,9 +68,8 @@ public:
 
     void beginWindow() override { m_unitSeconds.clear(); }
 
-    // The window's rate from its median unit (see the header): K hops over
-    // the median unit's time.
-    std::optional<double> windowRate() const override { return medianUnitRate(m_unitSeconds, m_hops); }
+    // The window's rate without its preempted units (see the header).
+    std::optional<double> windowRate() const override { return preemptionFreeRate(m_unitSeconds, m_hops); }
 
     std::uint64_t unit(std::uint64_t) override
     {

@@ -200,20 +200,23 @@ private slots:
         QCOMPARE(chaseHops(base, 256 * KiB / kLine), static_cast<const void *>(base));
     }
 
-    // A window's rate is K hops over its median unit's time.
-    void medianUnitRateIsTheMiddleUnit()
+    // A window's rate: hops over the time of its units, without those over
+    // twice the median unit (preempted).
+    void preemptedUnitsAreLeftOut()
     {
-        QVERIFY(!medianUnitRate({}, 1000));
-        QCOMPARE(*medianUnitRate({0.002}, 1000), 500000.0);
-        QCOMPARE(*medianUnitRate({0.009, 0.001, 0.002}, 1000), 500000.0);       // odd: the middle one
-        QCOMPARE(*medianUnitRate({0.004, 0.001, 0.003, 0.002}, 1000), 400000.0);  // even: the mean of the middle two
-        QVERIFY(!medianUnitRate({0.0}, 1000));
+        QVERIFY(!preemptionFreeRate({}, 1000));
+        QCOMPARE(*preemptionFreeRate({0.002}, 1000), 500000.0);
+        // 0.009 is preempted (median 0.002); the rest are averaged.
+        QCOMPARE(*preemptionFreeRate({0.009, 0.001, 0.002, 0.003}, 1000), 3000 / 0.006);
+        // A skew under twice the median stays in: a mean, not a median.
+        QCOMPARE(*preemptionFreeRate({0.002, 0.002, 0.0035}, 1000), 3000 / 0.0075);
+        QVERIFY(!preemptionFreeRate({0.0}, 1000));
     }
 
     // Tiamat, checkpoint 3 (Zeb): a background thread sharing the chase core
     // made 4-12 KiB read 30% slow. Pinned to the same CPU, a competitor busy
-    // a third of the time must not move the latency (the median unit);
-    // over the whole window it would.
+    // a third of the time must not move the latency (preempted units left
+    // out); over the whole window it would.
     void contendedCoreReadsTheSameLatency()
     {
         const std::vector<sb::isa::CoreChoice> cpus = sb::isa::allowedLogicalCpus();
@@ -253,6 +256,7 @@ private slots:
         stop = true;
         competitor.join();
         qInfo("idle %.3f ns (whole window %.3f); with a competitor %.3f ns (whole window %.3f)", idle, wallIdle, busy, wallBusy);
+        QVERIFY2(std::abs(idle - wallIdle) < 0.05 * wallIdle, "uncontended: the same as the whole window");
         QVERIFY2(busy < idle * 1.10, qPrintable(QStringLiteral("%1 ns against %2 ns").arg(busy).arg(idle)));
     }
 
