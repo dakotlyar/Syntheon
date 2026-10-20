@@ -11,6 +11,7 @@
 #include "tests/cpu/engine/platform_threads.h"
 #include "tests/cpu/engine/worker_pool.h"
 #include "tests/ram/config/readout.h"
+#include "tests/ram/formula_v1.h"
 #include "tests/ram/loaded/load_generator.h"
 #include "tests/ram/ram_test.h"
 
@@ -287,6 +288,98 @@ private slots:
         QCOMPARE(ram::memoryReadout(none, false).reason, QStringLiteral("the firmware lists no memory devices"));
     }
 
+    // formula v1 (§10): at the anchors everything is 1,000; the weights act
+    // as elasticities; no L3 moves its weight to the L2; a missing metric
+    // means no total but keeps the other groups; only Ok gets a total.
+    void formula()
+    {
+        const auto atAnchors = [](bool withL3) {
+            TestResult r;
+            r.status = Status::Ok;
+            for (const GeometricGroup &g : ram::formula_v1::groups(withL3)) {
+                for (const GeometricMetric &m : g.metrics)
+                    r.metrics.append({m.metricKey, g.id, QString(), m.anchor, QString(), Direction::Neutral, false});
+            }
+            r.metrics.append({QStringLiteral("cache.levels"), QStringLiteral("latency"), QString(),
+                              withL3 ? QStringLiteral("L1d 48 KiB · L2 1 MiB · L3 32 MiB (shared by CPUs 8–15, 24–31)")
+                                     : QStringLiteral("L1d 96 KiB · L2 12 MiB (shared by CPUs 0–3)"),
+                              {}, Direction::Neutral, false});
+            return r;
+        };
+        const auto set = [](TestResult &r, const char *key, double factor) {
+            for (Metric &m : r.metrics) {
+                if (m.key == QLatin1StringView(key))
+                    m.value = std::get<double>(m.value) * factor;
+            }
+        };
+        tests::RamTest t;
+        TestResult r = atAnchors(true);
+        QVERIFY(ram::formula_v1::scoresL3(r));
+        ScoreBreakdown b = t.score(r);
+        QCOMPARE(*b.total, 1000.0);
+        QCOMPARE(b.subScores.size(), 3);
+        for (const double s : b.subScores)
+            QCOMPARE(s, 1000.0);
+        // Group and metric weights sum to 1.
+        for (const bool l3 : {true, false}) {
+            double w = 0;
+            for (const GeometricGroup &g : ram::formula_v1::groups(l3)) {
+                w += g.weight;
+                double v = 0;
+                for (const GeometricMetric &m : g.metrics) {
+                    v += m.weight;
+                    QCOMPARE(m.lowerIsBetter, m.metricKey.startsWith(QLatin1StringView("latency."))
+                                                  || m.metricKey == QLatin1StringView("loaded.latency"));
+                }
+                QVERIFY(std::abs(v - 1) < 1e-12);
+            }
+            QVERIFY(std::abs(w - 1) < 1e-12);
+        }
+        // DRAM latency halved: 1000 x 2^(0.50 x 0.75) (§10.2's +30%).
+        set(r, "latency.dram", 0.5);
+        b = t.score(r);
+        QCOMPARE(*b.total, std::round(1000 * std::pow(2.0, 0.5 * 0.75)));
+        QCOMPARE(b.subScores.value(QStringLiteral("latency")), std::round(1000 * std::pow(2.0, 0.75)));
+        // All-thread read doubled: +5.5%; loaded latency halved: +11%.
+        r = atAnchors(true);
+        set(r, "bandwidth.read", 2);
+        QCOMPARE(*t.score(r).total, std::round(1000 * std::pow(2.0, 0.35 * 2 / 9)));
+        r = atAnchors(true);
+        set(r, "loaded.latency", 0.5);
+        QCOMPARE(*t.score(r).total, std::round(1000 * std::pow(2.0, 0.15)));
+        // The plain-store metrics never count (D4).
+        r = atAnchors(true);
+        r.metrics.append({QStringLiteral("bandwidth.write.plain"), QStringLiteral("bandwidth"), QString(), 1.0, QString(),
+                          Direction::Neutral, false});
+        QCOMPARE(*t.score(r).total, 1000.0);
+        // No L3 (D1, D2): L2 0.20; an L3 too close to the L2 counts as none.
+        r = atAnchors(false);
+        QVERIFY(!ram::formula_v1::scoresL3(r));
+        QCOMPARE(*t.score(r).total, 1000.0);
+        set(r, "latency.l2", 0.5);
+        QCOMPARE(t.score(r).subScores.value(QStringLiteral("latency")), std::round(1000 * std::pow(2.0, 0.20)));
+        TestResult close = atAnchors(false);
+        for (Metric &m : close.metrics) {
+            if (m.key == QLatin1StringView("cache.levels"))
+                m.value = QStringLiteral("L1d 32 KiB · L2 2 MiB · L3 2.5 MiB (too close to the L2: not measured)");
+        }
+        QVERIFY(!ram::formula_v1::scoresL3(close));
+        QCOMPARE(*t.score(close).total, 1000.0);
+        // An L3 that is there but wasn't measured: no latency sub-score, no total.
+        r = atAnchors(true);
+        r.metrics.removeIf([](const Metric &m) { return m.key == QLatin1StringView("latency.l3"); });
+        b = t.score(r);
+        QVERIFY(!b.total);
+        QVERIFY(!b.subScores.contains(QStringLiteral("latency")));
+        QCOMPARE(b.subScores.value(QStringLiteral("bandwidth")), 1000.0);
+        // Partial: the sub-scores, no total.
+        r = atAnchors(true);
+        r.status = Status::Partial;
+        b = t.score(r);
+        QVERIFY(!b.total);
+        QCOMPARE(b.subScores.size(), 3);
+    }
+
     // A whole run at 1% of real time (the buffers keep their real sizes).
     void wholeRun()
     {
@@ -379,6 +472,10 @@ private slots:
             QVERIFY2(ctx.logged(QLatin1StringView(line)), line);
         QCOMPARE(ram::LoadGenerator::liveThreads(), 0);
         QCOMPARE(cpu::WorkerPool::liveThreads(), 0);
+        // formula v1 scores it (provisional anchors: the number itself means little).
+        const ScoreBreakdown b = t.score(r);
+        QVERIFY(b.total && *b.total > 0);
+        QCOMPARE(b.subScores.size(), 3);
     }
 
     void stopInEachPart_data()

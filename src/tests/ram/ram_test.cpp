@@ -12,6 +12,7 @@
 #include "tests/cpu/engine/worker_pool.h"
 #include "tests/cpu/telemetry/telemetry.h"
 #include "tests/ram/config/readout.h"
+#include "tests/ram/formula_v1.h"
 #include "tests/ram/kernels/bw_kernels.h"
 #include "tests/ram/kernels/chase.h"
 #include "tests/ram/kernels/cycle_builder.h"
@@ -1257,10 +1258,9 @@ TestResult RamTest::run(RunContext &ctx, const OptionValues &)
     return run.run();
 }
 
-ScoreBreakdown RamTest::score(const TestResult &) const
+ScoreBreakdown RamTest::score(const TestResult &result) const
 {
-    // formula_v1 comes with task 10; until then nothing is scored.
-    return {};
+    return ram::formula_v1::score(result);
 }
 
 } // namespace sb::tests

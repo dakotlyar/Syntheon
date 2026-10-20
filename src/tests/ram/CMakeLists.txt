@@ -4,6 +4,8 @@ add_subdirectory(kernels)
 
 add_library(synbench_test_ram STATIC
     ram_test.h ram_test.cpp
+    # The score (§10; pure).
+    formula_v1.h formula_v1.cpp
     # Buffers on huge / large pages (Phase 3 design §6, P7).
     memory/huge_buffer.h memory/huge_buffer.cpp
     # The latency sweep's grid, scored targets and knee fallback (§5.2; pure).
