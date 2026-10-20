@@ -171,6 +171,11 @@ private slots:
         QCOMPARE(countMemoryChannels({{{}, QStringLiteral("DIMM_P0_A0")}, {{}, QStringLiteral("DIMM_P0_B0")},
                                       {{}, QStringLiteral("DIMM_P1_A0")}, {{}, QStringLiteral("DIMM_P1_B0")},
                                       {{}, QStringLiteral("DIMM_P0_A1")}}).channels, 4);
+        // AP-5 round 4 L2: in "DIMM_P1" / "DIMM_P2" the P is the slot
+        // letter (one channel), not socket P1 and P2.
+        QCOMPARE(memoryChannelKey({}, QStringLiteral("DIMM_P1")), QStringLiteral("P"));
+        QCOMPARE(countMemoryChannels({{{}, QStringLiteral("DIMM_P1")}, {{}, QStringLiteral("DIMM_P2")}}).channels, 1);
+        QCOMPARE(memoryChannelKey({}, QStringLiteral("P1_DIMM_P1")), QStringLiteral("P1 P"));
         // AP-5 round 4 L1: socket names with a space are kept, and key the
         // same as without one.
         QCOMPARE(memoryChannelKey(QStringLiteral("NODE 0 CHANNEL A"), {}), QStringLiteral("NODE0 A"));

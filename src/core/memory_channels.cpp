@@ -35,7 +35,7 @@ QString memoryChannelKey(const QString &bankLocator, const QString &locator)
                                             QRegularExpression::CaseInsensitiveOption);
     // "DIMMA1", "DIMM_A1", and EPYC's "DIMM_P0_A0" (its letter after the
     // socket part).
-    static const QRegularExpression dimm(QStringLiteral(R"(DIMM[\s_-]*(?:P\d+[\s_-]*)?([A-Z])\d)"),
+    static const QRegularExpression dimm(QStringLiteral(R"(DIMM[\s_-]*(?:(P\d+)[\s_-]*)?([A-Z])\d)"),
                                          QRegularExpression::CaseInsensitiveOption);
     for (const QString &where : {bankLocator, locator}) {
         if (const auto m = channel.match(where); m.hasMatch())
@@ -44,9 +44,12 @@ QString memoryChannelKey(const QString &bankLocator, const QString &locator)
     for (const QString &where : {bankLocator, locator}) {
         if (const auto m = dimm.match(where); m.hasMatch()) {
             // The socket can come before "DIMM" ("CPU1_DIMM_A1", "P2-DIMMA1")
-            // or inside it ("DIMM_P1_A0").
-            const QString socket = socketPrefix(where.left(m.capturedStart()) + QLatin1Char(' ') + m.captured(0));
-            return (socket + QLatin1Char(' ') + m.captured(1)).trimmed().toUpper();
+            // or inside it ("DIMM_P1_A0"); in "DIMM_P1" the P is the slot's
+            // letter, not a socket (AP-5 round 4 L2).
+            QString socket = socketPrefix(where.left(m.capturedStart()));
+            if (!m.captured(1).isEmpty())
+                socket += QLatin1Char(' ') + m.captured(1).toUpper();
+            return (socket + QLatin1Char(' ') + m.captured(2)).trimmed().toUpper();
         }
     }
     return {};
