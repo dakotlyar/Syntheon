@@ -257,6 +257,12 @@ private slots:
         QCOMPARE(used, f);
         QVERIFY(qAbs(*cycleTimedRate(clean, k, 0.5 * f, &used) - truth) < 1e-9 * truth);
         QCOMPARE(used, f);
+        // AP-5 round 3: a clean window whose counter runs 5% slower (a
+        // counter that follows a downclocked core) keeps its own rate, not
+        // the carried one: its units are 2 ms of running at 0.95 f.
+        std::vector<CycleUnit> slower(10, CycleUnit{run * 0.95 * f, run});
+        QVERIFY(qAbs(*cycleTimedRate(slower, k, f, &used) - truth) < 1e-9 * truth);
+        QCOMPARE(used, 0.95 * f);
         // Nothing usable: no rate (the caller falls back).
         QVERIFY(!cycleCounterRate({}));
         QVERIFY(!cycleTimedRate({CycleUnit{0, run}, CycleUnit{run * f, 0}}, k));

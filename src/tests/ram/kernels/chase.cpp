@@ -96,9 +96,13 @@ std::optional<double> cycleTimedRate(const std::vector<CycleUnit> &units, std::u
     std::optional<double> rate = cycleCounterRate(units);
     if (!rate)
         return std::nullopt;
-    // The counter's rate is the machine's: a window whose units were all
-    // preempted reads low, a cleaner earlier window doesn't.
-    rate = std::max(*rate, carriedRate);
+    // A window whose units were all preempted reads its counter rate low;
+    // then (only then: under 90% of an earlier window's) the earlier rate
+    // is borrowed. A window a little under it is its own: a counter that
+    // follows the core's clock (ARM64?) really runs slower after a
+    // downclock (AP-5 round 3).
+    if (carriedRate > 0 && *rate < kBorrowBelow * carriedRate)
+        rate = carriedRate;
     if (rateUsed)
         *rateUsed = *rate;
     double cycles = 0;
@@ -147,7 +151,7 @@ public:
         if (m_cyclesOk && !m_cycleUnits.empty()) {
             double used = 0;
             if (const auto rate = cycleTimedRate(m_cycleUnits, m_hops, m_bestCycleRate, &used)) {
-                m_bestCycleRate = used;  // carried to the measurement's later windows
+                m_bestCycleRate = std::max(m_bestCycleRate, used);  // carried to the measurement's later windows
                 return rate;
             }
         }

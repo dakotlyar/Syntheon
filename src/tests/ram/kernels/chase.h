@@ -36,12 +36,14 @@
 //                  one odd sample can't set it), and the window's time is
 //                  its cycles / that rate. Sub-unit preemptions (priority
 //                  boosts, DWM, audio, our own raised-priority coordinator
-//                  every 50 ms) are left out as on Linux. The rate is the
-//                  machine's, so each window uses the best rate of the
-//                  measurement so far (the warm-up window first): a window
-//                  whose every unit lost the core borrows it, and only a
-//                  measurement with no clean window at all reads as wall
-//                  time (never worse than before). If QueryThreadCycleTime
+//                  every 50 ms) are left out as on Linux. A window whose
+//                  every unit lost the core calibrates low: when its rate
+//                  is under 90% of the best of the measurement's earlier
+//                  windows (the warm-up first), it borrows that one. A
+//                  window within 10% keeps its own, so a counter that
+//                  follows a downclocked core isn't read as a fast one.
+//                  Only a measurement with no clean window at all reads as
+//                  wall time (never worse than before). If QueryThreadCycleTime
 //                  fails, the units
 //                  over 2x the median unit are dropped instead
 //                  (preemptionFreeRate; it misses sub-unit preemptions).
@@ -107,10 +109,13 @@ struct CycleUnit {
 // floor(0.9 x (n - 1))-th smallest of the units' cycles / seconds, so one
 // fast outlier can't set it. Nullopt without a usable unit.
 std::optional<double> cycleCounterRate(const std::vector<CycleUnit> &units);
-// Hops per second over the window's cycles / the counter's rate: the
-// larger of this window's cycleCounterRate() and `carriedRate` (the best of
-// the measurement's earlier windows; the rate is the machine's, so a
-// window whose every unit was preempted borrows it). The rate used goes to
+// A window's own counter rate under this x the carried one is taken as
+// preempted throughout, and borrows the carried rate.
+inline constexpr double kBorrowBelow = 0.9;
+// Hops per second over the window's cycles / the counter's rate: this
+// window's cycleCounterRate(), or `carriedRate` (the best of the
+// measurement's earlier windows) when its own is under kBorrowBelow x that
+// (a window whose every unit was preempted). The rate used goes to
 // `rateUsed`. Nullopt without a usable unit.
 std::optional<double> cycleTimedRate(const std::vector<CycleUnit> &units, std::uint64_t hopsPerUnit, double carriedRate = 0,
                                      double *rateUsed = nullptr);
