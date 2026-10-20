@@ -217,6 +217,16 @@ QVariantMap lineChart(const LineChartBlock &b, const DetailBlock &block, const T
     out.insert(QStringLiteral("logY"), b.yAxis.scale != ChartAxis::Scale::Linear);
     out.insert(QStringLiteral("yTicks"), yTicks(b.yAxis, points));
     out.insert(QStringLiteral("markers"), markers);
+    // The filled dot's point (filledAt), or none: the chart's last point.
+    if (b.filledAt) {
+        for (const QVariant &v : std::as_const(points)) {
+            const double px = v.toMap().value(QStringLiteral("x")).toDouble();
+            if (std::abs(px - *b.filledAt) <= 1e-9 * std::max(std::abs(px), std::abs(*b.filledAt))) {
+                out.insert(QStringLiteral("filled"), v);
+                break;
+            }
+        }
+    }
     out.insert(QStringLiteral("xTicks"), ticks);
     out.insert(QStringLiteral("yUnit"), b.yUnit);
     out.insert(QStringLiteral("annotations"), notes);

@@ -297,6 +297,15 @@ private slots:
         QCOMPARE(xs(chart), (QList<double>{0, 15.1, 41.5, 66.2, 64.0, 64.1}));
         chart.sortByX = true;
         QCOMPARE(xs(chart), (QList<double>{0, 15.1, 41.5, 64.0, 64.1, 66.2}));
+        // AP-5 L1: the filled dot on the full-load point, not the last one.
+        chart.filledAt = 64.1;
+        DetailLayout layout;
+        layout.blocks.append({QStringLiteral("Loaded"), chart});
+        const QVariantMap m = buildDetailBlocks(layout, r, QStringLiteral("t-ram")).first().toMap();
+        QCOMPARE(m.value(QStringLiteral("filled")).toMap().value(QStringLiteral("y")).toDouble(), 197.0);
+        chart.filledAt.reset();
+        layout.blocks[0] = {QStringLiteral("Loaded"), chart};
+        QVERIFY(!buildDetailBlocks(layout, r, QStringLiteral("t-ram")).first().toMap().contains(QStringLiteral("filled")));
     }
 
     void summaryOfAStoredRun()

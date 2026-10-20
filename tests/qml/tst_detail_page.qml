@@ -141,6 +141,17 @@ TestCase {
                                             "pair:Memory+Peak", "single:Modules", "single:note"])
     }
 
+    // AP-5 L1: `filled` moves the filled dot off the last point.
+    function test_chartFilledDot() {
+        const block = createTemporaryObject(chartComponent, test, { block: chartBlock({ logX: false, points: [{ x: 0, y: 76 }, { x: 64.1, y: 197 }, { x: 66.2, y: 161 }], filled: { x: 64.1, y: 197 } }) })
+        const chart = findChild(block, "chart")
+        const dot = findChild(chart, "endDot")
+        fuzzyCompare(dot.x + 4, chart.fx(64.1), 1e-6)
+        fuzzyCompare(dot.y + 4, chart.fy(197), 1e-6)
+        chart.filled = null
+        fuzzyCompare(dot.x + 4, chart.fx(66.2), 1e-6)
+    }
+
     function test_plainTablesStillPair() {
         const page = createTemporaryObject(pageComponent, test)
         compare(shape(page.group([table("A"), table("B")])), ["pair:A+B"])

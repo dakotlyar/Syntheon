@@ -468,6 +468,9 @@ DetailLayout RamTest::detail(const TestResult &r) const
         // Dave, 2026-10-20: drawn by bandwidth, so the line doesn't hook back
         // at saturation; the series stays in level order for the table.
         chart.sortByX = true;
+        // ...with the filled dot on the scored full-load point (stored last),
+        // not on whichever level moved the most bytes (AP-5 L1).
+        chart.filledAt = loaded->points.last().x();
         chart.xAxis = loadAxis(*loaded);
         chart.yUnit = QStringLiteral("ns");
         if (idle)

@@ -15,6 +15,7 @@ import SynBench
 //               with a grid line per yTicks [{y, label}]; off: the linear
 //               axis from 0, five grid lines, as before
 //   markers     [{x, y}] open dots on the curve (the RAM test's targets)
+//   filled      {x, y} where the filled dot goes (null: the last point)
 // On a log y axis a point at or below 0 (a value that wasn't measured) is
 // left out rather than drawn on the floor, where it would look real.
 Item {
@@ -29,6 +30,7 @@ Item {
     property bool logY: false
     property var yTicks: []
     property var markers: []
+    property var filled: null
     property color color: Theme.accent
     property string description
 
@@ -242,12 +244,14 @@ Item {
             PathPolyline { path: root.polyline }
         }
     }
-    // The last point.
+    // The last point, or the one `filled` names.
     Rectangle {
-        visible: root.shown.length > 0
+        objectName: "endDot"
+        readonly property var at: root.filled ? root.filled : (root.shown.length ? root.shown[root.shown.length - 1] : null)
+        visible: at !== null
         width: 8; height: 8; radius: 4; color: root.color
-        x: (root.shown.length ? root.fx(root.shown[root.shown.length - 1].x) : 0) - 4
-        y: (root.shown.length ? root.fy(root.shown[root.shown.length - 1].y) : 0) - 4
+        x: (at ? root.fx(at.x) : 0) - 4
+        y: (at ? root.fy(at.y) : 0) - 4
     }
     // Open dots on chosen points.
     Repeater {

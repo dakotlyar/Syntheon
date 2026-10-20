@@ -10,6 +10,7 @@
 #include <QVariantMap>
 #include <QVector>
 
+#include <optional>
 #include <variant>
 
 namespace sb {
@@ -105,6 +106,11 @@ struct LineChartBlock {
     // them (Phase 3, the RAM test's loaded latency: stored in load-level
     // order, drawn by bandwidth). Off by default: every chart as before.
     bool sortByX = false;
+    // The filled dot every chart draws on its last point goes on the
+    // series' point at this x instead (the RAM loaded-latency chart, drawn
+    // by bandwidth: on its scored full-load point, AP-5 L1). Unset: the
+    // last point, as before.
+    std::optional<double> filledAt;
     bool operator==(const LineChartBlock &) const = default;
 };
 
