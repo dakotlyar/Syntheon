@@ -15,6 +15,8 @@ import SynBench
 //               with a grid line per yTicks [{y, label}]; off: the linear
 //               axis from 0, five grid lines, as before
 //   markers     [{x, y}] open dots on the curve (the RAM test's targets)
+// On a log y axis a point at or below 0 (a value that wasn't measured) is
+// left out rather than drawn on the floor, where it would look real.
 Item {
     id: root
 
@@ -29,6 +31,9 @@ Item {
     property var markers: []
     property color color: Theme.accent
     property string description
+
+    // The points drawn: all of them, or on a log axis the positive ones.
+    readonly property var shown: logY ? points.filter(p => p.y > 0) : points
 
     readonly property real padLeft: 44
     readonly property real padRight: 14
@@ -56,13 +61,13 @@ Item {
     // The log axis spans the ticks and the positive points.
     readonly property real logMinY: {
         var m = Infinity
-        for (let i = 0; i < points.length; ++i) if (points[i].y > 0) m = Math.min(m, points[i].y)
+        for (let i = 0; i < shown.length; ++i) m = Math.min(m, shown[i].y)
         for (let j = 0; j < yTicks.length; ++j) m = Math.min(m, yTicks[j].y)
         return isFinite(m) ? m : 1
     }
     readonly property real logMaxY: {
         var m = -Infinity
-        for (let i = 0; i < points.length; ++i) m = Math.max(m, points[i].y)
+        for (let i = 0; i < shown.length; ++i) m = Math.max(m, shown[i].y)
         for (let j = 0; j < yTicks.length; ++j) m = Math.max(m, yTicks[j].y)
         return isFinite(m) && m > logMinY ? m : logMinY * 10
     }
@@ -96,15 +101,26 @@ Item {
 
     readonly property var polyline: {
         var p = []
-        for (let i = 0; i < points.length; ++i) p.push(Qt.point(fx(points[i].x), fy(points[i].y)))
+        for (let i = 0; i < shown.length; ++i) p.push(Qt.point(fx(shown[i].x), fy(shown[i].y)))
         return p
     }
     readonly property var areaPoly: {
         if (polyline.length === 0) return []
         var p = polyline.slice()
-        p.push(Qt.point(fx(points[points.length - 1].x), fy(0)))
-        p.push(Qt.point(fx(points[0].x), fy(0)))
+        p.push(Qt.point(fx(shown[shown.length - 1].x), fy(0)))
+        p.push(Qt.point(fx(shown[0].x), fy(0)))
         return p
+    }
+    // The curve's height (pixel y) at pixel x, between the points around it;
+    // the bottom outside the curve.
+    function curveYAt(px) {
+        const line = polyline
+        for (let i = 0; i + 1 < line.length; ++i) {
+            const a = line[i], b = line[i + 1]
+            if (px >= Math.min(a.x, b.x) && px <= Math.max(a.x, b.x))
+                return b.x === a.x ? Math.min(a.y, b.y) : a.y + (b.y - a.y) * (px - a.x) / (b.x - a.x)
+        }
+        return fy(0)
     }
 
     // "1,500", "2.5", "0.25": thousands separators, at most 2 decimals.
@@ -118,8 +134,10 @@ Item {
     FontMetrics { id: noteMetrics; font: noteProbe.font }
     // Where each annotation goes: centred on its x (kept inside the plot),
     // just above the highest point of the curve under it (never on the
-    // line), and moved up a row while it would overlap a label already
-    // placed (a peak mark next to a window label).
+    // line: the points under the label and the line at both its edges, so a
+    // segment rising across the label can't touch it), and moved up a row
+    // while it would overlap a label already placed (a peak mark next to a
+    // window label).
     readonly property var notePlacement: {
         const out = []
         const placed = []
@@ -129,8 +147,8 @@ Item {
             const w = noteMetrics.advanceWidth(a.label) + 2
             const h = noteMetrics.height
             const x = Math.max(padLeft, Math.min(width - padRight - w, fx(a.x) - w / 2))
-            let top = fy(0)
-            for (const p of points) {
+            let top = Math.min(fy(0), curveYAt(x - 2), curveYAt(x + w + 2))
+            for (const p of shown) {
                 const px = fx(p.x)
                 if (px >= x - 2 && px <= x + w + 2)
                     top = Math.min(top, fy(p.y))
@@ -226,14 +244,14 @@ Item {
     }
     // The last point.
     Rectangle {
-        visible: root.points.length > 0
+        visible: root.shown.length > 0
         width: 8; height: 8; radius: 4; color: root.color
-        x: (root.points.length ? root.fx(root.points[root.points.length - 1].x) : 0) - 4
-        y: (root.points.length ? root.fy(root.points[root.points.length - 1].y) : 0) - 4
+        x: (root.shown.length ? root.fx(root.shown[root.shown.length - 1].x) : 0) - 4
+        y: (root.shown.length ? root.fy(root.shown[root.shown.length - 1].y) : 0) - 4
     }
     // Open dots on chosen points.
     Repeater {
-        model: root.markers
+        model: root.logY ? root.markers.filter(m => m.y > 0) : root.markers
         delegate: Rectangle {
             required property var modelData
             objectName: "marker"

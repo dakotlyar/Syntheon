@@ -3,7 +3,7 @@
 add_subdirectory(kernels)
 
 add_library(synbench_test_ram STATIC
-    ram_test.h ram_test.cpp
+    ram_test.h ram_test.cpp ram_detail.cpp
     # The score (§10; pure).
     formula_v1.h formula_v1.cpp
     # Buffers on huge / large pages (Phase 3 design §6, P7).

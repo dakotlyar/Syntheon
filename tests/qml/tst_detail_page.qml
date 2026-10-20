@@ -90,6 +90,57 @@ TestCase {
         verify(dots[0].y > dots[2].y)  // a longer latency sits higher
     }
 
+    // Zeb (checkpoint 1): a latency that wasn't measured (0) would sit on
+    // the log floor and look real; on a log axis it isn't drawn at all.
+    function test_chartLogYLeavesOutMissingPoints() {
+        const ticks = [0.5, 1, 2, 5, 10, 20, 50, 100, 200].map(v => ({ y: v, label: String(v) }))
+        const pts = [{ x: 4, y: 0.8 }, { x: 24, y: 0.9 }, { x: 64, y: 0 }, { x: 220, y: 2.6 }, { x: 1048576, y: 92 }]
+        const block = createTemporaryObject(chartComponent, test, {
+            block: chartBlock({ logY: true, yTicks: ticks, points: pts, markers: [{ x: 24, y: 0.9 }, { x: 64, y: 0 }] })
+        })
+        const chart = findChild(block, "chart")
+        compare(chart.shown.length, 4)
+        compare(chart.polyline.length, 4)
+        for (const p of chart.polyline)
+            verify(p.y < chart.fy(0.5) - 1)  // nothing on the floor
+        compare(markers(chart).length, 1)
+        // A linear chart keeps every point (a 0 there is a real value).
+        const linear = findChild(createTemporaryObject(chartComponent, test, { block: chartBlock({ points: pts }) }), "chart")
+        compare(linear.polyline.length, 5)
+    }
+
+    // Zeb (checkpoint 1): a cache-size label never touches the curve, also
+    // where the line rises steeply across the label between two points.
+    function test_annotationsClearTheCurve() {
+        const ticks = [0.5, 1, 2, 5, 10, 20, 50, 100, 200].map(v => ({ y: v, label: String(v) }))
+        const pts = [{ x: 4, y: 0.7 }, { x: 32, y: 0.71 }, { x: 48, y: 0.75 }, { x: 128, y: 2.4 }, { x: 512, y: 2.5 },
+                     { x: 1024, y: 3.5 }, { x: 4096, y: 8.5 }, { x: 32768, y: 9 }, { x: 131072, y: 60 }, { x: 1048576, y: 76 }]
+        const notes = [{ x: 48, label: "L1 48 KiB" }, { x: 1024, label: "L2 1 MiB" }, { x: 32768, label: "L3 32 MiB" }]
+        const block = createTemporaryObject(chartComponent, test, { block: chartBlock({ logY: true, yTicks: ticks, points: pts, annotations: notes }) })
+        const chart = findChild(block, "chart")
+        waitForRendering(block)
+        const labels = chart.children.filter(c => c.text !== undefined && notes.some(n => n.label === c.text))
+        compare(labels.length, 3)
+        for (const l of labels) {
+            for (let px = l.x; px <= l.x + l.width; px += 1)
+                verify(l.y + l.height <= chart.curveYAt(px) + 0.5, l.text + " touches the curve at x " + px)
+        }
+    }
+
+    // The RAM mockup's rows: each chart beside its table (3:2), a note
+    // ending the row; the bandwidth and modules tables full width; the
+    // SMBIOS readout beside the derived peak.
+    function test_ramMockupRows() {
+        const page = createTemporaryObject(pageComponent, test)
+        const chart = t => ({ type: "linechart", title: t })
+        const blocks = [{ type: "kpis", title: "", items: [] }, table("Sub-tests", true), chart("Latency chart"), table("Latency"), note(),
+                        table("Bandwidth", true), note(), chart("Loaded chart"), table("Points"), note(), table("Memory"),
+                        table("Peak"), table("Modules", true), note()]
+        compare(shape(page.group(blocks)), ["single:kpis", "single:Sub-tests", "split:Latency chart+Latency", "single:note",
+                                            "single:Bandwidth", "single:note", "split:Loaded chart+Points", "single:note",
+                                            "pair:Memory+Peak", "single:Modules", "single:note"])
+    }
+
     function test_plainTablesStillPair() {
         const page = createTemporaryObject(pageComponent, test)
         compare(shape(page.group([table("A"), table("B")])), ["pair:A+B"])

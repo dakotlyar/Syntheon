@@ -43,6 +43,14 @@ void ScreenshotTour::start()
 // picks the option tab to show.
 void ScreenshotTour::prepare()
 {
+    // SYNBENCH_TOUR_SIZE=1100x2600 resizes the window first, so a whole
+    // Detail page fits in one image (a mockup comparison).
+    if (const QStringList size = qEnvironmentVariable("SYNBENCH_TOUR_SIZE").split(QLatin1Char('x')); size.size() == 2) {
+        bool okW = false, okH = false;
+        const int w = size[0].toInt(&okW), h = size[1].toInt(&okH);
+        if (okW && okH && w >= 640 && h >= 480 && w <= 4000 && h <= 8000)
+            m_window->resize(w, h);
+    }
     // The first-run dialog covers every screen; SYNBENCH_TOUR_SECTIONS=firstrun
     // leaves it up (the tour then shows the Run screen behind it).
     if (qEnvironmentVariable("SYNBENCH_TOUR_FIRSTRUN").isEmpty())

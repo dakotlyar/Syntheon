@@ -15,6 +15,8 @@
 #include "tests/ram/loaded/load_generator.h"
 #include "tests/ram/ram_test.h"
 
+#include "core/detail.h"
+
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QTest>
@@ -163,6 +165,131 @@ double numberOf(const TestResult &r, const char *key)
 {
     const Metric *m = r.metric(QLatin1StringView(key));
     return m && m->isNumeric() ? std::get<double>(m->value) : std::nan("");
+}
+
+// The approved mockup's completed run (all numbers illustrative, as drawn:
+// "Example desktop", DDR5-6000 2 x 16 GB, CPU 4, 2 MiB pages).
+TestResult mockupResult()
+{
+    TestResult r;
+    r.testId = QStringLiteral("ram");
+    r.status = Status::Ok;
+    r.score = 1186;
+    const auto num = [&](const char *key, const char *sub, double v, const char *unit) {
+        r.metrics.append({QLatin1StringView(key), QLatin1StringView(sub), QString(), v, QLatin1StringView(unit), Direction::Neutral, false});
+    };
+    const auto txt = [&](const char *key, const QString &v) {
+        r.metrics.append({QLatin1StringView(key), {}, QString(), v, {}, Direction::Neutral, false});
+    };
+    num("latency.l1", "latency", 0.8, "ns");
+    num("latency.l2", "latency", 2.6, "ns");
+    num("latency.l3", "latency", 9.6, "ns");
+    num("latency.dram", "latency", 74.2, "ns");
+    txt("latency.l1.at", QStringLiteral("24 KiB"));
+    txt("latency.l2.at", QStringLiteral("220 KiB"));
+    txt("latency.l3.at", QStringLiteral("5.7 MiB"));
+    txt("latency.dram.at", QStringLiteral("1 GiB"));
+    txt("cache.levels", QStringLiteral("L1d 48 KiB · L2 1 MiB · L3 32 MiB (shared by CPUs 0–7, 16–23)"));
+    txt("latency.core", QStringLiteral("CPU 4 (top-ranked core, quietest of CPUs 2, 4)"));
+    txt("bandwidth.st.core", QStringLiteral("CPU 4 (top-ranked core, quietest of CPUs 2, 4)"));
+    txt("loaded.core", QStringLiteral("CPU 4 (top-ranked core, quietest of CPUs 2, 4)"));
+    num("bandwidth.read", "bandwidth", 72.4, "GB/s");
+    num("bandwidth.write", "bandwidth", 61.8, "GB/s");
+    num("bandwidth.copy", "bandwidth", 66.5, "GB/s");
+    num("bandwidth.write.plain", "bandwidth", 41.3, "GB/s");
+    num("bandwidth.copy.plain", "bandwidth", 52.6, "GB/s");
+    num("bandwidth.st.read", "bandwidth", 41.0, "GB/s");
+    num("bandwidth.st.write", "bandwidth", 28.6, "GB/s");
+    num("bandwidth.st.copy", "bandwidth", 36.2, "GB/s");
+    num("bandwidth.st.write.plain", "bandwidth", 22.4, "GB/s");
+    num("bandwidth.st.copy.plain", "bandwidth", 27.9, "GB/s");
+    txt("bandwidth.path", QStringLiteral("AVX2 loads; write/copy scored with non-temporal stores, plain stores also shown"));
+    num("loaded.latency", "loaded", 138, "ns");
+    num("loaded.load", "loaded", 68.6, "GB/s");
+    num("loaded.threads", "loaded", 30, "");
+    num("threads", "", 32, "");
+    num("speed", "", 6000, "MT/s");
+    num("channels", "", 2, "");
+    txt("config.type", QStringLiteral("DDR5"));
+    txt("config.total", QStringLiteral("32 GB"));
+    txt("config.modules", QStringLiteral("2 × 16 GB"));
+    txt("config.ranks", QStringLiteral("2R"));
+    txt("config.width", QStringLiteral("128-bit"));
+    txt("config.rated", QStringLiteral("6,000 MT/s"));
+    txt("config.source", QStringLiteral("SMBIOS (System info)"));
+    num("config.peak", "", 96.0, "GB/s");
+    num("config.efficiency", "", 72.4 / 96.0 * 100, "%");
+    txt("config.module.1", QStringLiteral("DIMMA2 (P0 CHANNEL A) · 16 GB · DDR5 · 6,000 MT/s · 2R · G.Skill · EX6000C30-16G"));
+    txt("config.module.2", QStringLiteral("DIMMB2 (P0 CHANNEL B) · 16 GB · DDR5 · 6,000 MT/s · 2R · G.Skill · EX6000C30-16G"));
+    txt("pages", QStringLiteral("2 MiB transparent huge pages"));
+    num("pages.huge", "", 100, "%");
+    txt("power.source", QStringLiteral("AC"));
+    num("background.load", "", 2, "%");
+    r.subResults = {{QStringLiteral("latency"), Status::Ok, {}, 1567.0},
+                    {QStringLiteral("bandwidth"), Status::Ok, {}, 716.0},
+                    {QStringLiteral("loaded"), Status::Ok, {}, 1522.0}};
+    Series curve{QStringLiteral("latency_curve"), QString(), QString(), QStringLiteral("KiB"), QStringLiteral("ns"), {}};
+    for (const auto &[kib, nsv] : std::initializer_list<std::pair<double, double>>{
+             {4, 0.8}, {16, 0.8}, {24, 0.8}, {48, 0.9}, {64, 1.4}, {128, 2.5}, {220, 2.6}, {512, 2.7}, {1024, 3.5}, {2048, 8},
+             {5836.8, 9.6}, {16384, 10.5}, {32768, 25}, {131072, 60}, {1048576, 74.2}})
+        curve.points.append({kib, nsv});
+    Series loaded{QStringLiteral("loaded_curve"), QString(), QString(), QStringLiteral("GB/s"), QStringLiteral("ns"),
+                  {{0, 74.2}, {19.6, 76.8}, {52.4, 88.5}, {64.9, 109}, {67.8, 127}, {68.6, 138}}};
+    r.series = {curve, loaded};
+    return r;
+}
+
+const TableBlock *tableTitled(const DetailLayout &d, const QString &title)
+{
+    for (const DetailBlock &b : d.blocks) {
+        if (b.title == title)
+            return std::get_if<TableBlock>(&b.content);
+    }
+    return nullptr;
+}
+
+const LineChartBlock *chartTitled(const DetailLayout &d, const QString &prefix)
+{
+    for (const DetailBlock &b : d.blocks) {
+        if (b.title.startsWith(prefix))
+            return std::get_if<LineChartBlock>(&b.content);
+    }
+    return nullptr;
+}
+
+QStringList notes(const DetailLayout &d, Tone *firstTone = nullptr)
+{
+    QStringList out;
+    for (const DetailBlock &b : d.blocks) {
+        if (const auto *n = std::get_if<NoteBlock>(&b.content)) {
+            if (out.isEmpty() && firstTone)
+                *firstTone = n->tone;
+            out << n->text;
+        }
+    }
+    return out;
+}
+
+QStringList cells(const TableBlock &t, int row)
+{
+    QStringList out;
+    for (const DetailCell &c : t.rows.value(row))
+        out << c.text;
+    return out;
+}
+
+QStringList titles(const DetailLayout &d)
+{
+    QStringList out;
+    for (const DetailBlock &b : d.blocks) {
+        if (std::holds_alternative<KpisBlock>(b.content))
+            out << QStringLiteral("[kpis]");
+        else if (std::holds_alternative<NoteBlock>(b.content))
+            out << QStringLiteral("[note]");
+        else
+            out << b.title;
+    }
+    return out;
 }
 
 } // namespace
@@ -378,6 +505,232 @@ private slots:
         b = t.score(r);
         QVERIFY(!b.total);
         QCOMPARE(b.subScores.size(), 3);
+    }
+
+    // Task 12: the Detail page of the approved mockup, from its own numbers.
+    void detailCompleted()
+    {
+        tests::RamTest t;
+        const DetailLayout d = t.detail(mockupResult());
+        QCOMPARE(d.subtitle, QStringLiteral("Score 1,186 · DDR5-6000 · 2 MiB pages · latency on CPU 4"));
+        QCOMPARE(d.headlineMetrics, (QStringList{QStringLiteral("latency.dram"), QStringLiteral("bandwidth.read")}));
+        // The mockup's blocks, in order (the renderer makes the rows).
+        QCOMPARE(titles(d), (QStringList{QStringLiteral("[kpis]"), QStringLiteral("Sub-tests"),
+                                         QStringLiteral("Latency by buffer size (CPU 4 · 2 MiB pages)"), QStringLiteral("Latency (CPU 4)"),
+                                         QStringLiteral("[note]"), QStringLiteral("Bandwidth (GB/s)"), QStringLiteral("[note]"),
+                                         QStringLiteral("Loaded latency (latency against load bandwidth)"),
+                                         QStringLiteral("Loaded latency points"), QStringLiteral("[note]"),
+                                         QStringLiteral("Memory configuration (SMBIOS)"),
+                                         QStringLiteral("Theoretical peak (derived from SMBIOS)"), QStringLiteral("Modules"),
+                                         QStringLiteral("[note]")}));
+        // KPIs: five, the Memory one on two lines.
+        const auto &kpis = std::get<KpisBlock>(d.blocks.first().content);
+        QCOMPARE(kpis.items.size(), 5);
+        const QStringList labels = {QStringLiteral("RAM score"), QStringLiteral("DRAM latency"), QStringLiteral("Read bandwidth"),
+                                    QStringLiteral("Loaded latency"), QStringLiteral("Memory")};
+        const QStringList values = {QStringLiteral("1,186"), QStringLiteral("74.2 ns"), QStringLiteral("72.4 GB/s"),
+                                    QStringLiteral("138 ns"), QStringLiteral("DDR5-6000")};
+        const QStringList under = {QStringLiteral("points"), QStringLiteral("1 GiB buffer · CPU 4"), QStringLiteral("all 32 threads"),
+                                   QStringLiteral("at 68.6 GB/s load"), QStringLiteral("32 GB · 2 × 16 GB")};
+        for (int i = 0; i < 5; ++i) {
+            QCOMPARE(kpis.items[i].label, labels[i]);
+            QCOMPARE(kpis.items[i].value.text, values[i]);
+            QCOMPARE(kpis.items[i].unitOverride, under[i]);
+        }
+        // Sub-tests: both bandwidth lines (the mockup), the bold total.
+        const TableBlock *groups = tableTitled(d, QStringLiteral("Sub-tests"));
+        QVERIFY(groups && groups->fullWidth);
+        QCOMPARE(cells(*groups, 0), (QStringList{QStringLiteral("Latency"), QStringLiteral("50%"),
+                                                 QStringLiteral("DRAM 74.2 ns · L3 9.6 · L2 2.6 · L1 0.8 ns"), QStringLiteral("1,567")}));
+        QCOMPARE(cells(*groups, 1).at(2), QStringLiteral("read 72.4 · write 61.8 · copy 66.5 GB/s (all threads)\n"
+                                                         "read 41.0 · write 28.6 · copy 36.2 GB/s (single thread)"));
+        QCOMPARE(cells(*groups, 2), (QStringList{QStringLiteral("Loaded latency"), QStringLiteral("15%"),
+                                                 QStringLiteral("138 ns at 68.6 GB/s"), QStringLiteral("1,522")}));
+        QCOMPARE(cells(*groups, 3), (QStringList{QStringLiteral("RAM score"), QStringLiteral("100%"),
+                                                 QStringLiteral("weighted geometric mean"), QStringLiteral("1,186")}));
+        QCOMPARE(groups->boldRows, QVector<int>{3});
+        // The latency chart: log-log, the OS cache sizes labelled, the four
+        // targets dotted, ticks 0.5 ... 200 ns.
+        const LineChartBlock *chart = chartTitled(d, QStringLiteral("Latency by buffer size"));
+        QVERIFY(chart);
+        QCOMPARE(chart->xAxis.scale, ChartAxis::Scale::Log2);
+        QCOMPARE(chart->yAxis.scale, ChartAxis::Scale::Log10);
+        QCOMPARE(chart->yAxis.tickLabels, (QStringList{QStringLiteral("0.5"), QStringLiteral("1"), QStringLiteral("2"),
+                                                       QStringLiteral("5"), QStringLiteral("10"), QStringLiteral("20"),
+                                                       QStringLiteral("50"), QStringLiteral("100"), QStringLiteral("200")}));
+        QCOMPARE(chart->xAxis.tickLabels.size(), 10);
+        QCOMPARE(chart->annotations.size(), 3);
+        QCOMPARE(chart->annotations[0].label, QStringLiteral("L1 48 KiB"));
+        QCOMPARE(chart->annotations[0].x, 48.0);
+        QCOMPARE(chart->annotations[2].label, QStringLiteral("L3 32 MiB"));
+        QCOMPARE(chart->markers, (QVector<double>{24, 220, 5836.8, 1048576}));
+        const TableBlock *lat = tableTitled(d, QStringLiteral("Latency (CPU 4)"));
+        QVERIFY(lat && !lat->fullWidth);
+        QCOMPARE(cells(*lat, 0), (QStringList{QStringLiteral("L1"), QStringLiteral("48 KiB"), QStringLiteral("24 KiB"), QStringLiteral("0.8 ns")}));
+        QCOMPARE(cells(*lat, 2), (QStringList{QStringLiteral("L3"), QStringLiteral("32 MiB"), QStringLiteral("5.7 MiB"), QStringLiteral("9.6 ns")}));
+        QCOMPARE(cells(*lat, 3), (QStringList{QStringLiteral("DRAM"), QStringLiteral("—"), QStringLiteral("1 GiB"), QStringLiteral("74.2 ns")}));
+        // Bandwidth: the x64 plain-store columns, not scored.
+        const TableBlock *bw = tableTitled(d, QStringLiteral("Bandwidth (GB/s)"));
+        QVERIFY(bw && bw->fullWidth);
+        QCOMPARE(bw->columns, (QStringList{QStringLiteral("Threads"), QStringLiteral("Read"), QStringLiteral("Write"), QStringLiteral("Copy"),
+                                           QStringLiteral("Write, plain stores (not scored)"), QStringLiteral("Copy, plain stores (not scored)")}));
+        QCOMPARE(cells(*bw, 0), (QStringList{QStringLiteral("All threads (32)"), QStringLiteral("72.4"), QStringLiteral("61.8"),
+                                             QStringLiteral("66.5"), QStringLiteral("41.3"), QStringLiteral("52.6")}));
+        QCOMPARE(cells(*bw, 1).first(), QStringLiteral("Single thread (CPU 4)"));
+        // Loaded latency: the six points in level order, full load bold.
+        const TableBlock *points = tableTitled(d, QStringLiteral("Loaded latency points"));
+        QVERIFY(points);
+        QCOMPARE(points->columns, (QStringList{QStringLiteral("Load level"), QStringLiteral("GB/s"), QStringLiteral("ns")}));
+        QStringList levels;
+        for (int i = 0; i < points->rows.size(); ++i)
+            levels << cells(*points, i).first();
+        QCOMPARE(levels, (QStringList{QStringLiteral("Idle (no load)"), QStringLiteral("6,000 ns delay"), QStringLiteral("2,000 ns delay"),
+                                      QStringLiteral("750 ns delay"), QStringLiteral("250 ns delay"), QStringLiteral("Full load (scored)")}));
+        QCOMPARE(cells(*points, 0), (QStringList{QStringLiteral("Idle (no load)"), QStringLiteral("0"), QStringLiteral("74.2")}));
+        QCOMPARE(cells(*points, 5), (QStringList{QStringLiteral("Full load (scored)"), QStringLiteral("68.6"), QStringLiteral("138")}));
+        QCOMPARE(points->boldRows, QVector<int>{5});
+        const LineChartBlock *loadedChart = chartTitled(d, QStringLiteral("Loaded latency (latency"));
+        QVERIFY(loadedChart);
+        QCOMPARE(loadedChart->xAxis.tickLabels, (QStringList{QStringLiteral("0 GB/s"), QStringLiteral("20 GB/s"), QStringLiteral("40 GB/s"),
+                                                             QStringLiteral("60 GB/s"), QStringLiteral("80 GB/s")}));
+        QCOMPARE(loadedChart->annotations.size(), 2);
+        QCOMPARE(loadedChart->annotations[0].label, QStringLiteral("Idle 74.2 ns"));
+        QCOMPARE(loadedChart->annotations[1].label, QStringLiteral("Full load 138 ns"));
+        // The memory configuration: readout | derived peak, then the modules
+        // with the JEP106 maker.
+        const TableBlock *config = tableTitled(d, QStringLiteral("Memory configuration (SMBIOS)"));
+        const TableBlock *peak = tableTitled(d, QStringLiteral("Theoretical peak (derived from SMBIOS)"));
+        QVERIFY(config && peak && !config->fullWidth && !peak->fullWidth);
+        QCOMPARE(config->rows.size(), 8);
+        QCOMPARE(cells(*config, 1), (QStringList{QStringLiteral("Configured speed"), QStringLiteral("6,000 MT/s")}));
+        QCOMPARE(cells(*config, 7), (QStringList{QStringLiteral("Channels (estimate)"), QStringLiteral("2")}));
+        QCOMPARE(cells(*peak, 0), (QStringList{QStringLiteral("Theoretical peak"), QStringLiteral("96.0 GB/s")}));
+        QCOMPARE(cells(*peak, 1), (QStringList{QStringLiteral("Derived as"), QStringLiteral("6,000 MT/s × 128-bit ÷ 8")}));
+        QCOMPARE(cells(*peak, 3), (QStringList{QStringLiteral("Read efficiency"), QStringLiteral("75%")}));
+        const TableBlock *modules = tableTitled(d, QStringLiteral("Modules"));
+        QVERIFY(modules && modules->fullWidth);
+        QCOMPARE(modules->columns.at(5), QStringLiteral("Maker"));
+        QCOMPARE(cells(*modules, 0), (QStringList{QStringLiteral("DIMMA2 (P0 CHANNEL A)"), QStringLiteral("16 GB"), QStringLiteral("DDR5"),
+                                                  QStringLiteral("6,000 MT/s"), QStringLiteral("2R"), QStringLiteral("G.Skill"),
+                                                  QStringLiteral("EX6000C30-16G")}));
+        // The notes, word for word as approved; neutral (amber as built).
+        Tone first = Tone::Warn;
+        const QStringList n = notes(d, &first);
+        QCOMPARE(first, Tone::Neutral);
+        QCOMPARE(n, (QStringList{
+                        QStringLiteral("Cache sizes as the OS reports them for CPU 4: L1d 48 KiB · L2 1 MiB · L3 32 MiB (shared by CPUs "
+                                       "0–7, 16–23). Each level is measured in the middle of its plateau (the open dots); the chart's "
+                                       "y axis is logarithmic."),
+                        QStringLiteral("AVX2 loads. Write and copy are scored with non-temporal stores; the plain-store columns are "
+                                       "shown for reference. Copy counts bytes read + written."),
+                        QStringLiteral("The DRAM latency chase runs on CPU 4 while 30 load threads on the other CPUs (not CPU 4's SMT "
+                                       "sibling) stream reads, pausing after every 4 KiB for the level's delay. Only full load is "
+                                       "scored."),
+                        QStringLiteral("As reported by the firmware (SMBIOS). SynBench doesn't read SPD, so timings aren't shown.")}));
+    }
+
+    // The mockup's variants: no L3 (Snapdragon X), ARM64 bandwidth, 4 KiB
+    // and mixed pages, no SMBIOS readout, emulation, P9's cap hit.
+    void detailVariants()
+    {
+        tests::RamTest t;
+        TestResult r = mockupResult();
+        r.metrics.removeIf([](const Metric &m) {
+            return m.key == QLatin1StringView("latency.l3") || m.key == QLatin1StringView("latency.l3.at")
+                   || m.key.startsWith(QLatin1StringView("config.")) || m.key == QLatin1StringView("speed")
+                   || m.key == QLatin1StringView("channels") || m.key.contains(QLatin1StringView(".plain"));
+        });
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("cache.levels"))
+                m.value = QStringLiteral("L1d 96 KiB · L2 12 MiB (shared by CPUs 0–3)");
+            if (m.key == QLatin1StringView("bandwidth.path"))
+                m.value = QStringLiteral("NEON loads and plain stores");
+            if (m.key == QLatin1StringView("pages"))
+                m.value = QStringLiteral("4 KiB pages (no SeLockMemoryPrivilege)");
+        }
+        r.metrics.append({QStringLiteral("config.source"), {}, QString(),
+                          QStringLiteral("not available: the SMBIOS helper wasn't authorised and udev has no memory data"), {},
+                          Direction::Neutral, false});
+        r.metrics.append({QStringLiteral("emulated"), {}, QString(), QStringLiteral("x64 build under emulation on ARM64"), {},
+                          Direction::Neutral, false});
+        r.metrics.append({QStringLiteral("bandwidth.limited"), {}, QString(),
+                          QStringLiteral("Bandwidth buffers were limited to 25% of memory (64 MiB per thread, below the 96 MiB L3), "
+                                         "so bandwidth may partly come from cache."),
+                          {}, Direction::Neutral, false});
+        const DetailLayout d = t.detail(r);
+        QCOMPARE(d.subtitle, QStringLiteral("Score 1,186 · 4 KiB pages · latency on CPU 4"));
+        const TableBlock *lat = tableTitled(d, QStringLiteral("Latency (CPU 4)"));
+        QCOMPARE(cells(*lat, 2), (QStringList{QStringLiteral("L3"), QStringLiteral("—"), QStringLiteral("—"), QStringLiteral("no L3 on this core")}));
+        QCOMPARE(cells(*tableTitled(d, QStringLiteral("Sub-tests")), 0).at(2), QStringLiteral("DRAM 74.2 ns · L2 2.6 · L1 0.8 ns"));
+        QCOMPARE(chartTitled(d, QStringLiteral("Latency by buffer size"))->markers.size(), 3);
+        QCOMPARE(tableTitled(d, QStringLiteral("Bandwidth (GB/s)"))->columns.size(), 4);  // no plain-store columns
+        QVERIFY(!tableTitled(d, QStringLiteral("Memory configuration (SMBIOS)")));
+        const QStringList n = notes(d);
+        QVERIFY(n.contains(QStringLiteral("NEON loads and plain stores (ARM has no guaranteed non-temporal store). Copy counts bytes "
+                                          "read + written.")));
+        QVERIFY(n.contains(QStringLiteral("Memory details not available: the SMBIOS helper wasn't authorised and udev has no memory "
+                                          "data. The test still ran and is scored.")));
+        QVERIFY(n.contains(QStringLiteral("This run used 4 KiB pages: DRAM and loaded latency include TLB misses, so they read higher "
+                                          "than on a huge-page run. The score is not adjusted.")));
+        QVERIFY(n.contains(QStringLiteral("This x64 build ran under emulation (Prism): latency is only roughly right. Run the ARM64 "
+                                          "build for real numbers.")));
+        QVERIFY(n.contains(QStringLiteral("Bandwidth buffers were limited to 25% of memory (64 MiB per thread, below the 96 MiB L3), "
+                                          "so bandwidth may partly come from cache.")));
+        // Mixed pages.
+        TestResult mixed = mockupResult();
+        for (Metric &m : mixed.metrics) {
+            if (m.key == QLatin1StringView("pages"))
+                m.value = QStringLiteral("mixed: 41% 2 MiB pages");
+            if (m.key == QLatin1StringView("pages.huge"))
+                m.value = 41.3;
+        }
+        const DetailLayout md = t.detail(mixed);
+        QVERIFY(md.subtitle.contains(QLatin1StringView("41% 2 MiB pages")));
+        QVERIFY(notes(md).contains(QStringLiteral("Only 41% of the latency buffer got 2 MiB pages, so DRAM and loaded latency may read "
+                                                  "higher than on a full huge-page run. The score is not adjusted.")));
+        // A latency that wasn't measured is a dash in its table, never a 0
+        // (Zeb, checkpoint 1); the chart only has what was measured.
+        TestResult missing = mockupResult();
+        missing.metrics.removeIf([](const Metric &m) { return m.key == QLatin1StringView("latency.l2"); });
+        QCOMPARE(cells(*tableTitled(t.detail(missing), QStringLiteral("Latency (CPU 4)")), 1).at(3), QStringLiteral("—"));
+    }
+
+    // Partial: no total, the parts' problems in a note; Stopped: no
+    // Sub-score column, the parts that didn't finish say so.
+    void detailPartialAndStopped()
+    {
+        tests::RamTest t;
+        TestResult r = mockupResult();
+        r.status = Status::Partial;
+        r.score.reset();
+        r.subResults[2] = {QStringLiteral("loaded"), Status::Error, QStringLiteral("chase under load: the pointer chase left its buffer"), {}};
+        r.metrics.removeIf([](const Metric &m) { return m.key.startsWith(QLatin1StringView("loaded.")); });
+        r.series.removeLast();
+        DetailLayout d = t.detail(r);
+        QCOMPARE(d.subtitle, QStringLiteral("No RAM score · DDR5-6000 · 2 MiB pages · latency on CPU 4"));
+        QCOMPARE(std::get<KpisBlock>(d.blocks.first().content).items.size(), 3);  // no score, no loaded latency
+        const TableBlock *groups = tableTitled(d, QStringLiteral("Sub-tests"));
+        QCOMPARE(cells(*groups, 2), (QStringList{QStringLiteral("Loaded latency"), QStringLiteral("15%"), QStringLiteral("Error"), QStringLiteral("—")}));
+        QCOMPARE(cells(*groups, 3).at(2), QStringLiteral("no score: not every part ran"));
+        QVERIFY(!tableTitled(d, QStringLiteral("Loaded latency points")));
+        QVERIFY(notes(d).contains(QStringLiteral("No RAM score: not every part ran. Loaded latency: chase under load: the pointer "
+                                                 "chase left its buffer.")));
+
+        TestResult s = mockupResult();
+        s.status = Status::Cancelled;
+        s.score.reset();
+        s.subResults = {{QStringLiteral("latency"), Status::Ok, {}, {}}, {QStringLiteral("bandwidth"), Status::Cancelled, {}, {}}};
+        s.metrics.removeIf([](const Metric &m) { return m.key.startsWith(QLatin1StringView("loaded.")) || m.key.startsWith(QLatin1StringView("bandwidth.")); });
+        s.series.removeLast();
+        d = t.detail(s);
+        QVERIFY(d.subtitle.startsWith(QStringLiteral("Stopped · ")));
+        groups = tableTitled(d, QStringLiteral("Sub-tests"));
+        QCOMPARE(groups->columns.size(), 3);
+        QCOMPARE(groups->rows.size(), 3);  // no total row
+        QCOMPARE(cells(*groups, 1).at(2), QStringLiteral("Stopped"));
+        QCOMPARE(cells(*groups, 2).at(2), QStringLiteral("Not run"));
+        QVERIFY(!tableTitled(d, QStringLiteral("Bandwidth (GB/s)")));
+        QVERIFY(notes(d).contains(QStringLiteral("Stopped before the end: the parts that finished are shown, without scores.")));
     }
 
     // A whole run at 1% of real time (the buffers keep their real sizes).

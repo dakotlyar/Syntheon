@@ -1040,6 +1040,12 @@ void RamRun::loaded()
                                          .arg(load->placementFailures()));
     const QString core = pick.core.ranked ? QStringLiteral("CPU %1").arg(coreName(pick.core)) : QStringLiteral("one thread");
     const int siblings = int(pick.smtKeys.size()) - 1;
+    m_ctx.log(LogLevel::Info,
+              QStringLiteral("Loaded latency on %1: %2 load threads%3 stream reads")
+                  .arg(core)
+                  .arg(specs.size())
+                  .arg(siblings > 0 ? QStringLiteral(" (not %1's SMT sibling%2)").arg(core, siblings > 1 ? QStringLiteral("s") : QString())
+                                    : QString()));
     const std::unique_ptr<WorkerPool> pool = chasePool(pick.core);
     // K from the idle DRAM latency; if that wasn't measured (the latency
     // part failed), from a typical one (§5.1's bounds keep Stop's 100 ms).
@@ -1055,13 +1061,8 @@ void RamRun::loaded()
     });
     load.reset();  // parked and joined before anything else happens
     m_budgetDone = base + budget(spec) * double(std::size(ram::kLoadDelaysNs));
-    m_ctx.log(LogLevel::Info,
-              QStringLiteral("Loaded latency on %1: %2 load threads%3; delay calibration %4 ns per spin")
-                  .arg(core)
-                  .arg(specs.size())
-                  .arg(siblings > 0 ? QStringLiteral(" (not %1's SMT sibling%2)").arg(core, siblings > 1 ? QStringLiteral("s") : QString())
-                                    : QString())
-                  .arg(res.nsPerSpin, 0, 'f', 3));
+    if (res.nsPerSpin > 0)
+        m_ctx.log(LogLevel::Info, QStringLiteral("Load delays: %1 ns per spin (calibrated on one load thread)").arg(res.nsPerSpin, 0, 'f', 3));
     if (res.ok() && !res.levels.empty()) {
         Measurement m;
         m.median = 1;
@@ -1075,23 +1076,27 @@ void RamRun::loaded()
         Measurement m;
         m.outcome = res.outcome;
         m.error = res.error;
-        failed(kLoadedId, m, QStringLiteral("Loaded latency"));
+        failed(kLoadedId, m, QStringLiteral("chase under load"));
         groupEnd(kLoadedId);
         return;
     }
     Series curve{QStringLiteral("loaded_curve"), QStringLiteral("Loaded latency"), QStringLiteral("Load bandwidth"),
                  QStringLiteral("GB/s"), QStringLiteral("ns"), {}};
+    // In level order, lightest load first: the idle point (D7), then 6,000 ns
+    // ... full load. Not sorted by x: near saturation the levels' loads are
+    // within noise of each other (Tiamat: 0, 250 and 750 ns all saturate),
+    // and the Detail page's table names each point by its place (§5.4).
     if (m_dramNs)
-        curve.points.append({0.0, *m_dramNs});  // the idle point (D7)
+        curve.points.append({0.0, *m_dramNs});
+    for (auto it = res.levels.rbegin(); it != res.levels.rend(); ++it)
+        curve.points.append({it->loadGBs, it->latencyNs});
     for (const ram::LoadedLevel &l : res.levels) {
-        curve.points.append({l.loadGBs, l.latencyNs});
         m_ctx.log(LogLevel::Info, QStringLiteral("%1: %2 ns at %3 GB/s (spread %4%)")
                                       .arg(l.delayNs == 0 ? QStringLiteral("Full load")
                                                           : QStringLiteral("%1 ns delay").arg(Units::formatNumber(l.delayNs)),
                                            nsText(l.latencyNs), gbsText(l.loadGBs))
                                       .arg(l.spread * 100, 0, 'f', 1));
     }
-    std::stable_sort(curve.points.begin(), curve.points.end(), [](const QPointF &a, const QPointF &b) { return a.x() < b.x(); });
     const ram::LoadedLevel &full = res.levels.front();  // kLoadDelaysNs[0] = 0: full load, the scored point
     m_worstSpread = std::max(m_worstSpread, full.spread);
     m_r.metrics.append(number(QStringLiteral("loaded.latency"), kLoadedId, QStringLiteral("Loaded latency"), full.latencyNs,
