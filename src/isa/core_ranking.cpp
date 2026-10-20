@@ -404,6 +404,25 @@ IdleSample sampleIdle()
 #endif
 }
 
+std::vector<CoreChoice> allowedLogicalCpus()
+{
+    std::vector<CoreChoice> cpus;
+#if defined(__linux__)
+    for (const int c : linuxAllowedCpus())
+        cpus.push_back({true, c, 0, 0, "affinity"});
+#elif defined(_WIN32)
+    for (const CpuSetRecord &r : windowsCpuSetRecords()) {
+        if (r.allocatedElsewhere || r.realTime || !r.inProcessAffinity)
+            continue;
+        cpus.push_back({true, r.logicalIndex, r.group, r.id, "affinity"});
+    }
+    std::sort(cpus.begin(), cpus.end(), [](const CoreChoice &a, const CoreChoice &b) {
+        return std::make_pair(a.group, a.cpu) < std::make_pair(b.group, b.cpu);
+    });
+#endif
+    return cpus;
+}
+
 CoreChoice bestCoreForSingleThread()
 {
 #if defined(__linux__)

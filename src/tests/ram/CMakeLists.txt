@@ -10,6 +10,9 @@ add_library(synbench_test_ram STATIC
     sweep/grid.h sweep/grid.cpp
     sweep/targets.h sweep/targets.cpp
     sweep/knees.h sweep/knees.cpp
+    # Loaded latency: the load generator and the five-level measurement (§5.4).
+    loaded/load_generator.h loaded/load_generator.cpp
+    loaded/loaded_latency.h loaded/loaded_latency.cpp
 )
 if(WIN32)
     target_sources(synbench_test_ram PRIVATE memory/huge_buffer_win.cpp)
@@ -18,3 +21,5 @@ else()
 endif()
 target_link_libraries(synbench_test_ram PUBLIC synbench_core synbench_test_common synbench_isa synbench_ram_kernels
                                                synbench_test_engine)
+find_package(Threads REQUIRED)
+target_link_libraries(synbench_test_ram PRIVATE Threads::Threads)

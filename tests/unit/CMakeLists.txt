@@ -30,6 +30,7 @@ synbench_add_unit_test(tst_ram_memory SOURCES tst_ram_memory.cpp LIBS synbench_t
 synbench_add_unit_test(tst_ram_chase SOURCES tst_ram_chase.cpp LIBS synbench_test_ram)
 synbench_add_unit_test(tst_ram_sweep SOURCES tst_ram_sweep.cpp LIBS synbench_test_ram)
 synbench_add_unit_test(tst_ram_bandwidth SOURCES tst_ram_bandwidth.cpp LIBS synbench_test_ram)
+synbench_add_unit_test(tst_ram_loaded SOURCES tst_ram_loaded.cpp LIBS synbench_test_ram)
 synbench_add_unit_test(tst_cpu_telemetry SOURCES tst_cpu_telemetry.cpp LIBS synbench_test_cpu)
 synbench_add_unit_test(tst_cpu_test SOURCES tst_cpu_test.cpp LIBS synbench_test_cpu Qt6::Core)
 add_dependencies(tst_cpu_test synbench-cpucrypto)

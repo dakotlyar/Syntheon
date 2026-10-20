@@ -117,4 +117,17 @@ std::set<int> parseCpuList(const std::string &text);
 std::vector<CoreCandidate> topCandidatesForSingleThread();
 IdleSample sampleIdle();
 
+// --- Every logical CPU (Phase 3 §4.2, P11, P12) ----------------------------
+
+// The IdleSample key of a CPU: windowsKey(group, cpu), which on Linux (group
+// 0) is the CPU number. The keys of CoreCandidate::smtKeys.
+constexpr int cpuKey(const CoreChoice &c) { return windowsKey(c.group, c.cpu); }
+
+// Every logical CPU this process may run on, each as a ranked CoreChoice to
+// pin to (source "affinity"), in order: Linux by CPU number
+// (sched_getaffinity); Windows by group, then index (CPU sets, skipping those
+// allocated to another process, real-time ones and ones outside the process
+// affinity, as the ranking does). Empty where the platform has neither.
+std::vector<CoreChoice> allowedLogicalCpus();
+
 } // namespace sb::isa

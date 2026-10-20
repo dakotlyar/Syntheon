@@ -24,6 +24,8 @@ add_library(synbench_ram_kernels STATIC
     # Bandwidth (§5.3, P8, D4): the baseline glue; the paths are below.
     bw_kernels.h bw_kernels.cpp
     bw/bw_common.h
+    # The loaded-latency load's delay (§5.4).
+    spin.h spin.cpp
 )
 target_link_libraries(synbench_ram_kernels PUBLIC synbench_isa)
 target_compile_options(synbench_ram_kernels PRIVATE ${SYNBENCH_RAM_KERNEL_FLAGS})
