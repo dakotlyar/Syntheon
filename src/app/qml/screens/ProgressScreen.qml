@@ -120,7 +120,9 @@ ScreenFrame {
                                 objectName: "stage"
                                 text: qrow.stage
                                 kind: "small"
-                                elide: Text.ElideRight
+                                // The middle goes, so the elapsed time at the
+                                // end always shows (Zeb, round 2).
+                                elide: Text.ElideMiddle
                                 Layout.fillWidth: true
                                 color: qrow.runState === "error" || qrow.runState === "timed_out" || qrow.runState === "interrupted"
                                        ? Theme.bad : Theme.muted
