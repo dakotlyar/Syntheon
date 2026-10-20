@@ -9,6 +9,7 @@
 #include "tests/ram/sweep/grid.h"
 #include "tests/ram/sweep/knees.h"
 #include "tests/ram/sweep/targets.h"
+#include "tests/ram/sweep/warmup.h"
 
 #include <QTest>
 
@@ -75,6 +76,28 @@ class TestRamSweep : public QObject
     Q_OBJECT
 
 private slots:
+    // Defect A: Tiamat's idle chase core sits at ~4.38 GHz for ~1.1 s with a
+    // steady rate, then climbs to 5.7 GHz: steady windows alone aren't warm
+    // while the clock is under 85% of the top; with no clock known, a
+    // second of agreeing windows is.
+    void chaseCoreWarmUp()
+    {
+        const std::vector<double> plateau(20, 1.09e9);  // 0.915 ns, 4.38 GHz
+        QVERIFY(!chaseCoreWarm(plateau, 4380, 5756, 20));
+        std::vector<double> ramped = plateau;
+        ramped.insert(ramped.end(), {1.26e9, 1.41e9, 1.42e9});
+        QVERIFY(!chaseCoreWarm({1.09e9, 1.26e9}, 5300, 5756, 20));  // fast clock, rate still moving
+        QVERIFY(chaseCoreWarm(ramped, 5700, 5756, 20));
+        // No clock or no top: a second of steady windows.
+        QVERIFY(!chaseCoreWarm(std::vector<double>(19, 1.42e9), std::nullopt, std::nullopt, 20));
+        QVERIFY(chaseCoreWarm(std::vector<double>(20, 1.42e9), std::nullopt, 5756, 20));
+        QVERIFY(!chaseCoreWarm({}, 5700, 5756, 20));
+        QVERIFY(!chaseCoreWarm({1.42e9}, 5700, 5756, 20));
+        // 1% is steady, 2% isn't.
+        QVERIFY(chaseCoreWarm({1.40e9, 1.41e9}, 5700, 5756, 20));
+        QVERIFY(!chaseCoreWarm({1.38e9, 1.41e9}, 5700, 5756, 20));
+    }
+
     void gridIsHalfOctaves()
     {
         const auto g1 = latencyGrid(GiB);

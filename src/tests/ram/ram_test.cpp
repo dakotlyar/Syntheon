@@ -7,6 +7,7 @@
 #include "isa/cpu_features.h"
 #include "tests/common/stub_clock.h"
 #include "tests/cpu/cpu_context.h"
+#include "tests/cpu/engine/opaque.h"
 #include "tests/cpu/engine/platform_threads.h"
 #include "tests/cpu/engine/time_scale.h"
 #include "tests/cpu/engine/worker_pool.h"
@@ -22,6 +23,7 @@
 #include "tests/ram/sweep/grid.h"
 #include "tests/ram/sweep/knees.h"
 #include "tests/ram/sweep/targets.h"
+#include "tests/ram/sweep/warmup.h"
 
 #include <QDir>
 #include <QJsonObject>
@@ -33,6 +35,7 @@
 #include <exception>
 #include <map>
 #include <memory>
+#include <fstream>
 #include <optional>
 #include <thread>
 
@@ -65,6 +68,10 @@ constexpr std::uint64_t kFreeMargin = 512ull << 20;
 // §5.1: the first grid point has no previous point to size its units from;
 // 1 ns (an L1 hop is 0.7-1.5 ns) keeps its units near 2 ms.
 constexpr double kFirstGridEstimateNs = 1.0;
+// Defect A (checkpoint 3): the chase core's warm-up, in windows of 50 ms,
+// at most 2 s (both at the dev time scale).
+constexpr std::chrono::milliseconds kWarmWindow{50};
+constexpr std::chrono::milliseconds kWarmCap{2000};
 // §5.4: the loaded chase's unit size when the idle DRAM latency is missing.
 constexpr double kDefaultDramEstimateNs = 100;
 // §9: an all-thread read above this x the SMBIOS peak logs a warning.
@@ -353,6 +360,9 @@ private:
     }
 
     CorePick pickCore();
+    // Spins a chase on `core` until its clock has come up (sweep/warmup.h),
+    // at most kWarmCap; logs what it found. False if stopped.
+    bool warmUpCore(const isa::CoreChoice &core, const QString &what);
     std::unique_ptr<WorkerPool> chasePool(const isa::CoreChoice &core) const;
     // Builds the cycle over the latency buffer's first `bytes` on `core` and
     // measures it (ns per hop). Nullopt if the group failed or the run stopped.
@@ -437,7 +447,7 @@ void RamRun::planBudget()
     // §3 at the time scale; the first touches and cycle builds don't scale
     // (a few seconds), so they are counted at real time.
     const double sample = seconds(m_sampleFor);
-    double total = 2.5;
+    double total = 2.5 + 3 * seconds(cpu::scaledWindow(1500ms));  // + the three warm-ups
     total += double(m_grid.size()) * gridPointBudget() + 4 * targetBudget();
     const double bw = budget(cpu::scaled(kBandwidth));
     total += sample + 1.5 + double(m_variants.size()) * bw;  // single thread (+ the slices' first touch)
@@ -548,6 +558,72 @@ CorePick RamRun::pickCore()
     }
     p.text = QStringLiteral("CPU %1 (top-ranked core, quietest of CPUs %2)").arg(coreName(p.core), names.join(QStringLiteral(", ")));
     return p;
+}
+
+// The core's top clock in MHz (Linux cpufreq cpuinfo_max_freq); none
+// elsewhere (the warm-up then waits for a second of steady windows).
+std::optional<double> topClockMHz(const isa::CoreChoice &core)
+{
+#if defined(__linux__)
+    if (!core.ranked)
+        return std::nullopt;
+    std::ifstream in("/sys/devices/system/cpu/cpu" + std::to_string(core.cpu) + "/cpufreq/cpuinfo_max_freq");
+    double khz = 0;
+    if (in >> khz && khz > 0)
+        return khz / 1000.0;
+#else
+    (void)core;
+#endif
+    return std::nullopt;
+}
+
+bool RamRun::warmUpCore(const isa::CoreChoice &core, const QString &what)
+{
+    const auto window = cpu::scaledWindow(kWarmWindow);
+    const auto cap = cpu::scaledWindow(kWarmCap);
+    const int steadyWithoutClock = std::max(2, int(std::chrono::milliseconds(1000) / kWarmWindow));
+    const std::optional<double> top = topClockMHz(core);
+    std::vector<double> rates;
+    std::optional<double> clock;
+    bool warm = false;
+    const auto start = std::chrono::steady_clock::now();
+    onCore(core, [&] {
+        // A 4 KiB cycle: L1-resident, so the rate follows the clock only.
+        std::vector<std::uint64_t> lines(4096 / sizeof(std::uint64_t));
+        auto *base = reinterpret_cast<std::byte *>(lines.data());
+        if (ram::buildChaseCycle(base, 4096, 64, ram::chaseSeed(4096), {}) != ram::CycleBuild::Ok)
+            return;
+        const std::unique_ptr<cpu::telemetry::Source> source = cpu::telemetry::makeSystemSource();
+        const void *p = base;
+        while (!cancelled() && std::chrono::steady_clock::now() - start < cap) {
+            const auto w0 = std::chrono::steady_clock::now();
+            std::uint64_t hops = 0;
+            while (std::chrono::steady_clock::now() - w0 < window) {
+                p = ram::chaseHops(p, 16 * 1024);
+                hops += 16 * 1024;
+            }
+            rates.push_back(double(hops) / std::chrono::duration<double>(std::chrono::steady_clock::now() - w0).count());
+            clock = core.ranked ? source->clockMHz({false, core}) : std::nullopt;
+            if (ram::chaseCoreWarm(rates, clock, top, steadyWithoutClock)) {
+                warm = true;
+                break;
+            }
+        }
+        cpu::opaque(p);
+    });
+    if (stopRequested())
+        return false;
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    const QString at = clock ? QStringLiteral(" at %1 GHz").arg(*clock / 1000.0, 0, 'f', 1) : QString();
+    if (warm)
+        m_ctx.log(LogLevel::Info, QStringLiteral("%1: the chase core warmed up in %2 s%3").arg(what).arg(seconds, 0, 'f', 1).arg(at));
+    else
+        m_ctx.log(LogLevel::Warning, QStringLiteral("%1: the chase core's clock didn't settle in %2 s%3%4; measuring anyway")
+                                         .arg(what)
+                                         .arg(seconds, 0, 'f', 1)
+                                         .arg(at)
+                                         .arg(top ? QStringLiteral(" (top %1 GHz)").arg(*top / 1000.0, 0, 'f', 1) : QString()));
+    return true;
 }
 
 std::unique_ptr<WorkerPool> RamRun::chasePool(const isa::CoreChoice &core) const
@@ -703,6 +779,12 @@ bool RamRun::latencyGrid()
         m_ctx.log(LogLevel::Warning, QStringLiteral("Latency: couldn't pin the thread to CPU %1; it runs where the OS puts it")
                                          .arg(coreName(m_core.core)));
     m_budgetDone = 2.5;
+    // Defect A: the core has been idle (or faulting pages in); the grid's
+    // first points would catch it before its clock comes up.
+    report(m_budgetDone, QStringLiteral("Latency curve · warming up"));
+    if (!warmUpCore(m_core.core, QStringLiteral("Latency")))
+        return false;
+    m_budgetDone += seconds(cpu::scaledWindow(1500ms));
     double estimate = kFirstGridEstimateNs;
     int index = 0;
     for (const std::uint64_t bytes : m_grid) {
@@ -948,6 +1030,13 @@ void RamRun::bandwidth()
         return;
     }
     m_budgetDone = std::max(m_budgetDone, start + seconds(m_sampleFor) + 1.5);
+    // The picked core may have been idle while the slices filled.
+    report(m_budgetDone, QStringLiteral("Single-thread bandwidth · warming up"));
+    if (!warmUpCore(pick.core, QStringLiteral("Single-thread bandwidth"))) {
+        groupEnd(kBandwidthId);
+        return;
+    }
+    m_budgetDone += seconds(cpu::scaledWindow(1500ms));
 
     const QString where = pick.core.ranked ? QStringLiteral("CPU %1").arg(coreName(pick.core)) : QStringLiteral("one unpinned thread");
     m_ctx.log(LogLevel::Info,
@@ -1054,6 +1143,11 @@ void RamRun::loaded()
     if (built == ram::CycleBuild::NoMemory)
         return give(Status::Error, QStringLiteral("no memory for the cycle's index array"));
 
+    // The cycle build was a long non-chase step; the load isn't running yet.
+    if (!warmUpCore(pick.core, QStringLiteral("Loaded latency"))) {
+        groupEnd(kLoadedId);
+        return;
+    }
     std::unique_ptr<ram::LoadGenerator> load;
     try {
         load = std::make_unique<ram::LoadGenerator>(m_path, specs);

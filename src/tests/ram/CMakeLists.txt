@@ -12,6 +12,7 @@ add_library(synbench_test_ram STATIC
     sweep/grid.h sweep/grid.cpp
     sweep/targets.h sweep/targets.cpp
     sweep/knees.h sweep/knees.cpp
+    sweep/warmup.h sweep/warmup.cpp
     # Loaded latency: the load generator and the five-level measurement (§5.4).
     loaded/load_generator.h loaded/load_generator.cpp
     loaded/loaded_latency.h loaded/loaded_latency.cpp
