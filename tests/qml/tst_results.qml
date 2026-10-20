@@ -36,9 +36,11 @@ TestCase {
     function rowFor(screen, id) { return findChild(screen, "result-" + id) }
     function tick() { waitForRendering(test) }
 
+    // Stubs only (Phase 3 N6): the RAM test is real now. The chart and the
+    // KPIs come from Battery's page (test_2).
     function test_1_summaryRowsAndDetail() {
         Fixtures.setStubScale(0.02)
-        runAndWait(["gpu", "ram", "storage"])
+        runAndWait(["gpu", "ai", "storage"])
         const screen = createTemporaryObject(screenComponent, test)
         Results.openRun("")
         tick()
@@ -46,22 +48,19 @@ TestCase {
         compare(findChild(screen, "overallScore").text, Results.overallText)
         verify(!findChild(screen, "partialMarker").visible)
         verify(!findChild(screen, "statusBadge").visible)
-        for (const id of ["gpu", "ram", "storage"])
+        for (const id of ["gpu", "ai", "storage"])
             verify(rowFor(screen, id) !== null, id)
         verify(findChild(rowFor(screen, "gpu"), "score").text.length > 0)
 
         // A row opens that test's detail page; the rail's Results stays selected.
         verify(!Results.detailOpen)
-        mouseClick(rowFor(screen, "ram"))
+        mouseClick(rowFor(screen, "gpu"))
         verify(Results.detailOpen)
         tick()
-        compare(Results.detailTitle, "RAM")
+        compare(Results.detailTitle, "GPU")
         verify(findChild(screen, "detailPage") !== null)
-        verify(findChild(screen, "chart") !== null)  // the latency curve
-        verify(findChild(screen, "chart").points.length > 5)
-        verify(findChild(screen, "kpiValue") !== null)
         compare(Results.detailTabs.length, 3)  // the tests of this run, no Battery yet
-        verify(findChild(screen, "dtab-ram") !== null)
+        verify(findChild(screen, "dtab-gpu") !== null)
 
         // Another tab: Storage's CrystalDiskMark-style grid.
         mouseClick(findChild(screen, "dtab-storage"))
@@ -94,6 +93,8 @@ TestCase {
         verify(findChild(screen, "separateRunNote").text.indexOf("From a separate run") === 0)
         verify(findChild(screen, "separateRunNote").text.indexOf("Light profile") > 0)
         verify(findChild(screen, "chart") !== null)  // the drain curve
+        verify(findChild(screen, "chart").points.length > 5)
+        verify(findChild(screen, "kpiValue") !== null)
         Results.closeDetail()
         RunController.setOption("battery", "override_preconditions", false)
         RunController.setOption("battery", "profile", "mixed")
@@ -126,7 +127,7 @@ TestCase {
     function test_3b_liveLogSurvivesATestFinishing() {
         Fixtures.setStubScale(0.15)
         RunController.clearSelection()
-        for (const id of ["gpu", "ram", "storage"]) RunController.toggle(id)
+        for (const id of ["gpu", "ai", "storage"]) RunController.toggle(id)
         const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         const updated = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runUpdated" })
         verify(RunController.start())
@@ -157,15 +158,15 @@ TestCase {
     // the reason, not its normal layout full of dashes; any test, not just NPU.
     function test_3c_notAvailableDetailShowsTheReason() {
         Fixtures.setStubScale(0.02)
-        runAndWait(["ram", "storage"], [["ram", "simulate", "na"]])
+        runAndWait(["gpu", "storage"], [["gpu", "simulate", "na"]])
         const screen = createTemporaryObject(screenComponent, test)
         Results.openRun("")
         tick()
-        Results.showDetail("ram")
+        Results.showDetail("gpu")
         tick()
         const na = findChild(screen, "naStateBlock")
         verify(na !== null && na.visible)
-        compare(na.block.title, "RAM isn't available here")
+        compare(na.block.title, "GPU isn't available here")
         verify(na.block.body.indexOf("not available") >= 0, na.block.body)
         compare(Results.detailSubtitle, "Not available on this machine")
         compare(findChild(screen, "kpiValue"), null)  // no empty KPI cards
@@ -173,14 +174,14 @@ TestCase {
         Results.showDetail("storage")
         tick()
         compare(findChild(screen, "naStateBlock"), null)
-        RunController.setOption("ram", "simulate", "normal")
+        RunController.setOption("gpu", "simulate", "normal")
     }
 
     function test_4_stoppedRunShowsPartialMarker() {
         Fixtures.setStubScale(0.15)
         RunController.clearSelection()
         RunController.toggle("gpu")
-        RunController.toggle("ram")
+        RunController.toggle("storage")
         const spy = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         verify(RunController.start())
         // Stop once the first test has a score.
@@ -197,7 +198,7 @@ TestCase {
         compare(findChild(screen, "statusBadge").text, "Stopped")
         verify(findChild(screen, "partialMarker").visible)  // N2
         verify(findChild(screen, "overallNote").text.indexOf("Partial") === 0)
-        // RAM runs first (catalog order); GPU was either mid-run (Stopped)
+        // Storage runs first (catalog order); GPU was either mid-run (Stopped)
         // or never started (Not run).
         verify(["Stopped", "Not run"].indexOf(findChild(rowFor(screen, "gpu"), "score").text) >= 0)
         Fixtures.setStubScale(0.02)

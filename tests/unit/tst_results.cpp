@@ -390,7 +390,10 @@ private slots:
     {
         startRuntime();
         RunController &rc = m_rt->run();
-        for (const QString &id : {QStringLiteral("cpu"), QStringLiteral("ram"), QStringLiteral("storage"), QStringLiteral("gpu"), QStringLiteral("ai")})
+        // Stubs only (Phase 3 N6: the RAM test is real now; its Detail page
+        // is tst_ram_test's). The stubs' chart and KPIs are Battery's (tst_stubs,
+        // tst_results.qml).
+        for (const QString &id : {QStringLiteral("storage"), QStringLiteral("gpu"), QStringLiteral("ai")})
             rc.toggle(id);
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
@@ -399,15 +402,14 @@ private slots:
         // The finished run replaced the live view automatically.
         QCOMPARE(res.uuid(), finished.last().at(0).toString());
         QVERIFY(!res.live());
-        QCOMPARE(res.rows().size(), 5);
+        QCOMPARE(res.rows().size(), 3);
 
-        res.showDetail(QStringLiteral("ram"));
+        res.showDetail(QStringLiteral("gpu"));
         QVERIFY(res.detailOpen());
-        QCOMPARE(res.detailTitle(), QStringLiteral("RAM"));
+        QCOMPARE(res.detailTitle(), QStringLiteral("GPU"));
         QVERIFY(res.detailSubtitle().startsWith(QLatin1StringView("Score ")));
-        QVERIFY(!block(res.detailBlocks(), QStringLiteral("kpis")).isEmpty());
-        QVERIFY(!block(res.detailBlocks(), QStringLiteral("linechart")).value(QStringLiteral("points")).toList().isEmpty());
-        QCOMPARE(res.detailColorToken(), QStringLiteral("t-ram"));
+        QVERIFY(!block(res.detailBlocks(), QStringLiteral("table")).isEmpty());
+        QCOMPARE(res.detailColorToken(), QStringLiteral("t-gpu"));
         res.showDetail(QStringLiteral("storage"));
         const auto grid = block(res.detailBlocks(), QStringLiteral("grid"));
         QCOMPARE(grid.value(QStringLiteral("rows")).toList().size(), 4);
@@ -421,14 +423,14 @@ private slots:
         QVERIFY(log);
         QVERIFY(log->rowCount() >= 10);
         const int all = log->rowCount();
-        log->setTestFilter(QStringLiteral("ram"));
+        log->setTestFilter(QStringLiteral("gpu"));
         QVERIFY(log->rowCount() > 0 && log->rowCount() < all);
-        QVERIFY(log->visibleText().contains(QLatin1StringView("RAM")));
-        QVERIFY(!log->visibleText().contains(QLatin1StringView("CPU")));
+        QVERIFY(log->visibleText().contains(QLatin1StringView("GPU")));
+        QVERIFY(!log->visibleText().contains(QLatin1StringView("Storage")));
         log->setTestFilter({});
         log->setMinLevel(QStringLiteral("warning"));
         QVERIFY(log->rowCount() < all);
-        QCOMPARE(res.logTests().size(), 5);
+        QCOMPARE(res.logTests().size(), 3);
     }
 
     void followsTheLiveRun()
@@ -437,7 +439,7 @@ private slots:
         startRuntime();
         RunController &rc = m_rt->run();
         rc.toggle(QStringLiteral("gpu"));
-        rc.toggle(QStringLiteral("ram"));
+        rc.toggle(QStringLiteral("storage"));
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
         ResultsController &res = m_rt->results();

@@ -146,14 +146,15 @@ private slots:
         rc().toggle(QStringLiteral("npu"));
         QCOMPARE(rc().selectedCount(), 0);  // N/A can't be ticked
 
-        rc().toggle(QStringLiteral("ram"));
-        QCOMPARE(rc().activeTab(), QStringLiteral("ram"));
+        // A stub's options (Phase 3 N6: the real RAM test has info rows only).
+        rc().toggle(QStringLiteral("storage"));
+        QCOMPARE(rc().activeTab(), QStringLiteral("storage"));
         auto *options = qobject_cast<OptionsModel *>(rc().options());
         QVERIFY(options);
         QAbstractItemModelTester tester(options, QAbstractItemModelTester::FailureReportingMode::QtTest);
-        QVERIFY(options->rowCount() >= 6);  // sub-tests, buffer, duration, memory, simulate, seed
-        QCOMPARE(options->value(QStringLiteral("buffer")).toString(), QStringLiteral("1g"));
-        QCOMPARE(options->value(QStringLiteral("subtests")).toStringList().size(), 3);
+        QVERIFY(options->rowCount() >= 6);  // sub-tests, drive, file size, folder, simulate, seed
+        QCOMPARE(options->value(QStringLiteral("file_size")).toString(), QStringLiteral("1g"));
+        QCOMPARE(options->value(QStringLiteral("subtests")).toStringList().size(), 6);
     }
 
     void exclusivityAndTexts()
@@ -175,17 +176,20 @@ private slots:
     void optionEditsReachTheRun()
     {
         startRuntime();
-        rc().toggle(QStringLiteral("ram"));
+        // Storage's stub (Phase 3 N6: the RAM stub's duration option is gone).
+        rc().toggle(QStringLiteral("storage"));
         const QString before = rc().estimateText();
-        rc().setOption(QStringLiteral("ram"), QStringLiteral("duration"), 60);
+        rc().setOption(QStringLiteral("storage"), QStringLiteral("file_size"), QStringLiteral("4g"));
         QVERIFY(rc().estimateText() != before);
-        QCOMPARE(rc().valuesFor(QStringLiteral("ram")).value(QStringLiteral("duration")).toDouble(), 60.0);
-        rc().setOption(QStringLiteral("ram"), QStringLiteral("duration"), 9999);  // clamped
-        QCOMPARE(rc().valuesFor(QStringLiteral("ram")).value(QStringLiteral("duration")).toDouble(), 60.0);
-        rc().setOption(QStringLiteral("ram"), QStringLiteral("subtests"), QVariantList{QStringLiteral("latency")});
-        QCOMPARE(rc().valuesFor(QStringLiteral("ram")).value(QStringLiteral("subtests")).toStringList(), QStringList{QStringLiteral("latency")});
+        QCOMPARE(rc().valuesFor(QStringLiteral("storage")).value(QStringLiteral("file_size")).toString(), QStringLiteral("4g"));
+        rc().setOption(QStringLiteral("storage"), QStringLiteral("seed"), 9999);
+        QCOMPARE(rc().valuesFor(QStringLiteral("storage")).value(QStringLiteral("seed")).toDouble(), 9999.0);
+        rc().setOption(QStringLiteral("storage"), QStringLiteral("seed"), 99999);  // clamped
+        QCOMPARE(rc().valuesFor(QStringLiteral("storage")).value(QStringLiteral("seed")).toDouble(), 9999.0);
+        rc().setOption(QStringLiteral("storage"), QStringLiteral("subtests"), QVariantList{QStringLiteral("latency")});
+        QCOMPARE(rc().valuesFor(QStringLiteral("storage")).value(QStringLiteral("subtests")).toStringList(), QStringList{QStringLiteral("latency")});
         // An invalid choice is a problem that blocks Start, in words.
-        rc().setOption(QStringLiteral("ram"), QStringLiteral("subtests"), QVariantList{});
+        rc().setOption(QStringLiteral("storage"), QStringLiteral("subtests"), QVariantList{});
         QVERIFY(!rc().canStart());
         QVERIFY(rc().problems().join(u' ').contains(QLatin1StringView("sub-test")));
     }
@@ -194,7 +198,7 @@ private slots:
     {
         startRuntime();
         rc().toggle(QStringLiteral("cpu"));
-        rc().toggle(QStringLiteral("ram"));
+        rc().toggle(QStringLiteral("storage"));
         QVERIFY(rc().canStart());
         QSignalSpy started(&rc(), &RunController::runStarted);
         QSignalSpy finished(&rc(), &RunController::runFinished);
@@ -219,8 +223,8 @@ private slots:
         auto *log = qobject_cast<LogModel *>(rc().log());
         QVERIFY(log->rowCount() >= 4);
         QVERIFY(log->toText().contains(QLatin1StringView("CPU")));
-        QVERIFY(log->toText(QStringLiteral("ram")).contains(QLatin1StringView("RAM")));
-        QVERIFY(!log->toText(QStringLiteral("ram")).contains(QLatin1StringView("CPU")));
+        QVERIFY(log->toText(QStringLiteral("storage")).contains(QLatin1StringView("Storage")));
+        QVERIFY(!log->toText(QStringLiteral("storage")).contains(QLatin1StringView("CPU")));
         QCOMPARE(m_rt->storageController().runCount(), 1);
 
         // And a second run works.
@@ -235,7 +239,7 @@ private slots:
         tests::setStubTimeScale(1.0);
         startRuntime();
         rc().toggle(QStringLiteral("cpu"));
-        rc().toggle(QStringLiteral("ram"));
+        rc().toggle(QStringLiteral("storage"));
         QSignalSpy finished(&rc(), &RunController::runFinished);
         QVERIFY(rc().start());
         QTRY_COMPARE_WITH_TIMEOUT(queueStates().value(0), QStringLiteral("running"), 5000);

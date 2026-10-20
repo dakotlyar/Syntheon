@@ -127,13 +127,14 @@ TestCase {
         Fixtures.clearPower()
     }
 
+    // A stub's option (Phase 3 N6: the RAM stub's duration option is gone).
     function test_optionChangesTheEstimate() {
         const screen = createTemporaryObject(screenComponent, test)
-        RunController.toggle("ram")
+        RunController.toggle("storage")
         const before = RunController.estimateText
-        RunController.setOption("ram", "duration", 60)
+        RunController.setOption("storage", "file_size", "4g")
         verify(RunController.estimateText !== before)
-        RunController.setOption("ram", "duration", 10)
+        RunController.setOption("storage", "file_size", "1g")
         compare(RunController.estimateText, before)
     }
 

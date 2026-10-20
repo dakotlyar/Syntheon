@@ -46,7 +46,7 @@ TestCase {
 
     function test_2_tickTwoThenCompare() {
         oneRun("gpu")
-        oneRun("ram")
+        oneRun("storage")  // stubs only (Phase 3 N6: RAM is real now)
         const h = createTemporaryObject(historyComponent, test)
         tick()
         compare(History.totalCount, 2)
@@ -107,8 +107,8 @@ TestCase {
         compare(Compare.baselineUuid, older)
         tick()
         // Zeb: a run without a test's score leaves its bar's slot empty, and
-        // every other bar stays in its run's slot. One run has only CPU, the
-        // other only RAM: in each test row one slot is empty.
+        // every other bar stays in its run's slot. One run has only GPU, the
+        // other only Storage: in each test row one slot is empty.
         const slots = allSlots(c)
         verify(slots.length >= 2, "bar rows: " + slots.length)
         let empty = 0
