@@ -1113,9 +1113,19 @@ void RamRun::loaded()
         groupFail(kLoadedId, status, reason);
         groupEnd(kLoadedId);
     };
+#if defined(SYNBENCH_DEV_HOOKS)
+    // Tests on a small runner (CI: one core, two SMT threads):
+    // SYNBENCH_RAM_LOAD_SHARES_CORE=1 lets the load run on the chased core's
+    // SMT sibling, or on the chased CPU itself, where §5.4 would say N/A, so
+    // the loaded paths still run. Never in a product build (packaging
+    // presets build without dev hooks); the numbers mean nothing.
+    const bool shareCore = qEnvironmentVariableIntValue("SYNBENCH_RAM_LOAD_SHARES_CORE") == 1;
+#else
+    const bool shareCore = false;
+#endif
     // §5.4: the load needs a core of its own.
     const int cores = physicalCores(m_ctx.system());
-    if ((cores > 0 ? cores : m_threads) < 2)
+    if ((cores > 0 ? cores : m_threads) < 2 && !shareCore)
         return give(Status::NotAvailable, QStringLiteral("needs at least two cores"));
     if (!m_latencyBuffer.valid())
         return give(Status::Error, QStringLiteral("needs the latency buffer (%1)").arg(m_latencyProblem));
@@ -1130,7 +1140,15 @@ void RamRun::loaded()
     // P12: a load thread on every allowed CPU but the chased core's physical
     // core, each streaming the slice its own CPU first-touched.
     std::vector<ram::LoadThreadSpec> specs;
-    for (const isa::CoreChoice &c : ram::loadCpus(m_allowed, pick.smtKeys)) {
+    std::vector<isa::CoreChoice> loadOn = ram::loadCpus(m_allowed, pick.smtKeys);
+    if (loadOn.empty() && shareCore && !m_allowed.empty()) {
+        loadOn = ram::loadCpus(m_allowed, {isa::cpuKey(pick.core)});  // the SMT sibling
+        if (loadOn.empty())
+            loadOn = m_allowed;  // one CPU: the chased one
+        m_ctx.log(LogLevel::Warning, QStringLiteral("Loaded latency: SYNBENCH_RAM_LOAD_SHARES_CORE: the load shares the chased "
+                                                    "core (a test hook; these numbers mean nothing)"));
+    }
+    for (const isa::CoreChoice &c : loadOn) {
         std::size_t i = 0;
         while (i + 1 < m_slices.size() && i < m_allowed.size() && isa::cpuKey(m_allowed[i]) != isa::cpuKey(c))
             ++i;

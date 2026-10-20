@@ -27,6 +27,10 @@
 #include <mutex>
 #include <thread>
 
+#if defined(__linux__)
+#include <sched.h>
+#endif
+
 using namespace sb;
 using namespace std::chrono_literals;
 using Clock = std::chrono::steady_clock;
@@ -336,11 +340,82 @@ class TestRamTest : public QObject
     Q_OBJECT
 
 private slots:
-    void init() { tests::setStubTimeScale(0.01); }
+    // What the runner gives (CI's tst_ram_test output on Windows wasn't
+    // kept once; this says the machine's shape up front).
+    void initTestCase()
+    {
+        const std::vector<isa::CoreChoice> allowed = isa::allowedLogicalCpus();
+        qInfo("allowed logical CPUs: %d; single-thread core: CPU %d", int(allowed.size()), isa::bestCoreForSingleThread().cpu);
+    }
+    void init()
+    {
+        tests::setStubTimeScale(0.01);
+        // A runner with one physical core (CI: two SMT threads) would make
+        // loaded latency N/A and skip its paths; the load shares the core
+        // there instead (a dev hook; checkpoint 3 CI). It changes nothing
+        // where the load has a core of its own.
+        qputenv("SYNBENCH_RAM_LOAD_SHARES_CORE", "1");
+    }
     void cleanup()
     {
         tests::setStubTimeScale(0);
         qunsetenv("SYNBENCH_RAM_FAIL");
+        qunsetenv("SYNBENCH_RAM_LOAD_SHARES_CORE");
+    }
+
+    // One physical core (this thread's affinity cut to the first allowed
+    // CPU and its SMT siblings, as on CI's 2-thread runners): without the
+    // hook loaded latency is N/A "needs at least two cores" and the other
+    // parts run; with it, the load shares the core and loaded runs.
+    void loadedOnOneCore_data()
+    {
+        QTest::addColumn<bool>("hook");
+        QTest::newRow("product rule") << false;
+        QTest::newRow("test hook") << true;
+    }
+    void loadedOnOneCore()
+    {
+#if !defined(__linux__)
+        QSKIP("cutting the affinity in-process is done on Linux only; the hook itself runs in every test here");
+#else
+        QFETCH(bool, hook);
+        if (!hook)
+            qunsetenv("SYNBENCH_RAM_LOAD_SHARES_CORE");
+        cpu_set_t saved;
+        QVERIFY(sched_getaffinity(0, sizeof(saved), &saved) == 0);
+        const std::vector<isa::CoreChoice> allowed = isa::allowedLogicalCpus();
+        QVERIFY(!allowed.empty());
+        cpu_set_t one;
+        CPU_ZERO(&one);
+        for (const int c : isa::linuxSmtSiblingKeys("/sys", allowed.front().cpu))
+            CPU_SET(c, &one);
+        QVERIFY(sched_setaffinity(0, sizeof(one), &one) == 0);
+        struct Restore {
+            cpu_set_t set;
+            ~Restore() { sched_setaffinity(0, sizeof(set), &set); }
+        } restore{saved};
+        tests::RamTest t;
+        FakeRunContext ctx;
+        const TestResult r = t.run(ctx, {});
+        const SubResult *loaded = nullptr;
+        for (const SubResult &s : r.subResults) {
+            if (s.id == QLatin1StringView("loaded"))
+                loaded = &s;
+            else
+                QVERIFY2(s.status == Status::Ok, qPrintable(s.id + QStringLiteral(": ") + s.reason + QStringLiteral("\n") + ctx.allLogs()));
+        }
+        QVERIFY(loaded);
+        if (hook) {
+            QVERIFY2(loaded->status == Status::Ok, qPrintable(loaded->reason + QStringLiteral("\n") + ctx.allLogs()));
+            QVERIFY(ctx.logged(QStringLiteral("SYNBENCH_RAM_LOAD_SHARES_CORE")));
+        } else {
+            QCOMPARE(loaded->status, Status::NotAvailable);
+            QCOMPARE(loaded->reason, QStringLiteral("needs at least two cores"));
+            QVERIFY(!ctx.logged(QStringLiteral("SYNBENCH_RAM_LOAD_SHARES_CORE")));
+        }
+        QCOMPARE(ram::LoadGenerator::liveThreads(), 0);
+        QCOMPARE(cpu::WorkerPool::liveThreads(), 0);
+#endif
     }
 
     void identity()
@@ -908,7 +983,11 @@ private slots:
         for (const char *k : {"pages.huge", "threads", "numa.nodes", "stability.spread", "loaded.load", "loaded.threads",
                               "config.peak", "config.efficiency", "background.load"})
             QVERIFY2(std::isfinite(numberOf(r, k)), k);
-        QVERIFY(numberOf(r, "loaded.threads") >= 1 && numberOf(r, "loaded.threads") < numberOf(r, "threads"));
+        // The load leaves the chased core out; on a one-CPU runner the test
+        // hook puts it on that CPU too (SYNBENCH_RAM_LOAD_SHARES_CORE).
+        const bool shared = ctx.logged(QStringLiteral("SYNBENCH_RAM_LOAD_SHARES_CORE"));
+        QVERIFY(numberOf(r, "loaded.threads") >= 1);
+        QVERIFY(numberOf(r, "loaded.threads") < numberOf(r, "threads") || (shared && numberOf(r, "threads") == 1));
         // The series: the latency curve ascending, never a zero (a log axis),
         // with every target on it; the loaded curve, idle point first.
         const Series *curve = nullptr, *loaded = nullptr;
