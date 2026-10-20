@@ -51,7 +51,19 @@ Box {
     // its hyphens (N1); underscores never (N2). Both the column sizing and
     // the wrapping use these tokens (AP-5 L6).
     readonly property int longToken: 16
+    // Tokens per line and widths per text and font, kept across the many
+    // re-wraps of a resize (AP-5 round 4 L8; plain memos, the same results).
+    readonly property var memo: ({ tokens: new Map(), widths: new Map() })
     function tokens(line) {
+        const key = String(line)
+        let out = memo.tokens.get(key)
+        if (out === undefined) {
+            out = splitTokens(key)
+            memo.tokens.set(key, out)
+        }
+        return out
+    }
+    function splitTokens(line) {
         const out = []
         for (const word of String(line).split(" ")) {
             // Split after a hyphen before a letter ("Controller0-ChannelA"),
@@ -77,7 +89,14 @@ Box {
         return out
     }
     function measure(metrics, text, spacing) {
-        return metrics.advanceWidth(text) + spacing * text.length
+        const f = metrics.font
+        const key = f.family + "|" + f.weight + "|" + f.pixelSize + "|" + f.pointSize + "|" + f.capitalization + "|" + spacing + "|" + text
+        let w = memo.widths.get(key)
+        if (w === undefined) {
+            w = metrics.advanceWidth(text) + spacing * text.length
+            memo.widths.set(key, w)
+        }
+        return w
     }
     function wordWidth(metrics, text, spacing) {
         let w = 0
@@ -264,6 +283,7 @@ Box {
                         // Whole tokens per line; a token wider than the column
                         // is split by characters (root.wrapped).
                         text: root.wrapped(root.headerText(modelData), width, headMetrics, headProbe.font.letterSpacing)
+                        Accessible.name: root.headerText(modelData)  // unwrapped (AP-5 round 4 L7)
                         kind: "label"
                         font.capitalization: Font.MixedCase
                         wrapMode: Text.NoWrap
@@ -301,6 +321,7 @@ Box {
                             // Whole tokens per line; a token wider than the
                             // column is split by characters (root.wrapped).
                             text: root.wrapped(modelData, width, root.cellMetrics(tableRow.index, index), 0)
+                            Accessible.name: modelData  // unwrapped (AP-5 round 4 L7)
                             kind: index === 0 ? "body" : "data"
                             font.pixelSize: 13
                             font.weight: bold ? Font.DemiBold : Font.Normal

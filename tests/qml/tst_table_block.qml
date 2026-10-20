@@ -125,4 +125,32 @@ TestCase {
         waitForRendering(exact)
         compare(exact.wrapped(label, exact.widths[0], exact.cellMetrics(1, 0), 0), label)
     }
+
+    // AP-5 round 4 L7: screen readers get a cell's text unwrapped, not the
+    // lines the table broke it into. L8: the memos give the same results.
+    function test_accessibleNamesUnwrapped() {
+        const label = "Controller0-ChannelA-DIMM0 (BANK 0)"
+        const block = { type: "table", title: "", columns: ["Slot", "Part number"],
+                        rows: [[label, "MTC10F1084S1RC48BA1"]] }
+        const t = createTemporaryObject(tableComponent, test, { block: block, width: 260 })
+        waitForRendering(t)
+        const cells = []
+        const walk = item => {
+            for (let i = 0; i < item.children.length; ++i) {
+                const c = item.children[i]
+                if (c.text !== undefined && c.Accessible && (c.text === label || c.Accessible.name === label))
+                    cells.push(c)
+                walk(c)
+            }
+        }
+        walk(t)
+        verify(cells.length > 0, "the slot cell")
+        const cell = cells[0]
+        verify(cell.text.indexOf("\n") > 0, "the cell wraps at 260 px: " + JSON.stringify(cell.text))
+        compare(cell.Accessible.name, label)
+        const m = t.tokenMetrics
+        compare(t.measure(m, "GB/s", 0), m.advanceWidth("GB/s"))
+        compare(t.measure(m, "GB/s", 0), m.advanceWidth("GB/s"))  // from the memo
+        compare(t.tokens("a b"), t.tokens("a b"))
+    }
 }
