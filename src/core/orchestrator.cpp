@@ -80,6 +80,7 @@ struct Orchestrator::Shared {
     Clock::time_point lastFlush = Clock::now();
     Clock::time_point lastProgress;
     QString lastStage;
+    QString part;  // the running test's RunContext::setPart(), under `mutex`
 
     // F6: read from any thread (log/progress), written once by the worker.
     std::atomic<std::thread::id> workerId{};
@@ -165,6 +166,7 @@ struct Orchestrator::Shared {
     void progress(int index, const QString &testId, double fraction, const QString &stage)
     {
         fraction = std::clamp(fraction, 0.0, 1.0);
+        QString currentPart;
         {
             QMutexLocker lock(&mutex);
             if (abandoned)
@@ -174,8 +176,9 @@ struct Orchestrator::Shared {
                 return;
             lastProgress = now;
             lastStage = stage;
+            currentPart = part;
         }
-        const ProgressUpdate u{index, testId, fraction, stage};
+        const ProgressUpdate u{index, testId, fraction, stage, currentPart};
         post([u](Orchestrator *o) { emit o->progress(u); });
         if (onWorker())
             flushLogs(false);
@@ -199,6 +202,11 @@ public:
     WorkerRunContext(Shared &s, int index, const QString &testId) : m_s(s), m_index(index), m_testId(testId) {}
 
     void progress(double fraction, const QString &stage) override { m_s.progress(m_index, m_testId, fraction, stage); }
+    void setPart(const QString &part) override
+    {
+        QMutexLocker lock(&m_s.mutex);
+        m_s.part = part;
+    }
     void log(LogLevel level, const QString &message) override { m_s.log(level, m_testId, message); }
     bool cancelled() const override { return m_s.cancelFlag.load(); }
 
@@ -374,6 +382,7 @@ void Orchestrator::Shared::workerMain(std::shared_ptr<Shared> s)
             s->cancel = Shared::Cancel::None;
             s->cancelFlag = false;
             s->lastStage.clear();
+            s->part.clear();
         }
         const int index = next;
         const QString testId = e.testId;

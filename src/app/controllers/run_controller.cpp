@@ -172,7 +172,9 @@ void RunController::connectOrchestrator()
     });
     connect(&m_orchestrator, &Orchestrator::progress, this, [this](const ProgressUpdate &u) {
         m_queue->progress(u);
-        m_stage = QStringLiteral("%1 · %2").arg(testName(u.testId), u.stage);
+        // The pill: the test's part when it reports one ("RAM · All-thread
+        // bandwidth"), else its stage; the queue row keeps the stage.
+        m_stage = QStringLiteral("%1 · %2").arg(testName(u.testId), u.part.isEmpty() ? u.stage : u.part);
         emit currentChanged();
     });
     connect(&m_orchestrator, &Orchestrator::logLine, this, [this](const LogLine &l) { m_log->append(l); });

@@ -61,7 +61,13 @@ TestResult run(RunContext &ctx, const OptionValues &options) override
 
 - It runs on a worker thread, blocking. A test that ignores a Stop for the grace
   period is abandoned and the run is saved as Interrupted (the app must be restarted).
-- `ctx.progress()`, `log()` and `cancelled()` are safe from your helper threads;
+- `ctx.progress(fraction, stage)` drives the test's row on the Progress screen
+  (the stage line, e.g. "Write, plain stores · rep 2 of 5"). `ctx.setPart(part)`
+  (optional) names the part of the test now running ("All-thread bandwidth",
+  the CPU test's group names): the live log's pill shows "RAM · All-thread
+  bandwidth" from the next `progress()` on. A test that never sets a part gets
+  its stage in the pill.
+- `ctx.progress()`, `setPart()`, `log()` and `cancelled()` are safe from your helper threads;
   `checkpoint()` and `scratchDir()` write to the database and must be called on
   the thread that called `run()`.
 - Metrics carry a stable `key`, a label, a value (number or text), a unit and a

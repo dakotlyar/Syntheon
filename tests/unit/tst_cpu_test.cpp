@@ -45,6 +45,17 @@ public:
         std::lock_guard lock(m_mutex);
         m_logs.append({level, message});
     }
+    void setPart(const QString &part) override
+    {
+        std::lock_guard lock(m_mutex);
+        if (m_parts.isEmpty() || m_parts.last() != part)
+            m_parts.append(part);
+    }
+    QStringList parts() const
+    {
+        std::lock_guard lock(m_mutex);
+        return m_parts;
+    }
     bool cancelled() const override { return m_cancel.load(); }
     void subTestBegin(const QString &id) override
     {
@@ -106,6 +117,7 @@ private:
     QList<QPair<LogLevel, QString>> m_logs;
     QList<QPair<double, QString>> m_progress;
     QStringList m_subTests;
+    QStringList m_parts;
     std::atomic<bool> m_cancel{false};
     Clock::time_point m_cancelAt{};
     QString m_cancelOn;
@@ -266,6 +278,10 @@ private slots:
         QVERIFY(!ctx.wentBackwards());
         QCOMPARE(ctx.progressCalls().last().first, 1.0);
         QVERIFY(ctx.logged(QStringLiteral("Starting CPU:")));
+        // The parts, for the progress pill (Dave, 2026-10-20).
+        QCOMPARE(ctx.parts(), (QStringList{QStringLiteral("Preparing"), QStringLiteral("Single-thread mark"), QStringLiteral("Integer"),
+                                           QStringLiteral("Floating point + primes"), QStringLiteral("SIMD"), QStringLiteral("Compression"),
+                                           QStringLiteral("Encryption"), QStringLiteral("Sorting"), QStringLiteral("Physics")}));
         QVERIFY(ctx.logged(QStringLiteral("SIMD: ")));
         QVERIFY(ctx.logged(QStringLiteral("Encryption: hardware")));
         QVERIFY(ctx.logged(QStringLiteral("single.int on CPU")) || ctx.logged(QStringLiteral("unpinned")));

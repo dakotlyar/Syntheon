@@ -483,6 +483,9 @@ void CpuRun::checkThrottle(const Step &s, const std::vector<double> &rates)
 
 void CpuRun::groupBegin(int index)
 {
+    // The pill names the group ("CPU · Compression"); the stage line keeps
+    // the step ("xz compress · rep 2 of 5").
+    m_ctx.setPart(QLatin1StringView(kGroups[index].name));
     m_ctx.subTestBegin(QLatin1StringView(kGroups[index].id));
     m_groupStatus[index] = Status::Ok;
 }
@@ -519,6 +522,7 @@ bool CpuRun::groupFailed(int index, const Step &s, const QString &what)
 
 void CpuRun::prepare()
 {
+    m_ctx.setPart(QStringLiteral("Preparing"));
     enterStage(QStringLiteral("Preparing"), 0);
     // §4.4: the background load in the second before the run, before any of
     // our own work.
@@ -587,6 +591,7 @@ void CpuRun::prepare()
 
 void CpuRun::singleThread()
 {
+    m_ctx.setPart(QStringLiteral("Single-thread mark"));
     WorkerPool::Options o = WorkerPool::singleThreadOptions();
     o.sampleFor = m_sampleFor;
 #if defined(SYNBENCH_DEV_HOOKS)

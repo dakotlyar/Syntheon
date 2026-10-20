@@ -50,8 +50,14 @@ class RunContext
 public:
     virtual ~RunContext() = default;
 
-    // 0–1 for this test, plus a stage label ("Loaded latency").
+    // 0–1 for this test, plus a stage label ("Write, plain stores · rep 2 of 5").
     virtual void progress(double fraction, const QString &stage) = 0;
+    // The part of the test now running ("All-thread bandwidth"), shown in the
+    // Progress screen's live-log pill while the stage line under the test
+    // gives the step (Phase 3, Dave 2026-10-20). It applies from the next
+    // progress() on; empty clears it. Optional: a test that never sets one
+    // gets its stage in the pill, as before. Safe from helper threads.
+    virtual void setPart(const QString &part) { (void)part; }
     virtual void log(LogLevel level, const QString &message) = 0;
     // Poll at least every 250 ms and return promptly once true.
     virtual bool cancelled() const = 0;

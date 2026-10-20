@@ -382,6 +382,39 @@ private slots:
         QCOMPARE(sub.at(1).at(2).toBool(), true);
     }
 
+    // Dave, 2026-10-20: RunContext::setPart reaches the progress updates
+    // from the next progress() on; it is cleared when the next test starts,
+    // and a test that sets none sends an empty part (the pill then shows its
+    // stage, as before).
+    void progressCarriesThePart()
+    {
+        Fixture f;
+        f[QStringLiteral("cpu")]->runner = [](RunContext &ctx, const OptionValues &) {
+            ctx.progress(0.1, QStringLiteral("before"));
+            ctx.setPart(QStringLiteral("All-thread bandwidth"));
+            ctx.progress(0.5, QStringLiteral("Write, plain stores · rep 2 of 5"));
+            return okResult(1);
+        };
+        f[QStringLiteral("ram")]->runner = [](RunContext &ctx, const OptionValues &) {
+            ctx.progress(0.5, QStringLiteral("Working"));
+            return okResult(1);
+        };
+        RecordingSink sink(f.events);
+        Orchestrator o(f.registry, sink, f.inhibitor, fastConfig());
+        QSignalSpy progress(&o, &Orchestrator::progress);
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        QVERIFY(o.start(plan({QStringLiteral("cpu"), QStringLiteral("ram")}), meta()).ok);
+        QVERIFY(waitFinished(finished));
+        QStringList seen;
+        for (const QList<QVariant> &args : std::as_const(progress)) {
+            const auto u = args.at(0).value<ProgressUpdate>();
+            seen << u.testId + QLatin1Char(':') + u.stage + QLatin1Char('|') + u.part;
+        }
+        QCOMPARE(seen, (QStringList{QStringLiteral("cpu:before|"),
+                                    QStringLiteral("cpu:Write, plain stores · rep 2 of 5|All-thread bandwidth"),
+                                    QStringLiteral("ram:Working|")}));
+    }
+
     void logStreamedAndSavedInBatches()
     {
         Fixture f;

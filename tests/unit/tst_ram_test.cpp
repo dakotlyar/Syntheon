@@ -51,6 +51,17 @@ public:
         std::lock_guard lock(m_mutex);
         m_logs.append({level, message});
     }
+    void setPart(const QString &part) override
+    {
+        std::lock_guard lock(m_mutex);
+        if (m_parts.isEmpty() || m_parts.last() != part)
+            m_parts.append(part);
+    }
+    QStringList parts() const
+    {
+        std::lock_guard lock(m_mutex);
+        return m_parts;
+    }
     bool cancelled() const override { return m_cancel.load(); }
     void subTestBegin(const QString &id) override
     {
@@ -112,6 +123,7 @@ private:
     QList<QPair<LogLevel, QString>> m_logs;
     QList<QPair<double, QString>> m_progress;
     QStringList m_subTests;
+    QStringList m_parts;
     std::atomic<bool> m_cancel{false};
     Clock::time_point m_cancelAt{};
     QString m_cancelOn;
@@ -880,6 +892,10 @@ private slots:
         QCOMPARE(ctx.progressCalls().last().first, 1.0);
         if (kX64)
             QVERIFY(ctx.stages().contains(QStringLiteral("Write, plain stores · rep 2 of 5")));
+        // The parts, for the progress pill (Dave, 2026-10-20; the mockup's
+        // "RAM · All-thread bandwidth").
+        QCOMPARE(ctx.parts(), (QStringList{QStringLiteral("Preparing"), QStringLiteral("Latency"), QStringLiteral("Single-thread bandwidth"),
+                                           QStringLiteral("All-thread bandwidth"), QStringLiteral("Loaded latency")}));
         for (const char *line : {"Starting RAM: ", "Pages: ", "Latency on ", "Latency curve: ", "Latency L1 ", "Single thread on ",
                                  "Single thread: read ", "All threads: ", "Read ", "Loaded latency on ", "Full load: "})
             QVERIFY2(ctx.logged(QLatin1StringView(line)), line);
@@ -895,7 +911,7 @@ private slots:
     {
         QTest::addColumn<QString>("stage");
         for (const char *stage : {"Preparing buffers", "Latency curve · 4 KiB", "Latency curve · 1 GiB", "Latency L2",
-                                  "Preparing bandwidth buffers", "Single-thread read", "Copy", "Loaded latency · preparing",
+                                  "Preparing bandwidth buffers", "Read", "Copy", "Loaded latency · preparing",
                                   "Loaded latency, full load", "Loaded latency, 2,000 ns delay"})
             QTest::newRow(stage) << QString::fromUtf8(stage);
     }

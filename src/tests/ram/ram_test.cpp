@@ -276,14 +276,14 @@ QString opName(const ram::BwVariant &v)
     return v.op == ram::BwOp::Read ? QStringLiteral("Read") : v.op == ram::BwOp::Write ? QStringLiteral("Write") : QStringLiteral("Copy");
 }
 
-// The stage of one bandwidth measurement: "Write, plain stores" (all
-// threads, the mockup's stage line), "Single-thread write, plain stores".
-QString variantStage(const ram::BwVariant &v, bool single)
+// The stage of one bandwidth measurement: "Write, plain stores" (the
+// mockup's stage line; the part, single- or all-thread, is in the pill).
+QString variantStage(const ram::BwVariant &v)
 {
     QString op = opName(v);
     if (!v.scored)
         op += QStringLiteral(", plain stores");
-    return single ? QStringLiteral("Single-thread ") + op.toLower() : op;
+    return op;
 }
 
 // The metric label: "Write bandwidth, plain stores (all threads)".
@@ -596,6 +596,7 @@ std::optional<double> RamRun::chase(WorkerPool &pool, const isa::CoreChoice &cor
 
 void RamRun::prepare()
 {
+    m_ctx.setPart(QStringLiteral("Preparing"));
     report(0, QStringLiteral("Preparing"));
     // §4.5: the background load in the second before the run.
     if (const auto load = cpu::sampleBackgroundLoadPercent(1000ms, cancelFn())) {
@@ -682,6 +683,7 @@ void RamRun::prepare()
 void RamRun::latency()
 {
     groupBegin(kLatency);
+    m_ctx.setPart(QStringLiteral("Latency"));
     m_r.metrics.append(text(QStringLiteral("latency.core"), kLatency, QStringLiteral("Latency core"), m_core.text));
     if (!m_latencyProblem.isEmpty()) {
         m_ctx.log(LogLevel::Error, m_latencyProblem);
@@ -899,7 +901,7 @@ void RamRun::bandwidthStep(WorkerPool &pool, bool single)
         if (m_stopped || m_groupStatus[kBandwidthId] != Status::Ok)
             break;
         const ram::BandwidthKernel kernel(m_path, v, slices, single ? 1 : pool.threads());
-        const QString stage = variantStage(v, single);
+        const QString stage = variantStage(v);
         Measurement m = pool.measure(kernel, spec, cancelFn(), windowProgress(stage, spec, m_budgetDone));
         m_budgetDone += budget(spec);
         forcedFailure(m, stage);
@@ -929,6 +931,7 @@ void RamRun::bandwidthStep(WorkerPool &pool, bool single)
 void RamRun::bandwidth()
 {
     groupBegin(kBandwidthId);
+    m_ctx.setPart(QStringLiteral("Single-thread bandwidth"));
     const double start = m_budgetDone;
     // §4.3: the core is picked again for the single-thread part.
     const CorePick pick = pickCore();
@@ -969,6 +972,7 @@ void RamRun::bandwidth()
     }
     if (!m_stopped && m_groupStatus[kBandwidthId] == Status::Ok) {
         // §4.2, P11: one worker per logical CPU, worker i pinned to CPU i.
+        m_ctx.setPart(QStringLiteral("All-thread bandwidth"));
         WorkerPool::Options o;
         o.threads = m_plan.threads;
         o.pinEach = m_allowed;
@@ -998,6 +1002,7 @@ void RamRun::bandwidth()
 void RamRun::loaded()
 {
     groupBegin(kLoadedId);
+    m_ctx.setPart(QStringLiteral("Loaded latency"));
     const auto give = [&](Status status, const QString &reason) {
         m_ctx.log(status == Status::Error ? LogLevel::Error : LogLevel::Warning, QStringLiteral("Loaded latency: %1").arg(reason));
         groupFail(kLoadedId, status, reason);

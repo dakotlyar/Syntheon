@@ -41,6 +41,7 @@ struct ProgressUpdate {
     QString testId;
     double fraction = 0.0;
     QString stage;
+    QString part;  // RunContext::setPart(); empty if the test sets none
 };
 
 // Runs a plan, one test at a time, on a single worker thread (P5, D2), and
