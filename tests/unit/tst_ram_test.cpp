@@ -401,6 +401,53 @@ private slots:
         QVERIFY(!t.metric(QStringLiteral("config.width")));
         QVERIFY(!m.peakGBs);
         QCOMPARE(ram::moduleFields(textOf(t, "config.module.2")).at(5), QStringLiteral("—"));
+        // Decision 4 (AP-5 M3): 4 x DDR5 on a dual-channel board is a 128-bit
+        // bus (96 GB/s at 6,000), not 256: two DIMMs share a channel.
+        const auto dimm = [](const char *locator, const char *bank, int width) {
+            return QJsonObject{{QStringLiteral("size_bytes"), 16.0 * 1024 * 1024 * 1024}, {QStringLiteral("type"), QStringLiteral("DDR5")},
+                               {QStringLiteral("speed_mts"), 6000}, {QStringLiteral("configured_speed_mts"), 6000},
+                               {QStringLiteral("locator"), QLatin1StringView(locator)}, {QStringLiteral("bank_locator"), QLatin1StringView(bank)},
+                               {QStringLiteral("rank"), 2}, {QStringLiteral("data_width"), width},
+                               {QStringLiteral("part_number"), QStringLiteral("F5-6000 · 32G")}};
+        };
+        const auto snapshot = [](const QJsonArray &mods, int channels) {
+            SystemSnapshot s;
+            s.data.insert(QStringLiteral("memory"), QJsonObject{{QStringLiteral("modules_known"), true}, {QStringLiteral("channels"), channels},
+                                                                {QStringLiteral("modules"), mods}});
+            return s;
+        };
+        const auto widthOf = [&](const ram::MemoryReadout &m) {
+            TestResult x;
+            x.metrics = m.metrics;
+            return textOf(x, "config.width");
+        };
+        ram::MemoryReadout four = ram::memoryReadout(
+            snapshot({dimm("DIMMA1", "P0 CHANNEL A", 64), dimm("DIMMA2", "P0 CHANNEL A", 64), dimm("DIMMB1", "P0 CHANNEL B", 64),
+                      dimm("DIMMB2", "P0 CHANNEL B", 64)}, 2), false);
+        QCOMPARE(widthOf(four), QStringLiteral("128-bit"));
+        QCOMPARE(*four.peakGBs, 96.0);
+        // The same from the locators alone ("DIMMA1" ... "DIMMB2").
+        four = ram::memoryReadout(snapshot({dimm("DIMMA1", "", 64), dimm("DIMMA2", "", 64), dimm("DIMMB1", "", 64), dimm("DIMMB2", "", 64)}, 2), false);
+        QCOMPARE(widthOf(four), QStringLiteral("128-bit"));
+        // Locators that don't say: the channel estimate x the widest module.
+        four = ram::memoryReadout(snapshot({dimm("Slot 1", "", 64), dimm("Slot 2", "", 64), dimm("Slot 3", "", 64), dimm("Slot 4", "", 64)}, 2), false);
+        QCOMPARE(widthOf(four), QStringLiteral("128-bit"));
+        // Soldered LPDDR5X reported per channel, 32-bit each (a Strix Halo
+        // like Knowhere: 8 x 32 = 256-bit), and the 16-bit-per-device kind.
+        QJsonArray lp, lp16;
+        for (const char *ch : {"A", "B", "C", "D", "E", "F", "G", "H"}) {
+            lp.append(dimm("DIMM 0", qPrintable(QStringLiteral("P0 CHANNEL %1").arg(QLatin1StringView(ch))), 32));
+            lp16.append(dimm("DIMM 0", qPrintable(QStringLiteral("P0 CHANNEL %1").arg(QLatin1StringView(ch))), 16));
+        }
+        QCOMPARE(widthOf(ram::memoryReadout(snapshot(lp, 8), false)), QStringLiteral("256-bit"));
+        QCOMPARE(widthOf(ram::memoryReadout(snapshot(lp16, 8), false)), QStringLiteral("128-bit"));
+        // Tiamat (one DIMM per channel) is unchanged above: 128-bit. And a
+        // field holding the separator can't break the Modules row (AP-5 L5).
+        TestResult x;
+        x.metrics = four.metrics;
+        const QStringList f = ram::moduleFields(textOf(x, "config.module.1"));
+        QCOMPARE(f.size(), ram::kModuleFields);
+        QCOMPARE(f.last(), QStringLiteral("F5-6000 / 32G"));
         // Nothing known: the reasons (§7) and no numbers.
         SystemSnapshot none;
         none.data.insert(QStringLiteral("memory"), QJsonObject{{QStringLiteral("modules_known"), false}});

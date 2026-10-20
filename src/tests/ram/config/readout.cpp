@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLocale>
+#include <QRegularExpression>
 
 #include <algorithm>
 #include <cmath>
@@ -38,6 +39,33 @@ QString ranksText(const QVector<int> &ranks)
     }
     std::sort(distinct.begin(), distinct.end());
     return distinct.join(QLatin1Char('/'));
+}
+
+// The channel a module sits on, from its bank locator and locator ("P0
+// CHANNEL A" -> "P0 A", "DIMMB2" -> "B"), as System info's channel
+// estimate reads them; empty when they don't say.
+QString channelOf(const QString &bank, const QString &locator)
+{
+    static const QRegularExpression channel(QStringLiteral(R"(CHANNEL[\s_-]*([A-Z0-9]+))"),
+                                            QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression dimm(QStringLiteral(R"(DIMM[\s_-]*([A-Z])\d)"), QRegularExpression::CaseInsensitiveOption);
+    for (const QString &where : {bank, locator}) {
+        if (const auto m = channel.match(where); m.hasMatch())
+            return (where.left(m.capturedStart()).trimmed() + QLatin1Char(' ') + m.captured(1)).trimmed().toUpper();
+    }
+    if (const auto m = dimm.match(bank + QLatin1Char(' ') + locator); m.hasMatch())
+        return m.captured(1).toUpper();
+    return {};
+}
+
+// A field of config.module.N: never the separator itself (AP-5 L5).
+QString moduleField(const QString &s)
+{
+    if (s.isEmpty())
+        return QStringLiteral("—");
+    QString out = s;
+    out.replace(QStringLiteral("·"), QStringLiteral("/"));
+    return out;
 }
 
 } // namespace
@@ -86,6 +114,12 @@ MemoryReadout memoryReadout(const SystemSnapshot &system, bool windows)
     double total = 0;
     int width = 0;
     bool widthKnown = true;
+    // Decision 4 (Dave, 2026-10-20; AP-5 M3): the bus is as wide as the
+    // channels that hold a module, each as wide as its widest module (two
+    // DIMMs on a channel share it, they don't add width).
+    std::map<QString, int> channelWidth;
+    bool channelsKnown = true;
+    int widest = 0;
     int configured = 0, rated = 0;  // the lowest of each (0: none reported)
     QStringList lines;
     for (const QJsonValue &v : modules) {
@@ -105,6 +139,12 @@ MemoryReadout memoryReadout(const SystemSnapshot &system, bool windows)
             width += dataWidth;
         else
             widthKnown = false;
+        widest = std::max(widest, dataWidth);
+        const QString ch = channelOf(m.value(QStringLiteral("bank_locator")).toString(), m.value(QStringLiteral("locator")).toString());
+        if (ch.isEmpty())
+            channelsKnown = false;
+        else
+            channelWidth[ch] = std::max(channelWidth[ch], dataWidth);
         const int effective = conf > 0 ? conf : speed;
         if (effective > 0)
             configured = configured == 0 ? effective : std::min(configured, effective);
@@ -117,7 +157,7 @@ MemoryReadout memoryReadout(const SystemSnapshot &system, bool windows)
         QString slot = locator.isEmpty() ? bank : locator;
         if (!locator.isEmpty() && !bank.isEmpty())
             slot = QStringLiteral("%1 (%2)").arg(locator, bank);
-        const auto field = [](const QString &s) { return s.isEmpty() ? kDash : s; };
+        const auto field = [](const QString &s) { return moduleField(s); };
         lines << QStringList{field(slot), size > 0 ? memorySizeText(double(size)) : kDash, field(type),
                              effective > 0 ? QStringLiteral("%1 MT/s").arg(grouped(effective)) : kDash,
                              rank > 0 ? QStringLiteral("%1R").arg(rank) : kDash,
@@ -127,10 +167,20 @@ MemoryReadout memoryReadout(const SystemSnapshot &system, bool windows)
     }
 
     const QString typeText = types.join(QLatin1Char('/'));
+    const int channels = memory.value(QStringLiteral("channels")).toInt();
+    if (widthKnown) {
+        if (channelsKnown) {
+            width = 0;
+            for (const auto &[ch, w] : channelWidth)
+                width += w;
+        } else if (channels > 0) {
+            // The locators don't say: the channel estimate x the widest module.
+            width = std::min(width, channels * widest);
+        }
+    }
     if (configured > 0)
         out.metrics.append({QStringLiteral("speed"), {}, QStringLiteral("Configured speed"), double(configured),
                             QStringLiteral("MT/s"), Direction::Neutral, false});
-    const int channels = memory.value(QStringLiteral("channels")).toInt();
     if (channels > 0)
         out.metrics.append({QStringLiteral("channels"), {}, QStringLiteral("Channels (estimate)"), double(channels), QString(),
                             Direction::Neutral, false});
