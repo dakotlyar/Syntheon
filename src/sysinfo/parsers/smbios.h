@@ -33,6 +33,13 @@ struct SmbiosMemoryDevice {
     int totalWidth = 0, dataWidth = 0;
     QString formFactor;
     int rank = 0;
+    // The module's JEDEC manufacturer ID (type 17 0x2C, SMBIOS 3.2+; udev's
+    // MODULE_MANUFACTURER_ID): bank 1-based, code as reported (parity bit
+    // included). 0 = not reported. When the Manufacturer string is a
+    // placeholder, `manufacturer` is decoded from it (jep106.h) and
+    // manufacturerSource says which: "reported", "jedec", or empty.
+    int moduleManufacturerBank = 0, moduleManufacturerCode = 0;
+    QString manufacturerSource;
 };
 
 struct SmbiosInfo {

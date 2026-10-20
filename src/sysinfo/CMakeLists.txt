@@ -15,6 +15,8 @@ qt_add_library(synbench_sysinfo STATIC
     collector.h collector.cpp
     parsers/text_parsers.h parsers/text_parsers.cpp
     parsers/smbios.h parsers/smbios.cpp
+    # Module makers by JEDEC ID (JEP106), when the string is a placeholder.
+    parsers/jep106.h parsers/jep106.cpp
     parsers/windows_parsers.h parsers/windows_parsers.cpp
     common/x86_cpu.h common/x86_cpu.cpp
     common/vulkan_probe.h common/vulkan_probe.cpp

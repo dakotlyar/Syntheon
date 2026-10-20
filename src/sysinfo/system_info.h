@@ -46,6 +46,10 @@ struct MemoryModule {
     int totalWidth = 0, dataWidth = 0;  // bits; 0 = unknown (Phase 3 P16)
     QString formFactor;                 // "DIMM", "SODIMM", ...
     int rank = 0;                       // 0 = unknown
+    // Where `manufacturer` came from: "reported" (the SMBIOS string),
+    // "jedec" (decoded from the module's JEDEC ID because the string was a
+    // placeholder), empty (unknown).
+    QString manufacturerSource;
 };
 
 struct MemoryInfo {

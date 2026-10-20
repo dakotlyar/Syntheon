@@ -89,7 +89,8 @@ QJsonObject SystemInfo::toJson() const
                                    {QStringLiteral("rank"), optInt(m.rank)},
                                    {QStringLiteral("data_width"), optInt(m.dataWidth)},
                                    {QStringLiteral("total_width"), optInt(m.totalWidth)},
-                                   {QStringLiteral("form_factor"), opt(m.formFactor)}});
+                                   {QStringLiteral("form_factor"), opt(m.formFactor)},
+                                   {QStringLiteral("manufacturer_source"), opt(m.manufacturerSource)}});
     }
     j.insert(QStringLiteral("memory"),
              QJsonObject{{QStringLiteral("total_bytes"), opt(memory.totalBytes)},

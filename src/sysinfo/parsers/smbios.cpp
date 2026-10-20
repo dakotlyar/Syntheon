@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "sysinfo/parsers/smbios.h"
 
+#include "sysinfo/parsers/jep106.h"
+
 #include "sysinfo/parsers/text_parsers.h"
 
 #include <QRegularExpression>
@@ -117,6 +119,20 @@ SmbiosMemoryDevice memoryDevice(const Structure &s, SmbiosVersion v)
     d.configuredSpeedMts = configured > 0 && configured != 0xFFFF ? configured : 0;
     if (const int attributes = s.byte(0x1B); attributes > 0)
         d.rank = attributes & 0x0F;
+    // Module Manufacturer ID (SMBIOS 3.2, 0x2C; dmidecode reads it only from
+    // a structure of at least 0x34 bytes): the low byte is the number of
+    // JEP106 continuation codes (bank - 1) with odd parity in bit 7, the
+    // high byte the manufacturer code (parity included). 0: unknown.
+    if (s.length >= 0x34) {
+        if (const int id = s.word(0x2C); id > 0) {
+            d.moduleManufacturerBank = (id & 0x7F) + 1;
+            d.moduleManufacturerCode = id >> 8;
+        }
+    }
+    const ModuleManufacturer maker = resolveModuleManufacturer(d.manufacturer, d.moduleManufacturerBank,
+                                                               d.moduleManufacturerCode);
+    d.manufacturer = maker.name;
+    d.manufacturerSource = maker.source;
     return d;
 }
 
@@ -211,6 +227,20 @@ QVector<SmbiosMemoryDevice> parseUdevMemoryDevices(const QString &text)
             d.partNumber = value;
         else if (field == QLatin1StringView("MANUFACTURER"))
             d.manufacturer = value;
+        else if (field == QLatin1StringView("MODULE_MANUFACTURER_ID")) {
+            // systemd's dmi_memory_id spells it as dmidecode does: "Bank 5, Hex 0xCD".
+            static const QRegularExpression id(QStringLiteral(R"(^Bank (\d+), Hex 0x([0-9A-Fa-f]{2})$)"));
+            if (const QRegularExpressionMatch mm = id.match(value); mm.hasMatch()) {
+                d.moduleManufacturerBank = mm.captured(1).toInt();
+                d.moduleManufacturerCode = mm.captured(2).toInt(nullptr, 16);
+            }
+        }
+    }
+    for (auto &[n, d] : devices) {
+        const ModuleManufacturer maker = resolveModuleManufacturer(d.manufacturer, d.moduleManufacturerBank,
+                                                                   d.moduleManufacturerCode);
+        d.manufacturer = maker.name;
+        d.manufacturerSource = maker.source;
     }
     QVector<SmbiosMemoryDevice> out;
     for (const auto &[n, d] : devices) {

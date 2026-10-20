@@ -54,7 +54,7 @@ void applyMemoryDevices(SystemInfo &info, const QVector<SmbiosMemoryDevice> &dev
     for (const SmbiosMemoryDevice &d : devices) {
         info.memory.modules.append({d.sizeBytes, d.type, d.speedMts, d.configuredSpeedMts, d.manufacturer,
                                     d.partNumber, d.locator, d.bankLocator, d.totalWidth, d.dataWidth,
-                                    d.formFactor, d.rank});
+                                    d.formFactor, d.rank, d.manufacturerSource});
     }
     info.memory.modulesKnown = true;
     info.memory.channels = estimateMemoryChannels(devices);

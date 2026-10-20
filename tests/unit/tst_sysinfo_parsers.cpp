@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "smbios_builder.h"
 #include "sysinfo/collector.h"
+#include "sysinfo/parsers/jep106.h"
 #include "sysinfo/parsers/smbios.h"
 #include "sysinfo/parsers/text_parsers.h"
 #include "sysinfo/parsers/windows_parsers.h"
@@ -270,10 +271,76 @@ private slots:
             QCOMPARE(m.totalWidth, 64);
             QCOMPARE(m.formFactor, QStringLiteral("DIMM"));
             QCOMPARE(m.partNumber, QStringLiteral("F5-6000J3038F16G"));
-            QCOMPARE(m.manufacturer, QString());  // "Unknown"
+            // "Unknown", but MODULE_MANUFACTURER_ID says Bank 5, 0xCD.
+            QCOMPARE(m.manufacturer, QStringLiteral("G.Skill"));
+            QCOMPARE(m.manufacturerSource, QStringLiteral("jedec"));
+            QCOMPARE(m.moduleManufacturerBank, 5);
+            QCOMPARE(m.moduleManufacturerCode, 0xCD);
         }
         QCOMPARE(estimateMemoryChannels(d), 2);
         QVERIFY(parseUdevMemoryDevices(QString()).isEmpty());
+    }
+
+    // Type 17's Module Manufacturer ID (SMBIOS 3.2, 0x2C): Tiamat's
+    // modules say "Unknown" with Bank 5, 0xCD, which is G.Skill.
+    void smbiosModuleManufacturerId()
+    {
+        SmbiosBuilder b;
+        // Low byte: 4 continuation codes (bank 5) with its parity bit set
+        // (4 has one bit set: odd already, so 0x04); high byte 0xCD.
+        b.add(17, 0x54).word(0x0C, 16384).byte(0x12, 0x22).str(0x17, "Unknown").str(0x1A, "F5-6000J3038F16G")
+            .word(0x2C, 0xCD04);
+        // The same ID with the low byte's parity bit set (0x84): masked off.
+        b.add(17, 0x54).word(0x0C, 16384).str(0x17, "Not Specified").word(0x2C, 0xCD84);
+        // A real string wins over the ID.
+        b.add(17, 0x54).word(0x0C, 16384).str(0x17, "Kingston").word(0x2C, 0xCD04);
+        // An ID not in the table: "JEDEC bank N, 0xXX".
+        b.add(17, 0x54).word(0x0C, 16384).word(0x2C, 0x7F00);
+        // No ID (0), placeholder string: stays empty, no source.
+        b.add(17, 0x54).word(0x0C, 16384).str(0x17, "Unknown");
+        // A structure too short for the field (3.0's 0x28 bytes): not read.
+        b.add(17, 0x28).word(0x0C, 16384).str(0x17, "Unknown");
+        // A hex placeholder string with an ID (Samsung, bank 1 0xCE).
+        b.add(17, 0x54).word(0x0C, 16384).str(0x17, "CE00000000000000").word(0x2C, 0xCE80);
+        const SmbiosInfo s = parseSmbiosTable(b.table(), {3, 6});
+        QCOMPARE(s.memoryDevices.size(), 7);
+        QCOMPARE(s.memoryDevices[0].manufacturer, QStringLiteral("G.Skill"));
+        QCOMPARE(s.memoryDevices[0].manufacturerSource, QStringLiteral("jedec"));
+        QCOMPARE(s.memoryDevices[0].moduleManufacturerBank, 5);
+        QCOMPARE(s.memoryDevices[0].moduleManufacturerCode, 0xCD);
+        QCOMPARE(s.memoryDevices[1].manufacturer, QStringLiteral("G.Skill"));
+        QCOMPARE(s.memoryDevices[2].manufacturer, QStringLiteral("Kingston"));
+        QCOMPARE(s.memoryDevices[2].manufacturerSource, QStringLiteral("reported"));
+        QCOMPARE(s.memoryDevices[3].manufacturer, QStringLiteral("JEDEC bank 1, 0x7F"));
+        QCOMPARE(s.memoryDevices[3].manufacturerSource, QStringLiteral("jedec"));
+        QCOMPARE(s.memoryDevices[4].manufacturer, QString());
+        QCOMPARE(s.memoryDevices[4].manufacturerSource, QString());
+        QCOMPARE(s.memoryDevices[5].moduleManufacturerBank, 0);
+        QCOMPARE(s.memoryDevices[6].manufacturer, QStringLiteral("Samsung"));
+    }
+
+    // The lookup: parity masked, unknown IDs empty, placeholders.
+    void jep106Lookup()
+    {
+        QCOMPARE(jep106Name(5, 0xCD), QStringLiteral("G.Skill"));
+        QCOMPARE(jep106Name(5, 0x4D), QStringLiteral("G.Skill"));  // parity bit dropped
+        QCOMPARE(jep106Name(2, 0x98), QStringLiteral("Kingston"));
+        QCOMPARE(jep106Name(1, 0xCE), QStringLiteral("Samsung"));
+        QCOMPARE(jep106Name(1, 0xAD), QStringLiteral("SK hynix"));
+        QCOMPARE(jep106Name(3, 0x9E), QStringLiteral("Corsair"));
+        QCOMPARE(jep106Name(6, 0x9B), QStringLiteral("Crucial"));
+        QCOMPARE(jep106Name(11, 0x91), QStringLiteral("CXMT"));
+        QCOMPARE(jep106Name(4, 0xCD), QString());  // same code, another bank
+        QCOMPARE(jep106Name(1, 0x00), QString());
+        for (const char *p : {"", "Unknown", "unknown", "Not Specified", "Undefined", "To Be Filled By O.E.M.",
+                              "Manufacturer0", "Manufacturer 3", "CE00000000000000", "0x802C", "  0000  "})
+            QVERIFY2(isPlaceholderManufacturer(QString::fromLatin1(p)), p);
+        for (const char *r : {"G.Skill", "Samsung", "ADATA", "Micron Technology", "SK Hynix", "ACE", "CXMT"})
+            QVERIFY2(!isPlaceholderManufacturer(QString::fromLatin1(r)), r);
+        QCOMPARE(resolveModuleManufacturer(QStringLiteral("Unknown"), 5, 0xCD).name, QStringLiteral("G.Skill"));
+        QCOMPARE(resolveModuleManufacturer(QStringLiteral("0x802C"), 0, 0).name, QStringLiteral("0x802C"));
+        QCOMPARE(resolveModuleManufacturer(QStringLiteral("0x802C"), 0, 0).source, QStringLiteral("reported"));
+        QCOMPARE(resolveModuleManufacturer({}, 13, 0x05).name, QStringLiteral("JEDEC bank 13, 0x05"));
     }
 
     void smbiosEntryPointAndWindowsHeader()
