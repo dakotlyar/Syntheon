@@ -19,6 +19,14 @@
 // (so its clock has ramped up), then time 10^6 iterations of the spin loop
 // (spin.h) three times, keeping the fastest (a preemption only adds time);
 // the levels' delays in ns per 4 KiB become iterations from that.
+// Known limit (AP-5 L4): the timing is taken on one core while the others
+// are parked, so at a boosted clock; under full load all-core clocks are
+// lower, an iteration takes longer, and the real delays come out longer
+// than nominal by about the ratio of the two clocks (on Tiamat, a 5.x GHz
+// single-core boost against a lower all-core clock). The levels are
+// therefore "nominal ns", the same calibration on every run of a machine;
+// the curve's x axis is the measured load bandwidth, not the delay, so
+// that's what is compared.
 //
 // Load bandwidth: every thread adds its bytes to its own relaxed counter
 // (one per cache line); bytesRead() sums them, so the coordinator can read
@@ -92,6 +100,7 @@ private:
         std::atomic<std::uint64_t> bytes{0};
     };
     void threadMain(std::size_t index);
+    void stopAndJoin();
 
     std::uint64_t (*m_read)(const void *, std::size_t);
     std::vector<LoadThreadSpec> m_specs;

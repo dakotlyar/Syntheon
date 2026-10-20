@@ -38,14 +38,27 @@ LoadGenerator::LoadGenerator(BwPath path, std::vector<LoadThreadSpec> threads)
             throw std::invalid_argument("LoadGenerator: each thread needs a slice of whole 4 KiB blocks");
     }
     m_threads.reserve(m_specs.size());
-    for (std::size_t i = 0; i < m_specs.size(); ++i)
-        m_threads.emplace_back([this, i] { threadMain(i); });
+    try {
+        for (std::size_t i = 0; i < m_specs.size(); ++i)
+            m_threads.emplace_back([this, i] { threadMain(i); });
+    } catch (...) {
+        // A thread that couldn't be created (AP-5 L5): the ones already
+        // running are told to quit and joined before the error goes on, so
+        // no joinable std::thread is destroyed (std::terminate).
+        stopAndJoin();
+        throw;
+    }
     // Settle the placement before returning (placementFailures, startedOn).
     std::unique_lock lock(m_mutex);
     m_done.wait(lock, [&] { return m_started == int(m_threads.size()); });
 }
 
 LoadGenerator::~LoadGenerator()
+{
+    stopAndJoin();
+}
+
+void LoadGenerator::stopAndJoin()
 {
     {
         std::lock_guard lock(m_mutex);
@@ -135,6 +148,8 @@ void LoadGenerator::threadMain(std::size_t index)
     --g_liveLoadThreads;
 }
 
+// Timed on one core with the others parked: see the header's note on the
+// clock ratio under full load (AP-5 L4).
 double LoadGenerator::calibrate()
 {
     park();
