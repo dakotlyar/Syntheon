@@ -415,6 +415,30 @@ private slots:
                                     QStringLiteral("ram:Working|")}));
     }
 
+    // AP-5 L3: a part change gets through the throttle even when the stage
+    // and the moment don't change.
+    void partChangeIsNotThrottled()
+    {
+        Fixture f;
+        f[QStringLiteral("cpu")]->runner = [](RunContext &ctx, const OptionValues &) {
+            ctx.setPart(QStringLiteral("Single-thread bandwidth"));
+            ctx.progress(0.1, QStringLiteral("Read · rep 5 of 5"));
+            ctx.setPart(QStringLiteral("All-thread bandwidth"));
+            ctx.progress(0.11, QStringLiteral("Read · rep 5 of 5"));  // same stage, within the interval
+            return okResult(1);
+        };
+        RecordingSink sink(f.events);
+        Orchestrator::Config c = fastConfig();
+        c.progressInterval = std::chrono::milliseconds(10000);
+        Orchestrator o(f.registry, sink, f.inhibitor, c);
+        QSignalSpy progress(&o, &Orchestrator::progress);
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        QVERIFY(o.start(plan({QStringLiteral("cpu")}), meta()).ok);
+        QVERIFY(waitFinished(finished));
+        QCOMPARE(progress.count(), 2);
+        QCOMPARE(progress.last().at(0).value<ProgressUpdate>().part, QStringLiteral("All-thread bandwidth"));
+    }
+
     void logStreamedAndSavedInBatches()
     {
         Fixture f;

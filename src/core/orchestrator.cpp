@@ -81,6 +81,7 @@ struct Orchestrator::Shared {
     Clock::time_point lastProgress;
     QString lastStage;
     QString part;  // the running test's RunContext::setPart(), under `mutex`
+    QString lastPart;  // the part of the last progress update sent
 
     // F6: read from any thread (log/progress), written once by the worker.
     std::atomic<std::thread::id> workerId{};
@@ -172,10 +173,13 @@ struct Orchestrator::Shared {
             if (abandoned)
                 return;
             const auto now = Clock::now();
-            if (stage == lastStage && fraction < 1.0 && now - lastProgress < config.progressInterval)
+            // Throttled while nothing but the fraction changes; a new stage
+            // or part always gets through (AP-5 L3).
+            if (stage == lastStage && part == lastPart && fraction < 1.0 && now - lastProgress < config.progressInterval)
                 return;
             lastProgress = now;
             lastStage = stage;
+            lastPart = part;
             currentPart = part;
         }
         const ProgressUpdate u{index, testId, fraction, stage, currentPart};
@@ -383,6 +387,7 @@ void Orchestrator::Shared::workerMain(std::shared_ptr<Shared> s)
             s->cancelFlag = false;
             s->lastStage.clear();
             s->part.clear();
+            s->lastPart.clear();
         }
         const int index = next;
         const QString testId = e.testId;
