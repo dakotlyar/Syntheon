@@ -161,14 +161,7 @@ std::vector<CoreCandidate> linuxTopCandidates(const std::string &sysfsRoot, cons
         c.core.ranked = true;
         c.core.cpu = cpu;
         c.core.source = source;
-        std::ifstream in(fs::path(sysfsRoot) / "devices" / "system" / "cpu" / ("cpu" + std::to_string(cpu)) / "topology"
-                         / "thread_siblings_list");
-        std::string line;
-        std::set<int> siblings;
-        if (in && std::getline(in, line))
-            siblings = parseCpuList(line);
-        siblings.insert(cpu);
-        c.smtKeys.assign(siblings.begin(), siblings.end());
+        c.smtKeys = linuxSmtSiblingKeys(sysfsRoot, cpu);
         out.push_back(std::move(c));
     }
     return out;

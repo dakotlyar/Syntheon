@@ -153,6 +153,15 @@ private slots:
                                       {{}, QStringLiteral("CPU1_DIMM_B1")}, {{}, QStringLiteral("CPU2_DIMM_B1")}}).channels, 4);
         QCOMPARE(countMemoryChannels({{{}, QStringLiteral("P1-DIMMA1")}, {{}, QStringLiteral("P2-DIMMA1")},
                                       {{}, QStringLiteral("P1-DIMMB1")}, {{}, QStringLiteral("P2-DIMMB1")}}).channels, 4);
+        // AP-5 round 3: board jumpers aren't sockets ("J1_DIMMA1" and
+        // "J2_DIMMA2" are one channel), and EPYC's "DIMM_P0_A0" keys by
+        // socket and letter, not by "P".
+        QCOMPARE(memoryChannelKey({}, QStringLiteral("J1_DIMMA1")), QStringLiteral("A"));
+        QCOMPARE(countMemoryChannels({{{}, QStringLiteral("J1_DIMMA1")}, {{}, QStringLiteral("J2_DIMMA2")}}).channels, 1);
+        QCOMPARE(memoryChannelKey({}, QStringLiteral("DIMM_P0_A0")), QStringLiteral("P0 A"));
+        QCOMPARE(countMemoryChannels({{{}, QStringLiteral("DIMM_P0_A0")}, {{}, QStringLiteral("DIMM_P0_B0")},
+                                      {{}, QStringLiteral("DIMM_P1_A0")}, {{}, QStringLiteral("DIMM_P1_B0")},
+                                      {{}, QStringLiteral("DIMM_P0_A1")}}).channels, 4);
         // Locators that don't say: a guess, flagged.
         const MemoryChannelCount guess = countMemoryChannels({{QStringLiteral("BANK 0"), {}}, {QStringLiteral("BANK 1"), {}}, {QStringLiteral("BANK 2"), {}}});
         QCOMPARE(guess.channels, 2);

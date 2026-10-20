@@ -10,6 +10,9 @@
 //   "ChannelB-DIMM0", "Channel-B"   -> "B"
 //   "DIMM_A1", "DIMMB2"             -> "A", "B"  (the letter of a DIMMxN slot)
 //   "CPU1_DIMM_A1", "P2-DIMMA1"     -> "CPU1 A", "P2 A"
+//   "DIMM_P1_A0" (EPYC)             -> "P1 A"
+//   "J1_DIMMA1"                     -> "A" (a prefix is kept only when it
+//                                      names a socket or a controller)
 // The bank locator is read first, then the locator. Empty when neither says.
 
 #include <QList>
