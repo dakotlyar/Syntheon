@@ -14,7 +14,11 @@ on them:
   * the database is opened read-only: its bytes don't change, and a read-only
     file works; with a rollback journal nothing is left behind, and with WAL
     (SynBench's own mode) only a -shm file and an empty -wal file are;
-  * usage and database problems exit 2.
+  * usage and database problems exit 2;
+  * --test ram (Phase 3 §14.3): the RAM score, its three groups and every
+    scored metric; a metric no run has (latency.l3 without an L3) is "not
+    measured" and doesn't fail the set; low huge-page coverage is reported;
+    a history without RAM results exits 2.
 
   test_cpu_repeatability.py <source dir>
 """
@@ -76,6 +80,42 @@ def make_db(path, runs, wal=False):
         m("throttle", text=r.get("throttle", "Not detected"))
     con.commit()
     con.close()
+
+
+RAM_GROUPS = ["latency", "bandwidth", "loaded"]
+RAM_METRICS = ["latency.dram", "latency.l3", "latency.l2", "latency.l1", "bandwidth.read", "bandwidth.write",
+               "bandwidth.copy", "bandwidth.st.read", "bandwidth.st.write", "bandwidth.st.copy", "loaded.latency"]
+
+
+def make_ram_db(path, runs):
+    con = sqlite3.connect(path)
+    for i, m in enumerate(MIGRATIONS, start=1):
+        con.executescript(m.read_text(encoding="utf-8"))
+        con.execute(f"PRAGMA user_version = {i}")
+    for i, r in enumerate(runs, start=1):
+        con.execute("INSERT INTO runs (id, uuid, kind, status, started_at, finished_at, app_version, app_build, "
+                    "machine_label, overall_score, system_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (i, f"00000000-0000-0000-0000-{i:012d}", "standard", "completed", f"2026-10-20T1{i}:00:00.000Z",
+                     f"2026-10-20T1{i}:02:30.000Z", "2026.11.0", "linux-x64 test", "Test machine", r["score"], "{}"))
+        con.execute("INSERT INTO test_results (id, run_id, position, test_id, test_version, formula_version, status, "
+                    "score, options_json) VALUES (?,?,?,?,?,?,?,?,?)", (i, i, 0, "ram", 0, 0, "ok", r["score"], "{}"))
+        for g, sc in zip(RAM_GROUPS, r["subs"]):
+            con.execute("INSERT INTO sub_results (test_result_id, sub_id, status, score) VALUES (?,?,?,?)", (i, g, "ok", sc))
+        pos = 0
+        for key, num, text in [("background.load", 1.0, None), ("power.source", None, "AC"), ("power.profile", None, "balanced"),
+                               ("pages.huge", r.get("huge", 100.0), None)] + [(k, v, None) for k, v in r["metrics"].items()]:
+            con.execute("INSERT INTO metrics (test_result_id, key, label, value_num, value_text, direction, position) "
+                        "VALUES (?,?,?,?,?,?,?)", (i, key, key, num, text, "neutral", pos))
+            pos += 1
+    con.commit()
+    con.close()
+
+
+def ram_run(k, l3=True, huge=100.0):
+    metrics = {key: 50.0 * (1 + 0.005 * k) for key in RAM_METRICS}
+    if not l3:
+        del metrics["latency.l3"]
+    return {"score": 1000 + k, "subs": [1000 + k, 1000 - k, 1000 + 2 * k], "metrics": metrics, "huge": huge}
 
 
 def geo(subs):
@@ -199,6 +239,36 @@ with tempfile.TemporaryDirectory() as tmp:
     check(run(good, "--runs", "x")[0] == 2, "a bad --runs: exit 2")
     check(run(good, "-n", "0")[0] == 2, "-n 0: exit 2")
     check(run()[0] == 2, "no arguments: exit 2")
+
+    # 6. --test ram.
+    ram = tmp / "ram.db"
+    runs = [ram_run(k) for k in (0, 2, -1, 3, -2)]
+    make_ram_db(ram, runs)
+    rc, out, err = run(ram, "--test", "ram")
+    print(out, err)
+    check(rc == 0 and "RESULT: PASS" in out, "RAM steady set: exit 0, PASS")
+    check(out.startswith("RAM repeatability: 5 run(s)"), "RAM: the heading names the test")
+    want = statistics.stdev([r["score"] for r in runs]) / statistics.fmean([r["score"] for r in runs]) * 100
+    check(f"RAM score            {want:5.2f}%" in out, f"RAM: the score's CV is {want:.2f}%")
+    check(sum(l.rstrip().endswith("  ok") and "%" in l for l in out.splitlines()) == 15,
+          "RAM: fifteen CVs (score, three groups, eleven metrics), all ok")
+    for label in ("Latency", "Bandwidth", "Loaded latency", "DRAM latency", "L3 latency", "Read, all threads",
+                  "Copy, one thread", "Loaded latency (ns)"):
+        check(any(l.strip().startswith(label + " ") for l in out.splitlines()), f"RAM: a line for {label}")
+    rc, out, _ = run(ram)
+    check(rc == 2, "RAM-only history without --test ram: no CPU results, exit 2")
+    rc, out, _ = run(good, "--test", "ram")
+    check(rc == 2, "--test ram on a CPU-only history: exit 2")
+    check(run(ram, "--test", "gpu")[0] == 2, "--test gpu: exit 2")
+    # No L3 on any run: not measured, not a failure; low huge pages: reported.
+    nol3 = tmp / "nol3.db"
+    make_ram_db(nol3, [ram_run(k, l3=False, huge=(41.0 if k == 3 else 100.0)) for k in (0, 2, -1, 3, -2)])
+    rc, out, _ = run(nol3, "--test", "ram")
+    print(out)
+    check(rc == 0 and "RESULT: PASS" in out, "RAM without an L3: PASS")
+    check(any(l.strip().startswith("L3 latency") and "not measured" in l and "FAIL" not in l for l in out.splitlines()),
+          "RAM without an L3: L3 latency is 'not measured', not a failure")
+    check("run 4: huge pages 41% (calibration needs 90%)" in out, "RAM: low huge-page coverage is reported")
 
 print(f"{len(failures)} failure(s)")
 sys.exit(1 if failures else 0)

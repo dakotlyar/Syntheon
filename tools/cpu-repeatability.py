@@ -1,27 +1,36 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""cpu-repeatability: how repeatable the CPU test is over a set of saved runs.
+"""cpu-repeatability: how repeatable the CPU or RAM test is over saved runs.
 
-Phase 2 design §14.3 / §14.4 (D17): the validation gate asks for a CV of the
-CPU score of at most 3% over 5 runs. This reads a SynBench history
-(synbench.db, opened read-only) and prints, for the chosen CPU results:
+Phase 2 design §14.3 / §14.4 (D17) and Phase 3 §14.3 / §14.4 (D19): the
+validation gate asks for a CV of the test's score of at most 3% over 5 runs.
+This reads a SynBench history (synbench.db, opened read-only) and prints, for
+the chosen results of one test:
 
-  * per run: its id, start time, score, the seven group sub-scores, the
-    single-thread mark, and the conditions it ran in (power source, power
-    profile, background load before the run, the throttling flag);
-  * the CV (sample standard deviation / mean) of the CPU score, of each group
-    sub-score and of the single-thread mark, with every CV above the limit
-    flagged.
+  * per run: its id, start time, score, the group sub-scores, and the
+    conditions it ran in (power source, power profile, background load
+    before the run; CPU: the single-thread mark and the throttling flag;
+    RAM: DRAM latency, all-thread read, loaded latency and the huge-page
+    coverage);
+  * the CV (sample standard deviation / mean) of the score, of each group
+    sub-score and (CPU) of the single-thread mark or (RAM) of every scored
+    metric, with every CV above the limit flagged. A RAM metric that no run
+    has (latency.l3 on a core without an L3) is listed as not measured and
+    doesn't fail the set.
 
 Usage:
-  cpu-repeatability.py <synbench.db> [-n N] [--runs ID,ID,...] [--limit PCT]
+  cpu-repeatability.py <synbench.db> [--test cpu|ram] [-n N] [--runs ID,ID,...] [--limit PCT]
 
-  -n N        the last N CPU results that have a score (default 5), of the
-              newest result's CPU test and formula version
+  --test T    which test's results: cpu (the default) or ram
+  -n N        the last N results of that test that have a score (default
+              5), of the newest result's test and formula version
   --runs ...  these run ids instead (as the first column prints them), in
               the order given; an unscored result is shown, and left out of
               the CVs where its values are missing
   --limit PCT the CV limit, in percent (default 3)
+
+For RAM there is no MLC cross-check (Phase 3 D19): the gate is this CV plus
+a sensible machine ranking.
 
 Exit code: 0 if every CV is within the limit, 1 if any is above it (or fewer
 than 2 values could be compared), 2 for a usage or database problem.
@@ -38,16 +47,48 @@ import sqlite3
 import statistics
 import sys
 
-# The seven groups in the order of the CPU test's Sub-tests table (§2).
-GROUPS = [
-    ("int", "Integer"),
-    ("fp", "FP + primes"),
-    ("simd", "SIMD"),
-    ("compress", "Compression"),
-    ("crypto", "Encryption"),
-    ("sort", "Sorting"),
-    ("physics", "Physics"),
-]
+# Per test: its groups in the order of its Sub-tests table, and the metrics
+# whose CVs are printed after the groups'.
+TESTS = {
+    # Phase 2 §2: the seven groups, then the single-thread mark.
+    "cpu": {
+        "name": "CPU",
+        "groups": [
+            ("int", "Integer"),
+            ("fp", "FP + primes"),
+            ("simd", "SIMD"),
+            ("compress", "Compression"),
+            ("crypto", "Encryption"),
+            ("sort", "Sorting"),
+            ("physics", "Physics"),
+        ],
+        "metrics": [("single.mark", "Single-thread mark")],
+    },
+    # Phase 3 §2, §10: three groups, then every scored metric.
+    "ram": {
+        "name": "RAM",
+        "groups": [
+            ("latency", "Latency"),
+            ("bandwidth", "Bandwidth"),
+            ("loaded", "Loaded latency"),
+        ],
+        "metrics": [
+            ("latency.dram", "DRAM latency"),
+            ("latency.l3", "L3 latency"),
+            ("latency.l2", "L2 latency"),
+            ("latency.l1", "L1 latency"),
+            ("bandwidth.read", "Read, all threads"),
+            ("bandwidth.write", "Write, all threads"),
+            ("bandwidth.copy", "Copy, all threads"),
+            ("bandwidth.st.read", "Read, one thread"),
+            ("bandwidth.st.write", "Write, one thread"),
+            ("bandwidth.st.copy", "Copy, one thread"),
+            ("loaded.latency", "Loaded latency (ns)"),
+        ],
+    },
+}
+# §15.1: RAM calibration runs need at least this huge-page coverage.
+RAM_HUGE_PAGES_MIN = 90
 
 
 def open_readonly(path):
@@ -66,27 +107,27 @@ def open_readonly(path):
     return con
 
 
-def cpu_results(con, n, run_ids):
+def test_results(con, test, n, run_ids):
     q = (
         "SELECT r.id, r.started_at, r.status, r.machine_label, r.app_version, "
         "t.id, t.status, t.score, t.test_version, t.formula_version "
-        "FROM runs r JOIN test_results t ON t.run_id = r.id AND t.test_id = 'cpu' "
+        "FROM runs r JOIN test_results t ON t.run_id = r.id AND t.test_id = ? "
     )
     if run_ids:
         rows = []
         for rid in run_ids:
-            row = con.execute(q + "WHERE r.id = ?", (rid,)).fetchone()
+            row = con.execute(q + "WHERE r.id = ?", (test, rid)).fetchone()
             if row is None:
-                raise SystemExit(f"cpu-repeatability: run {rid} has no CPU result in this history")
+                raise SystemExit(f"cpu-repeatability: run {rid} has no {TESTS[test]['name']} result in this history")
             rows.append(row)
         return rows
-    # Only results comparable with the newest one: the same CPU test and
-    # formula version (a Phase 1 stub result or an older formula never mixes in).
-    newest = con.execute(q + "WHERE t.score IS NOT NULL ORDER BY r.started_at DESC, r.id DESC LIMIT 1").fetchone()
+    # Only results comparable with the newest one: the same test and formula
+    # version (a Phase 1 stub result or an older formula never mixes in).
+    newest = con.execute(q + "WHERE t.score IS NOT NULL ORDER BY r.started_at DESC, r.id DESC LIMIT 1", (test,)).fetchone()
     if newest is None:
         return []
     rows = con.execute(q + "WHERE t.score IS NOT NULL AND t.test_version = ? AND t.formula_version = ? "
-                           "ORDER BY r.started_at DESC, r.id DESC LIMIT ?", (newest[8], newest[9], n)).fetchall()
+                           "ORDER BY r.started_at DESC, r.id DESC LIMIT ?", (test, newest[8], newest[9], n)).fetchall()
     return list(reversed(rows))  # oldest first
 
 
@@ -123,12 +164,14 @@ def fmt_num(v, digits=0):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="cpu-repeatability.py",
-                                 description="CV of the CPU score, group sub-scores and single-thread mark over saved runs.",
+                                 description="CV of the CPU or RAM score, its group sub-scores and its main metrics over "
+                                             "saved runs.",
                                  epilog="The history is opened read-only and never modified. It is in WAL mode, so "
                                         "SQLite may leave a -shm file (and an empty -wal file) next to it when "
                                         "SynBench isn't running; they hold no data.")
     ap.add_argument("db", help="path to synbench.db (opened read-only)")
-    ap.add_argument("-n", type=int, default=5, help="the last N scored CPU results (default 5)")
+    ap.add_argument("--test", choices=sorted(TESTS), default="cpu", help="which test's results (default cpu)")
+    ap.add_argument("-n", type=int, default=5, help="the last N scored results (default 5)")
     ap.add_argument("--runs", help="comma-separated run ids instead of the last N")
     ap.add_argument("--limit", type=float, default=3.0, help="CV limit in percent (default 3)")
     try:
@@ -145,14 +188,16 @@ def main(argv=None):
     if args.n < 1 or not math.isfinite(args.limit) or args.limit <= 0:
         print("cpu-repeatability: -n must be at least 1 and --limit a positive number", file=sys.stderr)
         return 2
+    spec = TESTS[args.test]
+    name, groups = spec["name"], spec["groups"]
     try:
         con = open_readonly(args.db)
-        rows = cpu_results(con, args.n, run_ids)
+        rows = test_results(con, args.test, args.n, run_ids)
     except SystemExit as e:
         print(e, file=sys.stderr)
         return 2
     if not rows:
-        print("cpu-repeatability: no scored CPU results in this history", file=sys.stderr)
+        print(f"cpu-repeatability: no scored {name} results in this history", file=sys.stderr)
         return 2
 
     runs = []
@@ -162,26 +207,40 @@ def main(argv=None):
         runs.append({
             "id": rid, "started": started, "run_status": rstatus, "machine": machine, "app": appver,
             "status": tstatus, "score": score, "test_version": tver, "formula_version": fver,
-            "subs": {g: subs.get(g) for g, _ in GROUPS},
-            "mark": metric(con, tid, "single.mark"),
+            "subs": {g: subs.get(g) for g, _ in groups},
+            "metrics": {k: metric(con, tid, k) for k, _ in spec["metrics"]},
             "power": metric(con, tid, "power.source"),
             "profile": metric(con, tid, "power.profile"),
             "background": bg,
             "throttle": metric(con, tid, "throttle"),
+            "huge": metric(con, tid, "pages.huge"),
         })
     con.close()
 
     # --- per run --------------------------------------------------------------
-    print(f"CPU repeatability: {len(runs)} run(s) from {args.db}")
-    head = ["run", "started (UTC)", "status", "score"] + [label for _, label in GROUPS] + \
-           ["ST mark", "power", "profile", "bg load", "throttling"]
+    print(f"{name} repeatability: {len(runs)} run(s) from {args.db}")
+    if args.test == "cpu":
+        extra_head = ["ST mark"]
+        extra = lambda r: [fmt_num(r["metrics"]["single.mark"])]
+        tail_head = ["throttling"]
+        tail = lambda r: [r["throttle"] or "—"]
+    else:
+        extra_head = ["DRAM ns", "read GB/s", "loaded ns"]
+        extra = lambda r: [fmt_num(r["metrics"]["latency.dram"], 1), fmt_num(r["metrics"]["bandwidth.read"], 1),
+                           fmt_num(r["metrics"]["loaded.latency"], 1)]
+        tail_head = ["huge pages"]
+        tail = lambda r: [f"{r['huge']:.0f}%" if isinstance(r["huge"], (int, float)) else (r["huge"] or "—")]
+    head = ["run", "started (UTC)", "status", "score"] + [label for _, label in groups] + \
+           extra_head + ["power", "profile", "bg load"] + tail_head
     table = []
     for r in runs:
         bg = r["background"]
         table.append([str(r["id"]), (r["started"] or "")[:19].replace("T", " "), r["status"], fmt_num(r["score"])]
-                     + [fmt_num(r["subs"][g]) for g, _ in GROUPS]
-                     + [fmt_num(r["mark"]), r["power"] or "—", r["profile"] or "—",
-                        f"{bg:.1f}%" if isinstance(bg, (int, float)) else (bg or "—"), r["throttle"] or "—"])
+                     + [fmt_num(r["subs"][g]) for g, _ in groups]
+                     + extra(r)
+                     + [r["power"] or "—", r["profile"] or "—",
+                        f"{bg:.1f}%" if isinstance(bg, (int, float)) else (bg or "—")]
+                     + tail(r))
     widths = [max(len(h), *(len(row[i]) for row in table)) for i, h in enumerate(head)]
     print("  ".join(h.ljust(w) for h, w in zip(head, widths)))
     for row in table:
@@ -191,19 +250,27 @@ def main(argv=None):
     print()
     print(f"CV (sample standard deviation / mean), limit {args.limit:g}%:")
     failed = False
-    series = [("CPU score", [r["score"] for r in runs])] + \
-             [(label, [r["subs"][g] for r in runs]) for g, label in GROUPS] + \
-             [("Single-thread mark", [r["mark"] for r in runs])]
-    for name, values in series:
-        cv = cv_percent(values)
-        used = sum(v is not None for v in values)
+    # (label, values, may be absent from every run)
+    series = [(f"{name} score", [r["score"] for r in runs], False)] + \
+             [(label, [r["subs"][g] for r in runs], False) for g, label in groups] + \
+             [(label, [r["metrics"][k] for r in runs], args.test == "ram") for k, label in spec["metrics"]]
+    width = max(20, *(len(label) for label, _, _ in series))
+    for label, values, optional in series:
+        used = sum(isinstance(v, (int, float)) for v in values)
+        if optional and used == 0:
+            # A RAM metric no run has: not on this machine (latency.l3
+            # without an L3).
+            print(f"  {label:<{width}} —      (not measured on these runs)")
+            continue
+        cv = cv_percent([v if isinstance(v, (int, float)) else None for v in values])
         if cv is None:
             failed = True
-            print(f"  {name:<20} —      (only {used} value(s): nothing to compare)  FAIL")
+            print(f"  {label:<{width}} —      (only {used} value(s): nothing to compare)  FAIL")
             continue
         flag = "FAIL" if cv > args.limit else "ok"
         failed = failed or cv > args.limit
-        print(f"  {name:<20} {cv:5.2f}%  (n={used}, mean {statistics.fmean([v for v in values if v is not None]):,.1f})  {flag}")
+        mean = statistics.fmean([v for v in values if isinstance(v, (int, float))])
+        print(f"  {label:<{width}} {cv:5.2f}%  (n={used}, mean {mean:,.{3 if mean < 10 else 1}f})  {flag}")
 
     # --- conditions that make a set not comparable ---------------------------------
     notes = []
@@ -212,7 +279,7 @@ def main(argv=None):
     if len({r["machine"] for r in runs}) > 1:
         notes.append("the runs are from different machines")
     if len({(r["test_version"], r["formula_version"]) for r in runs}) > 1:
-        notes.append("the runs use different CPU test or formula versions")
+        notes.append(f"the runs use different {name} test or formula versions")
     for r in runs:
         why = []
         if r["status"] != "ok":
@@ -223,6 +290,8 @@ def main(argv=None):
             why.append(f"background load {r['background']:.0f}%")
         if r["throttle"] not in (None, "Not detected"):
             why.append(f"throttling {r['throttle'].lower()}")
+        if args.test == "ram" and isinstance(r["huge"], (int, float)) and r["huge"] < RAM_HUGE_PAGES_MIN:
+            why.append(f"huge pages {r['huge']:.0f}% (calibration needs {RAM_HUGE_PAGES_MIN}%)")
         if why:
             notes.append(f"run {r['id']}: " + ", ".join(why))
     if notes:

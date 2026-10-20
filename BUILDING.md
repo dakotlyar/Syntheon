@@ -185,10 +185,13 @@ to another object's property is qualified with its id.
 
 ## Tools
 
-`tools/cpu-repeatability.py` checks how repeatable the CPU test is (design
-§14.3, the gate is a CV of the CPU score of at most 3% over 5 runs). It reads
-a history read-only (Python 3, standard library only) and prints each run's
-score, group sub-scores, single-thread mark and conditions, then the CVs:
+`tools/cpu-repeatability.py` checks how repeatable the CPU or RAM test is
+(Phase 2 and Phase 3 design §14.3: the gate is a CV of the test's score of at
+most 3% over 5 runs; for RAM there is no MLC cross-check, D19). It reads a
+history read-only (Python 3, standard library only) and prints each run's
+score, group sub-scores, main metrics and conditions, then the CVs (CPU: the
+score, the seven groups and the single-thread mark; RAM: the score, its three
+groups and every scored metric, flagging runs below 90% huge pages):
 
 ```sh
 # the last 5 scored CPU results (same test and formula version as the newest)
@@ -196,6 +199,8 @@ python3 tools/cpu-repeatability.py ~/.local/share/SynBench/synbench.db
 # Windows: %LOCALAPPDATA%\SynBench\synbench.db; or the folder set in Settings
 python3 tools/cpu-repeatability.py <synbench.db> -n 10 --limit 2
 python3 tools/cpu-repeatability.py <synbench.db> --runs 12,13,15
+# the RAM test's
+python3 tools/cpu-repeatability.py <synbench.db> --test ram
 ```
 
 Exit code 0 when every CV is within the limit, 1 when one isn't (or there is
