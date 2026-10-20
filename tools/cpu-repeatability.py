@@ -19,7 +19,7 @@ the chosen results of one test:
     fail the set; any other scored metric missing fails it.
 
 Usage:
-  cpu-repeatability.py <synbench.db> [--test cpu|ram] [-n N] [--runs ID,ID,...] [--limit PCT]
+  cpu-repeatability.py <synbench.db> [--test cpu|ram] [-n N] [--runs ID,ID,...] [--limit PCT] [--anchors]
 
   --test T    which test's results: cpu (the default) or ram
   -n N        the last N results of that test that have a score (default
@@ -28,6 +28,14 @@ Usage:
               the order given; an unscored result is shown, and left out of
               the CVs where its values are missing
   --limit PCT the CV limit, in percent (default 3)
+  --anchors   RAM calibration (Phase 3 §15.1, §10.3): also gate every run
+              on status ok and huge pages >= 90%, print each scored
+              metric's median rounded to 3 significant figures (the new
+              anchors, as formula_v1.cpp's constants), and each run
+              re-scored with them (formula v1, §10.2) with that score's CV;
+              the median run then scores about 1,000. A re-scored CV equals
+              the stored score's (anchors scale every run alike); it is
+              printed as the check. Exit 1 if any gate fails.
 
 For RAM there is no MLC cross-check (Phase 3 D19): the gate is this CV plus
 a sensible machine ranking.
@@ -91,6 +99,55 @@ TESTS = {
 }
 # §15.1: RAM calibration runs need at least this huge-page coverage.
 RAM_HUGE_PAGES_MIN = 90
+
+# Formula v1 (Phase 3 §10.2, src/tests/ram/formula_v1.cpp), for --anchors:
+# group -> (weight, [(metric, weight in group, lower is better)]); the
+# latency group without an L3 moves L3's 0.15 to L2 (0.20).
+RAM_FORMULA = [
+    ("latency", 0.50, [("latency.dram", 0.75, True), ("latency.l3", 0.15, True), ("latency.l2", 0.05, True),
+                       ("latency.l1", 0.05, True)]),
+    ("bandwidth", 0.35, [("bandwidth.read", 2 / 9, False), ("bandwidth.write", 2 / 9, False),
+                         ("bandwidth.copy", 2 / 9, False), ("bandwidth.st.read", 1 / 9, False),
+                         ("bandwidth.st.write", 1 / 9, False), ("bandwidth.st.copy", 1 / 9, False)]),
+    ("loaded", 0.15, [("loaded.latency", 1.0, True)]),
+]
+# formula_v1.cpp's anchor constants, in its order.
+RAM_ANCHOR_NAMES = [("kL1", "latency.l1", "ns"), ("kL2", "latency.l2", "ns"), ("kL3", "latency.l3", "ns"),
+                    ("kDram", "latency.dram", "ns"), ("kRead", "bandwidth.read", "GB/s, all threads"),
+                    ("kWrite", "bandwidth.write", "GB/s, all threads, non-temporal stores"),
+                    ("kCopy", "bandwidth.copy", "GB/s, all threads, read + written"),
+                    ("kStRead", "bandwidth.st.read", "GB/s, single thread"), ("kStWrite", "bandwidth.st.write", ""),
+                    ("kStCopy", "bandwidth.st.copy", ""), ("kLoaded", "loaded.latency", "ns, full load")]
+
+
+def sig3(x):
+    """x rounded to 3 significant figures."""
+    return float(f"{x:.3g}")
+
+
+def sig3_text(x):
+    t = f"{sig3(x):.6f}".rstrip("0").rstrip(".")
+    return t
+
+
+def ram_rescore(metrics, anchors):
+    """The RAM score of one run's metrics with these anchors (formula v1);
+    None if a scored metric (or its anchor) is missing."""
+    has_l3 = isinstance(metrics.get("latency.l3"), (int, float))
+    total = 0.0
+    for _, w_group, items in RAM_FORMULA:
+        ln_g = 0.0
+        for key, v, lower in items:
+            if key == "latency.l3" and not has_l3:
+                continue
+            if key == "latency.l2" and not has_l3:
+                v = 0.20
+            r, a = metrics.get(key), anchors.get(key)
+            if not isinstance(r, (int, float)) or not a or r <= 0:
+                return None
+            ln_g += v * math.log(a / r if lower else r / a)
+        total += w_group * ln_g
+    return round(1000.0 * math.exp(total))
 
 
 def open_readonly(path):
@@ -176,6 +233,9 @@ def main(argv=None):
     ap.add_argument("-n", type=int, default=5, help="the last N scored results (default 5)")
     ap.add_argument("--runs", help="comma-separated run ids instead of the last N")
     ap.add_argument("--limit", type=float, default=3.0, help="CV limit in percent (default 3)")
+    ap.add_argument("--anchors", action="store_true",
+                    help="RAM calibration: gate status and huge pages, print the median anchors (3 significant "
+                         "figures) and the runs re-scored with them")
     try:
         args = ap.parse_args(argv)
     except SystemExit as e:
@@ -187,6 +247,9 @@ def main(argv=None):
         except ValueError:
             print("cpu-repeatability: --runs takes run ids, such as 3,4,5", file=sys.stderr)
             return 2
+    if args.anchors and args.test != "ram":
+        print("cpu-repeatability: --anchors is for --test ram", file=sys.stderr)
+        return 2
     if args.n < 1 or not math.isfinite(args.limit) or args.limit <= 0:
         print("cpu-repeatability: -n must be at least 1 and --limit a positive number", file=sys.stderr)
         return 2
@@ -301,6 +364,48 @@ def main(argv=None):
         print("Conditions to check:")
         for n in notes:
             print(f"  - {n}")
+
+    # --- RAM calibration (§15.1, §10.3) ----------------------------------------------
+    if args.anchors:
+        print()
+        print(f"Calibration gate (§15.1): {len(runs)} run(s), status ok, huge pages >= {RAM_HUGE_PAGES_MIN}%:")
+        if not run_ids and len(runs) < args.n:
+            failed = True
+            print(f"  only {len(runs)} of the {args.n} runs asked for  FAIL")
+        if len({r["machine"] for r in runs}) > 1:
+            failed = True
+            print("  the runs are from different machines  FAIL")
+        for r in runs:
+            huge = r["huge"]
+            ok = r["status"] == "ok" and isinstance(huge, (int, float)) and huge >= RAM_HUGE_PAGES_MIN
+            failed = failed or not ok
+            huge_text = f"{huge:.0f}%" if isinstance(huge, (int, float)) else "unknown"
+            print(f"  run {r['id']}: status {r['status']}, huge pages {huge_text}  {'ok' if ok else 'FAIL'}")
+        anchors = {}
+        print()
+        print("Anchors: the median of each scored metric, 3 significant figures (formula_v1.cpp):")
+        for name, key, unit in RAM_ANCHOR_NAMES:
+            vals = [r["metrics"][key] for r in runs if isinstance(r["metrics"][key], (int, float))]
+            if not vals:
+                print(f"  // {name}: {key} not measured on these runs; keep the current value")
+                continue
+            anchors[key] = sig3(statistics.median(vals))
+            comment = f"  // {unit}" if unit else ""
+            print(f"  constexpr double {name} = {sig3_text(anchors[key])};{comment}")
+        rescored = [ram_rescore(r["metrics"], anchors) for r in runs]
+        print()
+        print("Each run re-scored with these anchors (formula v1):")
+        for r, s in zip(runs, rescored):
+            print(f"  run {r['id']}: {fmt_num(s)} (stored {fmt_num(r['score'])})")
+        cv = cv_percent(rescored)
+        if cv is None:
+            failed = True
+            print("  re-scored CV: —  (too few scores)  FAIL")
+        else:
+            flag = "FAIL" if cv > args.limit else "ok"
+            failed = failed or cv > args.limit
+            med = statistics.median([s for s in rescored if s is not None])
+            print(f"  re-scored CV {cv:.2f}%  {flag}; median {med:,.0f} (about 1,000 expected)")
     print()
     print("RESULT: " + ("FAIL (a CV is above the limit, or there is too little to compare)" if failed else "PASS"))
     return 1 if failed else 0

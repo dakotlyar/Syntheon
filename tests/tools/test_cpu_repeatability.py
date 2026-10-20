@@ -19,6 +19,10 @@ on them:
     scored metric; a metric no run has (latency.l3 without an L3) is "not
     measured" and doesn't fail the set; low huge-page coverage is reported;
     a history without RAM results exits 2.
+  * --anchors (Phase 3 §15.1, §10.3): the medians at 3 significant figures
+    as formula_v1.cpp's constants (whose names the tool must match), every
+    run re-scored with them (the median run 1,000), the gate on status and
+    huge pages >= 90%; not for --test cpu.
 
   test_cpu_repeatability.py <source dir>
 """
@@ -281,6 +285,40 @@ with tempfile.TemporaryDirectory() as tmp:
     check(rc == 1 and "RESULT: FAIL" in out, "RAM without single-thread copy: FAIL")
     check(any(l.strip().startswith("Copy, one thread") and l.rstrip().endswith("FAIL") for l in out.splitlines()),
           "RAM: the missing metric's line is flagged")
+
+    # 7. --anchors (RAM calibration).
+    cal = tmp / "cal.db"
+    runs = [ram_run(k) for k in (0, 2, -1, 3, -2)]
+    for r in runs:  # distinct per metric, so the order of the constants shows
+        for j, key in enumerate(RAM_METRICS):
+            r["metrics"][key] *= 1 + j / 10
+    make_ram_db(cal, runs)
+    rc, out, _ = run(cal, "--test", "ram", "--anchors")
+    print(out)
+    check(rc == 0 and "RESULT: PASS" in out, "--anchors on a steady set: PASS")
+    import re
+    import math
+    src = (SRC / "src" / "tests" / "ram" / "formula_v1.cpp").read_text(encoding="utf-8")
+    names = re.findall(r"constexpr double (k\w+) = ", src)
+    printed = re.findall(r"constexpr double (k\w+) = ([0-9.]+);", out)
+    check([n for n, _ in printed] == [n for n in names if n != "kScale"],
+          "--anchors: the constants are formula_v1.cpp's, in its order")
+    want = {key: float(f"{statistics.median([r['metrics'][key] for r in runs]):.3g}") for key in RAM_METRICS}
+    got = dict(printed)
+    check(got.get("kDram") == f"{want['latency.dram']:g}" and got.get("kLoaded") == f"{want['loaded.latency']:g}"
+          and got.get("kStCopy") == f"{want['bandwidth.st.copy']:g}",
+          "--anchors: medians to 3 significant figures")
+    check("run 1: 1,000 (stored 1,000)" in out, "--anchors: the median run re-scores to 1,000")
+    check("median 1,000" in out, "--anchors: the re-scored median is 1,000")
+    lowhuge = tmp / "lowhuge.db"
+    make_ram_db(lowhuge, [ram_run(k, huge=(85.0 if k == 3 else 100.0)) for k in (0, 2, -1, 3, -2)])
+    rc, out, _ = run(lowhuge, "--test", "ram", "--anchors")
+    check(rc == 1 and "run 4: status ok, huge pages 85%  FAIL" in out, "--anchors: huge pages under 90% fail")
+    rc, out, _ = run(lowhuge, "--test", "ram")
+    check(rc == 0, "without --anchors low huge pages are only reported")
+    check(run(good, "--anchors")[0] == 2, "--anchors with --test cpu: exit 2")
+    rc, out, _ = run(ram, "--test", "ram", "-n", "6", "--anchors")
+    check(rc == 1 and "only 5 of the 6 runs asked for  FAIL" in out, "--anchors: too few runs fail")
 
 print(f"{len(failures)} failure(s)")
 sys.exit(1 if failures else 0)
