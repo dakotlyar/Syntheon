@@ -58,6 +58,19 @@ Box {
         }
         return out
     }
+    // What each column needs so no word is broken: its widest header word
+    // and widest cell word.
+    readonly property var wordNeeds: {
+        const n = columns.length
+        const out = []
+        for (let c = 0; c < n; ++c)
+            out.push(wordWidth(headMetrics, headerText(columns[c]), headProbe.font.letterSpacing))
+        for (const row of rows) {
+            for (let c = 0; c < Math.min(n, row.length); ++c)
+                out[c] = Math.max(out[c], wordWidth(c === 0 ? bodyMetrics : dataMetrics, row[c], 0))
+        }
+        return out
+    }
     // What each column needs to show its widest header or cell line.
     readonly property var needs: {
         const n = columns.length
@@ -94,6 +107,19 @@ Box {
         const first = Math.min(need[0], available * 0.3)
         if (first + rest <= available)
             return [available - rest].concat(need.slice(1))
+        // Every column gets its widest word, and the room left is shared in
+        // proportion to what each still wants, so cells wrap between words
+        // (Zeb D1: "G.Skil|l", "TYP|E" at 760 px)...
+        const words = wordNeeds
+        const wordTotal = words.reduce((a, b) => a + b, 0)
+        if (wordTotal <= available) {
+            const want = need.map((x, i) => Math.max(0, x - words[i]))
+            const wantTotal = want.reduce((a, b) => a + b, 0)
+            const spare = available - wordTotal
+            return words.map((x, i) => x + (wantTotal > 0 ? want[i] * spare / wantTotal : spare / n))
+        }
+        // ...and only when even that doesn't fit, everything shrinks and
+        // words break.
         return need.map(x => x * available / total)
     }
     function columnWidth(i) { return widths.length > i ? widths[i] : 0 }
