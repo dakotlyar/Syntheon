@@ -172,26 +172,47 @@ private:
     std::string m_name;
 };
 
-// P9: the bandwidth buffers. Total = max(1 GiB, 8 x the machine's total
-// last-level cache), at most 4 GiB, split into one slice per thread: a
-// multiple of 2 MiB, and of 16 MiB (the block) once a slice is larger than
-// that, so every unit is the same size. Rounding a slice up can take the
-// total a little past the 4 GiB cap; it is then rounded down instead (never
-// below 16 MiB a slice).
+// The machine's last-level caches, from every pinned CPU's topology: each
+// distinct instance (by the CPUs that share it) counted once in the total
+// (Tiamat: 32 + 96 MiB = 128 MiB), and the largest single one (96 MiB).
+struct LastLevelCaches {
+    std::uint64_t totalBytes = 0;
+    std::uint64_t largestBytes = 0;
+    int largestLevel = 0;  // its level (3 on most machines; 2 on an L3-less core)
+};
+LastLevelCaches lastLevelCaches(const std::vector<isa::CacheTopology> &perCpu);
+
+// P9, as Dave set it on 2026-10-19 (AP-5 checkpoint 2: a 32 MiB slice per
+// thread was smaller than Tiamat's 96 MiB V-cache L3, and an SMT pair's
+// slices settled in it, reading above the DRAM peak):
+//   - total wanted = max(1 GiB, 8 x the total last-level cache), split into
+//     one slice per thread: a multiple of 2 MiB, and of 16 MiB (the block)
+//     once a slice is larger than that, so every unit is the same size;
+//   - and every slice at least the largest single last-level cache any
+//     pinned CPU sits behind, rounded up to 16 MiB (the floor; Tiamat:
+//     96 MiB x 32 threads = 3 GiB);
+//   - at most 25% of installed physical memory in total (unknown memory:
+//     4 GiB). If even the floor doesn't fit, the run goes ahead at the cap
+//     (slices rounded down: 16 MiB multiples, at least 2 MiB) and `note`
+//     says bandwidth may partly come from cache.
+// The load generator streams over the same slices, so the floor holds there.
 struct BandwidthPlan {
     int threads = 1;
     std::size_t sliceBytes = 0;
     std::size_t blockBytes = 0;
+    std::size_t floorBytes = 0;  // the per-thread floor (0: no cache known)
+    bool limited = false;        // the 25% cap cut a slice below the floor
+    std::string note;            // the warn note when limited (empty otherwise)
     std::uint64_t totalBytes() const { return std::uint64_t(sliceBytes) * std::uint64_t(threads); }
-    // `bandwidth.buffer`'s text: "1 GiB in total (32 MiB per thread)",
+    // `bandwidth.buffer`'s text: "3 GiB in total (96 MiB per thread)",
     // "1152 MiB in total (48 MiB per thread)".
     std::string describe() const;
 };
-BandwidthPlan planBandwidth(std::uint64_t totalLastLevelBytes, int threads);
+BandwidthPlan planBandwidth(const LastLevelCaches &caches, int threads, std::uint64_t physicalMemoryBytes);
 
-// The machine's total last-level cache from every CPU's topology: each
-// distinct last-level cache (by the CPUs that share it) counted once
-// (Tiamat: 32 + 96 MiB).
-std::uint64_t totalLastLevelCache(const std::vector<isa::CacheTopology> &perCpu);
+// D18: the RAM test's peak footprint, for probe()'s free-memory warning
+// (free memory under this + 512 MiB): the latency buffer (the DRAM target)
+// plus the bandwidth slices; Tiamat: 1 GiB + 3 GiB.
+std::uint64_t ramPeakFootprint(std::uint64_t latencyBufferBytes, const BandwidthPlan &plan);
 
 } // namespace sb::ram

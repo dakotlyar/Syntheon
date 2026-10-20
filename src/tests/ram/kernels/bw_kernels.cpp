@@ -328,39 +328,57 @@ std::string BandwidthPlan::describe() const
     return total + " in total (" + std::to_string(sliceBytes / MiB) + " MiB per thread)";
 }
 
-BandwidthPlan planBandwidth(std::uint64_t totalLastLevelBytes, int threads)
+BandwidthPlan planBandwidth(const LastLevelCaches &caches, int threads, std::uint64_t physicalMemoryBytes)
 {
-    constexpr std::uint64_t kMin = 1 * GiB, kMax = 4 * GiB;
     BandwidthPlan p;
     p.threads = std::max(1, threads);
-    const std::uint64_t want = std::min(kMax, std::max(kMin, 8 * totalLastLevelBytes));
     const auto n = std::uint64_t(p.threads);
+    const std::uint64_t want = std::max<std::uint64_t>(GiB, 8 * caches.totalBytes);
+    const std::uint64_t cap = physicalMemoryBytes > 0 ? physicalMemoryBytes / 4 : 4 * GiB;
     std::size_t slice = roundUp(std::size_t((want + n - 1) / n), kBwSliceUnit);
-    std::size_t unit = kBwSliceUnit;
-    if (slice > kBwBlock) {
+    if (slice > kBwBlock)
         slice = roundUp(slice, kBwBlock);
-        unit = kBwBlock;
+    p.floorBytes = caches.largestBytes > 0 ? roundUp(std::size_t(caches.largestBytes), kBwBlock) : 0;
+    slice = std::max(slice, p.floorBytes);
+    if (std::uint64_t(slice) * n > cap) {
+        const auto most = std::size_t(cap / n);
+        const std::size_t unit = most > kBwBlock ? kBwBlock : kBwSliceUnit;
+        slice = std::max(kBwSliceUnit, most / unit * unit);
     }
-    if (std::uint64_t(slice) * n > kMax)
-        slice = std::max(unit, std::size_t(kMax / n) / unit * unit);
     p.sliceBytes = slice;
     p.blockBytes = std::min(kBwBlock, slice);
+    if (slice < p.floorBytes) {
+        p.limited = true;
+        const std::string level = caches.largestLevel > 0 ? "L" + std::to_string(caches.largestLevel) : "last-level cache";
+        p.note = "Bandwidth buffers were limited to 25% of memory (" + std::to_string(slice / MiB)
+                 + " MiB per thread, below the " + std::to_string(caches.largestBytes / MiB) + " MiB " + level
+                 + "), so bandwidth may partly come from cache.";
+    }
     return p;
 }
 
-std::uint64_t totalLastLevelCache(const std::vector<isa::CacheTopology> &perCpu)
+std::uint64_t ramPeakFootprint(std::uint64_t latencyBufferBytes, const BandwidthPlan &plan)
+{
+    return latencyBufferBytes + plan.totalBytes();
+}
+
+LastLevelCaches lastLevelCaches(const std::vector<isa::CacheTopology> &perCpu)
 {
     std::set<std::vector<int>> seen;
-    std::uint64_t total = 0;
+    LastLevelCaches c;
     for (const isa::CacheTopology &t : perCpu) {
         const isa::CacheLevel *last = t.lastLevel();
         if (!last)
             continue;
+        if (last->sizeBytes > c.largestBytes) {
+            c.largestBytes = last->sizeBytes;
+            c.largestLevel = last->level;
+        }
         // A cache that names no sharers is counted once per CPU reporting it.
         if (last->sharedWith.empty() || seen.insert(last->sharedWith).second)
-            total += last->sizeBytes;
+            c.totalBytes += last->sizeBytes;
     }
-    return total;
+    return c;
 }
 
 } // namespace sb::ram

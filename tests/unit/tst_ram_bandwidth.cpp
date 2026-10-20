@@ -343,51 +343,82 @@ private slots:
         }
     }
 
-    // P9 on Dave's machines and at the edges.
+    // P9 as Dave set it (2026-10-19): max(1 GiB, 8 x total LLC), every slice
+    // at least the largest LLC instance (rounded up to 16 MiB), at most 25%
+    // of physical memory; below the floor at the cap: a warn note.
     void bufferPlan()
     {
-        // Tiamat: 32 + 96 MiB of L3, 32 threads -> 1 GiB as 32 x 32 MiB.
-        BandwidthPlan t = planBandwidth(128 * MiB, 32);
-        QCOMPARE(t.sliceBytes, 32 * MiB);
+        const std::uint64_t ram32 = 32 * GiB;
+        // Tiamat: 32 + 96 MiB L3, 32 threads: the 96 MiB floor -> 3 GiB.
+        const BandwidthPlan t = planBandwidth({128 * MiB, 96 * MiB, 3}, 32, ram32);
+        QCOMPARE(t.floorBytes, 96 * MiB);
+        QCOMPARE(t.sliceBytes, 96 * MiB);
         QCOMPARE(t.blockBytes, kBwBlock);
-        QCOMPARE(t.totalBytes(), GiB);
-        QCOMPARE(t.describe(), std::string("1 GiB in total (32 MiB per thread)"));
-        // Knowhere: 2 x 32 MiB, 24 threads -> 42.7 MiB, rounded up to 48.
-        BandwidthPlan k = planBandwidth(64 * MiB, 24);
+        QCOMPARE(t.totalBytes(), 3 * GiB);
+        QVERIFY(!t.limited);
+        QVERIFY(t.note.empty());
+        QCOMPARE(t.describe(), std::string("3 GiB in total (96 MiB per thread)"));
+        QCOMPARE(ramPeakFootprint(GiB, t), 4 * GiB);
+        // Knowhere: 2 x 32 MiB, 24 threads: 1 GiB / 24 -> 48 MiB, above the
+        // 32 MiB floor: unchanged.
+        const BandwidthPlan k = planBandwidth({64 * MiB, 32 * MiB, 3}, 24, ram32);
         QCOMPARE(k.sliceBytes, 48 * MiB);
-        QCOMPARE(k.totalBytes(), 1152 * MiB);
         QCOMPARE(k.describe(), std::string("1152 MiB in total (48 MiB per thread)"));
-        // A slice below the block: the block is the slice.
-        BandwidthPlan many = planBandwidth(32 * MiB, 256);
+        // A small-cache machine (8 MiB L3, 8 threads): unchanged, 128 MiB each.
+        const BandwidthPlan s8 = planBandwidth({8 * MiB, 8 * MiB, 3}, 8, 16 * GiB);
+        QCOMPARE(s8.sliceBytes, 128 * MiB);
+        QCOMPARE(s8.totalBytes(), GiB);
+        // A floor that isn't a 16 MiB multiple rounds up (an Oryon-like 12 MiB L2).
+        const BandwidthPlan o = planBandwidth({36 * MiB, 12 * MiB, 2}, 256, ram32);
+        QCOMPARE(o.floorBytes, 16 * MiB);
+        QCOMPARE(o.sliceBytes, 16 * MiB);
+        // Many threads, small slices: the block is the slice.
+        const BandwidthPlan many = planBandwidth({0, 0, 0}, 256, ram32);
         QCOMPARE(many.sliceBytes, 4 * MiB);
         QCOMPARE(many.blockBytes, 4 * MiB);
-        // A huge LLC: 8 x 1 GiB -> the 4 GiB cap; rounding up would pass it,
-        // so it rounds down to 16 MiB multiples.
-        BandwidthPlan big = planBandwidth(GiB, 24);
-        QCOMPARE(big.sliceBytes, 160 * MiB);
-        QVERIFY(big.totalBytes() <= 4 * GiB);
+        // The cap hit: Tiamat's caches on 8 GiB -> 2 GiB, 64 MiB per thread,
+        // below the 96 MiB L3: run anyway, with the note.
+        const BandwidthPlan c = planBandwidth({128 * MiB, 96 * MiB, 3}, 32, 8 * GiB);
+        QCOMPARE(c.sliceBytes, 64 * MiB);
+        QCOMPARE(c.totalBytes(), 2 * GiB);
+        QVERIFY(c.limited);
+        QCOMPARE(c.note, std::string("Bandwidth buffers were limited to 25% of memory (64 MiB per thread, below the "
+                                     "96 MiB L3), so bandwidth may partly come from cache."));
+        // The cap cutting the 8 x total but not the floor: no note.
+        const BandwidthPlan w = planBandwidth({1024 * MiB, 32 * MiB, 3}, 16, 16 * GiB);
+        QCOMPARE(w.totalBytes(), 4 * GiB);
+        QVERIFY(!w.limited);
+        // Unknown memory: the old 4 GiB cap.
+        QVERIFY(planBandwidth({GiB, 32 * MiB, 3}, 24, 0).totalBytes() <= 4 * GiB);
         // One thread: the whole total.
-        QCOMPARE(planBandwidth(0, 1).sliceBytes, std::size_t(GiB));
+        QCOMPARE(planBandwidth({0, 0, 0}, 1, ram32).sliceBytes, std::size_t(GiB));
         for (const int n : {1, 2, 3, 6, 8, 12, 16, 20, 24, 28, 32, 64, 96, 128}) {
-            for (const std::uint64_t llc : {std::uint64_t(0), 8 * GiB / 1024, 128 * GiB / 1024, 384 * GiB / 1024, 2 * GiB}) {
-                const BandwidthPlan p = planBandwidth(llc, n);
-                QCOMPARE(p.sliceBytes % kBwSliceUnit, std::size_t(0));
-                QCOMPARE(p.sliceBytes % p.blockBytes, std::size_t(0));
-                QVERIFY(p.totalBytes() >= std::min<std::uint64_t>(4 * GiB, std::max<std::uint64_t>(GiB, 8 * llc))
-                        || p.totalBytes() + std::uint64_t(n) * kBwBlock > 4 * GiB);
-                QVERIFY(p.totalBytes() <= 4 * GiB + std::uint64_t(n) * kBwSliceUnit);
+            for (const std::uint64_t llc : {std::uint64_t(0), 8 * MiB, 32 * MiB, 96 * MiB, 384 * MiB}) {
+                for (const std::uint64_t ram : {4 * GiB, 16 * GiB, 64 * GiB}) {
+                    const BandwidthPlan p = planBandwidth({llc * 2, llc, 3}, n, ram);
+                    QCOMPARE(p.sliceBytes % kBwSliceUnit, std::size_t(0));
+                    QCOMPARE(p.sliceBytes % p.blockBytes, std::size_t(0));
+                    QVERIFY(p.totalBytes() <= std::max<std::uint64_t>(ram / 4, std::uint64_t(n) * kBwSliceUnit));
+                    QCOMPARE(p.limited, p.sliceBytes < p.floorBytes);
+                    QCOMPARE(p.limited, !p.note.empty());
+                }
             }
         }
     }
 
-    // Each distinct last-level cache counted once (Tiamat's two CCDs).
-    void totalLastLevelCacheOfTiamat()
+    // Tiamat's two CCDs: each L3 counted once in the total; the largest, 96 MiB.
+    void lastLevelCachesOfTiamat()
     {
         std::vector<sb::isa::CacheTopology> cpus;
         for (int c = 0; c < 32; ++c)
             cpus.push_back(sb::isa::linuxCacheTopology(fixture("tiamat"), c));
-        QCOMPARE(totalLastLevelCache(cpus), std::uint64_t(128 * MiB));
-        QCOMPARE(totalLastLevelCache({}), std::uint64_t(0));
+        const LastLevelCaches l = lastLevelCaches(cpus);
+        QCOMPARE(l.totalBytes, std::uint64_t(128 * MiB));
+        QCOMPARE(l.largestBytes, std::uint64_t(96 * MiB));
+        QCOMPARE(l.largestLevel, 3);
+        QCOMPARE(lastLevelCaches({}).totalBytes, std::uint64_t(0));
+        // Tiamat end to end: 3 GiB on its 32 GB.
+        QCOMPARE(planBandwidth(l, 32, 32 * GiB).totalBytes(), 3 * GiB);
     }
 
     void plausibilityCeilingIs128BytesPerCycle()
