@@ -262,7 +262,9 @@ private slots:
         stop = true;
         competitor.join();
         qInfo("idle %.3f ns (whole window %.3f); with a competitor %.3f ns (whole window %.3f)", idle, wallIdle, busy, wallBusy);
-        QVERIFY2(std::abs(idle - wallIdle) < 0.05 * wallIdle, "uncontended: the same as the whole window");
+        // Never slower than the whole window says (the chase's own time is
+        // at most the window's).
+        QVERIFY2(idle <= wallIdle * 1.01, qPrintable(QStringLiteral("%1 ns against %2 ns").arg(idle).arg(wallIdle)));
         QVERIFY2(busy < idle * 1.10, qPrintable(QStringLiteral("%1 ns against %2 ns").arg(busy).arg(idle)));
 #if defined(__linux__)
         // Another PROCESS on the core, in short bursts (0.3 ms busy, 0.6 ms
@@ -367,9 +369,9 @@ private slots:
     }
 
     // Through the engine: K stays the unit's work, the rate is hops per
-    // second (from the median unit: close to the whole window's on an
-    // uncontended core), and DRAM reads slower than L1 (a factor no loaded
-    // runner closes; no absolute speed is asserted).
+    // second (over the chase's own time, so never below the whole window's
+    // units x K / seconds), and DRAM reads slower than L1 (a factor no
+    // loaded runner closes; no absolute speed is asserted).
     void measuredDramSlowerThanL1()
     {
         const std::size_t small = 16 * KiB, large = 256 * MiB;
@@ -385,7 +387,7 @@ private slots:
             QVERIFY2(m.ok(), m.error.c_str());
             QCOMPARE(k.workPerUnit(), double(k.hops()));
             for (const sb::cpu::RepSample &r : m.reps)
-                QVERIFY(qAbs(r.rate * r.seconds / double(r.units) - double(k.hops())) < 0.25 * double(k.hops()));
+                QVERIFY(r.rate >= 0.99 * double(r.units) * double(k.hops()) / r.seconds);
             ns[i++] = latencyNs(m.median);
         }
         qInfo("chase: %.2f ns at 16 KiB, %.1f ns at 256 MiB", ns[0], ns[1]);
