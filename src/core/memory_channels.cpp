@@ -11,17 +11,18 @@ namespace sb {
 namespace {
 
 // What comes before the channel or DIMM part, when it names a socket or a
-// memory controller ("P0", "CPU1", "Socket0", "Controller1"): other
-// prefixes (board jumpers like "J1_") would split one channel in two.
+// memory controller ("P0", "CPU1", "Socket0", "Controller1", also with a
+// space: "NODE 0", "CPU 1"; AP-5 round 4 L1), as "NODE0": other prefixes
+// (board jumpers like "J1_") would split one channel in two.
 QString socketPrefix(const QString &before)
 {
-    static const QRegularExpression socket(QStringLiteral(R"((?:^|[^A-Za-z])((?:CPU|P|SOCKET|NODE|CONTROLLER|MC|IMC)\d+))"),
+    static const QRegularExpression socket(QStringLiteral(R"((?:^|[^A-Za-z])(CPU|P|SOCKET|NODE|CONTROLLER|MC|IMC)\s*(\d+))"),
                                            QRegularExpression::CaseInsensitiveOption);
     QString found;
     auto it = socket.globalMatch(before);
     while (it.hasNext()) {
         const auto m = it.next();
-        found += (found.isEmpty() ? QString() : QStringLiteral(" ")) + m.captured(1).toUpper();
+        found += (found.isEmpty() ? QString() : QStringLiteral(" ")) + m.captured(1).toUpper() + m.captured(2);
     }
     return found;
 }

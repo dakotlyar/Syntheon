@@ -162,6 +162,14 @@ private slots:
         QCOMPARE(countMemoryChannels({{{}, QStringLiteral("DIMM_P0_A0")}, {{}, QStringLiteral("DIMM_P0_B0")},
                                       {{}, QStringLiteral("DIMM_P1_A0")}, {{}, QStringLiteral("DIMM_P1_B0")},
                                       {{}, QStringLiteral("DIMM_P0_A1")}}).channels, 4);
+        // AP-5 round 4 L1: socket names with a space are kept, and key the
+        // same as without one.
+        QCOMPARE(memoryChannelKey(QStringLiteral("NODE 0 CHANNEL A"), {}), QStringLiteral("NODE0 A"));
+        QCOMPARE(memoryChannelKey(QStringLiteral("NODE 1 CHANNEL A"), {}), QStringLiteral("NODE1 A"));
+        QCOMPARE(memoryChannelKey({}, QStringLiteral("CPU 1 DIMM A1")), QStringLiteral("CPU1 A"));
+        QCOMPARE(memoryChannelKey({}, QStringLiteral("Socket 0 Channel B DIMM 1")), QStringLiteral("SOCKET0 B"));
+        QCOMPARE(countMemoryChannels({{QStringLiteral("NODE 0 CHANNEL A"), {}}, {QStringLiteral("NODE 1 CHANNEL A"), {}},
+                                      {QStringLiteral("NODE0 CHANNEL A"), {}}}).channels, 2);
         // Locators that don't say: a guess, flagged.
         const MemoryChannelCount guess = countMemoryChannels({{QStringLiteral("BANK 0"), {}}, {QStringLiteral("BANK 1"), {}}, {QStringLiteral("BANK 2"), {}}});
         QCOMPARE(guess.channels, 2);
