@@ -102,7 +102,7 @@ public:
         if (m_delayed.joinable())
             m_delayed.join();
     }
-    Clock::time_point cancelAt() const { return m_cancelAt; }
+    Clock::time_point cancelAt() const { return m_cancelAt.load(); }
     bool logged(const QString &part) const
     {
         std::lock_guard lock(m_mutex);
@@ -147,7 +147,7 @@ private:
     QStringList m_subTests;
     QStringList m_parts;
     std::atomic<bool> m_cancel{false};
-    Clock::time_point m_cancelAt{};
+    std::atomic<Clock::time_point> m_cancelAt{};  // set from the delayed-stop thread (AP-5 round 4 L6)
     QString m_cancelOn;
     std::chrono::milliseconds m_cancelDelay{0};
     bool m_armed = false;
@@ -1001,10 +1001,14 @@ private slots:
         FakeRunContext ctx;
         ctx.cancelOn(QStringLiteral("Latency curve · warming up"), std::chrono::milliseconds(300));
         const TestResult r = t.run(ctx, {});
-        const double ms = std::chrono::duration<double, std::milli>(Clock::now() - ctx.cancelAt()).count();
+        const auto took = Clock::now() - ctx.cancelAt();
+        QVERIFY2(ctx.cancelAt() != Clock::time_point{}, "Stop never came");
+        const double ms = std::chrono::duration<double, std::milli>(took).count();
         qInfo("Stop 300 ms into the warm-up: %.1f ms", ms);
         QCOMPARE(r.status, Status::Cancelled);
         QVERIFY2(ms < 250, qPrintable(QStringLiteral("Stop took %1 ms").arg(ms, 0, 'f', 1)));
+        QCOMPARE(ram::LoadGenerator::liveThreads(), 0);
+        QCOMPARE(cpu::WorkerPool::liveThreads(), 0);
     }
 
     // A part whose measurement fails is an Error with the reason; the others
