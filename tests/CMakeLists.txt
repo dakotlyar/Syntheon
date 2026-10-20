@@ -247,6 +247,20 @@ endif()
 add_test(NAME cpu_kernel_flags
     COMMAND "${CMAKE_COMMAND}" "-DCOMMANDS=${PROJECT_BINARY_DIR}/compile_commands.json" -DCOMPILER=${_k_compiler}
             "-DSCALAR=${_k_scalar}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckKernelFlags.cmake")
+# The RAM test's kernel TUs: -O2 / /O2 in every build type, no LTO, no
+# run-time checks (Phase 3 design §1, §9).
+get_target_property(_rk_sources synbench_ram_kernels SOURCES)
+get_target_property(_rk_dir synbench_ram_kernels SOURCE_DIR)
+set(_rk_plain "")
+foreach(_s IN LISTS _rk_sources)
+    if(_s MATCHES "\\.cpp$")
+        list(APPEND _rk_plain "${_rk_dir}/${_s}")
+    endif()
+endforeach()
+list(JOIN _rk_plain "|" _rk_plain)
+add_test(NAME ram_kernel_flags
+    COMMAND "${CMAKE_COMMAND}" "-DCOMMANDS=${PROJECT_BINARY_DIR}/compile_commands.json" -DCOMPILER=${_k_compiler}
+            "-DPLAIN=${_rk_plain}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckKernelFlags.cmake")
 # ...and SB_NO_VECTOR (MSVC's loop pragma) is always followed by a classic
 # loop, anywhere under src/; planted range-fors (on the next line, on the
 # same line, with an init-statement) must each fail.

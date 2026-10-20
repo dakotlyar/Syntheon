@@ -3,12 +3,15 @@
 # §14.2 item 4): read from compile_commands.json, as the compiler sees them,
 # so a later flag that overrides one (a build type's -O3, /Od) is caught.
 #   cmake -DCOMMANDS=<build>/compile_commands.json -DCOMPILER=<GNU|Clang|MSVC>
-#         -DSCALAR=<file>|<file>... [-DWIDE=<file>=<flag>,<flag>|...] -P CheckKernelFlags.cmake
+#         [-DSCALAR=<file>|<file>...] [-DWIDE=<file>=<flag>,<flag>|...] [-DPLAIN=<file>|...]
+#         -P CheckKernelFlags.cmake
 # SCALAR: -O2 / /O2 (the last optimisation level wins), no auto-vectorisation
 # (GCC -fno-tree-vectorize, Clang -fno-vectorize -fno-slp-vectorize), no FP
 # contraction (-ffp-contract=off; MSVC /fp:precise plus the TU's pragma), no
 # LTO (-flto, /GL), no MSVC run-time checks (/RTC*).
 # WIDE: the same optimisation and LTO rules, plus each listed arch flag.
+# PLAIN: the optimisation and LTO rules only (the RAM test's kernels, Phase 3
+# design §1, §9: integer-only, so no FP or vectorisation rules).
 # Run with cmake -P: the policies of the project's minimum (a script gets
 # none from the project, and CMake 3.x would run it with OLD ones).
 cmake_minimum_required(VERSION 3.25)
@@ -51,6 +54,10 @@ endfunction()
 
 set(problems "")
 function(check_file file wide_flags)
+    set(scalar_rules ON)
+    if(wide_flags OR (ARGC GREATER 2 AND ARGV2 STREQUAL "PLAIN"))
+        set(scalar_rules OFF)
+    endif()
     file(TO_CMAKE_PATH "${file}" want)
     list(FIND files "${want}" at)
     if(at EQUAL -1)
@@ -74,7 +81,7 @@ function(check_file file wide_flags)
         if(cmd MATCHES "[ /-]GL( |$)")
             list(APPEND bad "has /GL (whole-program optimisation)")
         endif()
-        if(NOT wide_flags)
+        if(scalar_rules)
             last_match("${cmd}" "[/-]fp:[a-z]+" fp)
             if(NOT fp MATCHES "fp:precise$")
                 list(APPEND bad "floating-point model is '${fp}', not /fp:precise")
@@ -88,7 +95,7 @@ function(check_file file wide_flags)
         if(cmd MATCHES " -flto")
             list(APPEND bad "has -flto")
         endif()
-        if(NOT wide_flags)
+        if(scalar_rules)
             last_match("${cmd}" "-ffp-contract=[a-z]+" contract)
             if(NOT contract STREQUAL "-ffp-contract=off")
                 list(APPEND bad "FP contraction is '${contract}', not -ffp-contract=off")
@@ -131,6 +138,10 @@ endfunction()
 string(REPLACE "|" ";" scalar "${SCALAR}")
 foreach(f IN LISTS scalar)
     check_file("${f}" "")
+endforeach()
+string(REPLACE "|" ";" plain "${PLAIN}")
+foreach(f IN LISTS plain)
+    check_file("${f}" "" PLAIN)
 endforeach()
 if(WIDE)
     string(REPLACE "|" ";" wide "${WIDE}")
