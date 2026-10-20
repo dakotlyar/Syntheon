@@ -87,16 +87,29 @@ Box {
         return Math.ceil(w) + 2
     }
     // A cell's text for `width`: its own line breaks kept, each line filled
-    // greedily with whole tokens. Null when a token is wider than the column
-    // on its own: the cell then wraps anywhere (Text.WrapAnywhere).
+    // greedily with whole tokens. A token wider than the column on its own (a
+    // part number at 760 px, Zeb D1) is split by characters; only that token
+    // (AP-5 round 4 M1: not "G.Sk|ill" beside it).
     function wrapped(text, width, metrics, spacing) {
         const lines = []
         for (const line of String(text).split("\n")) {
             let current = ""
             let glue = ""
             for (const t of tokens(line)) {
-                if (measure(metrics, t.text, spacing) > width + 1)
-                    return null
+                if (measure(metrics, t.text, spacing) > width + 1) {
+                    if (current.length > 0)
+                        lines.push(current)
+                    current = ""
+                    for (const ch of t.text) {
+                        if (current.length > 0 && measure(metrics, current + ch, spacing) > width + 1) {
+                            lines.push(current)
+                            current = ""
+                        }
+                        current += ch
+                    }
+                    glue = t.glue
+                    continue
+                }
                 const candidate = current.length === 0 ? t.text : current + glue + t.text
                 if (current.length > 0 && measure(metrics, candidate, spacing) > width + 1) {
                     lines.push(current)
@@ -110,6 +123,12 @@ Box {
         }
         return lines.join("\n")
     }
+    // The metrics a cell is drawn with: body (first column) or data, DemiBold
+    // in a bold row (AP-5 round 4 M2: sized as drawn).
+    function cellMetrics(row, c) {
+        const bold = boldRows.indexOf(row) >= 0
+        return c === 0 ? (bold ? bodyBoldMetrics : bodyMetrics) : (bold ? dataBoldMetrics : dataMetrics)
+    }
     // What each column needs when its headers wrap: their widest word, and
     // the widest cell line.
     readonly property var compactNeeds: {
@@ -117,9 +136,9 @@ Box {
         const out = []
         for (let c = 0; c < n; ++c)
             out.push(wordWidth(headMetrics, headerText(columns[c]), headProbe.font.letterSpacing))
-        for (const row of rows) {
-            for (let c = 0; c < Math.min(n, row.length); ++c)
-                out[c] = Math.max(out[c], lineWidth(c === 0 ? bodyMetrics : dataMetrics, row[c], 0))
+        for (let r = 0; r < rows.length; ++r) {
+            for (let c = 0; c < Math.min(n, rows[r].length); ++c)
+                out[c] = Math.max(out[c], lineWidth(cellMetrics(r, c), rows[r][c], 0))
         }
         return out
     }
@@ -130,9 +149,9 @@ Box {
         const out = []
         for (let c = 0; c < n; ++c)
             out.push(wordWidth(headMetrics, headerText(columns[c]), headProbe.font.letterSpacing))
-        for (const row of rows) {
-            for (let c = 0; c < Math.min(n, row.length); ++c)
-                out[c] = Math.max(out[c], wordWidth(c === 0 ? bodyMetrics : dataMetrics, row[c], 0))
+        for (let r = 0; r < rows.length; ++r) {
+            for (let c = 0; c < Math.min(n, rows[r].length); ++c)
+                out[c] = Math.max(out[c], wordWidth(cellMetrics(r, c), rows[r][c], 0))
         }
         return out
     }
@@ -142,9 +161,9 @@ Box {
         const out = []
         for (let c = 0; c < n; ++c)
             out.push(lineWidth(headMetrics, headerText(columns[c]), headProbe.font.letterSpacing))
-        for (const row of rows) {
-            for (let c = 0; c < Math.min(n, row.length); ++c)
-                out[c] = Math.max(out[c], lineWidth(c === 0 ? bodyMetrics : dataMetrics, row[c], 0))
+        for (let r = 0; r < rows.length; ++r) {
+            for (let c = 0; c < Math.min(n, rows[r].length); ++c)
+                out[c] = Math.max(out[c], lineWidth(cellMetrics(r, c), rows[r][c], 0))
         }
         return out
     }
@@ -242,15 +261,12 @@ Box {
                         horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
                         // Capitals by hand: automatic capitalisation would turn
                         // "µs" into a Greek capital Mu and "GB/s" into "GB/S".
-                        readonly property string fitted: root.wrapped(root.headerText(modelData), width, headMetrics,
-                                                                      headProbe.font.letterSpacing) ?? ""
-                        // Whole tokens per line (root.wrapped); a token wider
-                        // than the column wraps anywhere instead of running
-                        // into the next one.
-                        text: fitted.length > 0 ? fitted : root.headerText(modelData)
+                        // Whole tokens per line; a token wider than the column
+                        // is split by characters (root.wrapped).
+                        text: root.wrapped(root.headerText(modelData), width, headMetrics, headProbe.font.letterSpacing)
                         kind: "label"
                         font.capitalization: Font.MixedCase
-                        wrapMode: fitted.length > 0 ? Text.NoWrap : Text.WrapAnywhere
+                        wrapMode: Text.NoWrap
                     }
                 }
             }
@@ -282,17 +298,13 @@ Box {
                             width: root.columnWidth(index)
                             horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
                             readonly property bool bold: root.boldRows.indexOf(tableRow.index) >= 0
-                            readonly property string fitted: root.wrapped(modelData, width,
-                                                                          index === 0 ? (bold ? bodyBoldMetrics : bodyMetrics)
-                                                                                      : (bold ? dataBoldMetrics : dataMetrics), 0) ?? ""
-                            // Whole tokens per line (root.wrapped); a token
-                            // wider than the column (a part number at 760 px,
-                            // Zeb D1) wraps anywhere.
-                            text: fitted.length > 0 ? fitted : modelData
+                            // Whole tokens per line; a token wider than the
+                            // column is split by characters (root.wrapped).
+                            text: root.wrapped(modelData, width, root.cellMetrics(tableRow.index, index), 0)
                             kind: index === 0 ? "body" : "data"
                             font.pixelSize: 13
                             font.weight: bold ? Font.DemiBold : Font.Normal
-                            wrapMode: fitted.length > 0 ? Text.NoWrap : Text.WrapAnywhere
+                            wrapMode: Text.NoWrap
                         }
                     }
                 }

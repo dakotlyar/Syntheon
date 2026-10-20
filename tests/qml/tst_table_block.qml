@@ -78,9 +78,51 @@ TestCase {
         compare(t.wrapped("Controller0-ChannelA-DIMM0", narrow, m, 0), "Controller0-\nChannelA-\nDIMM0")
         compare(t.wrapped("Controller0-ChannelA-DIMM0 (BANK 0)", 10000, m, 0), "Controller0-ChannelA-DIMM0 (BANK 0)")
         compare(t.wrapped("a\nb c", 10000, m, 0), "a\nb c")
-        // A token wider than the column on its own: null (wraps anywhere).
-        compare(t.wrapped("MTC10F1084S1RC48BA1", 20, m, 0), null)
         // The sizing uses the same tokens (AP-5 L6): the widest is "GB/s".
         compare(t.wordWidth(m, "1 GB/s", 0), Math.ceil(m.advanceWidth("GB/s")) + 2)
+    }
+
+    // AP-5 round 4 M1: a token wider than the column on its own is split by
+    // characters, and only that token: the short words around it stay whole.
+    function test_overlongTokenSplitsAlone() {
+        const t = createTemporaryObject(tableComponent, test, { block: cpuBlock, width: 600 })
+        waitForRendering(t)
+        const m = t.tokenMetrics
+        const part = "MTC10F1084S1RC48BA1"
+        const w = t.wordWidth(m, "Technology", 0)  // narrower than the part number
+        verify(t.measure(m, part, 0) > w)
+        const out = t.wrapped("Micron Technology " + part + " (16 GB)", w, m, 0)
+        const lines = out.split("\n")
+        verify(lines.indexOf("Micron") >= 0 || lines.indexOf("Micron Technology") >= 0, out)
+        verify(lines.indexOf("Technology") >= 0 || lines.indexOf("Micron Technology") >= 0, out)
+        verify(out.indexOf("(16 GB)") >= 0 || (lines.indexOf("(16") >= 0 && lines.indexOf("GB)") >= 0), out)
+        // The part number's pieces, in order, each within the column.
+        compare(out.replace(/\n/g, "").replace(/ /g, ""), ("MicronTechnology" + part + "(16GB)"))
+        for (const line of lines)
+            verify(t.measure(m, line, 0) <= w + 1, "'" + line + "' is wider than " + w)
+        // Headers take the same path (no null fallback any more).
+        compare(t.wrapped("", w, m, 0), "")
+    }
+
+    // AP-5 round 4 M2: a bold row is sized with the bold metrics it is drawn
+    // with, so a bold cell that fits doesn't wrap. (The data font is
+    // monospaced, the same width bold; the first column's body font isn't.)
+    function test_boldRowsSizedBold() {
+        const label = "Weighted geometric mean"
+        const block = { type: "table", title: "", columns: ["Group", "Result"],
+                        rows: [["Read", "6.1 GB/s"], [label, "67.1 GB/s"]], boldRows: [1] }
+        const t = createTemporaryObject(tableComponent, test, { block: block, width: 600 })
+        waitForRendering(t)
+        compare(t.cellMetrics(1, 0).font.weight, Font.DemiBold)  // the bold row, as drawn
+        compare(t.cellMetrics(0, 0).font.weight, Font.Normal)
+        const bold = t.lineWidth(t.cellMetrics(1, 0), label, 0)
+        verify(bold > t.lineWidth(t.cellMetrics(0, 0), label, 0), "DemiBold body should be wider")
+        verify(t.needs[0] >= bold)
+        verify(t.compactNeeds[0] >= bold)
+        verify(t.wordNeeds[0] >= t.wordWidth(t.cellMetrics(1, 0), "geometric", 0))
+        // Exactly as wide as the table needs: the bold label stays on one line.
+        const exact = createTemporaryObject(tableComponent, test, { block: block, width: 24 + t.gap + t.needs[0] + t.needs[1] })
+        waitForRendering(exact)
+        compare(exact.wrapped(label, exact.widths[0], exact.cellMetrics(1, 0), 0), label)
     }
 }
