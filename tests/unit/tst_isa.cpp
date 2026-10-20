@@ -68,6 +68,20 @@ class TestIsa : public QObject
     Q_OBJECT
 
 private slots:
+    // A core's physical-core keys, read as the tie set reads them (the RAM
+    // test's no-ranking fallback, AP-5 nit): itself always, its siblings
+    // where the OS lists them; nothing for an unranked core.
+    void smtSiblingKeysOfThisMachine()
+    {
+        QVERIFY(sb::isa::smtSiblingKeys(sb::isa::CoreChoice{}).empty());
+        const std::vector<sb::isa::CoreChoice> cpus = sb::isa::allowedLogicalCpus();
+        if (cpus.empty())
+            QSKIP("no CPU list on this platform");
+        const std::vector<int> keys = sb::isa::smtSiblingKeys(cpus.front());
+        QVERIFY(std::find(keys.begin(), keys.end(), sb::isa::cpuKey(cpus.front())) != keys.end());
+        QVERIFY(keys.size() <= 8);
+    }
+
     void knowhereDecodesAsBefore()
     {
         const CpuFeatures f = decodeX86(knowhere());

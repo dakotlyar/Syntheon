@@ -353,7 +353,6 @@ private:
     }
 
     CorePick pickCore();
-    static std::vector<int> smtKeysOf(const isa::CoreChoice &core);
     std::unique_ptr<WorkerPool> chasePool(const isa::CoreChoice &core) const;
     // Builds the cycle over the latency buffer's first `bytes` on `core` and
     // measures it (ns per hop). Nullopt if the group failed or the run stopped.
@@ -516,7 +515,7 @@ CorePick RamRun::pickCore()
         // between L2s), so the first allowed CPU.
         if (!m_allowed.empty()) {
             p.core = m_allowed.front();
-            p.smtKeys = smtKeysOf(p.core);
+            p.smtKeys = isa::smtSiblingKeys(p.core);  // as the ranked tie set reads them
             p.text = QStringLiteral("CPU %1 (no core ranking; first allowed CPU)").arg(coreName(p.core));
         } else {
             p.text = QStringLiteral("unpinned (no core ranking)");
@@ -549,16 +548,6 @@ CorePick RamRun::pickCore()
     }
     p.text = QStringLiteral("CPU %1 (top-ranked core, quietest of CPUs %2)").arg(coreName(p.core), names.join(QStringLiteral(", ")));
     return p;
-}
-
-std::vector<int> RamRun::smtKeysOf(const isa::CoreChoice &core)
-{
-    // The CPUs that share the core's L1d are its SMT siblings (and itself);
-    // without a reported L1, just itself (AP-5 L2).
-    const isa::CacheTopology t = isa::cacheTopologyFor(core);
-    if (const isa::CacheLevel *l1 = t.level(1); l1 && !l1->sharedWith.empty())
-        return l1->sharedWith;
-    return {isa::cpuKey(core)};
 }
 
 std::unique_ptr<WorkerPool> RamRun::chasePool(const isa::CoreChoice &core) const

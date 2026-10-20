@@ -51,9 +51,11 @@ private slots:
         DetailLayout normal;
         normal.subtitle = QStringLiteral("— · — channels");
         normal.blocks.append({{}, NoteBlock{QStringLiteral("x"), Tone::Neutral}});
+        normal.headlineLabels.insert(QStringLiteral("bandwidth.read"), QStringLiteral("Read (all threads)"));
         TestResult na = TestResult::notAvailable(QStringLiteral("No DIMM data"));
         const DetailLayout d = withNotAvailableState(normal, na, QStringLiteral("RAM"));
         QCOMPARE(d.subtitle, QStringLiteral("Not available on this machine"));
+        QCOMPARE(d.headlineLabels, normal.headlineLabels);  // kept, like headlineMetrics
         QCOMPARE(d.blocks.size(), 1);
         const auto *b = std::get_if<NaStateBlock>(&d.blocks[0].content);
         QVERIFY(b);

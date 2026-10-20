@@ -16,6 +16,7 @@ DetailLayout withNotAvailableState(DetailLayout layout, const TestResult &result
     DetailLayout na;
     na.subtitle = QStringLiteral("Not available on this machine");
     na.headlineMetrics = layout.headlineMetrics;
+    na.headlineLabels = layout.headlineLabels;
     const QString title = testName.isEmpty() ? QStringLiteral("This test isn't available here")
                                              : QStringLiteral("%1 isn't available here").arg(testName);
     const QString body = result.statusReason.isEmpty() ? QStringLiteral("The test reported that it can't run on this machine.")

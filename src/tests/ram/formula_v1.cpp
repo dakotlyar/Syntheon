@@ -83,8 +83,8 @@ ScoreBreakdown score(const TestResult &result)
     // even if its scored metrics are all there (AP-5 M2: a plain-store
     // check failing after the scored bandwidth measurements).
     for (const SubResult &sub : result.subResults) {
-        if (sub.status != Status::Ok && b.subScores.remove(sub.id) > 0)
-            b.total.reset();
+        if (sub.status != Status::Ok)
+            b.subScores.remove(sub.id);
     }
     // Only an Ok result gets a total (§10.2); a Partial keeps the sub-scores
     // of its complete parts.

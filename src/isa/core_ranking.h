@@ -123,6 +123,12 @@ IdleSample sampleIdle();
 // 0) is the CPU number. The keys of CoreCandidate::smtKeys.
 constexpr int cpuKey(const CoreChoice &c) { return windowsKey(c.group, c.cpu); }
 
+// The IdleSample keys of `core`'s physical core (itself and its SMT
+// siblings), read the way the tie set's smtKeys are: Linux
+// thread_siblings_list, Windows RelationProcessorCore; itself where the
+// platform says nothing. Empty for an unranked core.
+std::vector<int> smtSiblingKeys(const CoreChoice &core);
+
 // Every logical CPU this process may run on, each as a ranked CoreChoice to
 // pin to (source "affinity"), in order: Linux by CPU number
 // (sched_getaffinity); Windows by group, then index (CPU sets, skipping those

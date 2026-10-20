@@ -369,6 +369,29 @@ std::vector<std::vector<int>> windowsPhysicalCores()
 } // namespace
 #endif
 
+std::vector<int> smtSiblingKeys(const CoreChoice &core)
+{
+    if (!core.ranked)
+        return {};
+#if defined(__linux__)
+    std::ifstream in("/sys/devices/system/cpu/cpu" + std::to_string(core.cpu) + "/topology/thread_siblings_list");
+    std::string line;
+    std::set<int> siblings;
+    if (in && std::getline(in, line))
+        siblings = parseCpuList(line);
+    siblings.insert(core.cpu);
+    return {siblings.begin(), siblings.end()};
+#elif defined(_WIN32)
+    for (const std::vector<int> &keys : windowsPhysicalCores()) {
+        if (std::find(keys.begin(), keys.end(), cpuKey(core)) != keys.end())
+            return keys;
+    }
+    return {cpuKey(core)};
+#else
+    return {cpuKey(core)};
+#endif
+}
+
 std::vector<CoreCandidate> topCandidatesForSingleThread()
 {
 #if defined(__linux__)
