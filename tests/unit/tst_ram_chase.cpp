@@ -18,6 +18,7 @@
 
 #if defined(__linux__)
 #include <csignal>
+#include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -309,6 +310,10 @@ private slots:
         // with the unit filter alone).
         const pid_t child = fork();
         if (child == 0) {
+            // Dies with the test, whatever ends it (AP-5 L5).
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+            if (getppid() == 1)
+                _exit(0);
             sb::cpu::pinCurrentThread(core);
             for (;;) {
                 const auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(300);
