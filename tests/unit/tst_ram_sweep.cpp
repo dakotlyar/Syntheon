@@ -83,19 +83,22 @@ private slots:
     void chaseCoreWarmUp()
     {
         const std::vector<double> plateau(20, 1.09e9);  // 0.915 ns, 4.38 GHz
-        QVERIFY(!chaseCoreWarm(plateau, 4380, 5756, 20));
+        QVERIFY(!chaseCoreWarm(plateau, 4380, 5756));
+        QVERIFY(warmRatesSteady(plateau, 20));  // steady, and still not warm
         std::vector<double> ramped = plateau;
         ramped.insert(ramped.end(), {1.26e9, 1.41e9, 1.42e9});
-        QVERIFY(!chaseCoreWarm({1.09e9, 1.26e9}, 5300, 5756, 20));  // fast clock, rate still moving
-        QVERIFY(chaseCoreWarm(ramped, 5700, 5756, 20));
-        // No clock or no top: a second of steady windows.
-        QVERIFY(!chaseCoreWarm(std::vector<double>(19, 1.42e9), std::nullopt, std::nullopt, 20));
-        QVERIFY(chaseCoreWarm(std::vector<double>(20, 1.42e9), std::nullopt, 5756, 20));
-        QVERIFY(!chaseCoreWarm({}, 5700, 5756, 20));
-        QVERIFY(!chaseCoreWarm({1.42e9}, 5700, 5756, 20));
+        QVERIFY(!chaseCoreWarm({1.09e9, 1.26e9}, 5300, 5756));  // fast clock, rate still moving
+        QVERIFY(chaseCoreWarm(ramped, 5700, 5756));
+        // No clock or no top (Windows, no cpufreq): never warm early, however
+        // steady (Dave, 2026-10-20: the caller spins its full cap).
+        QVERIFY(!chaseCoreWarm(std::vector<double>(100, 1.42e9), std::nullopt, std::nullopt));
+        QVERIFY(!chaseCoreWarm(std::vector<double>(100, 1.42e9), 5700, std::nullopt));
+        QVERIFY(!chaseCoreWarm(std::vector<double>(100, 1.42e9), std::nullopt, 5756));
+        QVERIFY(!chaseCoreWarm({}, 5700, 5756));
+        QVERIFY(!chaseCoreWarm({1.42e9}, 5700, 5756));
         // 1% is steady, 2% isn't.
-        QVERIFY(chaseCoreWarm({1.40e9, 1.41e9}, 5700, 5756, 20));
-        QVERIFY(!chaseCoreWarm({1.38e9, 1.41e9}, 5700, 5756, 20));
+        QVERIFY(chaseCoreWarm({1.40e9, 1.41e9}, 5700, 5756));
+        QVERIFY(!chaseCoreWarm({1.38e9, 1.41e9}, 5700, 5756));
     }
 
     void gridIsHalfOctaves()

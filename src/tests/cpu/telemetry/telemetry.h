@@ -34,6 +34,9 @@ namespace sb::cpu::telemetry {
 // The mean of cpuN/cpufreq/scaling_cur_freq over `cpus` (kHz) in MHz; the
 // CPUs without the file are left out. nullopt if none has it.
 std::optional<double> linuxClockMHz(const std::string &sysfsRoot, const std::vector<int> &cpus);
+// cpuN/cpufreq/cpuinfo_max_freq (kHz) in MHz: the top clock the driver
+// reports (amd-pstate, intel_pstate: the boost clock). nullopt if absent.
+std::optional<double> linuxTopClockMHz(const std::string &sysfsRoot, int cpu);
 
 // A temperature input and how to label it ("k10temp Tctl").
 struct TempSource {

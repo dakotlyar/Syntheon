@@ -51,8 +51,12 @@ struct LoadedResult {
 // chase core, no pickFrom. `progress(level, window)`: on this thread at
 // each chase window's start (window 0 = the level's warm-up). The load is
 // parked when this returns, also on a cancel or an error.
+// `beforeLevels` (optional) runs once after the spin calibration, just
+// before the first level (the RAM test warms the chase core there, AP-5
+// M3); false ends the measurement as Cancelled.
 LoadedResult measureLoadedLatency(cpu::WorkerPool &chasePool, const ChaseKernel &chase, LoadGenerator &load,
                                   const cpu::WindowSpec &spec, const std::function<bool()> &cancelled,
-                                  const std::function<void(int level, int window)> &progress = {});
+                                  const std::function<void(int level, int window)> &progress = {},
+                                  const std::function<bool()> &beforeLevels = {});
 
 } // namespace sb::ram

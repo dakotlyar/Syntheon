@@ -25,6 +25,7 @@
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <thread>
 
 using namespace sb;
 using namespace std::chrono_literals;
@@ -43,9 +44,19 @@ public:
         m_progress.append({fraction, stage});
         // A stage, or "<part>: <stage>" (the bandwidth parts share stages).
         const QString withPart = (m_parts.isEmpty() ? QString() : m_parts.last()) + QStringLiteral(": ") + stage;
-        if (!m_cancelOn.isEmpty() && (stage.startsWith(m_cancelOn) || withPart.startsWith(m_cancelOn)) && !m_cancel) {
-            m_cancelAt = Clock::now();
-            m_cancel = true;
+        if (!m_cancelOn.isEmpty() && (stage.startsWith(m_cancelOn) || withPart.startsWith(m_cancelOn)) && !m_cancel && !m_armed) {
+            if (m_cancelDelay.count() == 0) {
+                m_cancelAt = Clock::now();
+                m_cancel = true;
+            } else {
+                // Stop a while into the stage (the warm-up's 2 s cap).
+                m_armed = true;
+                m_delayed = std::thread([this] {
+                    std::this_thread::sleep_for(m_cancelDelay);
+                    m_cancelAt = Clock::now();
+                    m_cancel = true;
+                });
+            }
         }
     }
     void log(LogLevel level, const QString &message) override
@@ -81,7 +92,16 @@ public:
     PrivilegedOps &privileged() override { return m_priv; }
 
     void setSystem(const SystemSnapshot &s) { m_system = s; }
-    void cancelOn(const QString &stage) { m_cancelOn = stage; }
+    void cancelOn(const QString &stage, std::chrono::milliseconds delay = {})
+    {
+        m_cancelOn = stage;
+        m_cancelDelay = delay;
+    }
+    ~FakeRunContext() override
+    {
+        if (m_delayed.joinable())
+            m_delayed.join();
+    }
     Clock::time_point cancelAt() const { return m_cancelAt; }
     bool logged(const QString &part) const
     {
@@ -129,6 +149,9 @@ private:
     std::atomic<bool> m_cancel{false};
     Clock::time_point m_cancelAt{};
     QString m_cancelOn;
+    std::chrono::milliseconds m_cancelDelay{0};
+    bool m_armed = false;
+    std::thread m_delayed;
     bool m_backwards = false;
     SystemSnapshot m_system;
     UnavailablePrivilegedOps m_priv;
@@ -940,7 +963,8 @@ private slots:
     {
         QTest::addColumn<QString>("stage");
         for (const char *stage : {"Preparing buffers", "Latency curve · 4 KiB", "Latency curve · 1 GiB", "Latency L2",
-                                  "Preparing bandwidth buffers", "Read", "Copy", "All-thread bandwidth: Copy", "Loaded latency · preparing",
+                                  "Latency curve · warming up", "Preparing bandwidth buffers", "Single-thread bandwidth · warming up", "Read", "Copy",
+                                  "All-thread bandwidth: Copy", "Loaded latency · warming up", "Loaded latency · preparing",
                                   "Loaded latency, full load", "Loaded latency, 2,000 ns delay"})
             QTest::newRow(stage) << QString::fromUtf8(stage);
     }
@@ -965,6 +989,22 @@ private slots:
             QCOMPARE(r.subResults.last().status, Status::Cancelled);
         else
             QVERIFY(r.subResults.isEmpty());
+    }
+
+    // At real time, Stop 300 ms into the latency warm-up (on a core with a
+    // top clock that may already be warm: then in the grid; without one,
+    // inside the 2 s cap): back within 250 ms either way.
+    void stopDuringWarmUp()
+    {
+        tests::setStubTimeScale(1.0);
+        tests::RamTest t;
+        FakeRunContext ctx;
+        ctx.cancelOn(QStringLiteral("Latency curve · warming up"), std::chrono::milliseconds(300));
+        const TestResult r = t.run(ctx, {});
+        const double ms = std::chrono::duration<double, std::milli>(Clock::now() - ctx.cancelAt()).count();
+        qInfo("Stop 300 ms into the warm-up: %.1f ms", ms);
+        QCOMPARE(r.status, Status::Cancelled);
+        QVERIFY2(ms < 250, qPrintable(QStringLiteral("Stop took %1 ms").arg(ms, 0, 'f', 1)));
     }
 
     // A part whose measurement fails is an Error with the reason; the others

@@ -92,6 +92,15 @@ std::optional<double> linuxClockMHz(const std::string &sysfsRoot, const std::vec
     return sum / n;
 }
 
+std::optional<double> linuxTopClockMHz(const std::string &sysfsRoot, int cpu)
+{
+    const auto khz = readInteger(fs::path(sysfsRoot) / "devices" / "system" / "cpu" / ("cpu" + std::to_string(cpu)) / "cpufreq"
+                                 / "cpuinfo_max_freq");
+    if (!khz || *khz <= 0)
+        return std::nullopt;
+    return double(*khz) / 1000.0;
+}
+
 std::optional<TempSource> linuxTempSource(const std::string &sysfsRoot)
 {
     // Every hwmon by name, in hwmonN order (the class links resolve to the devices).

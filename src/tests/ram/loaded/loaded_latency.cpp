@@ -7,7 +7,8 @@ namespace sb::ram {
 
 LoadedResult measureLoadedLatency(cpu::WorkerPool &chasePool, const ChaseKernel &chase, LoadGenerator &load,
                                   const cpu::WindowSpec &spec, const std::function<bool()> &cancelled,
-                                  const std::function<void(int level, int window)> &progress)
+                                  const std::function<void(int level, int window)> &progress,
+                                  const std::function<bool()> &beforeLevels)
 {
     using Clock = std::chrono::steady_clock;
     struct Mark {
@@ -16,6 +17,10 @@ LoadedResult measureLoadedLatency(cpu::WorkerPool &chasePool, const ChaseKernel 
     };
     LoadedResult result;
     result.nsPerSpin = load.calibrate();
+    if (beforeLevels && !beforeLevels()) {
+        result.outcome = cpu::Measurement::Outcome::Cancelled;
+        return result;
+    }
     int level = 0;
     for (const double delay : kLoadDelaysNs) {
         load.run(delay);
