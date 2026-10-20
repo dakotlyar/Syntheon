@@ -6,8 +6,9 @@
   sb_bw_<isa>_write_nt, sb_bw_<isa>_copy_nt   use non-temporal stores
                                               (MOVNT*) and an SFENCE
   sb_bw_<isa>_write, sb_bw_<isa>_copy         use no non-temporal store
-  every sb_bw_<isa>_* entry point             calls nothing and branches
-                                              to nothing outside itself (a
+  every sb_bw_<isa>_* entry point             calls nothing, branches
+                                              to nothing outside itself and
+                                              makes no indirect jump (a
                                               copy loop a compiler turned
                                               into memcpy could get the C
                                               library's NT stores)
@@ -31,7 +32,11 @@ import subprocess
 import sys
 
 FUNC = re.compile(r"^[0-9a-fA-F]+ <([^>]+)>:\s*$")
-INSN = re.compile(r"^\s*[0-9a-fA-F]+:\s+(?:(?:[0-9a-fA-F]{2} )+\s*)?([a-z][a-z0-9.]*)")
+INSN = re.compile(r"^\s*[0-9a-fA-F]+:\s+(?:(?:[0-9a-fA-F]{2} )+\s*)?([a-z][a-z0-9.]*)(.*)$")
+# Prefixes the disassemblers print before the mnemonic: Win64 epilogues put
+# REX.W on an indirect tail jump ("rex64 jmpq *%rax"), CET adds notrack.
+PREFIXES = {"rex", "rex64", "rex.w", "notrack", "bnd", "lock", "rep", "repe", "repz", "repne", "repnz", "data16",
+            "data32", "addr32", "cs", "ds", "es", "ss", "fs", "gs"}
 RELOC = re.compile(r"^\s*[0-9a-fA-F]+:\s+(R_X86_64_\S+|IMAGE_REL_AMD64_\S+)\s+(\S+)")
 NT = re.compile(r"^v?movnt")
 ENTRIES = ("write", "write_nt", "copy", "copy_nt", "read")
@@ -62,8 +67,19 @@ def disassemble(objdump, path):
             continue
         i = INSN.match(line)
         if i:
-            last = i.group(1)
+            words = (i.group(1) + i.group(2)).split()
+            while len(words) > 1 and words[0] in PREFIXES:
+                words.pop(0)
+            last = words[0]
+            operands = " ".join(words[1:])
             funcs[current]["insns"].append(last)
+            # An indirect call or jump (AT&T "*" operand) goes wherever a
+            # register or memory says: never inside a kernel loop. On COFF
+            # the target's relocation sits on the load before it
+            # ("movq (%rip), %rax" then "jmpq *%rax"), so this is how a tail
+            # call through a pointer shows.
+            if (last.startswith("call") or last.startswith("jmp")) and operands.startswith("*"):
+                funcs[current]["branch_relocs"].append(f"{last} {operands} (indirect)")
     return funcs
 
 
