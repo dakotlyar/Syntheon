@@ -92,6 +92,15 @@ QJsonObject encodeEvent(const Event &event)
                     o.insert(S("gpuMs"), *e.gpuMs);
                 if (!e.present.isEmpty())
                     o.insert(S("present"), e.present);
+                if (!e.screen.isEmpty()) {
+                    o.insert(S("screen"), e.screen);
+                    o.insert(S("renderW"), e.renderW);
+                    o.insert(S("renderH"), e.renderH);
+                    o.insert(S("windowW"), e.windowW);
+                    o.insert(S("windowH"), e.windowH);
+                    o.insert(S("scale"), e.scale);
+                    o.insert(S("fit"), e.fit);
+                }
                 return o;
             },
             [](const ErrorEvent &e) {
@@ -246,7 +255,10 @@ std::optional<Event> parseResult(const QJsonObject &o, QString *error)
             return std::nullopt;
     }
     if (!optional(o, "result", "gpuMs", Type::Number, error) || !optional(o, "result", "series", Type::Array, error)
-        || !optional(o, "result", "present", Type::String, error))
+        || !optional(o, "result", "present", Type::String, error) || !optional(o, "result", "screen", Type::String, error)
+        || !optional(o, "result", "renderW", Type::Int, error) || !optional(o, "result", "renderH", Type::Int, error)
+        || !optional(o, "result", "windowW", Type::Int, error) || !optional(o, "result", "windowH", Type::Int, error)
+        || !optional(o, "result", "scale", Type::Number, error))
         return std::nullopt;
     const QJsonObject ft = o.value(S("ftMs")).toObject();
     for (const char *k : {"p1", "p50", "p99"}) {
@@ -268,6 +280,13 @@ std::optional<Event> parseResult(const QJsonObject &o, QString *error)
     if (o.contains(S("gpuMs")))
         e.gpuMs = o.value(S("gpuMs")).toDouble();
     e.present = o.value(S("present")).toString();
+    e.screen = o.value(S("screen")).toString();
+    e.renderW = o.value(S("renderW")).toInt();
+    e.renderH = o.value(S("renderH")).toInt();
+    e.windowW = o.value(S("windowW")).toInt();
+    e.windowH = o.value(S("windowH")).toInt();
+    e.scale = o.value(S("scale")).toDouble();
+    e.fit = o.value(S("fit")).toBool();
     for (const QJsonValue &v : o.value(S("series")).toArray()) {
         const QJsonArray p = v.toArray();
         if (p.size() != 2) {

@@ -149,6 +149,7 @@ WorkloadResult Runner::run(const WorkloadPlan &plan, const SceneData &scene)
     const Clock::time_point warmStart = Clock::now();
     Clock::time_point prev = warmStart;
     FpsWindow fps{warmStart};
+    std::optional<int> warmFps;  // the last 0.5 s of the warm-up, shown when the measurement starts
     // One frame: t is the time since the warm-up started (P6); *ret = the
     // present return, *cpuMs = the time inside frame().
     const auto oneFrame = [&](Clock::time_point *ret, double *cpuMs) -> std::string {
@@ -175,9 +176,11 @@ WorkloadResult Runner::run(const WorkloadPlan &plan, const SceneData &scene)
             return fail(std::move(e));
         fps.add(millis(ret - prev));
         prev = ret;
+        // §5.9: the overlay says "warming up" for the whole warm-up; the rate it measures
+        // meanwhile is kept for the first measured moment.
         if (ret - fps.since >= kOverlayPeriod) {
             if (const auto f = fps.take(ret))
-                overlay(f);
+                warmFps = f;
         }
         warm.tick(ret);
     } while (ret < warmEnd);
@@ -189,6 +192,8 @@ WorkloadResult Runner::run(const WorkloadPlan &plan, const SceneData &scene)
     Phase measure(m_hooks, plan.workload, "measure", t0);
     if (const auto f = fps.take(t0))
         overlay(f);
+    else if (warmFps)
+        overlay(warmFps);
     const Clock::time_point measureEnd = t0 + std::chrono::milliseconds(plan.measureMs);
     prev = t0;
     do {

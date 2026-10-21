@@ -458,6 +458,7 @@ public:
                 return kExitError;
             }
             scale = screen->devicePixelRatio();
+            m_scale = scale;
             const QRect avail = screen->availableGeometry();
             m_plan = planWindow({avail.width(), avail.height()}, scale);
             if (m_plan.tooSmall) {
@@ -465,6 +466,7 @@ public:
                 return kExitNa;
             }
             screenName = screen->name();
+            m_screenName = screenName;
             m_window = std::make_unique<WorkerWindow>(surfaceType(m_args.api), m_plan, screen);
         } else {
             m_plan.render = kLogical;
@@ -561,6 +563,41 @@ public:
                 emitLine(errorEvent(&w, "the test window didn't appear"));
                 return Outcome::Error;
             }
+            // D1: the compositor, not this process, chose the screen. Re-plan for the one the window
+            // really got (its scale and available area), resize if the plan differs, and only then
+            // measure. A screen change between show and the first measured frame is not an error.
+            if (QScreen *actual = m_window->screen()) {
+                QRect avail = actual->availableGeometry();
+                double actualScale = actual->devicePixelRatio();
+#if defined(SYNBENCH_DEV_HOOKS)
+                // Dev hook "WxH@scale": pretend the compositor put the window on a screen like that
+                // (the test of D1's re-plan; the offscreen and xvfb platforms have one screen).
+                static const QRegularExpression fake(QStringLiteral("^(\\d+)x(\\d+)@([0-9.]+)$"));
+                if (const auto m = fake.match(qEnvironmentVariable("SYNBENCH_GPU_FAKE_SCREEN")); m.hasMatch()) {
+                    avail = QRect(0, 0, m.captured(1).toInt(), m.captured(2).toInt());
+                    actualScale = m.captured(3).toDouble();
+                }
+#endif
+                const WindowPlan next = planWindow({avail.width(), avail.height()}, actualScale);
+                if (next.tooSmall) {
+                    m_window->hide();
+                    emitLine(errorEvent(&w, "screen too small for the test window"));
+                    return Outcome::ErrorNa;
+                }
+                m_screenName = actual->name();
+                if (replan(next, actualScale)) {
+                    m_window->applyPlan(m_plan);
+                    QElapsedTimer settle;
+                    settle.start();
+                    while (!m_window->exposedSinceShow() && settle.elapsed() < 1000 && !stopRequested()) {
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+                        QThread::msleep(2);
+                    }
+                    if (stopRequested())
+                        return stopped(w);
+                    m_window->rebase();  // no expose came for the resize: the window is settled anyway
+                }
+            }
             target = m_backend->api() == Api::Vulkan ? glue::vulkanTarget(*m_window) : glue::rasterTarget(*m_window);
         }
         if (const std::string e = m_backend->resume(target); !e.empty()) {
@@ -586,6 +623,25 @@ public:
     }
 
 private:
+    // The plan for the screen the window really got. True if the window size or the scale changed
+    // (the render size follows the scale, unless --render-size is given).
+    bool replan(const WindowPlan &next, double scale)
+    {
+        const bool changed = next.windowLogical != m_plan.windowLogical || scale != m_scale;
+        m_scale = scale;
+        if (!changed)
+            return false;
+        const Size render = m_args.renderSize ? *m_args.renderSize : next.render;
+        const bool renderChanged = render != m_plan.render;
+        m_plan = next;
+        m_plan.render = render;
+        if (renderChanged) {
+            m_backend->setRenderSize(std::uint32_t(render.width), std::uint32_t(render.height));
+            m_runner->setRenderSize(std::uint32_t(render.width), std::uint32_t(render.height));
+        }
+        return true;
+    }
+
     bool stopRequested() const { return m_control.stop || (m_window && m_window->stopRequested()); }
 
     Outcome stopped(Workload w)
@@ -622,6 +678,15 @@ private:
         e.series = bucketSeries(r.frameMs);
         e.signature = QByteArray(reinterpret_cast<const char *>(r.signature.data()), qsizetype(r.signature.size()));
         e.present = QString::fromStdString(m_present);
+        if (m_window) {  // the screen it actually used (D1)
+            e.screen = m_screenName;
+            e.renderW = m_plan.render.width;
+            e.renderH = m_plan.render.height;
+            e.windowW = m_plan.windowLogical.width;
+            e.windowH = m_plan.windowLogical.height;
+            e.scale = m_scale;
+            e.fit = m_plan.fit;
+        }
         return e;
     }
 
@@ -648,6 +713,8 @@ private:
     std::unique_ptr<WorkerWindow> m_window;
     std::unique_ptr<IBackend> m_backend;
     std::unique_ptr<Runner> m_runner;
+    double m_scale = 1.0;
+    QString m_screenName;
     std::string m_present;  // the last resume()'s present mode (the result's "present")
 };
 
@@ -704,7 +771,10 @@ int main(int argc, char **argv)
 
     Control control;
     control.serve = a.serve;
-    startStdinThread(control);
+    // A probe is short and has no commands: it must not die on stdin EOF (run by hand, or with
+    // </dev/null); the lifeline is for the long-lived run modes.
+    if (a.mode == Mode::Run)
+        startStdinThread(control);
 
     if (a.mode == Mode::Probe) {
 #if defined(Q_OS_LINUX)

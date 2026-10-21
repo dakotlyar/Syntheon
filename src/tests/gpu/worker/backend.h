@@ -99,6 +99,10 @@ public:
     // the result's optional "present" key (Antilles' decision after task 9);
     // "" when there is none (headless, or an API that doesn't choose one).
     virtual std::string presentMode() const { return {}; }
+    // The render size for the next load(): the window can land on a screen with another
+    // scale than the one init() planned for (D1), and the render size follows the scale.
+    // Only called between workloads (after unload(), before resume()/load()).
+    virtual void setRenderSize(std::uint32_t, std::uint32_t) {}
 };
 
 std::unique_ptr<IBackend> makeNullBackend();      // dev hook and tests

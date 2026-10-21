@@ -23,6 +23,7 @@ public:
     std::string resume(const PresentTarget &target) override;
     void setOverlay(const std::string &text) override { m_overlay = text; }
     std::uint32_t lastFrameDraws() const override { return m_draws; }
+    void setRenderSize(std::uint32_t w, std::uint32_t h) override { m_width = w, m_height = h; }
 
 #if defined(SYNBENCH_DEV_HOOKS)
     int suspendCount() const { return m_suspends; }

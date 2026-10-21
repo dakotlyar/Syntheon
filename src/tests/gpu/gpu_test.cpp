@@ -392,11 +392,22 @@ TestResult GpuRun::finish(bool stopped)
                 r.metrics.append(text(apiStatusKey(key, u"layers"), {}, name + QStringLiteral(" layers"), a.ready->layers));
         }
     }
-    // The window: the first API that came up says (they all share the plan).
+    // The window: the first API that measured says, with what its result recorded (the screen
+    // the window really landed on, D1); else what `ready` said.
     for (const ApiRun &a : m_apis) {
         if (!a.ready)
             continue;
-        const pr::ReadyEvent &e = *a.ready;
+        pr::ReadyEvent e = *a.ready;
+        if (!a.results.empty() && !a.results.begin()->second.screen.isEmpty()) {
+            const pr::ResultEvent &res = a.results.begin()->second;
+            e.screen = res.screen;
+            e.renderW = res.renderW;
+            e.renderH = res.renderH;
+            e.windowW = res.windowW;
+            e.windowH = res.windowH;
+            e.scale = res.scale;
+            e.fit = res.fit;
+        }
         r.metrics.append(text(QStringLiteral("render.size"), {}, QStringLiteral("Render size"), sizeText({e.renderW, e.renderH})));
         r.metrics.append(number(QStringLiteral("render.scale"), {}, QStringLiteral("Display scale"), double(scalePercent(e.scale)), QStringLiteral("%")));
         QString window = e.windowW > 0 ? sizeText({e.windowW, e.windowH}) : QStringLiteral("headless");

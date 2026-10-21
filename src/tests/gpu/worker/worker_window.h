@@ -35,6 +35,11 @@ public:
     bool exposedSinceShow() const { return m_armed; }
     QString problem() const;
     QSize physicalSize() const;   // lround(logical x devicePixelRatio)
+    // D1: the compositor chooses the screen (Wayland ignores setPosition), so after the first
+    // expose the worker re-plans for the screen it really got: a new fixed size, and a new
+    // baseline once the window has settled (rebase()).
+    void applyPlan(const sb::gpu::WindowPlan &plan);
+    void rebase();  // take the baseline now, if exposed
     // Task 10 (qt_glue::vulkanTarget): the QVulkanInstance that adopted the
     // backend's VkInstance lives as long as this window.
     void keepVulkanInstance(std::unique_ptr<QVulkanInstance> instance);

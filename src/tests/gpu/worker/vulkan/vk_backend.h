@@ -55,6 +55,7 @@ public:
     void setOverlay(const std::string &text) override { m_overlay = text; }
     std::uint32_t lastFrameDraws() const override { return m_lastDraws; }
     std::string presentMode() const override { return m_presentModeName; }
+    void setRenderSize(std::uint32_t w, std::uint32_t h) override { m_init.renderWidth = w, m_init.renderHeight = h; }
 
     // Everything released (also by the destructor); the validation counters stay readable.
     void shutdown();

@@ -54,6 +54,12 @@ struct ResultEvent {
     // Optional (Antilles' decision after task 9): the present mode resume()
     // chose for this workload, "IMMEDIATE" or "MAILBOX"; "" = not sent.
     QString present;
+    // Optional (D1, Zeb's window checks): where the window actually ended up, since the
+    // compositor, not the worker, chooses the screen. "" = not sent.
+    QString screen;
+    int renderW = 0, renderH = 0, windowW = 0, windowH = 0;  // render physical, window logical
+    double scale = 0;
+    bool fit = false;
 };
 struct ErrorEvent {
     QString workload, reason;

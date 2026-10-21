@@ -2,6 +2,7 @@
 #include "tests/gpu/worker/vulkan/vk_swapchain.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace sb::gpu::vk {
 
@@ -93,9 +94,17 @@ std::string Swapchain::create(Context &ctx, std::uint32_t w, std::uint32_t h)
     ci.compositeAlpha = alpha;
     ci.presentMode = presentMode;
     ci.clipped = VK_TRUE;
+    // A driver that can't make a swapchain for this window system at all (the Radeon 610M under
+    // XWayland: VK_ERROR_INITIALIZATION_FAILED, and vkcube crashes too) can't present here: that
+    // API is N/A, not an Error. Errors during the measurement stay errors.
+    constexpr const char *kCantPresent = "N/A: this GPU can't present to the test window on this display system";
+#if defined(SYNBENCH_DEV_HOOKS)
+    if (std::getenv("SYNBENCH_GPU_FAIL_SWAPCHAIN"))  // dev hook: the test of the N/A mapping
+        return kCantPresent;
+#endif
     if (const VkResult r = vkCreateSwapchainKHR(ctx.device, &ci, nullptr, &swapchain); r != VK_SUCCESS) {
         swapchain = VK_NULL_HANDLE;
-        return failure("vkCreateSwapchainKHR", r);
+        return r == VK_ERROR_DEVICE_LOST ? failure("vkCreateSwapchainKHR", r) : std::string(kCantPresent);
     }
     format = chosen.format;
     mode = presentMode;

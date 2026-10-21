@@ -384,6 +384,12 @@ private slots:
         res.gpuMs = 2.31;
         res.cpuMs = 0.41;
         res.series = {QPointF(0.05, 2.41), QPointF(0.15, 2.39)};
+        res.screen = QStringLiteral("DP-2");
+        res.renderW = 1920;
+        res.renderH = 1080;
+        res.windowW = 1920;
+        res.windowH = 1080;
+        res.scale = 1.0;
         for (int i = 0; i < 432; ++i)
             res.signature.append(char(i * 7));
         const QVector<pr::Event> events{pr::GpuEvent{g}, gl, ready, pr::StageEvent{QStringLiteral("geometry"), QStringLiteral("measure"), 12}, res,
@@ -404,6 +410,9 @@ private slots:
         const auto r = std::get<pr::ResultEvent>(*pr::parseLine(pr::encode(res), nullptr));
         QVERIFY(std::abs(r.fps - 411.5) < 1e-9 && std::abs(r.ftP99 - 3.08) < 1e-9 && std::abs(*r.gpuMs - 2.31) < 1e-9);
         QCOMPARE(r.signature, res.signature);
+        QCOMPARE(r.screen, QStringLiteral("DP-2"));
+        QCOMPARE(r.windowW, 1920);
+        QVERIFY(!r.fit);
         QCOMPARE(r.series.size(), 2);
         QVERIFY(std::abs(r.series[1].y() - 2.39) < 1e-9);
         const auto gg = std::get<pr::GpuEvent>(*pr::parseLine(pr::encode(pr::GpuEvent{g}), nullptr));

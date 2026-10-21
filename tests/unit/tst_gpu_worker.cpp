@@ -4,6 +4,8 @@
 // stop and the stdin lifeline; plus the block signature. No GPU.
 #include "gpu_worker_process.h"
 #include "tests/gpu/model/protocol.h"
+#include "tests/gpu/worker/null/null_backend.h"
+#include "tests/gpu/worker/runner.h"
 #include "tests/gpu/worker/signature.h"
 
 #include <QElapsedTimer>
@@ -164,6 +166,75 @@ class TestGpuWorker : public QObject
     Q_OBJECT
 
 private slots:
+
+    // D4: a probe run by hand with stdin closed (</dev/null) still answers and exits 0.
+    void probeIgnoresStdinEof()
+    {
+        if (sb::gpu::testing::lavapipeIcd().isEmpty())
+            SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        sb::gpu::testing::addSoftwareVulkan(env);
+        QProcess p;
+        p.setProcessEnvironment(env);
+        p.start(kWorker, {QStringLiteral("--probe"), QStringLiteral("--allow-software")});
+        QVERIFY(p.waitForStarted(10000));
+        p.closeWriteChannel();  // </dev/null
+        QVERIFY(p.waitForFinished(20000));
+        QCOMPARE(p.exitCode(), 0);
+        QVERIFY(p.readAllStandardOutput().contains("\"ev\":\"done\""));
+    }
+
+    // D3 (§5.9): the overlay says "warming up" for the whole warm-up, however long it lasts; the
+    // measured window's rates follow.
+    void overlayWarmsUpForTheWholeWarmup()
+    {
+        // The null backend (final) behind a wrapper that records each setOverlay and the phase it came in.
+        struct Recording : sb::gpu::IBackend {
+            sb::gpu::NullBackend inner;
+            std::string phase = "load";
+            std::vector<std::pair<std::string, std::string>> texts;
+            sb::gpu::Api api() const override { return inner.api(); }
+            std::string init(const sb::gpu::BackendInit &i, const sb::gpu::PresentTarget &t, sb::gpu::BackendInfo *b) override { return inner.init(i, t, b); }
+            std::string load(const sb::gpu::SceneData &s) override { return inner.load(s); }
+            std::string frame(double t, std::vector<double> *g) override { return inner.frame(t, g); }
+            std::string drain(std::vector<double> *g) override { return inner.drain(g); }
+            std::string readback(double t, std::vector<std::uint8_t> *p) override { return inner.readback(t, p); }
+            void unload() override { inner.unload(); }
+            std::string suspend() override { return inner.suspend(); }
+            std::string resume(const sb::gpu::PresentTarget &t) override { return inner.resume(t); }
+            void setOverlay(const std::string &text) override
+            {
+                texts.push_back({phase, text});
+                inner.setOverlay(text);
+            }
+            std::uint32_t lastFrameDraws() const override { return inner.lastFrameDraws(); }
+        } backend;
+        sb::gpu::BackendInfo info;
+        sb::gpu::BackendInit init;
+        init.renderWidth = 160;
+        init.renderHeight = 90;
+        QVERIFY(backend.init(init, sb::gpu::PresentTarget{true}, &info).empty());
+        sb::gpu::Runner::Hooks hooks;
+        hooks.stage = [&](sb::gpu::Workload, const char *phase, int) { backend.phase = phase; };
+        sb::gpu::Runner runner(backend, hooks, {160, 90, true});
+        QVERIFY(backend.resume(sb::gpu::PresentTarget{true}).empty());
+        const sb::gpu::SceneData scene = sb::gpu::buildScene(sb::gpu::Workload::Geometry, 64);
+        const sb::gpu::WorkloadResult r = runner.run({sb::gpu::Workload::Geometry, 1400, 600}, scene);
+        QVERIFY2(r.error.empty(), r.error.c_str());
+        int warm = 0, measured = 0;
+        for (const auto &[phase, text] : backend.texts) {
+            if (phase == "warmup") {
+                ++warm;
+                QVERIFY2(text.find("warming up") != std::string::npos, text.c_str());  // never a rate during warm-up
+            } else if (phase == "measure") {
+                ++measured;
+            }
+        }
+        QVERIFY(warm == 0 || backend.texts.size() >= 2);
+        QVERIFY(measured >= 1);  // the rate shows from the measured window on
+        QVERIFY(backend.texts.back().second.find("fps") != std::string::npos);
+    }
+
 
     // Task 13: --probe lists the Vulkan devices merged with the DRM cards, one
     // gpu event each, then done. It opens no window (offscreen platform).

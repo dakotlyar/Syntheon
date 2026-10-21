@@ -55,9 +55,30 @@ QString WorkerWindow::problem() const
 {
     if (!m_armed || !isExposed() || windowStates().testFlag(Qt::WindowMinimized))
         return QStringLiteral("the test window was hidden or minimised during the measurement");
-    if (physicalSize() != m_size || screen() != m_screen || devicePixelRatio() != m_dpr)
-        return QStringLiteral("the test window was resized or moved to another screen during the measurement");
+    if (screen() != m_screen)
+        return QStringLiteral("the test window moved to another screen during the measurement");  // D1b
+    if (physicalSize() != m_size || devicePixelRatio() != m_dpr)
+        return QStringLiteral("the test window was resized during the measurement");
     return {};
+}
+
+void WorkerWindow::applyPlan(const sb::gpu::WindowPlan &plan)
+{
+    const QSize size(plan.windowLogical.width, plan.windowLogical.height);
+    setMinimumSize(size);
+    setMaximumSize(size);
+    resize(size);
+    m_armed = false;  // a new baseline at the next expose, or rebase()
+}
+
+void WorkerWindow::rebase()
+{
+    if (isExposed() && !m_armed) {
+        m_armed = true;
+        m_size = physicalSize();
+        m_screen = screen();
+        m_dpr = devicePixelRatio();
+    }
 }
 
 void WorkerWindow::setWorkloadTitle(const QString &api, const QString &workload)

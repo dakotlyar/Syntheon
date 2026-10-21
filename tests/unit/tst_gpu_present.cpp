@@ -66,6 +66,10 @@ private slots:
         QVERIFY(rs[0].frames >= 3);
         const auto ready = std::get<pr::ReadyEvent>(w.events().first());
         QVERIFY(ready.windowW >= 640 && ready.windowH >= 360);
+        // D1: the result records the screen the window actually used.
+        QVERIFY(!rs[0].screen.isEmpty());
+        QCOMPARE(rs[0].windowW, ready.windowW);
+        QCOMPARE(rs[0].renderW, 320);
         QVERIFY2(!w.stderrText().contains(QLatin1StringView("vulkan:")), qPrintable(w.stderrText()));
     }
 
@@ -91,6 +95,45 @@ private slots:
         }
         QVERIFY(is<pr::DoneEvent>(w.events().last()));
         QVERIFY2(!w.stderrText().contains(QLatin1StringView("vulkan:")), qPrintable(w.stderrText()));
+    }
+    // D1: the window can land on a screen the plan wasn't made for. A (pretend) bigger screen at
+    // the same scale grows the window to the full 1920x1080 before the measurement starts, and the
+    // result says so; the run is not an error.
+    void windowFollowsTheScreenItLandsOn()
+    {
+        QProcessEnvironment env = m_env;
+        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_SCREEN"), QStringLiteral("3440x1400@1"));
+        WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:200:500"), env);
+        QVERIFY(w.started());
+        const int code = w.finish();
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
+        const auto ready = std::get<pr::ReadyEvent>(w.events().first());
+        QVERIFY(ready.fit);  // xvfb's 1920x1080 screen: the first plan is scaled to fit
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 1);
+        QVERIFY(rs[0].frames >= 3);
+        QCOMPARE(rs[0].windowW, 1920);
+        QCOMPARE(rs[0].windowH, 1080);
+        QVERIFY(!rs[0].fit);
+    }
+
+    // The 610M under XWayland: a swapchain that can't be made is N/A, not an Error (exit 5, na).
+    void swapchainFailureIsNotAvailable()
+    {
+        QProcessEnvironment env = m_env;
+        env.insert(QStringLiteral("SYNBENCH_GPU_FAIL_SWAPCHAIN"), QStringLiteral("1"));
+        WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:100:300"), env);
+        QVERIFY(w.started());
+        QCOMPARE(w.finish(), 5);
+        QVERIFY(results(w.events()).isEmpty());
+        bool na = false;
+        for (const pr::Event &e : w.events()) {
+            if (const auto *err = std::get_if<pr::ErrorEvent>(&e)) {
+                na = err->na;
+                QCOMPARE(err->reason, QStringLiteral("this GPU can't present to the test window on this display system"));
+            }
+        }
+        QVERIFY(na);
     }
 };
 

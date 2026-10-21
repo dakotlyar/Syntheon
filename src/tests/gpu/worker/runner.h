@@ -56,6 +56,8 @@ public:
     Runner(IBackend &backend, Hooks hooks);
     Runner(IBackend &backend, Hooks hooks, Settings settings);
     WorkloadResult run(const WorkloadPlan &plan, const SceneData &scene);
+    // The readback's size after the window moved to a screen with another scale (D1).
+    void setRenderSize(std::uint32_t w, std::uint32_t h) { m_settings.renderWidth = w, m_settings.renderHeight = h; }
 
 private:
     IBackend &m_backend;
