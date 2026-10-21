@@ -294,7 +294,8 @@ Mesh room()
     Builder b;
     const float tile = 8.f;
     addPlane(b, {0, 0, 0}, {1, 0, 0}, {0, 0, 1}, 64, 64, 40, 40, {0, 1, 0}, tile);      // floor
-    addPlane(b, {0, 12, 0}, {1, 0, 0}, {0, 0, 1}, 16, 16, 40, 40, {0, -1, 0}, tile);    // ceiling
+    // No ceiling (Dave, 2026-10-21): the sun reaches into the room through the open top and the
+    // objects cast shadows; a closed room left the whole shadow map filled by the ceiling.
     addPlane(b, {-20, 6, 0}, {0, 0, 1}, {0, 1, 0}, 16, 16, 40, 12, {1, 0, 0}, tile);    // walls, facing in
     addPlane(b, {20, 6, 0}, {0, 0, 1}, {0, 1, 0}, 16, 16, 40, 12, {-1, 0, 0}, tile);
     addPlane(b, {0, 6, -20}, {1, 0, 0}, {0, 1, 0}, 16, 16, 40, 12, {0, 0, 1}, tile);

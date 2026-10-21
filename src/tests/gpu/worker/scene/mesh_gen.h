@@ -19,7 +19,7 @@ Mesh cone(int segments);      // 2 x segments
 Mesh torus(int major, int minor, float R, float r);  // 2 x major x minor
 Mesh uvSphere(int slices, int stacks);               // 2 x slices x (stacks - 1)
 Mesh grid(int cellsX, int cellsZ, float sizeX, float sizeZ);  // in x-z, centred, normal +y
-Mesh room();  // §6.3: 10,752 triangles, normals inward, UV tiling 8x
+Mesh room();  // §6.3: floor and four walls, 10,240 triangles, normals inward, open top, UV tiling 8x
 std::uint64_t triangleCount(const Mesh &m);  // indices / 3
 
 } // namespace sb::gpu

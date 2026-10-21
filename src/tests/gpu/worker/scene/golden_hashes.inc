@@ -13,7 +13,7 @@ namespace sb::gpu {
 inline constexpr std::array<std::uint64_t, 6> kGoldenHash = {
     0x2b81168797e0cc11ull,  // geometry
     0xc7eaa6b6e7d910e0ull,  // drawcalls
-    0xcd179ccf0a43b927ull,  // shading
+    0xde96f0a03a0b0a14ull,  // shading
     0xc407bc16c53c1b4eull,  // particles
     0x444342acaf246688ull,  // quads
     0x77a7fa465482f45aull,  // sprites

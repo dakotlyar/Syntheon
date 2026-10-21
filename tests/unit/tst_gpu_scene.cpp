@@ -37,7 +37,7 @@ private slots:
         check(torus(16, 8, 1.f, 0.35f), 256, 0);
         check(uvSphere(16, 8), 224, 0);
         check(grid(64, 64, 40.f, 40.f), 8192, 0);
-        check(room(), 10752, 0);
+        check(room(), 10240, 0);
     }
 
     void everyIndexIsInRange()
@@ -67,7 +67,7 @@ private slots:
             std::uint32_t draws;
         };
         for (const Row &r : {Row{Workload::Geometry, 11796480, 36}, Row{Workload::DrawCalls, 1566002, 12001},
-                             Row{Workload::Shading, 916992, 195}, Row{Workload::Particles, 1048579, 17}}) {
+                             Row{Workload::Shading, 915456, 195}, Row{Workload::Particles, 1048579, 17}}) {
             const SceneData s = buildScene(r.w);
             QVERIFY2(s.trianglesPerFrame == r.tris, workloadId(r.w));
             QVERIFY2(s.drawsPerFrame == r.draws, workloadId(r.w));
