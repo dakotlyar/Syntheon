@@ -5,6 +5,8 @@ add_library(synbench_gpu_model STATIC
     model/ids.h model/ids.cpp
     model/frame_stats.h model/frame_stats.cpp
     model/best_of.h model/best_of.cpp
+    model/render_size.h model/render_size.cpp
+    model/gpu_identity.h model/gpu_identity.cpp
 )
 target_link_libraries(synbench_gpu_model PUBLIC synbench_core Qt6::Core)
 
