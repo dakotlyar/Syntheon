@@ -5,6 +5,7 @@
 #include "tests/gpu/model/frame_stats.h"
 #include "tests/gpu/model/gpu_identity.h"
 #include "tests/gpu/model/ids.h"
+#include "tests/gpu/model/protocol.h"
 #include "tests/gpu/model/render_size.h"
 
 #include <QTest>
@@ -233,6 +234,123 @@ private slots:
         QCOMPARE(vramText(536870912), QStringLiteral("512 MB"));
         QCOMPARE(kindText(GpuKind::Discrete), QStringLiteral("discrete"));
         QCOMPARE(kindText(GpuKind::Other), QStringLiteral("other"));
+    }
+
+    void protocolRoundTrips()
+    {
+        namespace pr = sb::gpu::protocol;
+        GpuEntry g;
+        g.id = QStringLiteral("10de:2c05@0000:01:00.0");
+        g.name = QStringLiteral("NVIDIA GeForce RTX 5070 Ti");
+        g.vendorId = 4318;
+        g.deviceId = 11269;
+        g.kind = GpuKind::Discrete;
+        g.vramBytes = 17094934528;
+        g.pciSlot = QStringLiteral("0000:01:00.0");
+        g.kernelDriver = QStringLiteral("nvidia");
+        g.apis.insert(QStringLiteral("vulkan"), {true, QStringLiteral("Vulkan 1.4.351"), QStringLiteral("NVIDIA 615.78.08"), {}, {}});
+        g.apis.insert(QStringLiteral("dx12"), {false, {}, {}, {}, QStringLiteral("DirectX is Windows only")});
+        pr::GlEvent gl;
+        gl.ok = true;
+        gl.version = QStringLiteral("OpenGL 4.6");
+        gl.renderer = QStringLiteral("NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2");
+        gl.vendor = QStringLiteral("NVIDIA Corporation");
+        gl.vendorId = 4318;
+        pr::ReadyEvent ready;
+        ready.api = QStringLiteral("vulkan");
+        ready.device = QStringLiteral("NVIDIA GeForce RTX 5070 Ti");
+        ready.version = QStringLiteral("Vulkan 1.4.351");
+        ready.driver = QStringLiteral("NVIDIA 615.78.08");
+        ready.present = QStringLiteral("IMMEDIATE");
+        ready.screen = QStringLiteral("DP-3");
+        ready.renderW = 1920;
+        ready.renderH = 1080;
+        ready.windowW = 1920;
+        ready.windowH = 1080;
+        ready.scale = 1.25;
+        ready.gpuTimestamps = true;
+        pr::ResultEvent res;
+        res.workload = QStringLiteral("geometry");
+        res.frames = 8231;
+        res.seconds = 20.002;
+        res.ftP1 = 2.21;
+        res.ftP50 = 2.40;
+        res.ftP99 = 3.08;
+        res.fps = 411.5;
+        res.gpuMs = 2.31;
+        res.cpuMs = 0.41;
+        res.series = {QPointF(0.05, 2.41), QPointF(0.15, 2.39)};
+        for (int i = 0; i < 432; ++i)
+            res.signature.append(char(i * 7));
+        const QVector<pr::Event> events{pr::GpuEvent{g}, gl, ready, pr::StageEvent{QStringLiteral("geometry"), QStringLiteral("measure"), 12}, res,
+                                        pr::ErrorEvent{QStringLiteral("shading"), QStringLiteral("the GPU driver reset"), false},
+                                        pr::ErrorEvent{{}, QStringLiteral("No Vulkan driver is installed"), true}, pr::DoneEvent{}};
+        for (const pr::Event &e : events) {
+            const QByteArray line = pr::encode(e);
+            QVERIFY(!line.contains('\n'));
+            QVERIFY(line.size() < pr::kMaxLine);
+            QString err;
+            const auto back = pr::parseLine(line, &err);
+            QVERIFY2(back, qPrintable(err));
+            QCOMPARE(back->index(), e.index());
+            QCOMPARE(pr::encode(*back), line);  // an exact round trip, doubles included
+        }
+        // Spot checks of the decoded values (1e-9 on the doubles).
+        const auto r = std::get<pr::ResultEvent>(*pr::parseLine(pr::encode(res), nullptr));
+        QVERIFY(std::abs(r.fps - 411.5) < 1e-9 && std::abs(r.ftP99 - 3.08) < 1e-9 && std::abs(*r.gpuMs - 2.31) < 1e-9);
+        QCOMPARE(r.signature, res.signature);
+        QCOMPARE(r.series.size(), 2);
+        QVERIFY(std::abs(r.series[1].y() - 2.39) < 1e-9);
+        const auto gg = std::get<pr::GpuEvent>(*pr::parseLine(pr::encode(pr::GpuEvent{g}), nullptr));
+        QCOMPARE(gg.gpu, g);
+        const auto rr = std::get<pr::ReadyEvent>(*pr::parseLine(pr::encode(ready), nullptr));
+        QVERIFY(std::abs(rr.scale - 1.25) < 1e-9 && rr.gpuTimestamps && !rr.fit && rr.screen == QStringLiteral("DP-3"));
+        // A result without GPU timestamps has no gpuMs.
+        res.gpuMs.reset();
+        QVERIFY(!std::get<pr::ResultEvent>(*pr::parseLine(pr::encode(res), nullptr)).gpuMs);
+    }
+
+    void protocolErrors()
+    {
+        namespace pr = sb::gpu::protocol;
+        QString err;
+        QVERIFY(!pr::parseLine("{}", &err));
+        QCOMPARE(err, QStringLiteral("no ev"));
+        QVERIFY(!pr::parseLine("{\"ev\":\"x\"}", &err));
+        QCOMPARE(err, QStringLiteral("unknown event 'x'"));
+        QVERIFY(!pr::parseLine("{\"ev\":\"result\",\"workload\":\"g\",\"frames\":1,\"seconds\":1,\"ftMs\":{\"p1\":1,\"p50\":1,\"p99\":1},\"cpuMs\":1,\"sig\":\"\"}", &err));
+        QCOMPARE(err, QStringLiteral("result: missing fps"));
+        QVERIFY(!pr::parseLine("{\"ev\":\"result\",\"workload\":\"g\",\"frames\":1,\"seconds\":1,\"fps\":1,\"ftMs\":{\"p1\":1,\"p50\":1,\"p99\":1},\"cpuMs\":1,\"sig\":\"zz\"}", &err));
+        QCOMPARE(err, QStringLiteral("result: bad sig"));
+        QVERIFY(!pr::parseLine("not json", &err));
+        // Extra keys are ignored.
+        const auto done = pr::parseLine("{\"ev\":\"done\",\"extra\":[1,2]}", &err);
+        QVERIFY(done && std::holds_alternative<pr::DoneEvent>(*done));
+        const auto stage = pr::parseLine("{\"ev\":\"stage\",\"workload\":\"g\",\"phase\":\"warmup\",\"seconds\":3,\"x\":true}", &err);
+        QVERIFY(stage && std::get<pr::StageEvent>(*stage).seconds == 3);
+        // 864 hex characters make 432 bytes.
+        const QByteArray sig(864, 'a');
+        const QByteArray line = "{\"ev\":\"result\",\"workload\":\"g\",\"frames\":1,\"seconds\":1,\"fps\":1,\"ftMs\":{\"p1\":1,\"p50\":1,\"p99\":1},\"cpuMs\":1,\"sig\":\"" + sig + "\"}";
+        const auto r = pr::parseLine(line, &err);
+        QVERIFY2(r, qPrintable(err));
+        QCOMPARE(std::get<pr::ResultEvent>(*r).signature.size(), 432);
+        QVERIFY(!pr::parseLine(QByteArray(pr::kMaxLine + 1, ' '), &err));
+    }
+
+    void planText()
+    {
+        namespace pr = sb::gpu::protocol;
+        const QString text = QStringLiteral("geometry:5000:20000,drawcalls:3000:20000");
+        QString err;
+        const auto plan = pr::parsePlan(text, &err);
+        QVERIFY2(plan, qPrintable(err));
+        QCOMPARE(plan->size(), 2);
+        QCOMPARE((*plan)[1], (pr::PlanItem{QStringLiteral("drawcalls"), 3000, 20000}));
+        QCOMPARE(pr::planText(*plan), text);
+        QVERIFY(!pr::parsePlan(QStringLiteral("geometry:5000"), &err));
+        QCOMPARE(err, QStringLiteral("bad plan item 'geometry:5000'"));
+        const auto empty = pr::parsePlan(QString(), &err);
+        QVERIFY(empty && empty->isEmpty());
     }
 };
 
