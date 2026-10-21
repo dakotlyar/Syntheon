@@ -45,6 +45,17 @@ QString SystemInfo::machineLabel() const
     return hardware.isEmpty() ? QStringLiteral("Unknown machine") : hardware;
 }
 
+DisplayInfo displayFromSnapshotData(const QJsonObject &data)
+{
+    DisplayInfo d;
+    const QJsonObject o = data.value(QStringLiteral("display")).toObject();
+    d.name = o.value(QStringLiteral("name")).toString();
+    d.availWidth = o.value(QStringLiteral("avail_width")).toInt();
+    d.availHeight = o.value(QStringLiteral("avail_height")).toInt();
+    d.scale = o.contains(QStringLiteral("scale")) ? o.value(QStringLiteral("scale")).toDouble(1.0) : 1.0;
+    return d;
+}
+
 QJsonObject SystemInfo::toJson() const
 {
     QJsonObject j;
@@ -119,6 +130,12 @@ QJsonObject SystemInfo::toJson() const
                          {QStringLiteral("opengl_is_es"), apis.openGlIsEs},
                          {QStringLiteral("d3d12_feature_level"), opt(apis.d3d12FeatureLevel)},
                          {QStringLiteral("d3d11_feature_level"), opt(apis.d3d11FeatureLevel)}});
+
+    j.insert(QStringLiteral("display"),
+             QJsonObject{{QStringLiteral("name"), opt(display.name)},
+                         {QStringLiteral("avail_width"), display.availWidth},
+                         {QStringLiteral("avail_height"), display.availHeight},
+                         {QStringLiteral("scale"), display.scale}});
 
     QJsonArray vols;
     for (const VolumeInfo &v : volumes) {

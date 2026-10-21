@@ -103,6 +103,19 @@ struct BatteryInfo {
     int cycleCount = -1;
 };
 
+// The primary screen as the GPU test's window sees it (Phase 4a M6): its
+// name, the available area in logical pixels (the taskbar excluded) and its
+// device pixel ratio. All zero when it isn't known (an old snapshot).
+struct DisplayInfo {
+    QString name;
+    int availWidth = 0, availHeight = 0;
+    double scale = 1.0;
+    bool known() const { return availWidth > 0 && availHeight > 0; }
+    bool operator==(const DisplayInfo &) const = default;
+};
+// The "display" key of a snapshot's data (zeros when absent).
+DisplayInfo displayFromSnapshotData(const QJsonObject &data);
+
 struct AppInfo {
     QString version, build, qtVersion, compiler, gitSha;
 };
@@ -113,6 +126,7 @@ struct SystemInfo {
     MemoryInfo memory;
     QVector<GpuInfo> gpus;
     ApiInfo apis;
+    DisplayInfo display;    // GUI thread (collector.cpp addOpenGlInfo)
     QVector<VolumeInfo> volumes;
     OsInfo os;
     QVector<NpuInfo> npus;

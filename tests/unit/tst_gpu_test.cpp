@@ -12,6 +12,7 @@
 
 #include <QElapsedTimer>
 #include <QFile>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -156,6 +157,34 @@ private slots:
         QVERIFY(o.find(QStringLiteral("apis")));
         QVERIFY(o.find(QStringLiteral("window"))->infoValue.contains(QLatin1StringView("vsync off")));
         QVERIFY(o.find(QStringLiteral("runs"))->infoValue.startsWith(QLatin1StringView("Every API and part runs (about ")));
+    }
+
+    // Task 15a (M6): the Window row reads the snapshot's primary screen.
+    void windowRow()
+    {
+        GpuTest t;
+        probed(t);
+        const auto row = [&](int w, int h, double scale, bool withDisplay) {
+            sb::testing::FakeProbeContext ctx;
+            if (withDisplay) {
+                ctx.snapshot.data.insert(QStringLiteral("display"),
+                                         QJsonObject{{QStringLiteral("name"), QStringLiteral("DP-3")}, {QStringLiteral("avail_width"), w},
+                                                     {QStringLiteral("avail_height"), h}, {QStringLiteral("scale"), scale}});
+            }
+            const OptionSchema o = t.options(ctx, Availability{});
+            return *o.find(QStringLiteral("window"));
+        };
+        const OptionDef fits = row(2560, 1400, 1.0, true);
+        QVERIFY2(fits.infoValue.contains(QStringLiteral("here: 1920×1080 px, fits")), qPrintable(fits.infoValue));
+        QVERIFY(fits.infoValue.startsWith(QStringLiteral("1920×1080 logical · vsync off")));
+        QCOMPARE(fits.infoTone, Tone::Neutral);
+        const OptionDef scaledRow = row(1707, 1019, 1.5, true);
+        QVERIFY2(scaledRow.infoValue.contains(QStringLiteral("here: 2880×1620 px, window scaled to fit")), qPrintable(scaledRow.infoValue));
+        QCOMPARE(scaledRow.infoTone, Tone::Warn);
+        QVERIFY(row(500, 300, 1.0, true).infoValue.contains(QLatin1StringView("too small")));
+        const OptionDef none = row(0, 0, 1.0, false);
+        QCOMPARE(none.infoValue, QStringLiteral("1920×1080 logical at the screen's scale · vsync off"));
+        QCOMPARE(none.infoTone, Tone::Neutral);
     }
 
     void timeLimitAtRealTime()

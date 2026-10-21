@@ -32,6 +32,24 @@ class TestSysinfoParsers : public QObject
     Q_OBJECT
 
 private slots:
+    // Phase 4a task 15a (M6): the primary screen in the snapshot; an old snapshot has none.
+    void displayRoundTrips()
+    {
+        SystemInfo info;
+        info.display = {QStringLiteral("DP-3"), 3440, 1400, 1.25};
+        const QJsonObject data = info.toSnapshot().data;
+        QVERIFY(data.contains(QStringLiteral("display")));
+        QCOMPARE(displayFromSnapshotData(data), info.display);
+        QCOMPARE(info.toSnapshot().toJson().value(QStringLiteral("sysinfo_version")).toInt(), 1);  // additive: no version bump
+        QJsonObject old = data;
+        old.remove(QStringLiteral("display"));  // a snapshot from before 4a
+        const DisplayInfo none = displayFromSnapshotData(old);
+        QVERIFY(!none.known());
+        QCOMPARE(none.availWidth, 0);
+        QCOMPARE(none.availHeight, 0);
+        QVERIFY(none.name.isEmpty());
+    }
+
     void cpuinfoX86Knowhere()
     {
         const CpuInfoText c = parseCpuInfo(fixture(QStringLiteral("linux/knowhere/proc/cpuinfo")));

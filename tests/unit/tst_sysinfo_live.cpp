@@ -18,6 +18,16 @@ class TestSysinfoLive : public QObject
     Q_OBJECT
 
 private slots:
+    // Task 15a: what the snapshot says about the screen (there is none without a GUI).
+    void display()
+    {
+        SystemInfo info;
+        addOpenGlInfo(info);  // fills the primary screen when there is a QGuiApplication
+        qInfo("display: '%s' %dx%d (available, logical) at %.2f", qPrintable(info.display.name), info.display.availWidth,
+              info.display.availHeight, info.display.scale);
+        QVERIFY(info.display.scale > 0);
+    }
+
     void collect()
     {
         QElapsedTimer t;

@@ -10,6 +10,7 @@
 #include "tests/gpu/model/best_of.h"
 #include "tests/gpu/model/frame_stats.h"
 #include "tests/gpu/model/ids.h"
+#include "sysinfo/system_info.h"
 #include "tests/gpu/model/render_size.h"
 
 #include <QMutexLocker>
@@ -569,7 +570,7 @@ Availability GpuTest::probe(const ProbeContext &) const
     return a;
 }
 
-OptionSchema GpuTest::options(const ProbeContext &, const Availability &) const
+OptionSchema GpuTest::options(const ProbeContext &ctx, const Availability &) const
 {
     const QVector<GpuEntry> list = gpus();
     OptionSchema o;
@@ -621,7 +622,20 @@ OptionSchema GpuTest::options(const ProbeContext &, const Availability &) const
         }
     }
     info("apis", "APIs", ok.isEmpty() ? QStringLiteral("none found") : ok.join(QStringLiteral(", ")) + (na.isEmpty() ? QString() : QStringLiteral(" · N/A: ") + na.join(QStringLiteral("; "))));
-    info("window", "Window", QStringLiteral("1920×1080 logical at the screen's scale · vsync off"));
+    // M6: what the window will be on this screen (the snapshot's primary screen).
+    const DisplayInfo display = displayFromSnapshotData(ctx.system().data);
+    if (!display.known()) {
+        info("window", "Window", QStringLiteral("1920×1080 logical at the screen's scale · vsync off"));
+    } else {
+        const WindowPlan plan = planWindow({display.availWidth, display.availHeight}, display.scale);
+        const QString head = QStringLiteral("1920×1080 logical · vsync off\n");
+        if (plan.tooSmall)
+            info("window", "Window", head + QStringLiteral("here: the screen is too small for the test window"), Tone::Warn);
+        else if (plan.fit)
+            info("window", "Window", head + QStringLiteral("here: %1 px, window scaled to fit").arg(sizeText(plan.render)), Tone::Warn);
+        else
+            info("window", "Window", head + QStringLiteral("here: %1 px, fits").arg(sizeText(plan.render)));
+    }
     const int secs = int(estimate({}).count());
     info("runs", "Runs", QStringLiteral("Every API and part runs (about %1 min %2 s)").arg(secs / 60).arg(secs % 60));
     return o;

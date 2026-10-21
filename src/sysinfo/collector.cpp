@@ -5,11 +5,19 @@
 
 #include <QDir>
 #include <QFile>
+#include <QGuiApplication>
+#include <QRect>
+#include <QScreen>
 
 namespace sb::sysinfo {
 
 void addOpenGlInfo(SystemInfo &info)
 {
+    // The primary screen, for the GPU test's window (Phase 4a M6): GUI thread only.
+    if (const QScreen *screen = QGuiApplication::primaryScreen()) {
+        const QRect avail = screen->availableGeometry();  // logical px
+        info.display = {screen->name(), avail.width(), avail.height(), screen->devicePixelRatio()};
+    }
     const OpenGlInfo gl = probeOpenGl();
     if (!gl.ok)
         return;
