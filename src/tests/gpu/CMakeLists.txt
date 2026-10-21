@@ -16,3 +16,6 @@ target_link_libraries(synbench_test_gpu PUBLIC synbench_core synbench_test_commo
 
 # The worker's shaders: the Windows build's DXIL and DXBC (§13.1).
 add_subdirectory(worker/shaders)
+
+# The scene content: pure C++, no Qt.
+add_subdirectory(worker/scene)
