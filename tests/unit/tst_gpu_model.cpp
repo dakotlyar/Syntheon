@@ -4,6 +4,7 @@
 #include "tests/gpu/model/best_of.h"
 #include "tests/gpu/model/frame_stats.h"
 #include "tests/gpu/model/gpu_identity.h"
+#include "tests/gpu/model/linux_gpus.h"
 #include "tests/gpu/model/ids.h"
 #include "tests/gpu/model/protocol.h"
 #include "tests/gpu/model/render_size.h"
@@ -187,6 +188,95 @@ private slots:
         QVERIFY(planWindow({1280, 400}, 2.0).tooSmall);
         QVERIFY(!planWindow({1920, 1032}, 1.0).tooSmall);
         QVERIFY(!planWindow({3440, 1400}, 1.0).tooSmall);
+    }
+
+    // --- the Linux GPU list (task 13) ---
+
+    static QString fixtureRoot(const char *sub) { return QString::fromUtf8(SB_FIXTURES) + QString::fromUtf8(sub); }
+
+    static QVector<VkDeviceRecord> tiamatVulkan()
+    {
+        VkDeviceRecord nv;
+        nv.name = QStringLiteral("NVIDIA GeForce RTX 5070 Ti");
+        nv.vendorId = 0x10de;
+        nv.deviceId = 0x2c05;
+        nv.type = QStringLiteral("discrete");
+        nv.apiVersion = QStringLiteral("1.4.351");
+        nv.driverName = QStringLiteral("NVIDIA");
+        nv.driverInfo = QStringLiteral("615.78.08");
+        nv.deviceLocalBytes = 17094934528;
+        nv.pciSlot = QStringLiteral("0000:01:00.0");
+        VkDeviceRecord amd;
+        amd.name = QStringLiteral("AMD Radeon 610M (RADV RAPHAEL_MENDOCINO)");
+        amd.vendorId = 0x1002;
+        amd.deviceId = 0x13c0;
+        amd.type = QStringLiteral("integrated");
+        amd.apiVersion = QStringLiteral("1.4.354");
+        amd.driverName = QStringLiteral("radv");
+        amd.driverInfo = QStringLiteral("Mesa 26.2.4");
+        amd.deviceLocalBytes = 536870912;
+        amd.pciSlot = QStringLiteral("0000:79:00.0");
+        return {nv, amd};  // the loader's order: not the DRM order
+    }
+
+    void drmCardsFromTheTiamatFixture()
+    {
+        const QVector<DrmCard> cards = readDrmCards(fixtureRoot("/linux/tiamat"));
+        QCOMPARE(cards.size(), 2);
+        QCOMPARE(cards[0], (DrmCard{QStringLiteral("0000:79:00.0"), 0x1002, 0x13c0, QStringLiteral("amdgpu")}));
+        QCOMPARE(cards[1], (DrmCard{QStringLiteral("0000:01:00.0"), 0x10de, 0x2c05, QStringLiteral("nvidia")}));
+        QVERIFY(readDrmCards(fixtureRoot("/linux/nowhere")).isEmpty());
+    }
+
+    void mergeTiamat()
+    {
+        const QVector<GpuEntry> gpus = mergeLinuxGpus(tiamatVulkan(), readDrmCards(fixtureRoot("/linux/tiamat")));
+        QCOMPARE(gpus.size(), 2);
+        QCOMPARE(gpus[0].id, QStringLiteral("1002:13c0@0000:79:00.0"));
+        QCOMPARE(gpus[0].kind, GpuKind::Integrated);
+        QCOMPARE(gpus[0].kernelDriver, QStringLiteral("amdgpu"));
+        QCOMPARE(gpus[1].id, QStringLiteral("10de:2c05@0000:01:00.0"));
+        QCOMPARE(gpus[1].kind, GpuKind::Discrete);
+        QCOMPARE(gpus[1].name, QStringLiteral("NVIDIA GeForce RTX 5070 Ti"));
+        QCOMPARE(gpus[1].vramBytes, qint64(17094934528));
+        const ApiAvailability &v = gpus[1].apis.value(QStringLiteral("vulkan"));
+        QVERIFY(v.ok);
+        QCOMPARE(v.version, QStringLiteral("Vulkan 1.4.351"));
+        QCOMPARE(v.driver, QStringLiteral("NVIDIA 615.78.08"));
+        QCOMPARE(gpus[1].apis.value(QStringLiteral("dx12")).reason, QStringLiteral("DirectX is Windows only"));
+        QCOMPARE(gpus[1].apis.value(QStringLiteral("dx11")).reason, QStringLiteral("DirectX is Windows only"));
+        QCOMPARE(gpus[1].apis.value(QStringLiteral("d2d")).reason, QStringLiteral("Direct2D is Windows only"));
+        QCOMPARE(defaultGpuIndex(gpus), std::optional<int>(1));  // the NVIDIA
+    }
+
+    void mergeLavapipeAndOldDrivers()
+    {
+        QVector<VkDeviceRecord> vk = tiamatVulkan();
+        VkDeviceRecord lvp;
+        lvp.name = QStringLiteral("llvmpipe (LLVM 21.1.0, 256 bits)");
+        lvp.vendorId = 0x10005;
+        lvp.type = QStringLiteral("cpu");
+        lvp.apiVersion = QStringLiteral("1.4.318");
+        vk.append(lvp);
+        QVector<GpuEntry> gpus = mergeLinuxGpus(vk, readDrmCards(fixtureRoot("/linux/tiamat")));
+        QCOMPARE(gpus.size(), 3);
+        QCOMPARE(gpus[2].kind, GpuKind::Software);
+        QCOMPARE(gpus[2].id, QStringLiteral("10005:0000#0"));
+        QCOMPARE(defaultGpuIndex(gpus), std::optional<int>(1));  // software is excluded by default
+        QCOMPARE(defaultGpuIndex(gpus, true), std::optional<int>(1));
+        // Two devices without a slot: the n-th keeps its place (P11).
+        vk.append(lvp);
+        QCOMPARE(mergeLinuxGpus(vk, {}).last().id, QStringLiteral("10005:0000#1"));
+        // A 1.2 driver.
+        vk[0].apiVersion = QStringLiteral("1.2.198");
+        const QVector<GpuEntry> old = mergeLinuxGpus(vk, readDrmCards(fixtureRoot("/linux/tiamat")));
+        const ApiAvailability &a = old[1].apis.value(QStringLiteral("vulkan"));
+        QVERIFY(!a.ok);
+        QCOMPARE(a.reason, QStringLiteral("Needs Vulkan 1.3 (the driver has 1.2.198)"));
+        // A card without a Vulkan device.
+        const QVector<GpuEntry> none = mergeLinuxGpus({}, readDrmCards(fixtureRoot("/linux/tiamat")));
+        QCOMPARE(none.size(), 2);
+        QCOMPARE(none[0].apis.value(QStringLiteral("vulkan")).reason, QStringLiteral("This GPU has no Vulkan driver"));
     }
 
     void sizeAndScaleText()

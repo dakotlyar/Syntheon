@@ -3,10 +3,22 @@
 
 #include "tests/gpu/worker/vulkan/vk_loader.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <psapi.h>
+#endif
 
 namespace sb::gpu::vk {
 
@@ -86,6 +98,65 @@ std::string pciSlotOf(VkPhysicalDevice pd)
     char slot[32];
     std::snprintf(slot, sizeof slot, "%04x:%02x:%02x.%x", pci.pciDomain, pci.pciBus, pci.pciDevice, pci.pciFunction);
     return slot;
+}
+
+// P17 (Antilles' rule): layers actually loaded into this process, never the
+// installed ones. Linux: each implicit-layer manifest's library_path against
+// /proc/self/maps (the loader maps a layer only when it uses it; implicit
+// layers are normally disabled, VK_LOADER_LAYERS_DISABLE=~implicit~).
+// Windows: the loaded modules named like a layer. The Khronos validation
+// layer is ours (dev hook), not a finding.
+std::vector<std::string> activeLayerNames()
+{
+    std::vector<std::string> active;
+#if defined(__linux__)
+    std::string maps;
+    {
+        std::ifstream f("/proc/self/maps");
+        maps.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    }
+    std::vector<std::filesystem::path> dirs = {"/usr/share/vulkan/implicit_layer.d", "/etc/vulkan/implicit_layer.d",
+                                               "/usr/local/share/vulkan/implicit_layer.d"};
+    if (const char *home = std::getenv("HOME"))
+        dirs.push_back(std::filesystem::path(home) / ".local/share/vulkan/implicit_layer.d");
+    const auto field = [](const std::string &text, const char *key) {
+        const std::size_t at = text.find(std::string("\"") + key + "\"");
+        if (at == std::string::npos)
+            return std::string();
+        const std::size_t open = text.find('"', text.find(':', at) + 1);
+        const std::size_t close = open == std::string::npos ? open : text.find('"', open + 1);
+        return close == std::string::npos ? std::string() : text.substr(open + 1, close - open - 1);
+    };
+    for (const std::filesystem::path &dir : dirs) {
+        std::error_code ec;
+        for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
+            if (entry.path().extension() != ".json")
+                continue;
+            std::ifstream f(entry.path());
+            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            const std::string library = std::filesystem::path(field(text, "library_path")).filename().string();
+            const std::string name = field(text, "name");
+            if (!library.empty() && !name.empty() && maps.find(library) != std::string::npos && name != kValidationLayer)
+                active.push_back(name);
+        }
+    }
+    std::sort(active.begin(), active.end());
+#elif defined(_WIN32)
+    HMODULE modules[1024];
+    DWORD needed = 0;
+    if (EnumProcessModules(GetCurrentProcess(), modules, sizeof modules, &needed)) {
+        for (DWORD i = 0; i < needed / sizeof(HMODULE) && i < 1024; ++i) {
+            char path[MAX_PATH] = {};
+            if (!GetModuleFileNameA(modules[i], path, MAX_PATH))
+                continue;
+            const char *base = std::strrchr(path, '\\');
+            base = base ? base + 1 : path;
+            if (std::strstr(base, "VkLayer_") && !std::strstr(base, "khronos_validation"))
+                active.push_back(base);
+        }
+    }
+#endif
+    return active;
 }
 
 } // namespace
@@ -399,6 +470,13 @@ std::string Context::create(const BackendInit &init, const PresentTarget &target
         info->deviceId = properties.deviceID;
         info->gpuTimestamps = timestamps;
         info->layers = validation ? kValidationLayer : "";
+        const std::vector<std::string> active = activeLayerNames();
+        if (!active.empty()) {
+            std::string list;
+            for (const std::string &n : active)
+                list += (list.empty() ? "" : ", ") + n;
+            info->note = "Vulkan layers were active (" + list + "): overlays and recorders can lower the result";
+        }
         info->presentMode.clear();  // known after resume() (the result's "present")
     }
     return validationProblem();

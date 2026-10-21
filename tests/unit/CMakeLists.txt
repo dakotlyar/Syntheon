@@ -57,6 +57,7 @@ foreach(t tst_sysinfo_parsers tst_sysinfo_live tst_sysinfo_linux tst_isa tst_cac
 endforeach()
 synbench_add_unit_test(tst_protocol SOURCES tst_protocol.cpp LIBS synbench_protocol Qt6::Core)
 synbench_add_unit_test(tst_gpu_model SOURCES tst_gpu_model.cpp LIBS synbench_gpu_model)
+target_compile_definitions(tst_gpu_model PRIVATE SB_FIXTURES="${PROJECT_SOURCE_DIR}/tests/fixtures")
 synbench_add_unit_test(tst_gpu_scene SOURCES tst_gpu_scene.cpp LIBS synbench_gpu_scene)
 synbench_add_unit_test(tst_gpu_loaders SOURCES tst_gpu_loaders.cpp LIBS synbench::volk synbench::glad)
 # The built worker, through QProcess (the null backend, no GPU).

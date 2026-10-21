@@ -2,6 +2,7 @@
 // The GPU worker (Phase 4a task 9): the built synbench-gpu with the null
 // backend, through QProcess: the --plan and --serve protocols, exit codes,
 // stop and the stdin lifeline; plus the block signature. No GPU.
+#include "gpu_worker_process.h"
 #include "tests/gpu/model/protocol.h"
 #include "tests/gpu/worker/signature.h"
 
@@ -163,6 +164,57 @@ class TestGpuWorker : public QObject
     Q_OBJECT
 
 private slots:
+
+    // Task 13: --probe lists the Vulkan devices merged with the DRM cards, one
+    // gpu event each, then done. It opens no window (offscreen platform).
+    // Software rasterisers only appear with --allow-software (P12).
+    void probeListsGpus()
+    {
+        if (sb::gpu::testing::lavapipeIcd().isEmpty())
+            QSKIP("lavapipe (the software Vulkan driver) isn't installed");
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        sb::gpu::testing::addSoftwareVulkan(env);  // only lavapipe: the list is the same on every machine
+        for (const bool software : {false, true}) {
+            QProcess p;
+            p.setProcessEnvironment(env);
+            p.start(kWorker, software ? QStringList{QStringLiteral("--probe"), QStringLiteral("--allow-software")}
+                                      : QStringList{QStringLiteral("--probe")});
+            QVERIFY(p.waitForStarted(10000));
+            QVERIFY(p.waitForFinished(20000));
+            QCOMPARE(p.exitCode(), 0);
+            QList<pr::GpuEvent> gpus;
+            bool done = false;
+            for (const QByteArray &line : p.readAllStandardOutput().split('\n')) {
+                if (line.trimmed().isEmpty())
+                    continue;
+                QString err;
+                const auto e = pr::parseLine(line, &err);
+                QVERIFY2(e, qPrintable(err));
+                if (const auto *g = std::get_if<pr::GpuEvent>(&*e))
+                    gpus.append(*g);
+                done = std::holds_alternative<pr::DoneEvent>(*e);
+            }
+            QVERIFY(done);  // done is the last line
+            // The machine's own DRM cards are listed too (without a Vulkan driver here:
+            // only lavapipe is visible); what the flag decides is the software entry.
+            const sb::gpu::GpuEntry *lvp = nullptr;
+            for (const pr::GpuEvent &g : std::as_const(gpus)) {
+                if (g.gpu.id == sb::gpu::testing::kLavapipeId)
+                    lvp = &g.gpu;
+            }
+            if (!software) {
+                QVERIFY2(!lvp, "lavapipe is a software rasteriser: not offered");
+                for (const pr::GpuEvent &g : std::as_const(gpus))
+                    QVERIFY(g.gpu.kind != sb::gpu::GpuKind::Software);
+                continue;
+            }
+            QVERIFY(lvp);
+            QCOMPARE(lvp->kind, sb::gpu::GpuKind::Software);
+            QVERIFY(lvp->apis.value(QStringLiteral("vulkan")).ok);
+            QCOMPARE(lvp->apis.value(QStringLiteral("dx12")).reason, QStringLiteral("DirectX is Windows only"));
+        }
+    }
+
     void planRun()
     {
         Worker w(headlessRun(QStringLiteral("geometry:100:300")));

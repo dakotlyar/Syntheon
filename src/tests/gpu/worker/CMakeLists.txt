@@ -11,6 +11,7 @@ add_library(synbench_gpu_backends STATIC
     signature.h signature.cpp
     null/null_backend.h null/null_backend.cpp
     vulkan/vk_context.h vulkan/vk_context.cpp
+    vulkan/vk_probe.h vulkan/vk_probe.cpp
     vulkan/vk_resources.h vulkan/vk_resources.cpp
     vulkan/vk_swapchain.h vulkan/vk_swapchain.cpp
     vulkan/vk_backend.h vulkan/vk_backend.cpp

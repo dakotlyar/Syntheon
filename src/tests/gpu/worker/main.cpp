@@ -28,6 +28,7 @@
 // window shown (backend.h: the call order).
 #include "tests/gpu/model/frame_stats.h"
 #include "tests/gpu/model/ids.h"
+#include "tests/gpu/model/linux_gpus.h"
 #include "tests/gpu/model/protocol.h"
 #include "tests/gpu/model/render_size.h"
 #include "tests/gpu/worker/backend.h"
@@ -36,6 +37,7 @@
 #include "tests/gpu/worker/runner.h"
 #include "tests/gpu/worker/scene/golden_hashes.inc"
 #include "tests/gpu/worker/scene/scenes.h"
+#include "tests/gpu/worker/vulkan/vk_probe.h"
 #include "tests/gpu/worker/worker_window.h"
 #if defined(SYNBENCH_DEV_HOOKS)
 #include "tests/gpu/worker/null/null_backend.h"
@@ -691,7 +693,8 @@ int main(int argc, char **argv)
     // offscreen platform when headless (no display needed).
     std::vector<char *> qtArgv{argv[0]};
     char platformOption[] = "-platform", offscreen[] = "offscreen";
-    if (a.headless) {
+    // A probe opens no window: the offscreen platform, so it never touches the user's display.
+    if (a.headless || a.mode == Mode::Probe || a.mode == Mode::ProbeGl) {
         qtArgv.push_back(platformOption);
         qtArgv.push_back(offscreen);
     }
@@ -703,8 +706,43 @@ int main(int argc, char **argv)
     control.serve = a.serve;
     startStdinThread(control);
 
+    if (a.mode == Mode::Probe) {
+#if defined(Q_OS_LINUX)
+        // Task 13: the Vulkan devices merged with the DRM cards. (Windows: task 23, DXGI.)
+        std::string error;
+        const std::vector<VkDeviceRecordStd> found = probeVulkanDevices(&error);
+        QVector<VkDeviceRecord> records;
+        for (const VkDeviceRecordStd &d : found) {
+            VkDeviceRecord r;
+            r.name = QString::fromStdString(d.name);
+            r.vendorId = d.vendorId;
+            r.deviceId = d.deviceId;
+            r.type = QString::fromStdString(d.type);
+            r.apiVersion = QString::fromStdString(d.apiVersion);
+            r.driverName = QString::fromStdString(d.driverName);
+            r.driverInfo = QString::fromStdString(d.driverInfo);
+            r.deviceLocalBytes = d.deviceLocalBytes;
+            r.pciSlot = QString::fromStdString(d.pciSlot);
+            records.append(r);
+        }
+        QVector<GpuEntry> gpus = mergeLinuxGpus(records, readDrmCards());
+        for (GpuEntry &g : gpus) {
+            // No loader at all: every card says so, not "this GPU has no Vulkan driver".
+            if (error.rfind("N/A: ", 0) == 0 && !g.apis.value(QStringLiteral("vulkan")).ok)
+                g.apis[QStringLiteral("vulkan")].reason = QString::fromStdString(error.substr(5));
+            if (g.kind == GpuKind::Software && !a.allowSoftware)
+                continue;  // P12: software rasterisers only through the dev hook
+            emitLine(pr::GpuEvent{g});
+        }
+        emitLine(pr::DoneEvent{});
+        return kExitOk;
+#else
+        emitLine(pr::ErrorEvent{{}, QStringLiteral("the GPU probe isn't in this build"), false});
+        return kExitError;
+#endif
+    }
     if (a.mode != Mode::Run) {
-        // Tasks 13 (--probe, Vulkan and DRM) and 23 (DXGI, --probe-gl).
+        // Task 23: --probe-gl.
         emitLine(pr::ErrorEvent{{}, QStringLiteral("the GPU probe isn't in this build"), false});
         return kExitError;
     }
