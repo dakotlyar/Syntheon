@@ -311,9 +311,9 @@ private slots:
             u.part = QString::fromUtf8(part);
             r.orchestrator().progress(u);
         };
-        update("GPU · Geometry · Vulkan", 0.1);
-        update("GPU · Geometry · Vulkan", 0.2);
-        update("GPU · Geometry · DirectX 12", 0.3);
+        update("Geometry · Vulkan", 0.1);
+        update("Geometry · Vulkan", 0.2);
+        update("Geometry · DirectX 12", 0.3);
         for (const char *text : {"first", "second"}) {
             LogLine l;
             l.testId = QStringLiteral("gpu");
@@ -329,11 +329,58 @@ private slots:
         QVERIFY(!r.interfaceHeld());
         QCOMPARE(heldSpy.count(), 2);
         QCOMPARE(log->rowCount(), rowsBefore + 2);
-        QCOMPARE(r.currentStage(), QStringLiteral("GPU · GPU · Geometry · DirectX 12"));  // the last update, applied once
+        QCOMPARE(r.currentStage(), QStringLiteral("GPU · Geometry · DirectX 12"));  // the last update, applied once; the part never repeats the test name
         QVERIFY(r.heldPart().isEmpty());
         // Not held any more: updates apply at once again.
         update("", 0.5);
         QCOMPARE(r.currentStage(), QStringLiteral("GPU · stage"));
+    }
+
+    // AP-5 M1: a hung test's testFinished arrives before runFinished. The held
+    // progress must not be replayed over the row's final "did not respond" text.
+    void hungTestKeepsItsReasonAfterAHold()
+    {
+        startRuntime();
+        RunController &r = rc();
+        const QString reason = QStringLiteral("Did not respond, restart SynBench");
+        r.orchestrator().runStarted(RunRecord{}, QStringList{QStringLiteral("gpu")});
+        r.orchestrator().testStarted(0, QStringLiteral("gpu"));
+        r.orchestrator().interfaceHold(0, true);
+        QVERIFY(r.interfaceHeld());
+        QCOMPARE(r.heldTestName(), QStringLiteral("GPU"));
+        ProgressUpdate u;
+        u.index = 0;
+        u.testId = QStringLiteral("gpu");
+        u.fraction = 0.4;
+        u.stage = QStringLiteral("stale stage");
+        r.orchestrator().progress(u);
+        TestResult hung = TestResult::withStatus(Status::Interrupted, reason);
+        hung.testId = QStringLiteral("gpu");
+        r.orchestrator().testFinished(0, hung);
+        QVERIFY(!r.interfaceHeld());  // released by the test finishing
+        const auto stage = [&] { return r.queue()->data(r.queue()->index(0, 0), RunQueueModel::StageRole).toString(); };
+        QCOMPARE(stage(), reason);
+        r.orchestrator().runFinished(RunRecord{});  // the safety net doesn't replay anything
+        QCOMPARE(stage(), reason);
+    }
+
+    // AP-5 L3: a long hold keeps the newest lines, up to the log's own capacity.
+    void heldLogIsCapped()
+    {
+        startRuntime();
+        RunController &r = rc();
+        QAbstractItemModel *log = r.log();
+        const int before = log->rowCount();
+        r.orchestrator().interfaceHold(0, true);
+        for (int i = 0; i < 5200; ++i) {
+            LogLine l;
+            l.message = QString::number(i);
+            r.orchestrator().logLine(l);
+        }
+        r.orchestrator().interfaceHold(0, false);
+        QCOMPARE(log->rowCount(), std::min(5000, before + 5000));
+        const QModelIndex last = log->index(log->rowCount() - 1, 0);
+        QCOMPARE(log->data(last, LogModel::MessageRole).toString(), QStringLiteral("5199"));  // the newest kept
     }
 
     void etaCountsDownWithinATest()

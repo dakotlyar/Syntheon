@@ -27,6 +27,7 @@ WindowPlan planWindow(Size availableLogical, double scale)
         plan.windowLogical = {ah * 16 / 9, ah};  // height-limited
         plan.fit = true;
     }
+    plan.tooSmall = plan.windowLogical.width < kMinWindow.width || plan.windowLogical.height < kMinWindow.height;
     plan.windowPhysical = physical(plan.windowLogical, scale);
     plan.render = physical(kLogical, scale);
     return plan;

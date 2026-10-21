@@ -38,11 +38,19 @@ def fetch(url, sha256):
     CACHE.mkdir(parents=True, exist_ok=True)
     path = CACHE / url.rsplit("/", 1)[1]
     if not path.exists():
+        # To a .part file, renamed only once its SHA-256 matches: an interrupted
+        # download never leaves a file that looks complete.
+        part = path.with_name(path.name + ".part")
         with urllib.request.urlopen(url, timeout=60) as r:
-            path.write_bytes(r.read())
+            part.write_bytes(r.read())
+        got = hashlib.sha256(part.read_bytes()).hexdigest()
+        if got != sha256:
+            part.unlink()
+            fail(f"{url}: SHA-256 {got}, versions.json pins {sha256}")
+        os.replace(part, path)
     got = hashlib.sha256(path.read_bytes()).hexdigest()
     if got != sha256:
-        fail(f"{url}: SHA-256 {got}, versions.json pins {sha256}")
+        fail(f"{path}: SHA-256 {got}, versions.json pins {sha256}")
     return path
 
 

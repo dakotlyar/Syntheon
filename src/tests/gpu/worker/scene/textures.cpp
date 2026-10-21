@@ -180,6 +180,7 @@ Texture spriteAtlas(std::uint32_t seed)
 Texture fillTexture(std::uint32_t seed)
 {
     Texture t = blank(256, 256);
+    t.mips = false;  // §6.5: the quads texture has no mips (linear filter, repeat)
     for (std::uint32_t y = 0; y < 256; ++y) {
         for (std::uint32_t x = 0; x < 256; ++x) {
             const float n = noise2(x, y, 256, 8.f, seed, 3) * 0.5f + 0.5f;

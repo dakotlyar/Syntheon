@@ -11,8 +11,10 @@ add_library(synbench_gpu_scene STATIC
     overlay.h overlay.cpp
 )
 target_include_directories(synbench_gpu_scene PUBLIC "${PROJECT_SOURCE_DIR}/src")
+# PUBLIC: math.h's inline maths (noise, matrices) is hashed, so every target that
+# compiles it (the worker, the tests) must use the same strict floating point.
 if(MSVC)
-    target_compile_options(synbench_gpu_scene PRIVATE /fp:precise)
+    target_compile_options(synbench_gpu_scene PUBLIC /fp:precise)
 else()
-    target_compile_options(synbench_gpu_scene PRIVATE -ffp-contract=off)
+    target_compile_options(synbench_gpu_scene PUBLIC -ffp-contract=off)
 endif()

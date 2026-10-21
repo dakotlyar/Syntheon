@@ -158,6 +158,7 @@ set(_notices_expect
     "volk ${SYNBENCH_VOLK_VERSION}|Permission is hereby granted, free of charge"
     "glad (OpenGL loader) ${SYNBENCH_GLAD_VERSION}|Creative Commons Legal Code"
     "Khronos OpenGL registry (in glad's loader)|Apache License"
+    "Khronos platform header (KHR/khrplatform.h, in glad's loader)|Permission is hereby granted"
     "misc-fixed 5x7 font (X.Org font-misc-misc) 1.1.3|Public domain font."
     "OpenSSL (libcrypto) ${SYNBENCH_OPENSSL_VERSION}|Apache License"
     "Qt ${Qt6_VERSION}|GNU LESSER GENERAL PUBLIC LICENSE"

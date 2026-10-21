@@ -40,35 +40,6 @@ ScreenFrame {
               : ""
     }
 
-    // The interface is held while the GPU test draws in its own window (P10):
-    // one static card, changed only by the "Now:" line, once per part (M8).
-    Box {
-        objectName: "heldCard"
-        visible: RunController.interfaceHeld
-        Layout.fillWidth: true
-        implicitHeight: heldColumn.implicitHeight + 36
-        ColumnLayout {
-            id: heldColumn
-            anchors.fill: parent
-            anchors.margins: 18
-            spacing: 10
-            SbText { text: qsTr("GPU test running"); font.weight: Font.DemiBold }
-            SbText {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: qsTr("The GPU test draws in its own window. This window is paused so it doesn't use the GPU, and catches up when the test finishes. Keep the test window in front. Press Esc in it, or Stop here, to stop.")
-                kind: "small"
-            }
-            SbText {
-                objectName: "heldPart"
-                visible: RunController.heldPart.length > 0
-                text: qsTr("Now: ") + RunController.heldPart
-                kind: "small"
-                font.weight: Font.DemiBold
-            }
-        }
-    }
-
     // Dev hook SYNBENCH_GPU_MINIMIZE_MAIN=1: minimise the main window while held.
     Connections {
         target: RunController
@@ -230,6 +201,40 @@ ScreenFrame {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // The interface is held while a test draws in its own window (P10, the GPU
+    // test): one static card under the queue, changed only by the "Now:" line,
+    // once per part (M8).
+    Box {
+        objectName: "heldCard"
+        visible: RunController.interfaceHeld
+        Layout.fillWidth: true
+        implicitHeight: heldColumn.implicitHeight + 36
+        Rectangle { width: 3; height: parent.height; color: Theme.accent }
+        ColumnLayout {
+            id: heldColumn
+            anchors.fill: parent
+            anchors.margins: 18
+            spacing: 10
+            SbText {
+                objectName: "heldTitle"
+                text: RunController.heldTestName.length > 0 ? qsTr("%1 test running").arg(RunController.heldTestName) : qsTr("Test running")
+                font.weight: Font.DemiBold
+            }
+            SbText {
+                objectName: "heldBody"
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("This test draws in its own window. This window is paused so it doesn't use the GPU, and catches up when the test finishes. Keep the test window in front. Press Esc in it, or Stop here, to stop.")
+            }
+            SbText {
+                objectName: "heldPart"
+                visible: RunController.heldPart.length > 0
+                text: qsTr("Now: ") + RunController.heldPart
+                font.weight: Font.DemiBold
             }
         }
     }

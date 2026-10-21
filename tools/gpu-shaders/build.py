@@ -19,7 +19,8 @@ DXIL and DXBC are compiled by the Windows build itself (shaders/CMakeLists.txt).
 
 Usage:
   build.py                   regenerate everything
-  build.py --only NAME       regenerate one shader (bindings.inc and STAMP too)
+  build.py --only NAME       regenerate one shader (and bindings.inc); STAMP is
+                             NOT written (only a full run can vouch for every shader)
   build.py --check [--sources DIR] [--expect-stale]
                              exit 0 when STAMP matches the sources, else 1
                              ("shaders out of date: run tools/gpu-shaders/build.py");
@@ -33,7 +34,8 @@ only; nothing from them ships.
 
 STAMP = lowercase hex SHA-256 over, for each .hlsl/.hlsli sorted by path: the
 path relative to the shader folder, "\\n", the file's bytes with CRLF -> LF,
-"\\n"; then "versions.json", "\\n", its bytes the same way, "\\n".
+"\\n"; then "versions.json", "\\n", its bytes the same way, "\\n"; then
+"build.py", "\\n", this script's bytes the same way, "\\n".
 """
 import argparse
 import hashlib
@@ -83,6 +85,8 @@ def stamp(sources, versions):
     for rel in files:
         h.update(rel.encode() + b"\n" + normalised(sources / rel) + b"\n")
     h.update(b"versions.json\n" + normalised(versions) + b"\n")
+    # The generator itself: a change to how the outputs are made makes them stale.
+    h.update(b"build.py\n" + normalised(Path(__file__).resolve()) + b"\n")
     return h.hexdigest()
 
 
@@ -308,6 +312,10 @@ def generate(only):
             target = out_dir if (not only or name == only) else Path(scratch)
             entries += build_shader(name, dxc, spirv_cross, SHADERS, target, tools)
     write_if_changed(out_dir / "bindings.inc", bindings_inc(entries, tools))
+    if only:
+        # The other shaders' outputs weren't rewritten, so the STAMP can't vouch for them.
+        print(f"ok  {only} -> {out_dir.relative_to(ROOT)}; STAMP not written: run build.py without --only")
+        return 0
     write_if_changed(out_dir / "STAMP", stamp(SHADERS, VERSIONS) + "\n")
     print(f"ok  {len(names)} shader(s) -> {out_dir.relative_to(ROOT)}")
     return 0

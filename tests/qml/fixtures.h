@@ -47,7 +47,7 @@ public:
     {
         sb::ProgressUpdate u;
         u.index = 0;
-        u.testId = QStringLiteral("gpu");
+        u.testId = QStringLiteral("ai");
         u.fraction = 0.1;
         u.stage = QStringLiteral("stage");
         u.part = part;

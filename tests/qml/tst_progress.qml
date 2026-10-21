@@ -111,23 +111,37 @@ TestCase {
     }
 
     // Phase 4a P10, M8: while a test holds the interface (the GPU test) the
-    // screen shows one static card with the live part; Stop stays active.
+    // screen shows one static card under the queue with the live part; Stop
+    // stays visible, enabled and works. Held during a real (slow) stub run.
     function test_5_heldInterfaceShowsTheCard() {
+        Fixtures.setStubScale(0.3)
+        RunController.clearSelection()
+        RunController.toggle("ai")
         const screen = createTemporaryObject(screenComponent, test)
+        const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         const card = findChild(screen, "heldCard")
         verify(card !== null)
         verify(!card.visible)
+        verify(RunController.start())
+        tryVerify(function() { return RunController.running && RunController.queue.rowCount() === 1 }, 5000)
         Fixtures.holdInterface(true)
         verify(RunController.interfaceHeld)
         verify(card.visible)
-        verify(findChild(screen, "stopRun").enabled)
+        compare(findChild(screen, "heldTitle").text, "AI inference test running")
+        const stop = findChild(screen, "stopRun")
+        verify(stop.visible && stop.enabled)
         verify(!findChild(screen, "heldPart").visible)  // no part yet
-        Fixtures.heldProgress("GPU · Geometry · DirectX 12")
-        verify(findChild(screen, "heldPart").visible)
+        Fixtures.heldProgress("Geometry · DirectX 12")
         compare(findChild(screen, "heldPart").text, "Now: Geometry · DirectX 12")
-        Fixtures.holdInterface(false)
-        verify(!RunController.interfaceHeld)
+        // The card sits under the queue row, not above it.
+        waitForRendering(screen)
+        tryVerify(function() { return card.y > findChild(screen, "queueBox").y }, 3000)
+        mouseClick(stop)
+        finished.wait(30000)
+        compare(finished.signalArguments[0][1], "stopped")
+        verify(!RunController.interfaceHeld)  // the test finishing lets go
         verify(!card.visible)
         verify(!findChild(screen, "heldPart").visible)
+        Fixtures.setStubScale(0.02)
     }
 }

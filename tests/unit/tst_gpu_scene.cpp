@@ -177,15 +177,24 @@ private slots:
         QCOMPARE(atlas.rgba8.size(), std::size_t(256) * 256 * 4);
     }
 
-    // The golden hashes are added with the worker's --print-hashes (task 9);
-    // until then they are printed for that task.
+    // The pinned content hashes (Phase 4a task 8, M4): the same on every compiler
+    // and OS, so the CI on Windows proves Windows = Linux. A change of content
+    // changes them: update them here (task 9 moves them to golden_hashes.inc).
     void contentHashes()
     {
-        for (const Workload w : kAllWorkloads) {
+        const std::pair<Workload, std::uint64_t> golden[] = {
+            {Workload::Geometry, 0x2b81168797e0cc11ull}, {Workload::DrawCalls, 0xc7eaa6b6e7d910e0ull},
+            {Workload::Shading, 0xcd179ccf0a43b927ull},  {Workload::Particles, 0xc407bc16c53c1b4eull},
+            {Workload::Quads, 0x444342acaf246688ull},                  {Workload::Sprites, 0x77a7fa465482f45aull}};
+        for (const auto &[w, want] : golden) {
             const SceneData a = buildScene(w), b = buildScene(w);
             const std::uint64_t h = contentHash(a);
             QCOMPARE(h, contentHash(b));  // the same seed builds the same scene
-            qInfo("contentHash %s = 0x%016llx", workloadId(w), static_cast<unsigned long long>(h));
+            if (h != want)
+                QFAIL(qPrintable(QStringLiteral("%1: got 0x%2, pinned 0x%3")
+                                     .arg(QString::fromLatin1(workloadId(w)))
+                                     .arg(h, 16, 16, QLatin1Char('0'))
+                                     .arg(want, 16, 16, QLatin1Char('0'))));
         }
         // A different content scale is different content.
         QVERIFY(contentHash(buildScene(Workload::Quads)) != contentHash(buildScene(Workload::Quads, 2)));

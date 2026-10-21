@@ -16,9 +16,14 @@ struct Size {
 inline constexpr Size kLogical{1920, 1080};
 inline constexpr int kMarginX = 64, kMarginY = 96;
 
+// The smallest window the test runs in. Below it the screen is "too small for
+// the test window": the GPU test reports N/A with that reason (task 9+).
+inline constexpr Size kMinWindow{640, 360};
+
 struct WindowPlan {
     Size windowLogical, windowPhysical, render;
     bool fit = false;
+    bool tooSmall = false;  // the fitted window would be smaller than kMinWindow
 };
 
 // availableLogical = the screen's available geometry (taskbar excluded), in

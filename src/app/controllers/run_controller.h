@@ -73,8 +73,11 @@ class RunController : public QObject
     // window (the GPU test) the main window holds still ---
     Q_PROPERTY(bool interfaceHeld READ interfaceHeld NOTIFY interfaceHeldChanged)
     // M8: the live part on the held card ("Shading · DirectX 12"), set when a
-    // held progress update's part differs from the last one; "GPU · " removed.
+    // held progress update's part differs from the last one. A part never repeats
+    // the test's name: "Geometry · Vulkan" (the pill adds "GPU · ").
     Q_PROPERTY(QString heldPart READ heldPart NOTIFY heldPartChanged)
+    // The held test's name ("GPU"), for the card's title; set before interfaceHeldChanged.
+    Q_PROPERTY(QString heldTestName READ heldTestName NOTIFY interfaceHeldChanged)
 
 public:
     RunController(Storage &storage, StorageController &storageController, AppController &app,
@@ -113,6 +116,7 @@ public:
     QString currentTestColor() const { return m_stageColor; }
     bool interfaceHeld() const { return m_held; }
     QString heldPart() const { return m_heldPart; }
+    QString heldTestName() const { return m_heldTestName; }
     // True only with the dev hook SYNBENCH_GPU_MINIMIZE_MAIN=1: the Progress
     // screen then minimises the main window while the interface is held.
     Q_INVOKABLE bool minimizeOnHold() const;
@@ -181,7 +185,9 @@ private:
     void refreshEta();
     // Stops/starts m_ticker; on release applies what was buffered, in order,
     // and emits etaChanged().
-    void setHeld(bool held);
+    // `replayProgress` false drops the buffered progress instead (a test that is
+    // already finished: its row must keep its final text).
+    void setHeld(bool held, bool replayProgress = true);
     void applyProgress(const ProgressUpdate &u);
     void connectOrchestrator();
     std::unique_ptr<ProbeContext> makeProbeContext() const;
@@ -225,7 +231,8 @@ private:
     bool m_held = false;
     std::optional<ProgressUpdate> m_heldProgress;
     QVector<LogLine> m_heldLog;
-    QString m_heldPart;
+    QString m_heldPart, m_heldTestName;
+    int m_heldIndex = -1;
 };
 
 } // namespace sb

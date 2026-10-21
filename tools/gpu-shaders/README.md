@@ -21,7 +21,7 @@ regenerated.
 
 ```
 python3 tools/gpu-shaders/build.py              # every shader
-python3 tools/gpu-shaders/build.py --only NAME  # one shader (bindings.inc and STAMP too)
+python3 tools/gpu-shaders/build.py --only NAME  # one shader (and bindings.inc; STAMP only from a full run)
 ```
 
 and commit the source with `generated/`. The outputs are deterministic: a

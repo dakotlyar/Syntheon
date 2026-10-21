@@ -5,6 +5,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <cmath>
+#include <limits>
+
 namespace sb::gpu::protocol {
 
 namespace {
@@ -98,19 +101,54 @@ QJsonObject encodeEvent(const Event &event)
 
 // ---- parse ----
 
-bool need(const QJsonObject &o, const char *ev, const char *key, QString *error)
+enum class Type { String, Number, Int, Bool, Object, Array };
+
+bool typeOk(const QJsonValue &v, Type t)
 {
-    if (o.contains(S(key)))
-        return true;
-    if (error)
-        *error = QStringLiteral("%1: missing %2").arg(S(ev), S(key));
+    switch (t) {
+    case Type::String: return v.isString();
+    case Type::Number: return v.isDouble();
+    case Type::Bool: return v.isBool();
+    case Type::Object: return v.isObject();
+    case Type::Array: return v.isArray();
+    case Type::Int: {
+        if (!v.isDouble())
+            return false;
+        const double d = v.toDouble();
+        return d == std::floor(d) && d >= 0 && d <= double(std::numeric_limits<int>::max());
+    }
+    }
     return false;
+}
+
+// A required key: present ("<ev>: missing <key>") and of the right type
+// ("<ev>: bad <key>"): anything else is a malformed line.
+bool need(const QJsonObject &o, const char *ev, const char *key, Type type, QString *error)
+{
+    const auto it = o.constFind(S(key));
+    if (it == o.constEnd()) {
+        if (error)
+            *error = QStringLiteral("%1: missing %2").arg(S(ev), S(key));
+        return false;
+    }
+    if (!typeOk(it.value(), type)) {
+        if (error)
+            *error = QStringLiteral("%1: bad %2").arg(S(ev), S(key));
+        return false;
+    }
+    return true;
+}
+
+// An optional key: absent is fine, present must be of the right type.
+bool optional(const QJsonObject &o, const char *ev, const char *key, Type type, QString *error)
+{
+    return !o.contains(S(key)) || need(o, ev, key, type, error);
 }
 
 std::optional<Event> parseGpu(const QJsonObject &o, QString *error)
 {
     for (const char *k : {"id", "name"}) {
-        if (!need(o, "gpu", k, error))
+        if (!need(o, "gpu", k, Type::String, error))
             return std::nullopt;
     }
     GpuEntry g;
@@ -138,7 +176,7 @@ std::optional<Event> parseGpu(const QJsonObject &o, QString *error)
 
 std::optional<Event> parseGl(const QJsonObject &o, QString *error)
 {
-    if (!need(o, "gl", "ok", error))
+    if (!need(o, "gl", "ok", Type::Bool, error))
         return std::nullopt;
     GlEvent e;
     e.ok = o.value(S("ok")).toBool();
@@ -154,9 +192,15 @@ std::optional<Event> parseGl(const QJsonObject &o, QString *error)
 std::optional<Event> parseReady(const QJsonObject &o, QString *error)
 {
     for (const char *k : {"api", "device"}) {
-        if (!need(o, "ready", k, error))
+        if (!need(o, "ready", k, Type::String, error))
             return std::nullopt;
     }
+    for (const char *k : {"renderW", "renderH", "windowW", "windowH"}) {
+        if (!need(o, "ready", k, Type::Int, error))
+            return std::nullopt;
+    }
+    if (!optional(o, "ready", "scale", Type::Number, error))
+        return std::nullopt;
     ReadyEvent e;
     e.api = o.value(S("api")).toString();
     e.device = o.value(S("device")).toString();
@@ -178,24 +222,33 @@ std::optional<Event> parseReady(const QJsonObject &o, QString *error)
 
 std::optional<Event> parseStage(const QJsonObject &o, QString *error)
 {
-    for (const char *k : {"workload", "phase", "seconds"}) {
-        if (!need(o, "stage", k, error))
+    for (const char *k : {"workload", "phase"}) {
+        if (!need(o, "stage", k, Type::String, error))
             return std::nullopt;
     }
+    if (!need(o, "stage", "seconds", Type::Int, error))
+        return std::nullopt;
     return Event{StageEvent{o.value(S("workload")).toString(), o.value(S("phase")).toString(), o.value(S("seconds")).toInt()}};
 }
 
 std::optional<Event> parseResult(const QJsonObject &o, QString *error)
 {
-    for (const char *k : {"workload", "frames", "seconds", "fps", "ftMs", "cpuMs", "sig"}) {
-        if (!need(o, "result", k, error))
+    struct Key {
+        const char *name;
+        Type type;
+    };
+    for (const Key &k : {Key{"workload", Type::String}, Key{"frames", Type::Int}, Key{"seconds", Type::Number},
+                         Key{"fps", Type::Number}, Key{"ftMs", Type::Object}, Key{"cpuMs", Type::Number}, Key{"sig", Type::String}}) {
+        if (!need(o, "result", k.name, k.type, error))
             return std::nullopt;
     }
+    if (!optional(o, "result", "gpuMs", Type::Number, error) || !optional(o, "result", "series", Type::Array, error))
+        return std::nullopt;
     const QJsonObject ft = o.value(S("ftMs")).toObject();
     for (const char *k : {"p1", "p50", "p99"}) {
-        if (!ft.contains(S(k))) {
+        if (!need(ft, "result", k, Type::Number, error)) {
             if (error)
-                *error = QStringLiteral("result: missing ftMs.%1").arg(S(k));
+                error->replace(QStringLiteral(": "), QStringLiteral(": ftMs."));
             return std::nullopt;
         }
     }
@@ -241,7 +294,7 @@ std::optional<Event> parseResult(const QJsonObject &o, QString *error)
 
 std::optional<Event> parseError(const QJsonObject &o, QString *error)
 {
-    if (!need(o, "error", "reason", error))
+    if (!need(o, "error", "reason", Type::String, error))
         return std::nullopt;
     return Event{ErrorEvent{o.value(S("workload")).toString(), o.value(S("reason")).toString(), o.value(S("na")).toBool()}};
 }

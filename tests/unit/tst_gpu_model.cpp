@@ -175,6 +175,20 @@ private slots:
         QCOMPARE(p.fit, fit);
     }
 
+    // AP-5 L7: a screen too small for a 640x360 window is "too small", not a tiny window.
+    void tooSmallScreens()
+    {
+        QVERIFY(!planWindow({704, 456}, 1.0).tooSmall);  // exactly 640x360 after the margins
+        QCOMPARE(planWindow({704, 456}, 1.0).windowLogical.width, 640);
+        QVERIFY(planWindow({703, 456}, 1.0).tooSmall);   // aw 639: width-limited 639x359
+        QVERIFY(planWindow({704, 455}, 1.0).tooSmall);   // ah 359
+        QVERIFY(planWindow({100, 100}, 1.0).tooSmall);
+        QVERIFY(planWindow({0, 0}, 1.0).tooSmall);
+        QVERIFY(planWindow({1280, 400}, 2.0).tooSmall);
+        QVERIFY(!planWindow({1920, 1032}, 1.0).tooSmall);
+        QVERIFY(!planWindow({3440, 1400}, 1.0).tooSmall);
+    }
+
     void sizeAndScaleText()
     {
         QCOMPARE(sizeText({1920, 1080}), QStringLiteral("1920\u00D71080"));
@@ -334,6 +348,23 @@ private slots:
         const auto r = pr::parseLine(line, &err);
         QVERIFY2(r, qPrintable(err));
         QCOMPARE(std::get<pr::ResultEvent>(*r).signature.size(), 432);
+        // Wrong types are malformed lines, not zeros (AP-5 L6).
+        const auto result = [](const char *fps, const char *frames) {
+            return QByteArray("{\"ev\":\"result\",\"workload\":\"g\",\"frames\":") + frames + ",\"seconds\":1,\"fps\":" + fps +
+                   ",\"ftMs\":{\"p1\":1,\"p50\":1,\"p99\":1},\"cpuMs\":1,\"sig\":\"\"}";
+        };
+        QVERIFY(pr::parseLine(result("1", "1"), &err));
+        QVERIFY(!pr::parseLine(result("\"fast\"", "1"), &err));
+        QCOMPARE(err, QStringLiteral("result: bad fps"));
+        QVERIFY(!pr::parseLine(result("1", "1.5"), &err));
+        QCOMPARE(err, QStringLiteral("result: bad frames"));
+        QVERIFY(!pr::parseLine(result("1", "-3"), &err));
+        QVERIFY(!pr::parseLine(result("1", "99999999999"), &err));
+        QVERIFY(!pr::parseLine("{\"ev\":\"stage\",\"workload\":\"g\",\"phase\":\"warmup\",\"seconds\":\"3\"}", &err));
+        QVERIFY(!pr::parseLine("{\"ev\":\"gpu\",\"id\":5,\"name\":\"x\"}", &err));
+        QVERIFY(!pr::parseLine("{\"ev\":\"gl\",\"ok\":\"yes\"}", &err));
+        QVERIFY(!pr::parseLine("{\"ev\":\"ready\",\"api\":\"vulkan\",\"device\":\"d\",\"renderW\":1920,\"renderH\":1080,\"windowW\":1920}", &err));
+        QCOMPARE(err, QStringLiteral("ready: missing windowH"));
         QVERIFY(!pr::parseLine(QByteArray(pr::kMaxLine + 1, ' '), &err));
     }
 

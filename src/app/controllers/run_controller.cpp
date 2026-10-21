@@ -171,16 +171,19 @@ void RunController::connectOrchestrator()
         m_stageColor = testColor(id);
         emit currentChanged();
     });
-    connect(&m_orchestrator, &Orchestrator::interfaceHold, this, [this](int, bool hold) { setHeld(hold); });
+    connect(&m_orchestrator, &Orchestrator::interfaceHold, this, [this](int index, bool hold) {
+        if (hold) {
+            m_heldIndex = index;
+            m_heldTestName = testName(m_plannedIds.value(index, m_currentId));
+        }
+        setHeld(hold);
+    });
     connect(&m_orchestrator, &Orchestrator::progress, this, [this](const ProgressUpdate &u) {
         if (m_held) {
             // Held: keep the last update; only the part reaches the screen (M8).
             m_heldProgress = u;
-            QString part = u.part;
-            if (part.startsWith(QStringLiteral("GPU · ")))
-                part.remove(0, 6);
-            if (part != m_heldPart) {
-                m_heldPart = part;
+            if (u.part != m_heldPart) {
+                m_heldPart = u.part;
                 emit heldPartChanged();
             }
             return;
@@ -188,12 +191,18 @@ void RunController::connectOrchestrator()
         applyProgress(u);
     });
     connect(&m_orchestrator, &Orchestrator::logLine, this, [this](const LogLine &l) {
-        if (m_held)
+        if (m_held) {
+            // The newest lines, up to what the log keeps (a long hold can't grow without bound).
+            if (m_heldLog.size() >= m_log->capacity())
+                m_heldLog.removeFirst();
             m_heldLog.append(l);
-        else
+        } else
             m_log->append(l);
     });
     connect(&m_orchestrator, &Orchestrator::testFinished, this, [this](int index, const TestResult &r) {
+        // A test that is over lets go first, dropping its held progress: replaying
+        // it later would overwrite the row's final text (a hung test's reason).
+        setHeld(false, false);
         m_queue->testFinished(index, r);
         if (r.status != Status::NotRun) {
             m_finishedIds.append(r.testId);
@@ -235,7 +244,7 @@ void RunController::applyProgress(const ProgressUpdate &u)
     emit currentChanged();
 }
 
-void RunController::setHeld(bool held)
+void RunController::setHeld(bool held, bool replayProgress)
 {
     if (held == m_held)
         return;
@@ -244,21 +253,30 @@ void RunController::setHeld(bool held)
         m_ticker.stop();
         m_heldProgress.reset();
         m_heldLog.clear();
+        // The queue row says where the test is (the mockup: "Running in its own window"),
+        // keeping the fraction it has.
+        if (m_heldIndex >= 0 && m_heldIndex < m_queue->rowCount()) {
+            const double fraction = m_queue->data(m_queue->index(m_heldIndex), RunQueueModel::FractionRole).toDouble();
+            m_queue->progress({m_heldIndex, m_plannedIds.value(m_heldIndex), fraction, QStringLiteral("Running in its own window"), {}});
+        }
     } else {
         // In arrival order: the log, then the last progress (it can't step back).
         const QVector<LogLine> lines = std::exchange(m_heldLog, {});
         for (const LogLine &l : lines)
             m_log->append(l);
-        if (m_heldProgress) {
+        if (m_heldProgress && replayProgress) {
             const ProgressUpdate u = *m_heldProgress;
-            m_heldProgress.reset();
             applyProgress(u);
         }
+        m_heldProgress.reset();
         if (!m_heldPart.isEmpty()) {
             m_heldPart.clear();
             emit heldPartChanged();
         }
+        m_heldIndex = -1;
         m_ticker.start();
+        m_queue->tick();  // the elapsed time and the ETA catch up at once
+        refreshEta();
         emit etaChanged();
     }
     emit interfaceHeldChanged();
