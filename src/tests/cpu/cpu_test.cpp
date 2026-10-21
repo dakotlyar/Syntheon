@@ -265,6 +265,10 @@ private:
 
     // Progress (the sampler's thread reports between window starts).
     mutable std::mutex m_progressMutex;
+    // report() runs on the sampler's thread and the measuring one: the
+    // emission is serialised and never goes back (batch D CI, Windows).
+    std::mutex m_emitMutex;
+    double m_lastFraction = 0;
     double m_budgetTotal = 1, m_budgetDone = 0;
     double m_windowBudgetAt = 0, m_windowLength = 0, m_windowStartedAt = 0;
     QString m_stage = QStringLiteral("Preparing");
@@ -308,6 +312,11 @@ void CpuRun::planBudget()
 
 void CpuRun::report()
 {
+    // The sampler's thread and the measuring thread both report. Without
+    // this lock, one could read its fraction, lose the CPU, and send it
+    // after the other had sent a later one: the bar went back (seen on a
+    // 2-vCPU Windows runner). One emission at a time, never below the last.
+    std::lock_guard emitLock(m_emitMutex);
     double fraction;
     QString stage;
     {
@@ -318,6 +327,8 @@ void CpuRun::report()
         // The app adds the elapsed time ("· 2:05", as in the mockup).
         stage = m_stage;
     }
+    fraction = std::max(fraction, m_lastFraction);
+    m_lastFraction = fraction;
     m_ctx.progress(fraction, stage);
 }
 
@@ -1147,7 +1158,13 @@ TestResult CpuRun::run()
         r.statusReason = r.status == Status::Ok ? st : r.statusReason + QStringLiteral("; ") + st;
         r.status = Status::Partial;
     }
-    m_ctx.progress(1.0, QStringLiteral("Done"));
+    {
+        // Through the same lock: a sampler that is still ending after a Stop
+        // can't send an older fraction after this one.
+        std::lock_guard emitLock(m_emitMutex);
+        m_lastFraction = 1.0;
+        m_ctx.progress(1.0, QStringLiteral("Done"));
+    }
     return r;
 }
 
