@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The GPU scene content (Phase 4a design §6): mesh and scene counts, the maths
 // helpers, the cameras, mip chains and the content hash. No GPU, no window.
+#include "tests/gpu/worker/scene/bitmap_font.h"
 #include "tests/gpu/worker/scene/mesh_gen.h"
+#include "tests/gpu/worker/scene/overlay.h"
 #include "tests/gpu/worker/scene/scenes.h"
 #include "tests/gpu/worker/scene/textures.h"
 
@@ -195,6 +197,107 @@ private slots:
         for (const Workload w : kAllWorkloads)
             QCOMPARE(workloadFromId(workloadId(w)), std::optional<Workload>(w));
         QVERIFY(!workloadFromId("metal"));
+    }
+
+    // --- the bitmap font and the overlay (task 8a) ---
+
+    static int popcount(unsigned v)
+    {
+        int n = 0;
+        for (; v; v &= v - 1)
+            ++n;
+        return n;
+    }
+    static int glyphInk(char c)
+    {
+        int n = 0;
+        for (int row = 0; row < kGlyphH; ++row)
+            n += popcount(kGlyphRows[c - kFirstChar][row]);
+        return n;
+    }
+
+    void fontGlyphs()
+    {
+        for (int row = 0; row < kGlyphH; ++row)
+            QCOMPARE(int(kGlyphRows[0][row]), 0);  // the space
+        for (int g = 0; g < kGlyphCount; ++g) {
+            for (int row = 0; row < kGlyphH; ++row)
+                QVERIFY(kGlyphRows[g][row] < 32);
+        }
+        std::vector<std::vector<int>> seen;
+        for (const char c : std::string("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
+            QVERIFY2(glyphInk(c) > 0, "an empty glyph");
+            std::vector<int> rows(kGlyphRows[c - kFirstChar], kGlyphRows[c - kFirstChar] + kGlyphH);
+            for (const auto &other : seen)
+                QVERIFY2(other != rows, "two glyphs are the same");
+            seen.push_back(rows);
+        }
+    }
+
+    void glyphAtlasShape()
+    {
+        const Texture a = glyphAtlas();
+        QCOMPARE(a.width, 570u);
+        QCOMPARE(a.height, 9u);
+        std::size_t ink = 0, want = 0;
+        for (std::size_t i = 3; i < a.rgba8.size(); i += 4)
+            ink += a.rgba8[i] == 255 ? 1 : 0;
+        for (int g = 0; g < kGlyphCount; ++g) {
+            for (int row = 0; row < kGlyphH; ++row)
+                want += std::size_t(popcount(kGlyphRows[g][row]));
+        }
+        QCOMPARE(ink, want);
+    }
+
+    void overlayTexts()
+    {
+        QCOMPARE(overlayText("Geometry", "Vulkan", 412), std::string("Geometry | Vulkan | 412 fps"));
+        QCOMPARE(overlayText("Geometry", "Vulkan", std::nullopt), std::string("Geometry | Vulkan | warming up"));
+        QCOMPARE(overlayText(std::string(60, 'x'), "Vulkan", 1).size(), std::size_t(40));
+        QCOMPARE(overlayText("Caf\xC3\xA9", "Vulkan", 1), std::string("Caf?? | Vulkan | 1 fps"));
+    }
+
+    void overlayLayouts()
+    {
+        const OverlayLayout a = overlayLayout(27, 1.0);
+        QCOMPARE(a.x, 8);
+        QCOMPARE(a.y, 8);
+        QCOMPARE(a.k, 2);
+        QCOMPARE(a.pad, 6);
+        QCOMPARE(a.w, 334);
+        QCOMPARE(a.h, 26);
+        const OverlayLayout b = overlayLayout(27, 1.5);
+        QCOMPARE(b.x, 12);
+        QCOMPARE(b.y, 12);
+        QCOMPARE(b.k, 3);
+        QCOMPARE(b.pad, 9);
+        QCOMPARE(b.w, 501);
+        QCOMPARE(b.h, 39);
+    }
+
+    void overlayPacking()
+    {
+        const auto p = packOverlay("ABCDE");
+        QCOMPARE(p[0], 0x44434241u);
+        QCOMPARE(p[1], 0x45u);
+        QCOMPARE(p[2], 0u);
+    }
+
+    void overlayRaster()
+    {
+        OverlayLayout l;
+        const std::vector<std::uint8_t> px = rasterOverlay("A", 1.0, &l);
+        QCOMPARE(l.w, 22);
+        QCOMPARE(l.h, 26);
+        QCOMPARE(px.size(), std::size_t(22) * 26 * 4);
+        std::size_t ink = 0;
+        for (std::size_t i = 0; i < px.size(); i += 4) {
+            if (px[i] == 255 && px[i + 1] == 255 && px[i + 2] == 255 && px[i + 3] == 255)
+                ++ink;
+            else
+                QVERIFY(px[i] == 0 && px[i + 1] == 0 && px[i + 2] == 0 && px[i + 3] == 153);
+        }
+        QCOMPARE(ink, std::size_t(4 * glyphInk('A')));
     }
 };
 

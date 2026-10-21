@@ -21,3 +21,5 @@ For THIRD-PARTY-NOTICES.txt (cmake/ThirdPartyNotices.cmake, cmake/QtNotices.cmak
   `spdx/CC0-1.0.txt` for the loader and `spdx/Apache-2.0.txt` for the Khronos
   registry parts of its output. `KHR/khrplatform.h` has its own MIT-style
   notice at its top.
+- `misc-fixed-5x7.txt`: the public-domain statement of X.Org's misc-fixed 5x7
+  font (the GPU overlay's bitmap font, `font-misc-misc` 1.1.3).

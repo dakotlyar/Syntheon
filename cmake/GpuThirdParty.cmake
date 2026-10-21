@@ -57,6 +57,9 @@ synbench_add_notice(NAME "volk" VERSION ${SYNBENCH_VOLK_VERSION} LICENCE "MIT"
 synbench_add_notice(NAME "glad (OpenGL loader)" VERSION ${SYNBENCH_GLAD_VERSION} LICENCE "CC0-1.0"
     FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/spdx/CC0-1.0.txt"
     NOTE "The loader glad generated is under (WTFPL OR CC0-1.0); SynBench uses it under CC0-1.0.")
+synbench_add_notice(NAME "misc-fixed 5x7 font (X.Org font-misc-misc)" VERSION 1.1.3 LICENCE "Public domain"
+    FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/misc-fixed-5x7.txt"
+    NOTE "The overlay's bitmap font (tools/gpu-shaders/font5x7.py converts it into src/tests/gpu/worker/scene/bitmap_font.inc).")
 synbench_add_notice(NAME "Khronos OpenGL registry (in glad's loader)" LICENCE "Apache-2.0"
     FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/spdx/Apache-2.0.txt"
     NOTE "glad's output carries parts of the Khronos OpenGL registry (Apache-2.0). KHR/khrplatform.h has its own MIT-style notice at its top.")

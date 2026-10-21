@@ -1,0 +1,5 @@
+Public domain font.  Share and enjoy.
+
+The 5x7 font of X.Org's misc-fixed (font-misc-misc 1.1.3, 5x7.bdf), whose COPYING reads exactly:
+
+"Public domain font.  Share and enjoy."
