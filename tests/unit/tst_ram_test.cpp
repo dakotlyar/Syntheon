@@ -907,9 +907,10 @@ private slots:
         QCOMPARE(cells(*at, 3).at(1), QStringLiteral("100%"));
     }
 
-    // The same end to end: a firmware readout of one 16-bit module (12 GB/s
-    // "peak") under a real run's read: the warning names the bus width too,
-    // and the Detail page marks the peak.
+    // The same end to end: a firmware readout of one 16-bit module at
+    // 400 MT/s (0.8 GB/s "peak", far below what any machine reads, even a
+    // 1-core CI runner at stub scale) under a real run's read: the warning
+    // names the bus width too, and the Detail page marks the peak.
     void implausiblePeakRun()
     {
         tests::RamTest t;
@@ -920,6 +921,8 @@ private slots:
         QJsonObject one = modules[0].toObject();
         one.insert(QStringLiteral("data_width"), 16);
         one.insert(QStringLiteral("total_width"), 16);
+        one.insert(QStringLiteral("speed_mts"), 400);
+        one.insert(QStringLiteral("configured_speed_mts"), 400);
         memory.insert(QStringLiteral("modules"), QJsonArray{one});
         memory.insert(QStringLiteral("channels"), 1);
         s.data.insert(QStringLiteral("memory"), memory);
