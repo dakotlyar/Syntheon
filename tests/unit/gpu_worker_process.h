@@ -19,6 +19,17 @@
 #include <functional>
 #include <variant>
 
+// A missing software driver or X server skips a test locally, but fails it where
+// the CI sets SYNBENCH_REQUIRE_SOFTWARE_GPU (Linux: lavapipe and xvfb are installed
+// there, so a skip would hide a broken test).
+#define SB_SKIP_OR_FAIL(msg)                                    \
+    do {                                                        \
+        if (qEnvironmentVariableIsSet("SYNBENCH_REQUIRE_SOFTWARE_GPU")) \
+            QFAIL(msg);                                         \
+        else                                                    \
+            QSKIP(msg);                                         \
+    } while (false)
+
 namespace sb::gpu::testing {
 
 namespace pr = sb::gpu::protocol;

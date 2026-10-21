@@ -171,7 +171,7 @@ private slots:
     void probeListsGpus()
     {
         if (sb::gpu::testing::lavapipeIcd().isEmpty())
-            QSKIP("lavapipe (the software Vulkan driver) isn't installed");
+            SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         sb::gpu::testing::addSoftwareVulkan(env);  // only lavapipe: the list is the same on every machine
         for (const bool software : {false, true}) {

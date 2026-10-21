@@ -51,7 +51,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build libgl1-mesa-dev libegl1-mesa-dev \
-            libxkbcommon-dev libfontconfig1-dev
+            libxkbcommon-dev libfontconfig1-dev \
+            mesa-vulkan-drivers vulkan-validationlayers xvfb libxcb-cursor0
 
       - name: Install Qt
         uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
@@ -103,8 +104,13 @@ jobs:
           cmake --install build/linux-x64-release --prefix stage
           bash packaging/checks/no-test-binaries.sh stage
 
+      # The GPU tests run the worker on software drivers (lavapipe, llvmpipe),
+      # with the validation layers: windows go to an invisible X server, and a
+      # missing lavapipe or xvfb is a failure here, not a skip (Phase 4a task 16).
       - name: Unit tests
-        run: ctest --preset linux-x64-release --output-on-failure
+        env:
+          SYNBENCH_REQUIRE_SOFTWARE_GPU: "1"
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" ctest --preset linux-x64-release --output-on-failure
 
       # §6.4: the golden tables must not depend on the compiler. The GCC build
       # above checked them (ctest cpu_golden_tables); this builds the
@@ -124,7 +130,10 @@ jobs:
         env:
           SYNBENCH_SMOKE: "1"
           QT_QPA_PLATFORM: offscreen
-        run: build/linux-x64-release/bin/SynBench
+          # The GPU test runs for real on lavapipe (the worker's windows on xvfb).
+          SYNBENCH_GPU_WORKER_ARGS: "--allow-software --render-size 320x180 --content-scale 64"
+          SYNBENCH_GPU_WORKER_ENV: "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json|LIBGL_ALWAYS_SOFTWARE=1"
+        run: xvfb-run -a build/linux-x64-release/bin/SynBench
 
       # A failing (or crashing) test must leave something to read: the tail of
       # every test log, the failed tests re-run verbosely, and the logs as an
@@ -257,6 +266,9 @@ jobs:
       - name: Smoke launch
         timeout-minutes: 3
         shell: pwsh
+        env:
+          # The GPU test on the software renderer (WARP) once its DirectX backends exist (tasks 18, 20).
+          SYNBENCH_GPU_WORKER_ARGS: "--allow-software --render-size 320x180 --content-scale 64"
         run: ./packaging/checks/run-smoke.ps1 -Exe build/windows-x64-release/bin/SynBench.exe -TimeoutSeconds 60
 
       # A failing (or crashing) test must leave something to read: the tail of

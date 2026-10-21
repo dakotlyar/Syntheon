@@ -38,6 +38,27 @@ if(UNIX)
         "XDG_CACHE_HOME=${SB_TEST_HOME}/.cache"
         "XDG_STATE_HOME=${SB_TEST_HOME}/.local/state"
         "SYNBENCH_TEST_RUNTIME_FILE=${SB_TEST_HOME}/runtime-dir")
+    # The GPU worker on software drivers (Phase 4a task 16): the lavapipe ICD (Arch
+    # names it lvp_icd.json, Debian/Ubuntu lvp_icd.<arch>.json) and --allow-software,
+    # so no unit test ever touches a real GPU, and the picker still has a GPU on a CI
+    # runner (GpuClient reads both hooks; the tests of the GPU backends set their own).
+    string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _sb_arch)
+    if(_sb_arch STREQUAL "arm64")
+        set(_sb_arch aarch64)
+    endif()
+    set(SB_LAVAPIPE_ICD "")
+    foreach(_dir /usr/share/vulkan/icd.d /usr/local/share/vulkan/icd.d /etc/vulkan/icd.d)
+        foreach(_name lvp_icd.json lvp_icd.${_sb_arch}.json)
+            if(NOT SB_LAVAPIPE_ICD AND EXISTS "${_dir}/${_name}")
+                set(SB_LAVAPIPE_ICD "${_dir}/${_name}")
+            endif()
+        endforeach()
+    endforeach()
+    if(SB_LAVAPIPE_ICD)
+        list(APPEND SB_TEST_ENVIRONMENT
+            "SYNBENCH_GPU_WORKER_ARGS=--allow-software"
+            "SYNBENCH_GPU_WORKER_ENV=VK_DRIVER_FILES=${SB_LAVAPIPE_ICD}|LIBGL_ALWAYS_SOFTWARE=1")
+    endif()
     set(SB_TEST_FIXTURES test_home)
     add_test(NAME test_home_setup
         COMMAND ${CMAKE_COMMAND} "-DHOME_DIR=${SB_TEST_HOME}" -DMODE=setup -P "${CMAKE_CURRENT_SOURCE_DIR}/check_test_home.cmake")

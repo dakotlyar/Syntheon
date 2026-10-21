@@ -99,6 +99,26 @@ QString sessionName()
 #endif
 }
 
+// The default GPU among those with a usable 3D API (a card without a driver, such as a
+// GPU only the kernel knows, is never the default); software ones count here because
+// the worker lists them only under its dev hook (P12).
+std::optional<int> chooseDefault(const QVector<GpuEntry> &gpus)
+{
+    QVector<GpuEntry> usable;
+    QVector<int> where;
+    for (int i = 0; i < gpus.size(); ++i) {
+        bool any = false;
+        for (const char *key : kApiKeys)
+            any = any || gpus[i].apis.value(QString::fromLatin1(key)).ok;
+        if (any) {
+            usable.append(gpus[i]);
+            where.append(i);
+        }
+    }
+    const auto def = defaultGpuIndex(usable, true);
+    return def ? std::optional<int>(where[*def]) : std::nullopt;
+}
+
 // One API's state through a run.
 struct ApiRun {
     ApiId id;
@@ -551,7 +571,7 @@ Availability GpuTest::probe(const ProbeContext &) const
         QMutexLocker lock(&m_mutex);
         m_gpus = found;
     }
-    const std::optional<int> def = defaultGpuIndex(found);
+    const std::optional<int> def = chooseDefault(found);  // the worker lists software ones only with its dev hook (P12)
     if (!def)
         return Availability::unavailable(QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found"));
     const GpuEntry &g = found[*def];
@@ -579,8 +599,6 @@ OptionSchema GpuTest::options(const ProbeContext &ctx, const Availability &) con
     gpu.label = QStringLiteral("GPU");
     gpu.kind = OptionKind::DynamicSelect;
     for (const GpuEntry &g : list) {
-        if (g.kind == GpuKind::Software)
-            continue;  // P12
         QStringList apis;
         for (const char *key : kApiKeys) {
             const ApiAvailability av = g.apis.value(QString::fromLatin1(key));
@@ -596,7 +614,7 @@ OptionSchema GpuTest::options(const ProbeContext &ctx, const Availability &) con
             item.disabledReason = QStringLiteral("no 3D API");
         gpu.items.append(item);
     }
-    if (const auto def = defaultGpuIndex(list))
+    if (const auto def = chooseDefault(list))
         gpu.defaultValue = list[*def].id;
     if (!gpu.items.isEmpty())
         o.options.append(gpu);
@@ -611,7 +629,7 @@ OptionSchema GpuTest::options(const ProbeContext &ctx, const Availability &) con
     };
     // The APIs of the default GPU.
     QStringList ok, na;
-    if (const auto def = defaultGpuIndex(list)) {
+    if (const auto def = chooseDefault(list)) {
         for (const char *key : kApiKeys) {
             const ApiAvailability av = list[*def].apis.value(QString::fromLatin1(key));
             const QString name = apiName(*apiFromKey(QString::fromLatin1(key)));
@@ -647,7 +665,7 @@ std::chrono::seconds GpuTest::estimate(const OptionValues &values) const
     int apis = kDefaultApis;
     if (!list.isEmpty()) {
         const int at = findGpu(list, values.value(QStringLiteral("gpu")).toString());
-        const auto def = at >= 0 ? std::optional<int>(at) : defaultGpuIndex(list);
+        const auto def = at >= 0 ? std::optional<int>(at) : chooseDefault(list);
         if (def) {
             apis = 0;
             for (const char *key : kApiKeys)
@@ -681,7 +699,7 @@ TestResult GpuTest::run(RunContext &ctx, const OptionValues &options)
     }
     int at = findGpu(list, options.value(QStringLiteral("gpu")).toString());
     if (at < 0) {
-        const auto def = defaultGpuIndex(list);
+        const auto def = chooseDefault(list);
         if (!def)
             return TestResult::notAvailable(QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found"));
         at = *def;  // an unknown id falls back to the default (P11)

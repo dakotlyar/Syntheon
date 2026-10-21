@@ -754,6 +754,18 @@ bool smokeAccepts(const TestResult &result)
 {
     if (result.status == Status::Ok)
         return true;
+    // The GPU test is Partial until its native 2D and fill-rate parts are built (Phase 4a, tasks
+    // 28 and 32): the 3D scenes ran, and every other sub-test says "not built yet".
+    if (result.status == Status::Partial && result.testId == QLatin1StringView("gpu")) {
+        for (const SubResult &s : result.subResults) {
+            if (s.status == Status::Ok)
+                continue;
+            if (s.status == Status::NotAvailable && s.reason.startsWith(QLatin1StringView("not built yet")))
+                continue;
+            return false;
+        }
+        return true;
+    }
     if (result.status != Status::Partial || result.testId != QLatin1StringView("ram"))
         return false;
     bool loadedNa = false;

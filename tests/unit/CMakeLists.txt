@@ -95,3 +95,10 @@ if(TARGET synbench_app)
     target_compile_definitions(tst_single_instance PRIVATE SYNBENCH_EXE="$<TARGET_FILE:synbench_app>")
     add_dependencies(tst_single_instance synbench_app)
 endif()
+
+# The GPU tests, to run (or skip) as a group: ctest -L gpu.
+foreach(t tst_gpu_model tst_gpu_scene tst_gpu_loaders tst_gpu_worker tst_gpu_client tst_gpu_test tst_gpu_backends tst_gpu_present)
+    if(TARGET ${t})
+        set_property(TEST ${t} APPEND PROPERTY LABELS gpu)
+    endif()
+endforeach()

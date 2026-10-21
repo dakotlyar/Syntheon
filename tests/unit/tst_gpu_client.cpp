@@ -134,6 +134,7 @@ private slots:
 
     void environmentIsFromScratch()
     {
+        qunsetenv("SYNBENCH_GPU_WORKER_ENV");  // the test run's own hook (software drivers) adds on purpose
         qputenv("LD_LIBRARY_PATH", "/tmp/planted");
         qputenv("QT_PLUGIN_PATH", "/tmp/planted");
         qputenv("VK_DRIVER_FILES", "/tmp/planted");

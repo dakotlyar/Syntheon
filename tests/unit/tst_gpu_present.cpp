@@ -42,9 +42,9 @@ private slots:
 #endif
         m_xvfbRun = QStandardPaths::findExecutable(QStringLiteral("xvfb-run"));
         if (m_xvfbRun.isEmpty())
-            QSKIP("xvfb-run isn't installed (the windowed cases never use the real display)");
+            SB_SKIP_OR_FAIL("xvfb-run isn't installed (the windowed cases never use the real display)");
         if (lavapipeIcd().isEmpty())
-            QSKIP("lavapipe (the software Vulkan driver) isn't installed");
+            SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
         // X11 (xcb) on xvfb-run's DISPLAY, never the session's Wayland.
         m_env = QProcessEnvironment::systemEnvironment();
         m_env.remove(QStringLiteral("WAYLAND_DISPLAY"));

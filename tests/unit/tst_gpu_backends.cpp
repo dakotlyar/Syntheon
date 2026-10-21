@@ -113,7 +113,7 @@ private slots:
         const SceneData scene = buildScene(Workload::Quads, 64);
         auto b = headlessVulkan(320, 180, scene, &why);
         if (!b && why.startsWith(QLatin1StringView("no software")))
-            QSKIP(qPrintable(why));
+            SB_SKIP_OR_FAIL(qPrintable(why));
         QVERIFY2(b, qPrintable(why));
         std::vector<double> gpu;
         for (int i = 0; i < 30; ++i)
@@ -155,7 +155,7 @@ private slots:
     void vulkanWorker()
     {
         if (lavapipeIcd().isEmpty())
-            QSKIP("lavapipe (the software Vulkan driver) isn't installed");
+            SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         addSoftwareVulkan(env);
         WorkerProcess w(kWorker,
@@ -220,7 +220,7 @@ private slots:
         QCOMPARE(scene.drawsPerFrame, draws);
         auto b = headlessVulkan(320, 180, scene, &why);
         if (!b && why.startsWith(QLatin1StringView("no software")))
-            QSKIP(qPrintable(why));
+            SB_SKIP_OR_FAIL(qPrintable(why));
         QVERIFY2(b, qPrintable(why));
         std::vector<double> gpu;
         for (int i = 0; i < 8; ++i)
@@ -266,7 +266,7 @@ private slots:
     {
         QFETCH(QString, plan);
         if (lavapipeIcd().isEmpty())
-            QSKIP("lavapipe (the software Vulkan driver) isn't installed");
+            SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         addSoftwareVulkan(env);
         WorkerProcess w(kWorker,
@@ -297,7 +297,7 @@ private slots:
         constexpr std::uint32_t W = 640, H = 360;
         auto b = headlessVulkan(W, H, buildScene(Workload::Quads, 64), &why);
         if (!b && why.startsWith(QLatin1StringView("no software")))
-            QSKIP(qPrintable(why));
+            SB_SKIP_OR_FAIL(qPrintable(why));
         QVERIFY2(b, qPrintable(why));
         const std::string text = "Geometry | Vulkan | 412 fps";
         b->setOverlay(text);
