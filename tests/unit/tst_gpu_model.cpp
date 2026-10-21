@@ -323,6 +323,13 @@ private slots:
         // A result without GPU timestamps has no gpuMs.
         res.gpuMs.reset();
         QVERIFY(!std::get<pr::ResultEvent>(*pr::parseLine(pr::encode(res), nullptr)).gpuMs);
+        // The optional present mode (task 10): sent only when known, and round-tripped.
+        QVERIFY(!pr::encode(res).contains("\"present\""));
+        res.present = QStringLiteral("MAILBOX");
+        QCOMPARE(std::get<pr::ResultEvent>(*pr::parseLine(pr::encode(res), nullptr)).present, QStringLiteral("MAILBOX"));
+        QString presentError;
+        QVERIFY(!pr::parseLine(pr::encode(res).replace("\"MAILBOX\"", "7"), &presentError));
+        QCOMPARE(presentError, QStringLiteral("result: bad present"));
     }
 
     void protocolErrors()

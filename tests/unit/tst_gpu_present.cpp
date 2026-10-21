@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// The GPU worker with a real window and swapchain (Phase 4a task 10: Vulkan
+// on lavapipe through X11, with validation). The worker always runs inside
+// its own invisible X server (xvfb-run around the worker, not just around
+// ctest): every unit test runs with QT_QPA_PLATFORM=offscreen and the
+// session's DISPLAY, so ctest alone can't tell xvfb from Dave's desktop, and
+// a test window must never appear there. Skipped without xvfb-run or lavapipe.
+#include "gpu_worker_process.h"
+
+#include <QStandardPaths>
+#include <QTest>
+
+using namespace sb::gpu::testing;
+
+namespace {
+
+const QString kWorker = QStringLiteral(SB_GPU_WORKER);
+
+} // namespace
+
+class TestGpuPresent : public QObject
+{
+    Q_OBJECT
+
+    QProcessEnvironment m_env;
+    QString m_xvfbRun;
+
+    // xvfb-run -a -s "-screen 0 1920x1080x24" synbench-gpu --run --api vulkan ... (A-X's screen).
+    static QStringList vulkanArgs()
+    {
+        return {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker,
+                QStringLiteral("--run"), QStringLiteral("--api"), QStringLiteral("vulkan"), QStringLiteral("--gpu"), kLavapipeId,
+                QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
+                QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation")};
+    }
+
+private slots:
+    void initTestCase()
+    {
+#if !defined(Q_OS_LINUX)
+        QSKIP("the windowed Vulkan case runs on Linux (lavapipe under xvfb)");
+#endif
+        m_xvfbRun = QStandardPaths::findExecutable(QStringLiteral("xvfb-run"));
+        if (m_xvfbRun.isEmpty())
+            QSKIP("xvfb-run isn't installed (the windowed cases never use the real display)");
+        if (lavapipeIcd().isEmpty())
+            QSKIP("lavapipe (the software Vulkan driver) isn't installed");
+        // X11 (xcb) on xvfb-run's DISPLAY, never the session's Wayland.
+        m_env = QProcessEnvironment::systemEnvironment();
+        m_env.remove(QStringLiteral("WAYLAND_DISPLAY"));
+        m_env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("xcb"));
+        addSoftwareVulkan(m_env);
+    }
+
+    // A 1 s window run with a swapchain: vsync off (IMMEDIATE or MAILBOX), no
+    // validation error.
+    void vulkanPresent()
+    {
+        WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:200:1000"), m_env);
+        QVERIFY(w.started());
+        const int code = w.finish();
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 1);
+        QVERIFY2(rs[0].present == QLatin1StringView("IMMEDIATE") || rs[0].present == QLatin1StringView("MAILBOX"), qPrintable(rs[0].present));
+        QVERIFY(rs[0].frames >= 3);
+        const auto ready = std::get<pr::ReadyEvent>(w.events().first());
+        QVERIFY(ready.windowW >= 640 && ready.windowH >= 360);
+        QVERIFY2(!w.stderrText().contains(QLatin1StringView("vulkan:")), qPrintable(w.stderrText()));
+    }
+
+    // Serve mode with a window: two commands, so the swapchain is released
+    // (suspend, hide) and made again (show, resume) in between.
+    void vulkanSuspendResume()
+    {
+        WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--serve"), m_env);
+        QVERIFY(w.started());
+        QVERIFY2(w.waitFor([](const pr::Event &e) { return is<pr::ReadyEvent>(e); }), qPrintable(w.problem()));
+        for (const char *cmd : {"run geometry:100:300", "run sprites:100:300"}) {
+            w.send(cmd);
+            QVERIFY2(w.waitForIdle(), qPrintable(w.problem()));
+        }
+        w.send("quit");
+        QCOMPARE(w.finish(), 0);
+        QVERIFY2(errors(w.events()).isEmpty(), qPrintable(errors(w.events())));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 2);
+        for (const pr::ResultEvent &r : rs) {
+            QVERIFY(!r.present.isEmpty());
+            QVERIFY(r.frames >= 3);
+        }
+        QVERIFY(is<pr::DoneEvent>(w.events().last()));
+        QVERIFY2(!w.stderrText().contains(QLatin1StringView("vulkan:")), qPrintable(w.stderrText()));
+    }
+};
+
+QTEST_GUILESS_MAIN(TestGpuPresent)
+#include "tst_gpu_present.moc"

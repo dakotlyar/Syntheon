@@ -90,6 +90,8 @@ QJsonObject encodeEvent(const Event &event)
                               {S("sig"), QString::fromLatin1(e.signature.toHex())}};
                 if (e.gpuMs)
                     o.insert(S("gpuMs"), *e.gpuMs);
+                if (!e.present.isEmpty())
+                    o.insert(S("present"), e.present);
                 return o;
             },
             [](const ErrorEvent &e) {
@@ -243,7 +245,8 @@ std::optional<Event> parseResult(const QJsonObject &o, QString *error)
         if (!need(o, "result", k.name, k.type, error))
             return std::nullopt;
     }
-    if (!optional(o, "result", "gpuMs", Type::Number, error) || !optional(o, "result", "series", Type::Array, error))
+    if (!optional(o, "result", "gpuMs", Type::Number, error) || !optional(o, "result", "series", Type::Array, error)
+        || !optional(o, "result", "present", Type::String, error))
         return std::nullopt;
     const QJsonObject ft = o.value(S("ftMs")).toObject();
     for (const char *k : {"p1", "p50", "p99"}) {
@@ -264,6 +267,7 @@ std::optional<Event> parseResult(const QJsonObject &o, QString *error)
     e.cpuMs = o.value(S("cpuMs")).toDouble();
     if (o.contains(S("gpuMs")))
         e.gpuMs = o.value(S("gpuMs")).toDouble();
+    e.present = o.value(S("present")).toString();
     for (const QJsonValue &v : o.value(S("series")).toArray()) {
         const QJsonArray p = v.toArray();
         if (p.size() != 2) {

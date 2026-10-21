@@ -15,10 +15,17 @@
 #include <QString>
 #include <QWindow>
 
+#include <memory>
+
+class QVulkanInstance;
+
 class WorkerWindow : public QWindow
 {
 public:
     WorkerWindow(QSurface::SurfaceType type, const sb::gpu::WindowPlan &plan, QScreen *screen);
+    // Destroys the platform window (and with it a Vulkan surface) before the
+    // QVulkanInstance it was made with.
+    ~WorkerWindow() override;
     bool stopRequested() const;   // Esc or close
     bool windowOk() const;        // exposed, and size/screen/scale unchanged since the first expose
     void setWorkloadTitle(const QString &api, const QString &workload);  // "SynBench GPU test · Vulkan · Geometry"
@@ -28,6 +35,9 @@ public:
     bool exposedSinceShow() const { return m_armed; }
     QString problem() const;
     QSize physicalSize() const;   // lround(logical x devicePixelRatio)
+    // Task 10 (qt_glue::vulkanTarget): the QVulkanInstance that adopted the
+    // backend's VkInstance lives as long as this window.
+    void keepVulkanInstance(std::unique_ptr<QVulkanInstance> instance);
 
 protected:
     void keyPressEvent(QKeyEvent *) override; bool event(QEvent *) override; void exposeEvent(QExposeEvent *) override;
@@ -38,4 +48,5 @@ private:
     QSize m_size;
     QPointer<QScreen> m_screen;
     qreal m_dpr = 0;
+    std::unique_ptr<QVulkanInstance> m_vulkan;
 };

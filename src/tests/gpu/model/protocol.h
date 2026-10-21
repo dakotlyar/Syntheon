@@ -51,6 +51,9 @@ struct ResultEvent {
     std::optional<double> gpuMs;
     QVector<QPointF> series;
     QByteArray signature;
+    // Optional (Antilles' decision after task 9): the present mode resume()
+    // chose for this workload, "IMMEDIATE" or "MAILBOX"; "" = not sent.
+    QString present;
 };
 struct ErrorEvent {
     QString workload, reason;

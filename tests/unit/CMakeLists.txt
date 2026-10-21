@@ -63,6 +63,14 @@ synbench_add_unit_test(tst_gpu_loaders SOURCES tst_gpu_loaders.cpp LIBS synbench
 synbench_add_unit_test(tst_gpu_worker SOURCES tst_gpu_worker.cpp LIBS synbench_gpu_model synbench_gpu_backends)
 add_dependencies(tst_gpu_worker synbench-gpu)
 target_compile_definitions(tst_gpu_worker PRIVATE SB_GPU_WORKER="$<TARGET_FILE:synbench-gpu>")
+# The real backends on software drivers (task 10: Vulkan on lavapipe, with
+# validation): headless in-process and through the worker; tst_gpu_present
+# with a window, under xvfb-run only (A-X; it skips under offscreen).
+foreach(t tst_gpu_backends tst_gpu_present)
+    synbench_add_unit_test(${t} SOURCES ${t}.cpp gpu_worker_process.h LIBS synbench_gpu_model synbench_gpu_backends)
+    add_dependencies(${t} synbench-gpu)
+    target_compile_definitions(${t} PRIVATE SB_GPU_WORKER="$<TARGET_FILE:synbench-gpu>")
+endforeach()
 synbench_add_unit_test(tst_stubs SOURCES tst_stubs.cpp fake_test.h LIBS synbench_builtin_tests synbench_storage)
 synbench_add_unit_test(tst_controllers SOURCES tst_controllers.cpp LIBS synbench_appcore)
 synbench_add_unit_test(tst_run_controller SOURCES tst_run_controller.cpp LIBS synbench_appcore)

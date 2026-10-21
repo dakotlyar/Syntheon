@@ -203,9 +203,11 @@ Args parseArgs(const std::vector<std::string> &argv)
 }
 
 // "10de:2c05@0000:01:00.0", "10de:2c05#0" (P11) -> the BackendInit identity.
+// A vendor id can be wider than 4 digits: makeLinuxGpuId's %04x gives
+// lavapipe (VK_VENDOR_ID_MESA) "10005:0000#0" (task 10).
 bool parseGpuId(const QString &id, BackendInit *init)
 {
-    static const QRegularExpression re(QStringLiteral("^([0-9a-f]{4}):([0-9a-f]{4})(?:@(.+)|#([0-9]+))$"));
+    static const QRegularExpression re(QStringLiteral("^([0-9a-f]{4,8}):([0-9a-f]{4,8})(?:@(.+)|#([0-9]+))$"));
     const auto m = re.match(id);
     if (!m.hasMatch())
         return false;
@@ -238,9 +240,10 @@ std::unique_ptr<IBackend> makeBackend(const std::string &api)
     if (api == "null")
         return makeNullBackend();
 #endif
-    // Tasks 10 (vulkan), 18 (dx12), 20 (dx11), 21 (opengl) add theirs here;
-    // 26/27 run the native paths (qt, d2d).
-    (void)api;
+    if (api == "vulkan")
+        return makeVulkanBackend();
+    // Tasks 18 (dx12), 20 (dx11), 21 (opengl) add theirs here; 26/27 run the
+    // native paths (qt, d2d).
     return nullptr;
 }
 
@@ -556,13 +559,14 @@ public:
                 emitLine(errorEvent(&w, "the test window didn't appear"));
                 return Outcome::Error;
             }
-            target = glue::rasterTarget(*m_window);
+            target = m_backend->api() == Api::Vulkan ? glue::vulkanTarget(*m_window) : glue::rasterTarget(*m_window);
         }
         if (const std::string e = m_backend->resume(target); !e.empty()) {
             if (m_window)
                 m_window->hide();
             return failed(w, e);
         }
+        m_present = m_backend->presentMode();
         WorkloadResult r = m_runner->run(p, m_scenes.at(w));
         const std::string suspended = m_backend->suspend();
         if (m_window)
@@ -615,20 +619,34 @@ private:
             e.gpuMs = mean(r.gpuMs);
         e.series = bucketSeries(r.frameMs);
         e.signature = QByteArray(reinterpret_cast<const char *>(r.signature.data()), qsizetype(r.signature.size()));
+        e.present = QString::fromStdString(m_present);
         return e;
     }
 
+public:
+    ~Worker()
+    {
+        // The window's platform window (and a Vulkan surface Qt made for it)
+        // goes before the backend's device and instance; then the backend,
+        // then the window object.
+        m_runner.reset();
+        if (m_window)
+            m_window->destroy();
+        m_backend.reset();
+    }
+
+private:
     const Args &m_args;
     Control &m_control;
     WindowPlan m_plan;
     std::vector<WorkloadPlan> m_runPlan;
     std::map<Workload, SceneData> m_scenes;
     BackendInfo m_info;
-    // Destroyed in reverse: the runner, then the backend (its swapchain and
-    // surface), then the window they were made for.
+    // ~Worker() orders their destruction (the window's surface before the backend).
     std::unique_ptr<WorkerWindow> m_window;
     std::unique_ptr<IBackend> m_backend;
     std::unique_ptr<Runner> m_runner;
+    std::string m_present;  // the last resume()'s present mode (the result's "present")
 };
 
 #if defined(SYNBENCH_DEV_HOOKS)

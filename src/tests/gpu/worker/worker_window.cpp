@@ -4,6 +4,7 @@
 #include <QExposeEvent>
 #include <QGuiApplication>
 #include <QKeyEvent>
+#include <QVulkanInstance>
 
 #include <cmath>
 
@@ -22,6 +23,16 @@ WorkerWindow::WorkerWindow(QSurface::SurfaceType type, const sb::gpu::WindowPlan
         setPosition(avail.x() + (avail.width() - size.width()) / 2, avail.y() + (avail.height() - size.height()) / 2);
     }
     setTitle(QStringLiteral("SynBench GPU test"));
+}
+
+WorkerWindow::~WorkerWindow()
+{
+    destroy();
+}
+
+void WorkerWindow::keepVulkanInstance(std::unique_ptr<QVulkanInstance> instance)
+{
+    m_vulkan = std::move(instance);
 }
 
 bool WorkerWindow::stopRequested() const

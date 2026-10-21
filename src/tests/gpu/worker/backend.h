@@ -15,6 +15,9 @@
 //   resume() gets the shown window (headless: the headless target again) and
 //   makes the swapchain; suspend() releases it. unload() is also called after
 //   a failed load() or frame().
+//   Vulkan (task 10): the window's VkSurfaceKHR belongs to the window (Qt's
+//   QVulkanInstance makes and destroys it); the worker destroys the window's
+//   platform window before the backend, so the surface goes before the instance.
 
 #include "tests/gpu/worker/scene/scenes.h"
 
@@ -41,6 +44,8 @@ struct PresentTarget {
     std::function<void()> glSwapBuffers;
     std::uint32_t glDefaultFramebuffer = 0;
     std::uint32_t windowWidth = 0, windowHeight = 0;   // physical px (0 if headless)
+    // Task 10: the window's devicePixelRatio, for the overlay's size (§5.9); 1 when headless.
+    double scale = 1.0;
 };
 
 struct BackendInit {
@@ -90,6 +95,10 @@ public:
     // Draw calls issued by the last frame() before its present pass (task 11+:
     // must equal SceneData::drawsPerFrame; a self-check, not a metric).
     virtual std::uint32_t lastFrameDraws() const = 0;
+    // The present mode the last resume() chose ("IMMEDIATE", "MAILBOX"), for
+    // the result's optional "present" key (Antilles' decision after task 9);
+    // "" when there is none (headless, or an API that doesn't choose one).
+    virtual std::string presentMode() const { return {}; }
 };
 
 std::unique_ptr<IBackend> makeNullBackend();      // dev hook and tests
