@@ -14,7 +14,10 @@ qt_add_qml_module(tst_qml
 target_link_libraries(tst_qml PRIVATE
     Qt6::QuickTest Qt6::Quick Qt6::QuickControls2
     synbench_appcore synbench_ui synbench_uiplugin)
-target_compile_definitions(tst_qml PRIVATE QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(tst_qml PRIVATE QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    SB_FAKE_GPUWORKER="$<TARGET_FILE:fake-gpuworker>")
+# The GPU test's worker is a fake here (tests/unit/fake_gpuworker.cpp), the same on every OS.
+add_dependencies(tst_qml fake-gpuworker)
 add_test(NAME tst_qml
     COMMAND tst_qml -input "${CMAKE_CURRENT_SOURCE_DIR}" -v2
             -o "${CMAKE_BINARY_DIR}/test-logs/tst_qml.txt,txt" -o "-,txt")

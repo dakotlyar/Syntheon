@@ -7,6 +7,7 @@
 #include "tests/gpu/worker/null/null_backend.h"
 #include "tests/gpu/worker/runner.h"
 #include "tests/gpu/worker/vulkan/layer_manifests.h"
+#include "tests/gpu/worker/vulkan/vk_context.h"
 #include "tests/gpu/worker/signature.h"
 
 #include <QElapsedTimer>
@@ -167,6 +168,20 @@ class TestGpuWorker : public QObject
     Q_OBJECT
 
 private slots:
+
+    // Synchronisation validation is gated on the validation layer's version (CI's Ubuntu 22.04 layer,
+    // 1.3.204, misreports a sampled-image read as a storage read).
+    void syncValidationGate()
+    {
+        using sb::gpu::vk::layerSupportsSyncValidation;
+        QVERIFY(!layerSupportsSyncValidation(0));                                    // no layer
+        QVERIFY(!layerSupportsSyncValidation(VK_MAKE_API_VERSION(0, 1, 3, 204)));    // Ubuntu 22.04
+        QVERIFY(!layerSupportsSyncValidation(VK_MAKE_API_VERSION(0, 1, 3, 249)));
+        QVERIFY(layerSupportsSyncValidation(VK_MAKE_API_VERSION(0, 1, 3, 250)));
+        QVERIFY(layerSupportsSyncValidation(VK_MAKE_API_VERSION(0, 1, 3, 296)));
+        QVERIFY(layerSupportsSyncValidation(VK_MAKE_API_VERSION(0, 1, 4, 100)));     // a newer minor wins over the patch
+        QVERIFY(!layerSupportsSyncValidation(VK_MAKE_API_VERSION(0, 1, 2, 999)));
+    }
 
     // M3/L11: implicit-layer manifests and which of them are loaded, as pure functions (the Windows
     // paths are the registry's, the Linux ones the loader's folders).

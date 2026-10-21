@@ -260,15 +260,27 @@ QProcessEnvironment GpuClient::baseEnvironment()
     const QProcessEnvironment parent = QProcessEnvironment::systemEnvironment();
     QProcessEnvironment env;
 #if defined(Q_OS_WIN)
-    for (const char *name : {"SystemRoot", "LOCALAPPDATA", "APPDATA", "USERPROFILE", "TEMP", "TMP"}) {
+    // The system variables a Windows process needs to start at all (a worker without PATH or
+    // SystemRoot dies with STATUS_DLL_NOT_FOUND before main()), the profile folders the drivers'
+    // shader caches use, and the machine's description. Qt's own variables (QT_PLUGIN_PATH and the
+    // like) are not among them: those are cleared.
+    for (const char *name : {"SystemRoot", "windir", "SystemDrive", "TEMP", "TMP", "PATHEXT", "COMSPEC", "LOCALAPPDATA", "APPDATA",
+                             "USERPROFILE", "PROGRAMDATA", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "CommonProgramFiles",
+                             "CommonProgramFiles(x86)", "CommonProgramW6432", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE"}) {
         if (parent.contains(QLatin1StringView(name)))
             env.insert(QString::fromLatin1(name), parent.value(QLatin1StringView(name)));
     }
+    // PATH: the worker's own folder and System32 first, then SynBench's PATH (a dev or test build
+    // finds the Qt DLLs there; a packaged one has them next to the exe and loads from System32 and
+    // its folder only, /DEPENDENTLOADFLAG:0xA00).
     const QString root = parent.value(QStringLiteral("SystemRoot"), QStringLiteral("C:\\Windows"));
     const QString workerFolder = QFileInfo(workerPath()).absolutePath();
-    QString path = root + QStringLiteral("\\System32");
+    QString path;
     if (!workerFolder.isEmpty())
-        path += QLatin1Char(';') + QDir::toNativeSeparators(workerFolder);
+        path += QDir::toNativeSeparators(workerFolder) + QLatin1Char(';');
+    path += root + QStringLiteral("\\System32");
+    if (const QString inherited = parent.value(QStringLiteral("PATH")); !inherited.isEmpty())
+        path += QLatin1Char(';') + inherited;
     env.insert(QStringLiteral("PATH"), path);
 #else
     for (const char *name : {"DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP",

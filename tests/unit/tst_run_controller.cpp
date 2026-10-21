@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/app_runtime.h"
+#include "tests/gpu/client/gpu_client.h"
 #include "app/models/log_model.h"
 #include "app/models/options_model.h"
 #include "app/models/run_queue_model.h"
@@ -25,6 +26,9 @@ private:
 
     void startRuntime()
     {
+        // The GPU test's worker is a fake on every OS (it answers the probe with one GPU), so these
+        // tests don't depend on the machine's GPU or its drivers (Windows CI has no software GPU).
+        sb::gpu::GpuClient::setWorkerForTests(QStringLiteral(SB_FAKE_GPUWORKER), {QStringLiteral("ok")});
         m_dir = std::make_unique<QTemporaryDir>();
         AppRuntime::Options o;
         o.smoke = true;

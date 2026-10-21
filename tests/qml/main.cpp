@@ -4,6 +4,7 @@
 #include "core/result.h"
 #include "fixtures.h"
 #include "storage/run_repository.h"
+#include "tests/gpu/client/gpu_client.h"
 #include "tests/common/stub_clock.h"
 
 #include <QQmlContext>
@@ -24,6 +25,8 @@ class Setup : public QObject
 public slots:
     void applicationAvailable()
     {
+        // The GPU test's worker is a fake on every OS (one fake GPU), not the machine's drivers.
+        sb::gpu::GpuClient::setWorkerForTests(QStringLiteral(SB_FAKE_GPUWORKER), {QStringLiteral("ok")});
         sb::loadBundledFonts();
         QQuickStyle::setStyle(QStringLiteral("Basic"));
         m_dir = std::make_unique<QTemporaryDir>();

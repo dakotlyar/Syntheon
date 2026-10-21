@@ -18,6 +18,16 @@ namespace sb::gpu::vk {
 
 // "VK_ERROR_DEVICE_LOST", or the number for codes not listed.
 std::string resultName(VkResult r);
+// Synchronisation validation only on layers new enough not to misclassify a sampled image's usage
+// as a storage read (Ubuntu 22.04's layer, spec 1.3.204, does, and reports a hazard that isn't
+// there): specVersion (the Vulkan header the layer was built from) >= 1.3.250. Core validation
+// is always on. Pure.
+inline constexpr std::uint32_t kSyncValidationMinSpec = VK_MAKE_API_VERSION(0, 1, 3, 250);
+inline bool layerSupportsSyncValidation(std::uint32_t specVersion)
+{
+    return specVersion >= kSyncValidationMinSpec;
+}
+
 // A failed call as a backend reason: "LOST: the GPU driver reset (VK_ERROR_DEVICE_LOST)"
 // for a lost device, else "<what> failed (VK_ERROR_...)".
 std::string failure(const char *what, VkResult r);

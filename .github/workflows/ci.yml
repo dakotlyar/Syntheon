@@ -107,6 +107,10 @@ jobs:
       # The GPU tests run the worker on software drivers (lavapipe, llvmpipe),
       # with the validation layers: windows go to an invisible X server, and a
       # missing lavapipe or xvfb is a failure here, not a skip (Phase 4a task 16).
+      # Synchronisation validation is gated on the validation layer's version (>= 1.3.250 here:
+      # tests/unit and vk_context.cpp). This runner's Ubuntu 22.04 layer is 1.3.204, which misreports
+      # a sampled-image read as a storage read; there only core validation runs, with one log line.
+      # Tiamat's newer layers keep the full check, so run the GPU tests there before a checkpoint.
       - name: Unit tests
         env:
           SYNBENCH_REQUIRE_SOFTWARE_GPU: "1"

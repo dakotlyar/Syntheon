@@ -155,6 +155,11 @@ private slots:
 #if defined(Q_OS_LINUX)
         QCOMPARE(env.value(QStringLiteral("VK_LOADER_LAYERS_DISABLE")), QStringLiteral("~implicit~"));
 #endif
+#if defined(Q_OS_WIN)
+        // The worker must be able to start: the system folder and a PATH (a DLL search needs both).
+        QVERIFY(env.contains(QStringLiteral("SystemRoot")));
+        QVERIFY(env.value(QStringLiteral("PATH")).contains(QStringLiteral("System32"), Qt::CaseInsensitive));
+#endif
         qunsetenv("LD_LIBRARY_PATH");
         qunsetenv("QT_PLUGIN_PATH");
         qunsetenv("VK_DRIVER_FILES");

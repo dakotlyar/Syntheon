@@ -80,7 +80,7 @@ int millis(const std::string &item)
 
 } // namespace
 
-int main(int argc, char **argv)
+int fakeMain(int argc, char **argv)
 {
     const std::string mode = argc > 1 ? argv[1] : "ok";
     bool serve = false, probe = false;
@@ -188,4 +188,13 @@ int main(int argc, char **argv)
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
+}
+
+// Leaves with _Exit: the detached stdin thread blocks in std::getline, and returning from main
+// with it running can hang on the exit-time locks of the standard streams.
+int main(int argc, char **argv)
+{
+    const int code = fakeMain(argc, argv);
+    std::fflush(stdout);
+    std::_Exit(code);
 }

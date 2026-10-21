@@ -2,7 +2,7 @@
 #pragma once
 
 // The null backend (Phase 4a task 9, dev hook --api null and the tests): no
-// GPU at all. A frame sleeps 1 ms; the GPU time of the frame two back is 0.5 ms;
+// GPU at all. A frame takes 2 ms of the steady clock (not sleep_for: Windows sleeps in 15.6 ms steps); the GPU time of the frame two back is 0.5 ms;
 // the readback is a gradient at the render size.
 
 #include "tests/gpu/worker/backend.h"

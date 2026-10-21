@@ -38,6 +38,11 @@ Write-Host "ok: the VC++ runtime is in the tree ($($crt -join ', '))"
 if (-not (Test-Path (Join-Path $Tree 'synbench-cpucrypto.exe'))) { throw 'synbench-cpucrypto.exe (the encryption worker) is missing from the tree' }
 # The GPU test's worker, likewise (Phase 4a §2.2).
 if (-not (Test-Path (Join-Path $Tree 'synbench-gpu.exe'))) { throw 'synbench-gpu.exe (the GPU worker) is missing from the tree' }
+# The GPU worker links Qt (Gui) and loads it from its own folder only (/DEPENDENTLOADFLAG:0xA00), so it
+# must sit in the same folder as the Qt DLLs and the platform plugin, as SynBench.exe does.
+foreach ($f in 'Qt6Core.dll', 'Qt6Gui.dll', 'platforms\qwindows.dll') {
+    if (-not (Test-Path (Join-Path $Tree $f))) { throw "$f is not next to synbench-gpu.exe: the GPU worker would not start" }
+}
 # D11: the licence and the third-party notices go into every package.
 foreach ($f in 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt') {
     if (-not (Test-Path (Join-Path $Tree $f))) { throw "$f is missing from the tree" }

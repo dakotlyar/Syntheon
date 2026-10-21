@@ -66,6 +66,22 @@ std::vector<VkExtensionProperties> deviceExtensions(VkPhysicalDevice pd)
     return out;
 }
 
+// The layer's specVersion, 0 when it isn't installed.
+std::uint32_t layerSpecVersion(const char *name)
+{
+    std::uint32_t n = 0;
+    if (vkEnumerateInstanceLayerProperties(&n, nullptr) != VK_SUCCESS)
+        return 0;
+    std::vector<VkLayerProperties> layers(n);
+    if (vkEnumerateInstanceLayerProperties(&n, layers.data()) < VK_SUCCESS)
+        return 0;
+    for (std::uint32_t i = 0; i < n; ++i) {
+        if (std::strcmp(layers[i].layerName, name) == 0)
+            return layers[i].specVersion;
+    }
+    return 0;
+}
+
 bool hasLayer(const char *name)
 {
     std::uint32_t n = 0;
@@ -370,9 +386,16 @@ std::string Context::create(const BackendInit &init, const PresentTarget &target
         layers.push_back(kValidationLayer);
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         extensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
-        // Synchronisation validation: any hazard is an error (task 12, R1).
-        features.enabledValidationFeatureCount = 1;
-        features.pEnabledValidationFeatures = enables;
+        // Synchronisation validation: any hazard is an error (task 12, R1), where the layer is new
+        // enough to be right about it; older ones get core validation only.
+        const std::uint32_t spec = layerSpecVersion(kValidationLayer);
+        if (layerSupportsSyncValidation(spec)) {
+            features.enabledValidationFeatureCount = 1;
+            features.pEnabledValidationFeatures = enables;
+        } else {
+            std::fprintf(stderr, "synbench-gpu: sync validation skipped: validation layer %u.%u.%u too old\n", VK_API_VERSION_MAJOR(spec),
+                         VK_API_VERSION_MINOR(spec), VK_API_VERSION_PATCH(spec));
+        }
         features.pNext = &messenger;  // also covers vkCreateInstance / vkDestroyInstance
     }
 

@@ -33,7 +33,12 @@ std::string NullBackend::load(const SceneData &scene)
 
 std::string NullBackend::frame(double, std::vector<double> *gpuMs)
 {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // A frame takes 2 ms of the steady clock. Not sleep_for: Windows sleeps in 15.6 ms steps unless
+    // the timer resolution was raised, which gave a quarter of the frames on a CI runner. Yielding
+    // in a loop keeps the pace (about 500 fps) the same on every OS, and the CPU free for others.
+    const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
+    while (std::chrono::steady_clock::now() < until)
+        std::this_thread::yield();
     ++m_frames;
     m_draws = m_loadedDraws;
     // Frame n's timestamps are read two frames later (P8).
