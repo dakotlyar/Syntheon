@@ -7,7 +7,10 @@
 //     hang               ready, then ignores everything but EOF
 //     crash              ready, then an access violation
 //     crash-after-ready  (serve) ready, then an access violation at the first `run`
-//     na                 an error event with na true, exit 5
+//     na                 an error event with na true, exit 5 (--probe still answers)
+//     crash-at-shading   like ok, but the opengl worker crashes at `run shading` (the second API of the GPU test's case)
+// --probe answers one fake GPU (Vulkan and OpenGL OK, DirectX Windows only) and done, in every mode.
+// SB_FAKE_LOG=<file> (through SYNBENCH_GPU_WORKER_ENV): "<api> <workload>" appended per `run` command.
 // "stop" on stdin ends it with exit 4 (not in `hang`), "quit" with exit 0, EOF with exit 3.
 #include <atomic>
 #include <chrono>
@@ -37,7 +40,7 @@ void ready() { out("{\"ev\":\"ready\",\"api\":\"fake\",\"device\":\"Fake GPU\",\
 void result(const std::string &workload)
 {
     out("{\"ev\":\"result\",\"workload\":\"" + workload + "\",\"frames\":10,\"seconds\":0.1,\"fps\":100,"
-        "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11},\"cpuMs\":1,\"sig\":\"\"}");
+        "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11},\"cpuMs\":1,\"series\":[[0.05,10.0],[0.15,10.0]],\"sig\":\"\"}");
 }
 
 // Sleeps ms in small steps; false when "stop" arrived (the caller exits 4).
@@ -72,13 +75,27 @@ int millis(const std::string &item)
 int main(int argc, char **argv)
 {
     const std::string mode = argc > 1 ? argv[1] : "ok";
-    bool serve = false;
-    std::string plan;
+    bool serve = false, probe = false;
+    std::string plan, api;
     for (int i = 2; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--serve"))
             serve = true;
+        else if (!std::strcmp(argv[i], "--probe"))
+            probe = true;
         else if (!std::strcmp(argv[i], "--plan") && i + 1 < argc)
             plan = argv[++i];
+        else if (!std::strcmp(argv[i], "--api") && i + 1 < argc && api.empty())
+            api = argv[++i];  // the first one: the GPU test's own, not a dev hook's override
+    }
+    if (probe) {
+        out("{\"ev\":\"gpu\",\"id\":\"10de:2c05@0000:01:00.0\",\"name\":\"Fake GPU\",\"vendorId\":4318,\"deviceId\":11269,"
+            "\"kind\":\"discrete\",\"vramBytes\":17179869184,\"pciSlot\":\"0000:01:00.0\",\"apis\":{"
+            "\"vulkan\":{\"ok\":true,\"version\":\"Vulkan 1.4.351\",\"driver\":\"fake 1\",\"note\":\"\"},"
+            "\"opengl\":{\"ok\":true,\"version\":\"OpenGL 4.6\",\"driver\":\"fake 1\",\"note\":\"\"},"
+            "\"dx12\":{\"ok\":false,\"reason\":\"DirectX is Windows only\"},"
+            "\"dx11\":{\"ok\":false,\"reason\":\"DirectX is Windows only\"}}}");
+        out("{\"ev\":\"done\"}");
+        return 0;
     }
     if (mode == "na") {
         out("{\"ev\":\"error\",\"workload\":\"\",\"reason\":\"No Vulkan driver is installed\",\"na\":true}");
@@ -141,9 +158,15 @@ int main(int argc, char **argv)
             }
         }
         if (command.rfind("run ", 0) == 0) {
-            if (mode == "crash-after-ready")
-                crash();
             const std::string item = command.substr(4);
+            if (const char *log = std::getenv("SB_FAKE_LOG")) {
+                if (std::FILE *f = std::fopen(log, "a")) {
+                    std::fprintf(f, "%s %s\n", api.c_str(), item.substr(0, item.find(':')).c_str());
+                    std::fclose(f);
+                }
+            }
+            if (mode == "crash-after-ready" || (mode == "crash-at-shading" && api == "opengl" && item.rfind("shading", 0) == 0))
+                crash();
             if (!sleepMs(millis(item), true))
                 return 4;
             result(item.substr(0, item.find(':')));

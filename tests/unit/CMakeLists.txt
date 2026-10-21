@@ -72,6 +72,10 @@ set_target_properties(fake-gpuworker PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC 
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-tools")
 add_dependencies(tst_gpu_client fake-gpuworker synbench-gpu)
 target_compile_definitions(tst_gpu_client PRIVATE SB_FAKE_GPUWORKER="$<TARGET_FILE:fake-gpuworker>" SB_GPU_WORKER="$<TARGET_FILE:synbench-gpu>")
+# The GPU test (task 15) with the fake worker.
+synbench_add_unit_test(tst_gpu_test SOURCES tst_gpu_test.cpp fake_test.h LIBS synbench_test_gpu synbench_builtin_tests Qt6::Core)
+add_dependencies(tst_gpu_test fake-gpuworker)
+target_compile_definitions(tst_gpu_test PRIVATE SB_FAKE_GPUWORKER="$<TARGET_FILE:fake-gpuworker>")
 # The real backends on software drivers (task 10: Vulkan on lavapipe, with
 # validation): headless in-process and through the worker; tst_gpu_present
 # with a window, under xvfb-run only (A-X; it skips under offscreen).
