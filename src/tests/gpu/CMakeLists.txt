@@ -13,3 +13,6 @@ target_link_libraries(synbench_gpu_model PUBLIC synbench_core Qt6::Core)
 
 add_library(synbench_test_gpu STATIC gpu_test.h gpu_test.cpp)
 target_link_libraries(synbench_test_gpu PUBLIC synbench_core synbench_test_common synbench_gpu_model)
+
+# The worker's shaders: the Windows build's DXIL and DXBC (§13.1).
+add_subdirectory(worker/shaders)

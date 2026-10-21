@@ -1,0 +1,11 @@
+{
+  "dxc": {
+    "tag": "v1.8.2505.1",
+    "url": "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.8.2505.1/linux_dxc_2025_07_14.x86_64.tar.gz",
+    "sha256": "f2213da1fc99dc8778c8823078e16ba97c7f80f86a1d4520ab1adf4b462bc48c"
+  },
+  "spirv_cross": {
+    "tag": "vulkan-sdk-1.4.304.0",
+    "sha256": "635b9b9ed2318df5ac65a0e1db1f92deb1e9c29e9dac30cd4b14eb3d72be5cf3"
+  }
+}

@@ -124,6 +124,27 @@ if(SYNBENCH_PYTHON3)
         COMMAND "${SYNBENCH_PYTHON3}" -I "${PROJECT_SOURCE_DIR}/tests/tools/test_cpu_repeatability.py" "${PROJECT_SOURCE_DIR}")
 endif()
 
+# The GPU worker's committed SPIR-V and GLSL belong to the current shader
+# sources (Phase 4a design §13.1): STAMP is the SHA-256 of the HLSL and the
+# pinned tool versions (tools/gpu-shaders/build.py --check, no shader tools
+# needed). And the check fails on a planted change: a copy of the shader
+# folder with one space appended to present.hlsl.
+if(SYNBENCH_PYTHON3)
+    set(_sb_shaders "${PROJECT_SOURCE_DIR}/src/tests/gpu/worker/shaders")
+    add_test(NAME gpu_shaders_stamp
+        COMMAND "${SYNBENCH_PYTHON3}" -I "${PROJECT_SOURCE_DIR}/tools/gpu-shaders/build.py" --check)
+    set(_sb_stale "${CMAKE_CURRENT_BINARY_DIR}/planted-shaders")
+    file(REMOVE_RECURSE "${_sb_stale}")
+    file(COPY "${_sb_shaders}/" DESTINATION "${_sb_stale}")
+    file(APPEND "${_sb_stale}/present.hlsl" " ")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${_sb_shaders}/present.hlsl" "${_sb_shaders}/generated/STAMP")
+    add_test(NAME gpu_shaders_stamp_rejects_change
+        COMMAND "${SYNBENCH_PYTHON3}" -I "${PROJECT_SOURCE_DIR}/tools/gpu-shaders/build.py"
+                --check --expect-stale --sources "${_sb_stale}")
+    set_tests_properties(gpu_shaders_stamp_rejects_change PROPERTIES PASS_REGULAR_EXPRESSION "out of date against its STAMP")
+endif()
+
 # THIRD-PARTY-NOTICES.txt has a section, with its licence text, for each
 # component SynBench ships that isn't its own (D11): the pinned libraries,
 # OpenSSL, Qt, the code bundled inside Qt (from Qt's SBOM, cmake/QtNotices.cmake),
