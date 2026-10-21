@@ -3,8 +3,10 @@
 // one instanced draw (6 vertices per particle), motion in closed form here (no
 // simulation): tau = mod(t + phase, life), position = v dir tau + g tau^2 / 2.
 // Additive (ONE, ONE) HDR colour HSV(hue, 0.9, 1) x 4 x (1 - tau / life),
-// times the soft disc (t0). A particle below the ground has size 0.
-#include "common.hlsli"
+// times the soft disc (t0), times the height fog's transmittance to the
+// particle's centre (fog.hlsli; D2: the post chain doesn't fog particles,
+// whose pixels hold the sky's depth). A particle below the ground has size 0.
+#include "fog.hlsli"
 
 SB_BIND_T0 Texture2D<float4> disc : register(t0);
 SB_BIND_S1 SamplerState linearClamp : register(s1);
@@ -44,7 +46,7 @@ VSOut VSMain(VSIn i)
     VSOut o;
     o.pos = mul(viewProj, float4(world, 1.0));
     o.uv = corner * float2(0.5, -0.5) + 0.5;
-    o.colour = hsvToRgb(i.b.z, 0.9, 1.0) * (4.0 * (1.0 - tau / life));
+    o.colour = hsvToRgb(i.b.z, 0.9, 1.0) * (4.0 * (1.0 - tau / life)) * (1.0 - heightFog(cameraPos.xyz, p));
     return o;
 }
 

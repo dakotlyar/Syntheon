@@ -58,8 +58,8 @@ SB_BIND_FRAME cbuffer Frame : register(b0)
     float4 cameraUp;         // xyz (billboards); w unused
     float4 sunDir;           // xyz = the direction the light travels (normalised); w = Shading's point-light count
     float4 sunColour;        // rgb, intensity included; w unused
-    float4 skyAmbient;       // rgb; w unused
-    float4 groundAmbient;    // rgb; w unused
+    float4 skyAmbient;       // rgb; w = the Particles height fog's density (fog.hlsli), else 0
+    float4 groundAmbient;    // rgb; w = the Particles height fog's height falloff, else 0
     float4 renderSize;       // width, height, 1/width, 1/height (physical px)
 };
 

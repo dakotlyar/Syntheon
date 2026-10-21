@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The Particles scene's sky (Phase 4a design §6.4): one full-screen triangle
 // at the far plane (depth 1), an HDR gradient from the horizon (0.30, 0.35,
-// 0.45) to the zenith (0.05, 0.10, 0.25) by the view ray's height.
-#include "common.hlsli"
+// 0.45) to the zenith (0.05, 0.10, 0.25) by the view ray's height, then the
+// height fog to the far plane (200 view units along the ray; fog.hlsli).
+#include "fog.hlsli"
 
-// The view ray through a full-screen uv (60 degrees vertical, the scenes' projection).
+// The view ray through a full-screen uv (60 degrees vertical, the scenes'
+// projection), with a forward component of 1 (not normalised).
 float3 viewRay(float2 uv)
 {
     float3 right = cameraRight.xyz, up = cameraUp.xyz;
@@ -12,7 +14,7 @@ float3 viewRay(float2 uv)
     float tanHalf = 0.57735027;
     float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     float aspect = renderSize.x * renderSize.w;
-    return normalize(forward + right * (ndc.x * tanHalf * aspect) + up * (ndc.y * tanHalf));
+    return forward + right * (ndc.x * tanHalf * aspect) + up * (ndc.y * tanHalf);
 }
 
 FullscreenOut VSMain(uint id : SV_VertexID)
@@ -24,6 +26,8 @@ FullscreenOut VSMain(uint id : SV_VertexID)
 
 float4 PSMain(FullscreenOut i) : SV_Target0
 {
-    float h = saturate(viewRay(i.uv).y);
-    return float4(lerp(float3(0.30, 0.35, 0.45), float3(0.05, 0.10, 0.25), h), 1.0);
+    float3 ray = viewRay(i.uv);
+    float h = saturate(normalize(ray).y);
+    float3 c = lerp(kFogColour, float3(0.05, 0.10, 0.25), h);
+    return float4(lerp(c, kFogColour, heightFog(cameraPos.xyz, cameraPos.xyz + ray * 200.0)), 1.0);
 }

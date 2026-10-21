@@ -27,61 +27,72 @@ mat4 spvWorkaroundRowMajor(mat4 wrap) { return wrap; }
 
 void main()
 {
-    float _68 = Frame.cameraPos.w + in_var_TEXCOORD0.x;
-    float _69 = _68 - in_var_TEXCOORD0.y * trunc(_68 / in_var_TEXCOORD0.y);
-    float _72 = cos(in_var_TEXCOORD1.x);
-    vec3 _85 = (vec3(_72 * cos(in_var_TEXCOORD0.w), sin(in_var_TEXCOORD1.x), _72 * sin(in_var_TEXCOORD0.w)) * (in_var_TEXCOORD0.z * _69)) + (vec3(0.0, -9.81000041961669921875, 0.0) * ((0.5 * _69) * _69));
-    float _92;
-    if (_85.y < 0.0)
+    float _72 = Frame.cameraPos.w + in_var_TEXCOORD0.x;
+    float _73 = _72 - in_var_TEXCOORD0.y * trunc(_72 / in_var_TEXCOORD0.y);
+    float _76 = cos(in_var_TEXCOORD1.x);
+    vec3 _89 = (vec3(_76 * cos(in_var_TEXCOORD0.w), sin(in_var_TEXCOORD1.x), _76 * sin(in_var_TEXCOORD0.w)) * (in_var_TEXCOORD0.z * _73)) + (vec3(0.0, -9.81000041961669921875, 0.0) * ((0.5 * _73) * _73));
+    float _96;
+    if (_89.y < 0.0)
     {
-        _92 = 0.0;
+        _96 = 0.0;
     }
     else
     {
-        _92 = in_var_TEXCOORD1.y;
+        _96 = in_var_TEXCOORD1.y;
     }
-    uint _93 = uint(gl_VertexID) % 6u;
-    bool _99;
-    if (!(_93 == 1u))
+    uint _97 = uint(gl_VertexID) % 6u;
+    bool _103;
+    if (!(_97 == 1u))
     {
-        _99 = _93 == 2u;
+        _103 = _97 == 2u;
     }
     else
     {
-        _99 = true;
+        _103 = true;
     }
-    bool _104;
-    if (!_99)
+    bool _108;
+    if (!_103)
     {
-        _104 = _93 == 4u;
+        _108 = _97 == 4u;
     }
     else
     {
-        _104 = true;
+        _108 = true;
     }
-    float _105 = _104 ? 1.0 : (-1.0);
-    bool _111;
-    if (!(_93 == 2u))
+    float _109 = _108 ? 1.0 : (-1.0);
+    bool _115;
+    if (!(_97 == 2u))
     {
-        _111 = _93 == 4u;
+        _115 = _97 == 4u;
     }
     else
     {
-        _111 = true;
+        _115 = true;
     }
-    bool _116;
-    if (!_111)
+    bool _120;
+    if (!_115)
     {
-        _116 = _93 == 5u;
+        _120 = _97 == 5u;
     }
     else
     {
-        _116 = true;
+        _120 = true;
     }
-    float _117 = _116 ? 1.0 : (-1.0);
-    gl_Position = vec4(_85 + (((Frame.cameraRight.xyz * _105) + (Frame.cameraUp.xyz * _117)) * _92), 1.0) * spvWorkaroundRowMajor(Frame.viewProj);
-    sb_v0 = (vec2(_105, _117) * vec2(0.5, -0.5)) + vec2(0.5);
-    sb_v1 = (mix(vec3(1.0), clamp(abs((fract(vec3(in_var_TEXCOORD1.z) + vec3(1.0, 0.666666686534881591796875, 0.3333333432674407958984375)) * 6.0) - vec3(3.0)) - vec3(1.0), vec3(0.0), vec3(1.0)), vec3(0.89999997615814208984375)) * 1.0) * (4.0 * (1.0 - (_69 / in_var_TEXCOORD0.y)));
+    float _121 = _120 ? 1.0 : (-1.0);
+    vec3 _164 = _89 - Frame.cameraPos.xyz;
+    float _167 = _164.y * Frame.groundAmbient.w;
+    float _183;
+    if (abs(_167) > 9.9999997473787516355514526367188e-05)
+    {
+        _183 = (1.0 - exp(-_167)) / _167;
+    }
+    else
+    {
+        _183 = 1.0;
+    }
+    gl_Position = vec4(_89 + (((Frame.cameraRight.xyz * _109) + (Frame.cameraUp.xyz * _121)) * _96), 1.0) * spvWorkaroundRowMajor(Frame.viewProj);
+    sb_v0 = (vec2(_109, _121) * vec2(0.5, -0.5)) + vec2(0.5);
+    sb_v1 = ((mix(vec3(1.0), clamp(abs((fract(vec3(in_var_TEXCOORD1.z) + vec3(1.0, 0.666666686534881591796875, 0.3333333432674407958984375)) * 6.0) - vec3(3.0)) - vec3(1.0), vec3(0.0), vec3(1.0)), vec3(0.89999997615814208984375)) * 1.0) * (4.0 * (1.0 - (_73 / in_var_TEXCOORD0.y)))) * (1.0 - clamp(1.0 - exp(-(((Frame.skyAmbient.w * exp((-Frame.groundAmbient.w) * Frame.cameraPos.y)) * length(_164)) * _183)), 0.0, 1.0));
     gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;
 }
 

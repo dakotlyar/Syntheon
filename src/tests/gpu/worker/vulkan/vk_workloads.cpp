@@ -20,6 +20,8 @@ namespace {
 #include "tests/gpu/worker/shaders/generated/geometry_vs.spv.inc"
 // Task 12.
 #include "tests/gpu/worker/shaders/generated/depth_only_vs.spv.inc"
+#include "tests/gpu/worker/shaders/generated/ground_ps.spv.inc"
+#include "tests/gpu/worker/shaders/generated/ground_vs.spv.inc"
 #include "tests/gpu/worker/shaders/generated/particles_ps.spv.inc"
 #include "tests/gpu/worker/shaders/generated/particles_vs.spv.inc"
 #include "tests/gpu/worker/shaders/generated/post_bright_ps.spv.inc"
@@ -921,8 +923,7 @@ std::string VulkanBackend::loadParticles(const SceneData &scene)
     // bloom[0..5] at ceil(size / 2^(k+1)) (VK-6: never 0), hdrB, ldrB; ldrA is load()'s.
     if (std::string e = makeImage(m_ctx, W, H, VK_FORMAT_R16G16B16A16_SFLOAT, target, 1, &m_sceneColor); !e.empty())
         return e;
-    if (std::string e = makeImage(m_ctx, W, H, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1,
-                                  &m_sceneDepth);
+    if (std::string e = makeImage(m_ctx, W, H, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 1, &m_sceneDepth);
         !e.empty())
         return e;
     for (std::uint32_t k = 0; k < m_bloom.size(); ++k) {
@@ -972,7 +973,7 @@ std::string VulkanBackend::loadParticles(const SceneData &scene)
         writeImages(d, w.postSets[n++], {m_bloom[k - 1].view});  // 2-6 down
     for (std::size_t k = m_bloom.size() - 1; k >= 1; --k)
         writeImages(d, w.postSets[n++], {m_bloom[k].view});  // 7-11 up: [k] -> [k-1]
-    writeImages(d, w.postSets[n++], {m_sceneColor.view, m_bloom[0].view, m_sceneDepth.view});  // 12 composite
+    writeImages(d, w.postSets[n++], {m_sceneColor.view, m_bloom[0].view});  // 12 composite (no depth: D2)
     writeImages(d, w.postSets[n++], {m_hdrB.view});  // 13 tone map
     writeImages(d, w.postSets[n++], {m_ldrA.view});  // 14 FXAA
 
@@ -989,10 +990,10 @@ std::string VulkanBackend::loadParticles(const SceneData &scene)
     if (std::string e = makePipeline(d, m_presentLayout, sky, &w.skyPipeline); !e.empty())
         return e;
     PipelineDesc ground = sky;
-    ground.vs = kGeometryVsSpv;
-    ground.vsBytes = sizeof kGeometryVsSpv;
-    ground.ps = kGeometryPsSpv;
-    ground.psBytes = sizeof kGeometryPsSpv;
+    ground.vs = kGroundVsSpv;  // geometry.hlsl's lighting plus the height fog (D2)
+    ground.vsBytes = sizeof kGroundVsSpv;
+    ground.ps = kGroundPsSpv;
+    ground.psBytes = sizeof kGroundPsSpv;
     ground.input = PipelineDesc::Input::Mesh;
     ground.depthWrite = true;
     ground.compare = VK_COMPARE_OP_LESS;
@@ -1082,8 +1083,12 @@ void VulkanBackend::recordParticles(VkCommandBuffer cmd, Slot &slot, double t)
 
     // The CPU side, after this slot's fence (VK-2): Frame (the Geometry sun lights
     // the ground), the ground's object slot, and the 14 Post blocks.
-    const FrameConstants fc = frameConstants(cameraAt(Workload::Particles, t, double(width) / double(height)), t, {-0.4f, -1.f, -0.3f},
-                                             Vec3{1.f, 0.96f, 0.90f} * 3.f, width, height);
+    FrameConstants fc = frameConstants(cameraAt(Workload::Particles, t, double(width) / double(height)), t, {-0.4f, -1.f, -0.3f},
+                                       Vec3{1.f, 0.96f, 0.90f} * 3.f, width, height);
+    // fog.hlsli's height fog (D2: the sky, the ground and the particles apply it themselves):
+    // density 0.02 in skyAmbient.w, height falloff 0.15 in groundAmbient.w.
+    fc.skyAmbient[3] = 0.02f;
+    fc.groundAmbient[3] = 0.15f;
     auto *constants = static_cast<std::uint8_t *>(slot.frameConstants.mapped);
     std::memcpy(constants, &fc, sizeof fc);
     writeObjects(w, slot.objectConstants, t);
@@ -1101,7 +1106,7 @@ void VulkanBackend::recordParticles(VkCommandBuffer cmd, Slot &slot, double t)
         block(b++, m_bloom[k - 1], 0.f, 0.f, 0.f);
     for (std::size_t k = m_bloom.size() - 1; k >= 1; --k)
         block(b++, m_bloom[k], 1.0f, 0.f, 0.f);  // tent radius 1 source texel
-    block(b++, m_sceneColor, 0.04f, 0.02f, 0.15f);  // bloom 0.04, fog density 0.02, height falloff 0.15
+    block(b++, m_sceneColor, 0.04f, 0.f, 0.f);  // bloom 0.04 (the fog is the surfaces' own, D2)
     block(b++, m_hdrB, 0.04f, 0.f, 0.f);            // grain amplitude
     block(b++, m_ldrA, 0.f, 0.f, 0.f);              // FXAA
 
@@ -1111,8 +1116,9 @@ void VulkanBackend::recordParticles(VkCommandBuffer cmd, Slot &slot, double t)
     transition(cmd, m_sceneColor, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, kPriorReaders, VK_ACCESS_2_NONE,
                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);  // additive blending reads
+    // Last frame's scene pass tested and stored (DONT_CARE) the depth (WAW).
     m_sceneDepth.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    transition(cmd, m_sceneDepth, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_NONE,
+    transition(cmd, m_sceneDepth, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, kDepthTests, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
                kDepthTests, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
     VkRenderingAttachmentInfo colour{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     colour.imageView = m_sceneColor.view;
@@ -1124,7 +1130,7 @@ void VulkanBackend::recordParticles(VkCommandBuffer cmd, Slot &slot, double t)
     depth.imageView = m_sceneDepth.view;
     depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;  // the fog reads it
+    depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;  // nothing reads it after the scene pass (D2)
     depth.clearValue.depthStencil = {1.0f, 0};
     VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
     ri.renderArea = {{0, 0}, {width, height}};
@@ -1150,11 +1156,9 @@ void VulkanBackend::recordParticles(VkCommandBuffer cmd, Slot &slot, double t)
     vkCmdBindVertexBuffers(cmd, 0, 1, &w.particles.buffer, &zero);
     vkCmdDraw(cmd, 6, w.particleCount, 0, 0);
     vkCmdEndRendering(cmd);
-    // Scene colour and depth writes -> the post passes' fragment-shader reads.
+    // Scene colour writes -> the post passes' fragment-shader reads (the depth isn't read: D2).
     transition(cmd, m_sceneColor, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-    transition(cmd, m_sceneDepth, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, kDepthTests, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-               VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
     // The 14 post passes (§6.4).
     std::uint32_t n = 0;

@@ -23,7 +23,19 @@ layout(location = 0) out vec4 out_var_SV_Target0;
 
 void main()
 {
-    out_var_SV_Target0 = vec4(mix(vec3(0.300000011920928955078125, 0.3499999940395355224609375, 0.449999988079071044921875), vec3(0.0500000007450580596923828125, 0.100000001490116119384765625, 0.25), vec3(clamp(normalize((cross(Frame.cameraUp.xyz, Frame.cameraRight.xyz) + (Frame.cameraRight.xyz * ((((sb_v0.x * 2.0) - 1.0) * 0.57735025882720947265625) * (Frame.renderSize.x * Frame.renderSize.w)))) + (Frame.cameraUp.xyz * ((1.0 - (sb_v0.y * 2.0)) * 0.57735025882720947265625))).y, 0.0, 1.0))), 1.0);
+    vec3 _68 = (cross(Frame.cameraUp.xyz, Frame.cameraRight.xyz) + (Frame.cameraRight.xyz * ((((sb_v0.x * 2.0) - 1.0) * 0.57735025882720947265625) * (Frame.renderSize.x * Frame.renderSize.w)))) + (Frame.cameraUp.xyz * ((1.0 - (sb_v0.y * 2.0)) * 0.57735025882720947265625));
+    vec3 _83 = (Frame.cameraPos.xyz + (_68 * 200.0)) - Frame.cameraPos.xyz;
+    float _86 = _83.y * Frame.groundAmbient.w;
+    float _102;
+    if (abs(_86) > 9.9999997473787516355514526367188e-05)
+    {
+        _102 = (1.0 - exp(-_86)) / _86;
+    }
+    else
+    {
+        _102 = 1.0;
+    }
+    out_var_SV_Target0 = vec4(mix(mix(vec3(0.300000011920928955078125, 0.3499999940395355224609375, 0.449999988079071044921875), vec3(0.0500000007450580596923828125, 0.100000001490116119384765625, 0.25), vec3(clamp(normalize(_68).y, 0.0, 1.0))), vec3(0.300000011920928955078125, 0.3499999940395355224609375, 0.449999988079071044921875), vec3(clamp(1.0 - exp(-(((Frame.skyAmbient.w * exp((-Frame.groundAmbient.w) * Frame.cameraPos.y)) * length(_83)) * _102)), 0.0, 1.0))), 1.0);
 }
 
 )GLSL";
