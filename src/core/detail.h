@@ -5,6 +5,7 @@
 #include "core/result.h"
 
 #include <QMap>
+#include <QPoint>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -49,6 +50,9 @@ struct TableBlock {
     bool fullWidth = false;
     // Rows drawn in bold (totals: "CPU score", "Single-thread mark").
     QVector<int> boldRows;
+    // Single cells drawn bold, as (column, row) (Phase 4a M1: the best API's number).
+    // Empty by default: every existing table is unchanged.
+    QVector<QPoint> boldCells;
     bool operator==(const TableBlock &) const = default;
 };
 

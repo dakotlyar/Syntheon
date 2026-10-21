@@ -462,6 +462,8 @@ private slots:
         QCOMPARE(res.detailTitle(), QStringLiteral("AI inference"));
         QVERIFY(res.detailSubtitle().startsWith(QLatin1StringView("Score ")));
         QVERIFY(!block(res.detailBlocks(), QStringLiteral("table")).isEmpty());
+        // Phase 4a M1: the exported table carries boldCells (empty when none are set).
+        QVERIFY(block(res.detailBlocks(), QStringLiteral("table")).contains(QStringLiteral("boldCells")));
         QCOMPARE(res.detailColorToken(), QStringLiteral("t-ai"));
         res.showDetail(QStringLiteral("storage"));
         const auto grid = block(res.detailBlocks(), QStringLiteral("grid"));

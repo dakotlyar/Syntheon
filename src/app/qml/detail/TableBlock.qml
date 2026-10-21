@@ -17,6 +17,11 @@ Box {
     readonly property var columns: block ? block.columns : []
     readonly property var rows: block ? block.rows : []
     readonly property var boldRows: block && block.boldRows ? block.boldRows : []
+    // Single cells in bold, as [column, row] pairs (Phase 4a M1).
+    readonly property var boldCells: block && block.boldCells ? block.boldCells : []
+    function isBold(row, c) {
+        return boldRows.indexOf(row) >= 0 || boldCells.some(p => p[0] === c && p[1] === row)
+    }
 
     implicitHeight: content.implicitHeight
     clip: true
@@ -145,7 +150,7 @@ Box {
     // The metrics a cell is drawn with: body (first column) or data, DemiBold
     // in a bold row (AP-5 round 4 M2: sized as drawn).
     function cellMetrics(row, c) {
-        const bold = boldRows.indexOf(row) >= 0
+        const bold = isBold(row, c)
         return c === 0 ? (bold ? bodyBoldMetrics : bodyMetrics) : (bold ? dataBoldMetrics : dataMetrics)
     }
     // What each column needs when its headers wrap: their widest word, and
@@ -317,7 +322,7 @@ Box {
                             required property int index
                             width: root.columnWidth(index)
                             horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
-                            readonly property bool bold: root.boldRows.indexOf(tableRow.index) >= 0
+                            readonly property bool bold: root.isBold(tableRow.index, index)
                             // Whole tokens per line; a token wider than the
                             // column is split by characters (root.wrapped).
                             text: root.wrapped(modelData, width, root.cellMetrics(tableRow.index, index), 0)

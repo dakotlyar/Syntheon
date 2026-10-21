@@ -126,6 +126,62 @@ TestCase {
         compare(exact.wrapped(label, exact.widths[0], exact.cellMetrics(1, 0), 0), label)
     }
 
+    // Phase 4a M1: one cell in bold, not its row; sized with the bold metrics.
+    function boldCellItems(t) {
+        const out = []
+        const walk = item => {
+            for (let i = 0; i < item.children.length; ++i) {
+                const c = item.children[i]
+                if (c.bold !== undefined && c.text !== undefined)
+                    out.push(c)
+                walk(c)
+            }
+        }
+        walk(t)
+        return out
+    }
+
+    function test_boldCellsOnlyThatCell() {
+        const block = { type: "table", title: "", columns: ["Scene", "Vulkan", "DX12"],
+                        rows: [["Geometry", "410 fps", "412 fps"], ["Shading", "205 fps", "199 fps"], ["Particles", "88 fps", "90 fps"]],
+                        boldCells: [[2, 1]] }
+        const t = createTemporaryObject(tableComponent, test, { block: block, width: 600 })
+        waitForRendering(t)
+        const cells = boldCellItems(t)
+        compare(cells.length, 9)
+        let bold = 0
+        for (const c of cells) {
+            if (c.font.weight === Font.DemiBold) {
+                ++bold
+                compare(c.text, "199 fps")
+            }
+        }
+        compare(bold, 1)
+        compare(t.cellMetrics(1, 2).font.weight, Font.DemiBold)
+        compare(t.cellMetrics(1, 1).font.weight, Font.Normal)
+        verify(t.needs[2] >= t.lineWidth(t.cellMetrics(1, 2), "199 fps", 0))
+        // A bold cell in the proportional first column is sized with the bold metrics.
+        const first = { type: "table", title: "", columns: ["Group", "Result"],
+                        rows: [["Read", "6.1 GB/s"], ["Weighted geometric mean", "67.1 GB/s"]], boldCells: [[0, 1]] }
+        const f = createTemporaryObject(tableComponent, test, { block: first, width: 600 })
+        waitForRendering(f)
+        compare(f.cellMetrics(1, 0).font.weight, Font.DemiBold)
+        compare(f.cellMetrics(0, 0).font.weight, Font.Normal)
+        verify(f.needs[0] >= f.lineWidth(f.cellMetrics(1, 0), "Weighted geometric mean", 0))
+    }
+
+    // A table without boldCells (or with an empty list) is sized exactly as before.
+    function test_noBoldCellsSameWidths() {
+        const rows = [["Geometry", "410 fps", "412 fps"], ["Shading", "205 fps", "199 fps"]]
+        const plain = createTemporaryObject(tableComponent, test, { block: { type: "table", title: "", columns: ["Scene", "Vulkan", "DX12"], rows: rows }, width: 600 })
+        const empty = createTemporaryObject(tableComponent, test, { block: { type: "table", title: "", columns: ["Scene", "Vulkan", "DX12"], rows: rows, boldCells: [] }, width: 600 })
+        waitForRendering(plain)
+        waitForRendering(empty)
+        compare(empty.widths, plain.widths)
+        for (const c of boldCellItems(plain))
+            compare(c.font.weight, Font.Normal)
+    }
+
     // AP-5 round 4 L7: screen readers get a cell's text unwrapped, not the
     // lines the table broke it into. L8: the memos give the same results.
     function test_accessibleNamesUnwrapped() {
