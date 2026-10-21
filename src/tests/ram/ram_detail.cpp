@@ -536,10 +536,18 @@ DetailLayout RamTest::detail(const TestResult &r) const
         field(QStringLiteral("Channels (estimate)"), channels ? QString::number(std::lround(*channels)) : QString());
         d.blocks.append({QStringLiteral("Memory configuration (SMBIOS)"), config});
         if (const auto peak = number(r, QStringLiteral("config.peak"))) {
+            // Dave, 2026-10-21 (A2): a measured all-thread read above the
+            // "theoretical peak" means the firmware's speed or bus width is
+            // wrong (Dragonfire: one 16-bit device for a 128-bit bus). The
+            // peak is marked and the efficiency not shown; display only,
+            // the stored metrics stay as they are.
+            const auto read = number(r, QStringLiteral("bandwidth.read"));
+            const bool implausible = read && *peak > 0 && *read > *peak;
             TableBlock derived;
             derived.columns = {QStringLiteral("Field"), QStringLiteral("Value")};
             derived.rows.append({DetailCell::literal(QStringLiteral("Theoretical peak")),
-                                 DetailCell::literal(QStringLiteral("%1 GB/s").arg(*peak, 0, 'f', 1))});
+                                 DetailCell::literal(QStringLiteral("%1 GB/s").arg(*peak, 0, 'f', 1)
+                                                     + (implausible ? QStringLiteral(" (implausible)") : QString()))});
             derived.rows.append({DetailCell::literal(QStringLiteral("Derived as")),
                                  DetailCell::literal(QStringLiteral("%1 × %2 ÷ 8")
                                                          .arg(speed ? QStringLiteral("%1 MT/s")
@@ -552,7 +560,8 @@ DetailLayout RamTest::detail(const TestResult &r) const
                                                          : kDash)});
             const auto efficiency = number(r, QStringLiteral("config.efficiency"));
             derived.rows.append({DetailCell::literal(QStringLiteral("Read efficiency")),
-                                 DetailCell::literal(efficiency ? QStringLiteral("%1%").arg(std::lround(*efficiency)) : kDash)});
+                                 DetailCell::literal(efficiency && !implausible ? QStringLiteral("%1%").arg(std::lround(*efficiency))
+                                                                                : kDash)});
             d.blocks.append({QStringLiteral("Theoretical peak (derived from SMBIOS)"), derived});
         }
         TableBlock modules;

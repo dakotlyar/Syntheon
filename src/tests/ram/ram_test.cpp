@@ -1114,7 +1114,7 @@ void RamRun::bandwidth()
                                   100.0 * read / *m_readout.peakGBs, QStringLiteral("%"), Direction::Neutral));
         if (read > kPeakWarnFactor * *m_readout.peakGBs)
             m_ctx.log(LogLevel::Warning, QStringLiteral("All-thread read %1 GB/s is faster than the memory's theoretical peak "
-                                                        "(%2 GB/s): SMBIOS may report the wrong speed")
+                                                        "(%2 GB/s): SMBIOS may report the wrong speed or bus width")
                                              .arg(gbsText(read), gbsText(*m_readout.peakGBs)));
     }
     groupEnd(kBandwidthId);

@@ -873,6 +873,68 @@ private slots:
 
     // The mockup's variants: no L3 (Snapdragon X), ARM64 bandwidth, 4 KiB
     // and mixed pages, no SMBIOS readout, emulation, P9's cap hit.
+    // Dave, 2026-10-21 (A2): firmware that understates the bus (Dragonfire:
+    // one 16-bit device, 16.9 GB/s "peak", 637.7% "efficiency"). A measured
+    // read above the peak marks the peak and hides the efficiency; the
+    // stored metrics are untouched, so old results render the same way.
+    void detailImplausiblePeak()
+    {
+        tests::RamTest t;
+        TestResult r = mockupResult();
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("config.peak"))
+                m.value = 16.9;
+            else if (m.key == QLatin1StringView("config.efficiency"))
+                m.value = 72.4 / 16.9 * 100;
+        }
+        const DetailLayout d = t.detail(r);
+        const TableBlock *peak = tableTitled(d, QStringLiteral("Theoretical peak (derived from SMBIOS)"));
+        QVERIFY(peak);
+        QCOMPARE(cells(*peak, 0), (QStringList{QStringLiteral("Theoretical peak"),
+                                               QStringLiteral("16.9 GB/s (implausible)")}));
+        QCOMPARE(cells(*peak, 3), (QStringList{QStringLiteral("Read efficiency"), QStringLiteral("—")}));
+        QCOMPARE(numberOf(r, "config.efficiency"), 72.4 / 16.9 * 100);  // stored as it was
+        // At the peak exactly: plausible (a read can't beat it, it can reach it).
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("config.peak"))
+                m.value = 72.4;
+            else if (m.key == QLatin1StringView("config.efficiency"))
+                m.value = 100.0;
+        }
+        const DetailLayout d2 = t.detail(r);
+        const TableBlock *at = tableTitled(d2, QStringLiteral("Theoretical peak (derived from SMBIOS)"));
+        QCOMPARE(cells(*at, 0).at(1), QStringLiteral("72.4 GB/s"));
+        QCOMPARE(cells(*at, 3).at(1), QStringLiteral("100%"));
+    }
+
+    // The same end to end: a firmware readout of one 16-bit module (12 GB/s
+    // "peak") under a real run's read: the warning names the bus width too,
+    // and the Detail page marks the peak.
+    void implausiblePeakRun()
+    {
+        tests::RamTest t;
+        FakeRunContext ctx;
+        SystemSnapshot s = tiamatSnapshot();
+        QJsonObject memory = s.data.value(QStringLiteral("memory")).toObject();
+        QJsonArray modules = memory.value(QStringLiteral("modules")).toArray();
+        QJsonObject one = modules[0].toObject();
+        one.insert(QStringLiteral("data_width"), 16);
+        one.insert(QStringLiteral("total_width"), 16);
+        memory.insert(QStringLiteral("modules"), QJsonArray{one});
+        memory.insert(QStringLiteral("channels"), 1);
+        s.data.insert(QStringLiteral("memory"), memory);
+        ctx.setSystem(s);
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(textOf(r, "config.width"), QStringLiteral("16-bit"));
+        QVERIFY2(numberOf(r, "bandwidth.read") > 1.3 * numberOf(r, "config.peak"), qPrintable(ctx.allLogs()));
+        QVERIFY2(ctx.logged(QStringLiteral("SMBIOS may report the wrong speed or bus width")), qPrintable(ctx.allLogs()));
+        const DetailLayout d = t.detail(r);
+        const TableBlock *peak = tableTitled(d, QStringLiteral("Theoretical peak (derived from SMBIOS)"));
+        QVERIFY(peak);
+        QVERIFY(cells(*peak, 0).at(1).endsWith(QLatin1StringView("(implausible)")));
+        QCOMPARE(cells(*peak, 3).at(1), QStringLiteral("—"));
+    }
+
     void detailVariants()
     {
         tests::RamTest t;
