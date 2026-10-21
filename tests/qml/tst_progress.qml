@@ -34,7 +34,7 @@ TestCase {
 
     function test_2_aRunShowsQueueLogAndStop() {
         RunController.clearSelection()
-        RunController.toggle("gpu")
+        RunController.toggle("storage")
         RunController.toggle("ai")  // stubs only (Phase 3 N6: RAM is real now)
         const screen = createTemporaryObject(screenComponent, test)
         const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
@@ -47,7 +47,7 @@ TestCase {
         verify(findChild(screen, "stopRun").visible)
         compare(findChild(screen, "viewResults").text, "View results so far")
         compare(screen.title, "Running 2 tests")
-        verify(findChild(screen, "queue-gpu") !== null)
+        verify(findChild(screen, "queue-storage") !== null)
         verify(findChild(screen, "queue-ai") !== null)
         compare(AppController.section, "progress")
 
@@ -77,9 +77,9 @@ TestCase {
         verify(!findChild(screen, "stopRun").visible)
         compare(findChild(screen, "viewResults").text, "View results")
         compare(screen.title, "Run of 2 tests")
-        compare(findChild(findChild(screen, "queue-gpu"), "state").text, "✓ done")
+        compare(findChild(findChild(screen, "queue-storage"), "state").text, "✓ done")
         compare(findChild(findChild(screen, "queue-ai"), "state").text, "✓ done")
-        verify(findChild(findChild(screen, "queue-gpu"), "stage").text.indexOf("Done") === 0)
+        verify(findChild(findChild(screen, "queue-storage"), "stage").text.indexOf("Done") === 0)
         verify(!findChild(screen, "restartBanner").visible)
     }
 
@@ -95,7 +95,7 @@ TestCase {
         // Stop mid-run: the run is saved as Stopped (D3) and the row says so.
         RunController.clearSelection()
         RunController.toggle("storage")
-        RunController.toggle("gpu")
+        RunController.toggle("ai")
         const screen = createTemporaryObject(screenComponent, test)
         const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         RunController.setOption("storage", "simulate", "normal")

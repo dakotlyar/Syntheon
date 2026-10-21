@@ -146,8 +146,7 @@ private slots:
 
     void everyStubRunsAndScoresNearItsTarget()
     {
-        const QHash<QString, double> targets = {{QStringLiteral("storage"), 938}, {QStringLiteral("gpu"), 1206},
-                                                {QStringLiteral("ai"), 772}};
+        const QHash<QString, double> targets = {{QStringLiteral("storage"), 938}, {QStringLiteral("ai"), 772}};
         for (const QString &id : targets.keys()) {
             const RunRecord run = runOne(id);
             QCOMPARE(run.status, RunStatus::Completed);
@@ -187,35 +186,32 @@ private slots:
     void seededVariation()
     {
         const QVariantMap seed1{{QStringLiteral("seed"), 1.0}}, seed2{{QStringLiteral("seed"), 2.0}};
-        const RunRecord a = runOne(QStringLiteral("gpu"), seed1), b = runOne(QStringLiteral("gpu"), seed1);
-        const RunRecord c = runOne(QStringLiteral("gpu"), seed2);
+        const RunRecord a = runOne(QStringLiteral("ai"), seed1), b = runOne(QStringLiteral("ai"), seed1);
+        const RunRecord c = runOne(QStringLiteral("ai"), seed2);
         QCOMPARE(a.tests[0].metrics, b.tests[0].metrics);  // same seed, same numbers
         QCOMPARE(a.tests[0].score, b.tests[0].score);
         QVERIFY(a.tests[0].metrics != c.tests[0].metrics);
         // ±5 % around the example value.
-        const double v = std::get<double>(a.tests[0].metric(QStringLiteral("native2d.shapes"))->value);
-        QVERIFY(v > 2.94 * 0.95 && v < 2.94 * 1.05);
+        const double v = std::get<double>(a.tests[0].metric(QStringLiteral("llm.llamacpp"))->value);
+        QVERIFY(v > 104 * 0.95 && v < 104 * 1.05);
     }
 
     void subTestSelection()
     {
-        const RunRecord run = runOne(QStringLiteral("gpu"), {{QStringLiteral("subtests"), QStringList{QStringLiteral("fill2d"), QStringLiteral("scenes3d")}}});
+        const RunRecord run = runOne(QStringLiteral("ai"), {{QStringLiteral("subtests"), QStringList{QStringLiteral("vision"), QStringLiteral("llm")}}});
         const TestResult &t = run.tests[0];
         QCOMPARE(t.subResults.size(), 2);
-        QCOMPARE(t.subResults[0].id, QStringLiteral("scenes3d"));  // declaration order
-        QVERIFY(t.metric(QStringLiteral("fill2d.opengl")));
-        QVERIFY(!t.metric(QStringLiteral("native2d.shapes")));
+        QCOMPARE(t.subResults[0].id, QStringLiteral("llm"));  // declaration order
+        QVERIFY(t.metric(QStringLiteral("vision.llamacpp")));
+        QVERIFY(!t.metric(QStringLiteral("imagegen.llamacpp")));
         QVERIFY(t.score);
         // Nothing selected is rejected before the run starts.
         Orchestrator o(m_registry, *m_sink, m_inhibitor, fastConfig());
-        QVERIFY(!o.start({{QStringLiteral("gpu"), {{QStringLiteral("subtests"), QStringList{}}}}}, {}).ok);
+        QVERIFY(!o.start({{QStringLiteral("ai"), {{QStringLiteral("subtests"), QStringList{}}}}}, {}).ok);
     }
 
-    void gpuAndAiFollowTheirSelections()
+    void aiFollowsItsSelections()
     {
-        const RunRecord gpu = runOne(QStringLiteral("gpu"), {{QStringLiteral("apis"), QStringList{QStringLiteral("opengl")}}});
-        QVERIFY(gpu.tests[0].metric(QStringLiteral("scenes3d.opengl.fps")));
-        QVERIFY(!gpu.tests[0].metric(QStringLiteral("scenes3d.vulkan.fps")));
         const RunRecord ai = runOne(QStringLiteral("ai"), {{QStringLiteral("runtimes"), QStringList{QStringLiteral("tensorrt")}},
                                                            {QStringLiteral("subtests"), QStringList{QStringLiteral("llm")}}});
         QVERIFY(ai.tests[0].metric(QStringLiteral("llm.tensorrt")));
@@ -245,13 +241,13 @@ private slots:
 
     void simulateModes()
     {
-        const RunRecord err = runOne(QStringLiteral("gpu"), {{QStringLiteral("simulate"), QStringLiteral("error")}});
+        const RunRecord err = runOne(QStringLiteral("ai"), {{QStringLiteral("simulate"), QStringLiteral("error")}});
         QCOMPARE(err.tests[0].status, Status::Error);
         QVERIFY(err.tests[0].statusReason.startsWith(QLatin1StringView("Simulated error")));
         QVERIFY(!err.tests[0].score);
         QCOMPARE(err.status, RunStatus::Completed);  // an error doesn't stop the run
 
-        const RunRecord na = runOne(QStringLiteral("gpu"), {{QStringLiteral("simulate"), QStringLiteral("na")}});
+        const RunRecord na = runOne(QStringLiteral("ai"), {{QStringLiteral("simulate"), QStringLiteral("na")}});
         QCOMPARE(na.tests[0].status, Status::NotAvailable);
 
         // Hang ignores Stop and the time limit: the run is abandoned (R7). The
@@ -272,7 +268,7 @@ private slots:
 
         // Unknown modes are rejected up front.
         Orchestrator o2(m_registry, *m_sink, m_inhibitor, fastConfig());
-        QVERIFY(!o2.start({{QStringLiteral("gpu"), {{QStringLiteral("simulate"), QStringLiteral("explode")}}}}, {}).ok);
+        QVERIFY(!o2.start({{QStringLiteral("ai"), {{QStringLiteral("simulate"), QStringLiteral("explode")}}}}, {}).ok);
     }
 
     // AP-5 #12: odd stub-scale text and seed values are handled, not undefined.
@@ -285,7 +281,7 @@ private slots:
         // A seed from the UI can be anything a number box lets through.
         tests::setStubTimeScale(0.02);
         for (double seed : {-5.0, 1e300, 4294967296.0 * 3})
-            QCOMPARE(runOne(QStringLiteral("gpu"), {{QStringLiteral("seed"), seed}}).tests[0].status, Status::Ok);
+            QCOMPARE(runOne(QStringLiteral("ai"), {{QStringLiteral("seed"), seed}}).tests[0].status, Status::Ok);
         tests::setStubTimeScale(0.02);
     }
 
@@ -309,7 +305,7 @@ private slots:
             PrivilegedOps &privileged() override { return ops; }
         };
         tests::setStubTimeScale(0.02);
-        for (const QString &id : {QStringLiteral("gpu"), QStringLiteral("storage"), QStringLiteral("battery")}) {
+        for (const QString &id : {QStringLiteral("ai"), QStringLiteral("storage"), QStringLiteral("battery")}) {
             LastSliceContext ctx;
             OptionValues o;
             if (id == QLatin1StringView("battery"))
@@ -341,14 +337,14 @@ private slots:
     // limit has a floor that doesn't shrink with the time scale.
     void timeLimitHasAFloorBelowRealTime()
     {
-        const ITest *gpu = m_registry.find(QStringLiteral("gpu"));
+        const ITest *ai = m_registry.find(QStringLiteral("ai"));
         tests::setStubTimeScale(0.03);
-        QVERIFY(gpu->timeLimit({}) >= std::chrono::seconds(15));
+        QVERIFY(ai->timeLimit({}) >= std::chrono::seconds(15));
         tests::setStubTimeScale(1.0);
-        QCOMPARE(gpu->timeLimit({}), std::chrono::seconds(48));  // 2 x 24 s, as before
+        QCOMPARE(ai->timeLimit({}), std::chrono::seconds(60));  // 2 x 30 s
         tests::setStubTimeLimitFloor(std::chrono::seconds(3));
         tests::setStubTimeScale(0.03);
-        QCOMPARE(gpu->timeLimit({}), std::chrono::seconds(3));
+        QCOMPARE(ai->timeLimit({}), std::chrono::seconds(3));
         tests::resetStubTimeLimitFloor();
         QCOMPARE(m_registry.find(QStringLiteral("battery"))->timeLimit({}), std::chrono::seconds(0));
         tests::setStubTimeScale(0.02);
@@ -359,10 +355,10 @@ private slots:
     {
         QElapsedTimer t;
         t.start();
-        const RunRecord run = runOne(QStringLiteral("gpu"));
+        const RunRecord run = runOne(QStringLiteral("ai"));
         const qint64 ms = t.elapsed();
         QCOMPARE(run.tests[0].status, Status::Ok);
-        QVERIFY2(ms >= 24 * 20 - 30 && ms < 24 * 20 + 1500, qPrintable(QString::number(ms)));  // 24 s x 0.02 = 480 ms
+        QVERIFY2(ms >= 30 * 20 - 30 && ms < 30 * 20 + 1500, qPrintable(QString::number(ms)));  // 30 s x 0.02 = 600 ms
     }
 
     void stopCancelsAStub()
@@ -371,7 +367,7 @@ private slots:
         Orchestrator o(m_registry, *m_sink, m_inhibitor, fastConfig());
         QSignalSpy finished(&o, &Orchestrator::runFinished);
         QSignalSpy started(&o, &Orchestrator::testStarted);
-        QVERIFY(o.start({{QStringLiteral("gpu"), {}}, {QStringLiteral("storage"), {}}}, {}).ok);
+        QVERIFY(o.start({{QStringLiteral("ai"), {}}, {QStringLiteral("storage"), {}}}, {}).ok);
         QVERIFY(started.wait(5000));
         QTest::qWait(200);
         o.stop();

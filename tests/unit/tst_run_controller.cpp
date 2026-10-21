@@ -294,7 +294,7 @@ private slots:
         QCOMPARE(rc().estimateText(), QStringLiteral("estimated 4 min 30 s"));
         QCOMPARE(rc().estimateOf(QStringLiteral("cpu")), QStringLiteral("~4 min 30 s"));
         rc().clearSelection();
-        rc().toggle(QStringLiteral("gpu"));  // a 24 s stub
+        rc().toggle(QStringLiteral("ai"));  // a 30 s stub
         QSignalSpy finished(&rc(), &RunController::runFinished);
         QVERIFY(rc().start());
         QTRY_VERIFY_WITH_TIMEOUT(rc().runSubtitle().contains(QLatin1StringView("left")), 5000);

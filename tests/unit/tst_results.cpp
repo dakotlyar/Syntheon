@@ -446,7 +446,7 @@ private slots:
         // Stubs only (Phase 3 N6: the RAM test is real now; its Detail page
         // is tst_ram_test's). The stubs' chart and KPIs are Battery's (tst_stubs,
         // tst_results.qml).
-        for (const QString &id : {QStringLiteral("storage"), QStringLiteral("gpu"), QStringLiteral("ai")})
+        for (const QString &id : {QStringLiteral("storage"), QStringLiteral("ai")})
             rc.toggle(id);
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
@@ -455,19 +455,17 @@ private slots:
         // The finished run replaced the live view automatically.
         QCOMPARE(res.uuid(), finished.last().at(0).toString());
         QVERIFY(!res.live());
-        QCOMPARE(res.rows().size(), 3);
+        QCOMPARE(res.rows().size(), 2);
 
-        res.showDetail(QStringLiteral("gpu"));
+        res.showDetail(QStringLiteral("ai"));
         QVERIFY(res.detailOpen());
-        QCOMPARE(res.detailTitle(), QStringLiteral("GPU"));
+        QCOMPARE(res.detailTitle(), QStringLiteral("AI inference"));
         QVERIFY(res.detailSubtitle().startsWith(QLatin1StringView("Score ")));
         QVERIFY(!block(res.detailBlocks(), QStringLiteral("table")).isEmpty());
-        QCOMPARE(res.detailColorToken(), QStringLiteral("t-gpu"));
+        QCOMPARE(res.detailColorToken(), QStringLiteral("t-ai"));
         res.showDetail(QStringLiteral("storage"));
         const auto grid = block(res.detailBlocks(), QStringLiteral("grid"));
         QCOMPARE(grid.value(QStringLiteral("rows")).toList().size(), 4);
-        res.showDetail(QStringLiteral("ai"));
-        QVERIFY(!block(res.detailBlocks(), QStringLiteral("table")).isEmpty());
         res.closeDetail();
         QVERIFY(!res.detailOpen());
 
@@ -476,14 +474,14 @@ private slots:
         QVERIFY(log);
         QVERIFY(log->rowCount() >= 10);
         const int all = log->rowCount();
-        log->setTestFilter(QStringLiteral("gpu"));
+        log->setTestFilter(QStringLiteral("ai"));
         QVERIFY(log->rowCount() > 0 && log->rowCount() < all);
-        QVERIFY(log->visibleText().contains(QLatin1StringView("GPU")));
+        QVERIFY(log->visibleText().contains(QLatin1StringView("AI inference")));
         QVERIFY(!log->visibleText().contains(QLatin1StringView("Storage")));
         log->setTestFilter({});
         log->setMinLevel(QStringLiteral("warning"));
         QVERIFY(log->rowCount() < all);
-        QCOMPARE(res.logTests().size(), 3);
+        QCOMPARE(res.logTests().size(), 2);
     }
 
     void followsTheLiveRun()
@@ -491,7 +489,7 @@ private slots:
         tests::setStubTimeScale(0.3);
         startRuntime();
         RunController &rc = m_rt->run();
-        rc.toggle(QStringLiteral("gpu"));
+        rc.toggle(QStringLiteral("ai"));
         rc.toggle(QStringLiteral("storage"));
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
@@ -544,7 +542,7 @@ private slots:
 
         QVERIFY(res.openRun({}));  // an older run is showing, not pinned
         QSignalSpy finished(&rc, &RunController::runFinished);
-        rc.toggle(QStringLiteral("gpu"));
+        rc.toggle(QStringLiteral("ai"));
         QVERIFY(rc.start());
         QVERIFY(finished.wait(60000));
         QCOMPARE(res.uuid(), rc.runUuid());  // followed it
@@ -556,7 +554,7 @@ private slots:
         // ...but the next run un-pins it and is followed.
         finished.clear();
         rc.clearSelection();
-        rc.toggle(QStringLiteral("gpu"));
+        rc.toggle(QStringLiteral("ai"));
         QVERIFY(rc.start());
         QVERIFY(!res.pinned());
         QVERIFY(finished.wait(60000));

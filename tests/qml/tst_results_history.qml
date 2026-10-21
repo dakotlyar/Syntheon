@@ -45,7 +45,7 @@ TestCase {
     }
 
     function test_2_tickTwoThenCompare() {
-        oneRun("gpu")
+        oneRun("ai")
         oneRun("storage")  // stubs only (Phase 3 N6: RAM is real now)
         const h = createTemporaryObject(historyComponent, test)
         tick()
