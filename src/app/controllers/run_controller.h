@@ -31,6 +31,12 @@ class StorageController;
 // preconditions, estimate, run bar) and the live run behind the Progress
 // screen (queue, log, Stop, ETA). Owns the registry, the selection, one
 // OptionValues per test and the Orchestrator.
+// The smoke run's verdict on one test's result (SYNBENCH_SMOKE, CI): Ok
+// passes; so does a RAM result that is Partial only because loaded latency
+// is N/A "needs at least two cores" (a one-core runner, §5.4; the release
+// build has no hook to share the core). Anything else fails.
+bool smokeAccepts(const TestResult &result);
+
 class RunController : public QObject
 {
     Q_OBJECT

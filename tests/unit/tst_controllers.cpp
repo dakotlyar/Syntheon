@@ -491,6 +491,41 @@ private slots:
         }
     }
 
+    // The smoke verdict (batch D CI): Ok passes; RAM Partial only for
+    // loaded latency N/A "needs at least two cores" passes (a one-core
+    // runner); every other non-Ok result fails.
+    void smokeVerdict()
+    {
+        const auto ram = [](Status loaded, const QString &reason, Status bandwidth = Status::Ok) {
+            TestResult r;
+            r.testId = QStringLiteral("ram");
+            r.status = Status::Partial;
+            r.subResults = {{QStringLiteral("latency"), Status::Ok, {}, 1000.0},
+                            {QStringLiteral("bandwidth"), bandwidth, {}, 1000.0},
+                            {QStringLiteral("loaded"), loaded, reason, std::nullopt}};
+            return r;
+        };
+        const QString twoCores = QStringLiteral("needs at least two cores");
+        TestResult ok;
+        ok.testId = QStringLiteral("ram");
+        QVERIFY(smokeAccepts(ok));
+        QVERIFY(smokeAccepts(ram(Status::NotAvailable, twoCores)));
+        // Anything else fails.
+        QVERIFY(!smokeAccepts(ram(Status::NotAvailable, twoCores, Status::Error)));
+        QVERIFY(!smokeAccepts(ram(Status::Error, twoCores)));
+        QVERIFY(!smokeAccepts(ram(Status::NotAvailable, QStringLiteral("needs the latency buffer (no memory)"))));
+        QVERIFY(!smokeAccepts(ram(Status::Ok, {}, Status::Error)));
+        TestResult noneFailed = ram(Status::Ok, {});
+        QVERIFY(!smokeAccepts(noneFailed));  // Partial with nothing N/A: not this case
+        TestResult cpu = ram(Status::NotAvailable, twoCores);
+        cpu.testId = QStringLiteral("cpu");
+        QVERIFY(!smokeAccepts(cpu));
+        TestResult err;
+        err.testId = QStringLiteral("ram");
+        err.status = Status::Error;
+        QVERIFY(!smokeAccepts(err));
+    }
+
     void smokeRuntimeUsesATemporaryHistory()
     {
         AppRuntime::Options o;

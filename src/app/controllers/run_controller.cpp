@@ -669,6 +669,25 @@ void RunController::stop()
 
 // ---------------------------------------------------------------- smoke
 
+bool smokeAccepts(const TestResult &result)
+{
+    if (result.status == Status::Ok)
+        return true;
+    if (result.status != Status::Partial || result.testId != QLatin1StringView("ram"))
+        return false;
+    bool loadedNa = false;
+    for (const SubResult &s : result.subResults) {
+        if (s.status == Status::Ok)
+            continue;
+        if (s.id == QLatin1StringView("loaded") && s.status == Status::NotAvailable
+            && s.reason == QLatin1StringView("needs at least two cores"))
+            loadedNa = true;
+        else
+            return false;
+    }
+    return loadedNa;
+}
+
 void RunController::runSmoke()
 {
     m_smoke = true;
@@ -688,10 +707,14 @@ void RunController::runSmoke()
         const RunRecord &run = currentRun();
         bool ok = status == QLatin1StringView("completed");
         for (const TestResult &t : run.tests) {
-            if (t.status != Status::Ok) {
-                qCCritical(lcRun) << "smoke:" << t.testId << "ended" << toKey(t.status) << t.statusReason;
-                ok = false;
+            if (smokeAccepts(t)) {
+                if (t.status != Status::Ok)
+                    qCInfo(lcRun) << "smoke:" << t.testId << "ended" << toKey(t.status) << t.statusReason
+                                  << "(loaded latency needs two cores: accepted)";
+                continue;
             }
+            qCCritical(lcRun) << "smoke:" << t.testId << "ended" << toKey(t.status) << t.statusReason;
+            ok = false;
         }
         if (!ok) {
             QCoreApplication::exit(1);
