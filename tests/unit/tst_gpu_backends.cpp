@@ -13,6 +13,7 @@
 
 #include <QTest>
 
+#include <cmath>
 #include <cstdlib>
 #include <memory>
 
@@ -51,8 +52,8 @@ class TestGpuBackends : public QObject
     Q_OBJECT
 
     // In-process Vulkan: the backend at w x h on lavapipe, headless, loaded
-    // with a content-scaled Geometry scene (task 10 draws the clear workload
-    // for any scene) and resumed. Null (and the test skipped) without lavapipe.
+    // with a content-scaled scene (the workloads that are still the clear
+    // workload: Quads, Sprites, Shading, Particles) and resumed. Null (and the test skipped) without lavapipe.
     std::unique_ptr<vk::VulkanBackend> headlessVulkan(std::uint32_t w, std::uint32_t h, const SceneData &scene, QString *skip)
     {
         auto b = std::make_unique<vk::VulkanBackend>();
@@ -109,7 +110,7 @@ private slots:
     void vulkanClear()
     {
         QString why;
-        const SceneData scene = buildScene(Workload::Geometry, 64);
+        const SceneData scene = buildScene(Workload::Quads, 64);
         auto b = headlessVulkan(320, 180, scene, &why);
         if (!b && why.startsWith(QLatin1StringView("no software")))
             QSKIP(qPrintable(why));
@@ -161,7 +162,7 @@ private slots:
                         {QStringLiteral("--run"), QStringLiteral("--api"), QStringLiteral("vulkan"), QStringLiteral("--gpu"), kLavapipeId,
                          QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
                          QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation"),
-                         QStringLiteral("--headless"), QStringLiteral("--plan"), QStringLiteral("geometry:200:300")},
+                         QStringLiteral("--headless"), QStringLiteral("--plan"), QStringLiteral("quads:200:300")},
                         env);
         QVERIFY(w.started());
         const int code = w.finish();
@@ -182,13 +183,114 @@ private slots:
         QVERIFY2(!w.stderrText().contains(QLatin1StringView("vulkan:")), qPrintable(w.stderrText()));
     }
 
+
+    // The standard deviation of a signature's bytes: a flat image is 0.
+    static double deviation(const std::vector<std::uint8_t> &sig)
+    {
+        double mean = 0, var = 0;
+        for (const std::uint8_t b : sig)
+            mean += b;
+        mean /= double(sig.size());
+        for (const std::uint8_t b : sig)
+            var += (b - mean) * (b - mean);
+        return std::sqrt(var / double(sig.size()));
+    }
+
+    // Task 11: Geometry and Draw calls at content / 64, headless on lavapipe.
+    // The draw count is the scene's content-scaled drawsPerFrame (1 and 189),
+    // the readback (tone mapped, no overlay, render size) isn't flat, and
+    // the validation layers, with synchronisation validation, saw nothing.
+    void vulkanScenes_data()
+    {
+        QTest::addColumn<int>("workload");
+        QTest::addColumn<unsigned>("draws");
+        QTest::newRow("geometry") << int(Workload::Geometry) << 1u;
+        QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 189u;
+    }
+
+    void vulkanScenes()
+    {
+        QFETCH(int, workload);
+        QFETCH(unsigned, draws);
+        QString why;
+        const SceneData scene = buildScene(Workload(workload), 64);
+        QCOMPARE(scene.drawsPerFrame, draws);
+        auto b = headlessVulkan(320, 180, scene, &why);
+        if (!b && why.startsWith(QLatin1StringView("no software")))
+            QSKIP(qPrintable(why));
+        QVERIFY2(b, qPrintable(why));
+        std::vector<double> gpu;
+        for (int i = 0; i < 8; ++i)
+            SB_OK(b->frame(i / 60.0, &gpu));
+        QCOMPARE(b->lastFrameDraws(), draws);
+        SB_OK(b->drain(&gpu));
+        QCOMPARE(gpu.size(), std::size_t(8));
+        std::vector<std::uint8_t> pixels;
+        SB_OK(b->readback(2.0, &pixels));
+        QCOMPARE(pixels.size(), std::size_t(320 * 180 * 4));
+        QCOMPARE(b->lastFrameDraws(), draws);
+        const std::vector<std::uint8_t> sig = blockSignature(pixels.data(), 320, 180);
+        QCOMPARE(sig.size(), std::size_t(432));
+        QVERIFY2(deviation(sig) > 2.0, qPrintable(QStringLiteral("a flat image (deviation %1)").arg(deviation(sig))));
+        // The same scene again after a load .. unload (serve mode), and the overlay path.
+        b->setOverlay("Geometry | Vulkan | 1 fps");
+        SB_OK(b->frame(0.5, &gpu));
+        SB_OK(b->drain(&gpu));
+        b->unload();
+        SB_OK(b->suspend());
+        SB_OK(b->resume(PresentTarget{true}));
+        SB_OK(b->load(scene));
+        SB_OK(b->frame(0.0, &gpu));
+        SB_OK(b->drain(&gpu));
+        b->unload();
+        SB_OK(b->suspend());
+        b->shutdown();  // leaks would be validation errors here
+        QCOMPARE(b->validationErrors(), 0);
+    }
+
+    // Task 11 through the worker: the 300 ms measure gives at least 3 frames, a
+    // signature that isn't flat, no validation error.
+    void vulkanSceneWorker_data()
+    {
+        QTest::addColumn<QString>("plan");
+        QTest::newRow("geometry") << QStringLiteral("geometry:200:300");
+        QTest::newRow("drawcalls") << QStringLiteral("drawcalls:200:300");
+    }
+
+    void vulkanSceneWorker()
+    {
+        QFETCH(QString, plan);
+        if (lavapipeIcd().isEmpty())
+            QSKIP("lavapipe (the software Vulkan driver) isn't installed");
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        addSoftwareVulkan(env);
+        WorkerProcess w(kWorker,
+                        {QStringLiteral("--run"), QStringLiteral("--api"), QStringLiteral("vulkan"), QStringLiteral("--gpu"), kLavapipeId,
+                         QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
+                         QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation"),
+                         QStringLiteral("--headless"), QStringLiteral("--plan"), plan},
+                        env);
+        QVERIFY(w.started());
+        const int code = w.finish();
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
+        QVERIFY2(errors(w.events()).isEmpty(), qPrintable(errors(w.events())));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 1);
+        QVERIFY(rs[0].frames >= 3);
+        QCOMPARE(rs[0].signature.size(), 432);
+        std::vector<std::uint8_t> sig(rs[0].signature.begin(), rs[0].signature.end());
+        QVERIFY2(deviation(sig) > 2.0, qPrintable(QStringLiteral("a flat image (deviation %1)").arg(deviation(sig))));
+        QVERIFY(is<pr::DoneEvent>(w.events().last()));
+        QVERIFY2(!w.stderrText().contains(QLatin1StringView("vulkan:")), qPrintable(w.stderrText()));
+    }
+
     // The overlay drawn by the present pass (§5.9) equals rasterOverlay()
     // composited over the clear colour, and nothing else changes.
     void vulkanOverlay()
     {
         QString why;
         constexpr std::uint32_t W = 640, H = 360;
-        auto b = headlessVulkan(W, H, buildScene(Workload::Geometry, 64), &why);
+        auto b = headlessVulkan(W, H, buildScene(Workload::Quads, 64), &why);
         if (!b && why.startsWith(QLatin1StringView("no software")))
             QSKIP(qPrintable(why));
         QVERIFY2(b, qPrintable(why));

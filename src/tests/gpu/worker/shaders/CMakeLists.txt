@@ -56,7 +56,8 @@ set(_sb_shader_incs "")
 function(synbench_gpu_shader)
     cmake_parse_arguments(arg "" "NAME" "" ${ARGN})
     set(src "${CMAKE_CURRENT_SOURCE_DIR}/${arg_NAME}.hlsl")
-    set(deps "${src}" "${CMAKE_CURRENT_SOURCE_DIR}/common.hlsli" "${PROJECT_SOURCE_DIR}/cmake/EmbedBinary.cmake")
+    set(deps "${src}" "${CMAKE_CURRENT_SOURCE_DIR}/common.hlsli" "${CMAKE_CURRENT_SOURCE_DIR}/lighting.hlsli"
+        "${PROJECT_SOURCE_DIR}/cmake/EmbedBinary.cmake")
     # snake_case -> CamelCase, as build.py names the SPIR-V and GLSL arrays.
     string(REPLACE "_" ";" parts "${arg_NAME}")
     set(camel "")
@@ -97,5 +98,7 @@ endfunction()
 
 file(MAKE_DIRECTORY "${SYNBENCH_GPU_SHADER_DIR}")
 synbench_gpu_shader(NAME present)
+synbench_gpu_shader(NAME geometry)
+synbench_gpu_shader(NAME drawcalls)
 
 add_custom_target(synbench_gpu_shaders ALL DEPENDS ${_sb_shader_incs})

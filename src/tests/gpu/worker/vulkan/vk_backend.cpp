@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "tests/gpu/worker/vulkan/vk_backend.h"
 
+#include "tests/gpu/worker/vulkan/vk_workload_state.h"
+
 #include "tests/gpu/worker/scene/bitmap_font.h"
 #include "tests/gpu/worker/scene/overlay.h"
 
@@ -30,7 +32,7 @@ struct PresentConstants {
 };
 static_assert(sizeof(PresentConstants) == 80, "the Present cbuffer is 80 bytes");
 
-constexpr std::uint32_t kPresentCopy = 1;
+constexpr std::uint32_t kPresentTonemap = 0, kPresentCopy = 1;
 
 std::string makeShader(VkDevice device, const std::uint32_t *code, std::size_t bytes, VkShaderModule *out)
 {
@@ -43,12 +45,6 @@ std::string makeShader(VkDevice device, const std::uint32_t *code, std::size_t b
 }
 
 } // namespace
-
-// Task 10: nothing per workload yet (the clear workload needs only ldrA).
-// Tasks 11, 12 and 29 put their pipelines and buffers here (vk_workloads.cpp).
-struct VulkanBackend::WorkloadState {
-    Workload workload = Workload::Geometry;
-};
 
 VulkanBackend::VulkanBackend() = default;
 
@@ -247,11 +243,20 @@ std::string VulkanBackend::init(const BackendInit &init, const PresentTarget &ta
 
 std::string VulkanBackend::createPresentPipeline(VkFormat format)
 {
-    VkDevice d = m_ctx.device;
     if (m_presentPipeline) {
-        vkDestroyPipeline(d, m_presentPipeline, nullptr);
+        vkDestroyPipeline(m_ctx.device, m_presentPipeline, nullptr);
         m_presentPipeline = VK_NULL_HANDLE;
     }
+    std::string e = buildPresentPipeline(format, &m_presentPipeline);
+    m_presentFormat = e.empty() ? format : VK_FORMAT_UNDEFINED;
+    return e;
+}
+
+// The present pass's pipeline for a colour target of `format` (the swapchain's, or RGBA8 for the readback).
+std::string VulkanBackend::buildPresentPipeline(VkFormat format, VkPipeline *out)
+{
+    VkDevice d = m_ctx.device;
+    *out = VK_NULL_HANDLE;
     VkShaderModule vs = VK_NULL_HANDLE, ps = VK_NULL_HANDLE;
     std::string e = makeShader(d, kPresentVsSpv, sizeof kPresentVsSpv, &vs);
     if (e.empty())
@@ -304,8 +309,8 @@ std::string VulkanBackend::createPresentPipeline(VkFormat format)
         gp.pColorBlendState = &cb;
         gp.pDynamicState = &dy;
         gp.layout = m_presentLayout;
-        if (const VkResult r = vkCreateGraphicsPipelines(d, VK_NULL_HANDLE, 1, &gp, nullptr, &m_presentPipeline); r != VK_SUCCESS) {
-            m_presentPipeline = VK_NULL_HANDLE;
+        if (const VkResult r = vkCreateGraphicsPipelines(d, VK_NULL_HANDLE, 1, &gp, nullptr, out); r != VK_SUCCESS) {
+            *out = VK_NULL_HANDLE;
             e = failure("vkCreateGraphicsPipelines (present)", r);
         }
     }
@@ -313,7 +318,6 @@ std::string VulkanBackend::createPresentPipeline(VkFormat format)
         vkDestroyShaderModule(d, vs, nullptr);
     if (ps)
         vkDestroyShaderModule(d, ps, nullptr);
-    m_presentFormat = e.empty() ? format : VK_FORMAT_UNDEFINED;
     return e;
 }
 
@@ -355,6 +359,11 @@ std::string VulkanBackend::load(const SceneData &scene)
     m_work->workload = scene.workload;
     m_loaded = true;
     m_lastDraws = 0;
+    // Geometry and Draw calls (task 11) render into sceneColor; the others still clear ldrA.
+    if (scene.workload == Workload::Geometry || scene.workload == Workload::DrawCalls) {
+        if (std::string e = loadScene(scene); !e.empty())
+            return e;
+    }
     return m_ctx.validationProblem();
 }
 
@@ -365,6 +374,7 @@ void VulkanBackend::unload()
     vkDeviceWaitIdle(m_ctx.device);
     for (Slot &s : m_slots)
         s.submitted = false;  // after the idle wait: their timestamps belong to the old workload
+    unloadScene();
     m_work.reset();
     if (m_loadPool)
         vkDestroyDescriptorPool(m_ctx.device, m_loadPool, nullptr);
@@ -486,12 +496,12 @@ std::string VulkanBackend::waitAll()
     return {};
 }
 
-void VulkanBackend::writePresentConstants(Slot &slot, std::uint32_t windowW, std::uint32_t windowH)
+void VulkanBackend::writePresentConstants(Slot &slot, std::uint32_t windowW, std::uint32_t windowH, std::uint32_t mode, bool withOverlay)
 {
     PresentConstants c{};
-    c.mode = kPresentCopy;
+    c.mode = mode;
     c.flipV = 0;
-    if (!m_overlay.empty()) {
+    if (withOverlay && !m_overlay.empty()) {
         const OverlayLayout l = overlayLayout(m_overlay.size(), m_windowScale);
         // A window too small for the box shows none of it (never a partial box).
         if (std::uint32_t(l.x + l.w) <= windowW && std::uint32_t(l.y + l.h) <= windowH) {
@@ -508,8 +518,23 @@ void VulkanBackend::writePresentConstants(Slot &slot, std::uint32_t windowW, std
     std::memcpy(static_cast<std::uint8_t *>(slot.frameConstants.mapped) + kPassBase, &c, sizeof c);
 }
 
-void VulkanBackend::recordWorkload(VkCommandBuffer cmd, double)
+bool VulkanBackend::tonemapped() const
 {
+    return m_work && m_work->tonemap;
+}
+
+Image &VulkanBackend::outputImage()
+{
+    return tonemapped() ? m_sceneColor : m_ldrA;
+}
+
+void VulkanBackend::recordWorkload(VkCommandBuffer cmd, Slot &slot, double t)
+{
+    if (tonemapped()) {
+        recordScene(cmd, slot, t);
+        return;
+    }
+    m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     // The previous frame's present pass sampled ldrA and a readback copied it:
     // their reads before this clear (WAR). Its old contents are discarded.
     m_ldrA.layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -530,7 +555,7 @@ void VulkanBackend::recordWorkload(VkCommandBuffer cmd, double)
     vkCmdEndRendering(cmd);
 }
 
-void VulkanBackend::recordPresentPass(VkCommandBuffer cmd, Slot &slot, VkImageView view, std::uint32_t w, std::uint32_t h)
+void VulkanBackend::recordPresentPass(VkCommandBuffer cmd, Slot &slot, VkImageView view, std::uint32_t w, std::uint32_t h, VkPipeline pipeline)
 {
     VkRenderingAttachmentInfo colour{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     colour.imageView = view;
@@ -548,7 +573,7 @@ void VulkanBackend::recordPresentPass(VkCommandBuffer cmd, Slot &slot, VkImageVi
     const VkRect2D scissor{{0, 0}, {w, h}};
     vkCmdSetViewport(cmd, 0, 1, &vp);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_presentPipeline);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     const std::uint32_t passOffset = std::uint32_t(kPassBase);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_presentLayout, 0, 1, &slot.set0, 1, &passOffset);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_presentLayout, 2, 1, &m_presentSource, 0, nullptr);
@@ -569,7 +594,7 @@ std::string VulkanBackend::frame(double t, std::vector<double> *gpuMs)
         return e;
     const std::uint32_t outW = m_headless ? m_headlessTarget.width : m_swap.width;
     const std::uint32_t outH = m_headless ? m_headlessTarget.height : m_swap.height;
-    writePresentConstants(s, outW, outH);
+    writePresentConstants(s, outW, outH, tonemapped() ? kPresentTonemap : kPresentCopy, true);
 
     std::uint32_t imageIndex = 0;
     if (!m_headless) {
@@ -586,8 +611,8 @@ std::string VulkanBackend::frame(double t, std::vector<double> *gpuMs)
         vkCmdWriteTimestamp2(s.cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, m_queries, 2 * si);
     }
 
-    recordWorkload(s.cmd, t);
-    transition(s.cmd, m_ldrA, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+    recordWorkload(s.cmd, s, t);
+    transition(s.cmd, outputImage(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
     // The present pass (P3) into the swapchain image, or the headless target.
@@ -597,13 +622,13 @@ std::string VulkanBackend::frame(double t, std::vector<double> *gpuMs)
         transition(s.cmd, m_headlessTarget, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-        recordPresentPass(s.cmd, s, m_headlessTarget.view, outW, outH);
+        recordPresentPass(s.cmd, s, m_headlessTarget.view, outW, outH, m_presentPipeline);
     } else {
         // Waits for the acquire semaphore at COLOR_ATTACHMENT_OUTPUT (the submit below).
         imageBarrier(s.cmd, m_swap.images[imageIndex], m_swap.format, 1, VK_IMAGE_LAYOUT_UNDEFINED,
                      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_NONE,
                      VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-        recordPresentPass(s.cmd, s, m_swap.views[imageIndex], outW, outH);
+        recordPresentPass(s.cmd, s, m_swap.views[imageIndex], outW, outH, m_presentPipeline);
         imageBarrier(s.cmd, m_swap.images[imageIndex], m_swap.format, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                      VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                      VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE);
@@ -635,7 +660,6 @@ std::string VulkanBackend::frame(double t, std::vector<double> *gpuMs)
         return failure("vkQueueSubmit2", r);
     s.submitted = true;
     ++m_frame;
-    m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     if (!m_headless) {
         if (std::string e = m_swap.present(m_ctx, m_swap.renderFinished[imageIndex], imageIndex); !e.empty())
             return e;
@@ -653,7 +677,7 @@ std::string VulkanBackend::drain(std::vector<double> *gpuMs)
     return m_ctx.validationProblem();
 }
 
-std::string VulkanBackend::readImage(Image &img, double t, bool renderWorkload, std::vector<std::uint8_t> *rgba8)
+std::string VulkanBackend::readImage(Image &img, const std::function<void(VkCommandBuffer)> &pre, std::vector<std::uint8_t> *rgba8)
 {
     if (std::string e = waitAll(); !e.empty())
         return e;
@@ -662,8 +686,8 @@ std::string VulkanBackend::readImage(Image &img, double t, bool renderWorkload, 
     if (std::string e = makeBuffer(m_ctx, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true, &host); !e.empty())
         return e;
     std::string e = m_ctx.oneTimeSubmit([&](VkCommandBuffer cmd) {
-        if (renderWorkload)
-            recordWorkload(cmd, t);
+        if (pre)
+            pre(cmd);
         transition(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
         VkBufferImageCopy region{};
@@ -698,7 +722,29 @@ std::string VulkanBackend::readback(double t, std::vector<std::uint8_t> *rgba8)
     if (!m_loaded)
         return "readback() before load()";
     // §5.7: the workload's output before the present pass, at render size.
-    return readImage(m_ldrA, t, true, rgba8);
+    // Slot 0 is idle (readImage waits for all of them first), so it supplies the constants.
+    Slot &s = m_slots[0];
+    if (!tonemapped()) {
+        return readImage(m_ldrA, [&](VkCommandBuffer cmd) { recordWorkload(cmd, s, t); }, rgba8);
+    }
+    // A tone mapped workload (sceneColor is RGBA16F, linear): the present pass in
+    // mode 0, no overlay, into an RGBA8 target at render size; that is what is read.
+    if (std::string e = waitAll(); !e.empty())
+        return e;
+    Image &target = m_work->readTarget;
+    writePresentConstants(s, target.width, target.height, kPresentTonemap, false);
+    return readImage(
+        target,
+        [&](VkCommandBuffer cmd) {
+            recordWorkload(cmd, s, t);
+            transition(cmd, m_sceneColor, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                       VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+            target.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+            transition(cmd, target, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
+                       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+            recordPresentPass(cmd, s, target.view, target.width, target.height, m_work->readPipeline);
+        },
+        rgba8);
 }
 
 #if defined(SYNBENCH_DEV_HOOKS)
@@ -706,7 +752,7 @@ std::string VulkanBackend::readbackPresented(std::vector<std::uint8_t> *rgba8)
 {
     if (!m_headless || !m_resumed || m_frame == 0)
         return "readbackPresented() needs a headless frame";
-    return readImage(m_headlessTarget, 0.0, false, rgba8);
+    return readImage(m_headlessTarget, nullptr, rgba8);
 }
 #endif
 

@@ -14,6 +14,7 @@ add_library(synbench_gpu_backends STATIC
     vulkan/vk_resources.h vulkan/vk_resources.cpp
     vulkan/vk_swapchain.h vulkan/vk_swapchain.cpp
     vulkan/vk_backend.h vulkan/vk_backend.cpp
+    vulkan/vk_workload_state.h vulkan/vk_workloads.cpp
 )
 if(WIN32)
     # System32's vulkan-1.dll for volk (P-WIN: Windows-only code in its own file).

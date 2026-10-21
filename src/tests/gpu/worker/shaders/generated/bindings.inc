@@ -5,6 +5,11 @@
 // (glUniformBlockBinding for a block, glUniform1i for a sampler).
 struct GlBinding { const char *shader; const char *glslName; int unit; bool block; };
 static const GlBinding kGlBindings[] = {
+    {"drawcalls", "SPIRV_Cross_CombinedmateriallinearWrap", 0, false},
+    {"drawcalls", "type_Frame", 0, true},
+    {"drawcalls", "type_Object", 1, true},
+    {"geometry", "type_Frame", 0, true},
+    {"geometry", "type_Object", 1, true},
     {"present", "SPIRV_Cross_CombinedglyphAtlasSPIRV_Cross_DummySampler", 5, false},
     {"present", "SPIRV_Cross_CombinedsourceImagelinearClamp", 0, false},
     {"present", "type_Present", 2, true},

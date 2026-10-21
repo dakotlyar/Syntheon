@@ -24,6 +24,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -79,10 +80,21 @@ private:
     std::string createPresentPipeline(VkFormat format);
     std::string waitSlot(std::uint32_t slot, std::vector<double> *gpuMs);  // gpuMs null: drop its timestamps
     std::string waitAll();
-    void recordWorkload(VkCommandBuffer cmd, double t);   // leaves the workload's output (ldrA) as a colour attachment
-    void recordPresentPass(VkCommandBuffer cmd, Slot &slot, VkImageView view, std::uint32_t w, std::uint32_t h);
-    void writePresentConstants(Slot &slot, std::uint32_t windowW, std::uint32_t windowH);
-    std::string readImage(Image &img, double t, bool renderWorkload, std::vector<std::uint8_t> *rgba8);
+    // Records the workload at time t into the slot's command buffer and leaves
+    // its output (outputImage()) as a colour attachment; sets m_lastDraws.
+    void recordWorkload(VkCommandBuffer cmd, Slot &slot, double t);
+    void recordPresentPass(VkCommandBuffer cmd, Slot &slot, VkImageView view, std::uint32_t w, std::uint32_t h, VkPipeline pipeline);
+    void writePresentConstants(Slot &slot, std::uint32_t windowW, std::uint32_t windowH, std::uint32_t mode, bool withOverlay);
+    // `pre` records first (the workload, and for tone mapped ones the present pass into the read target); then img is copied out.
+    std::string readImage(Image &img, const std::function<void(VkCommandBuffer)> &pre, std::vector<std::uint8_t> *rgba8);
+    std::string buildPresentPipeline(VkFormat format, VkPipeline *out);
+
+    // vk_workloads.cpp (task 11): Geometry and Draw calls into sceneColor, tone mapped.
+    bool tonemapped() const;          // the workload renders into sceneColor (present mode 0)
+    Image &outputImage();             // sceneColor or ldrA
+    std::string loadScene(const SceneData &scene);   // the targets, pipeline and buffers of a scene workload
+    void unloadScene();
+    void recordScene(VkCommandBuffer cmd, Slot &slot, double t);
     void releaseWindow();
 
     BackendInit m_init;
