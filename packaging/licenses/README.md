@@ -14,3 +14,10 @@ For THIRD-PARTY-NOTICES.txt (cmake/ThirdPartyNotices.cmake, cmake/QtNotices.cmak
   FreeType, hence `Zlib` and `MIT-open-group`). A licence a newer Qt adds and
   that has no file here fails the configure with its id: add its text from the
   same place.
+- The GPU test's third-party code (`cmake/GpuThirdParty.cmake`, Phase 4a):
+  volk (MIT; its `LICENSE.md` comes with the pinned tarball) and glad's
+  generated OpenGL loader, whose own header says `(WTFPL OR CC0-1.0) AND
+  Apache-2.0`. SynBench uses it under CC0-1.0, so the notices carry
+  `spdx/CC0-1.0.txt` for the loader and `spdx/Apache-2.0.txt` for the Khronos
+  registry parts of its output. `KHR/khrplatform.h` has its own MIT-style
+  notice at its top.
