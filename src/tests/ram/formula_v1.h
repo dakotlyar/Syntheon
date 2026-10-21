@@ -20,14 +20,19 @@
 // Whether the L3 counts is read from the stored cache.levels (scoresL3), so
 // score() stays a pure function of the result.
 //
-// THE ANCHORS ARE PROVISIONAL (task 10): one real run on Tiamat (AMD Ryzen 9
-// 9950X3D, CachyOS, DDR5-6000 EXPO 2 x 16 GB 2R, 2 MiB THP pages, AC, the
-// desktop in use: Firefox, Steam, Caprine open; background load 2.5%) on
-// 2026-10-20 at 4dd84dc (Release), rounded to 3 significant figures, so
-// Tiamat scores about 1,000 for now. testVersion and formulaVersion stay 0:
-// calibration (task 14) replaces them with the median of 5 quiet runs on
-// Knowhere (Knowhere = 1,000) and bumps both to 1. Never change an anchor, a
-// weight or the formula after that without bumping formulaVersion.
+// The anchors (calibration, task 14; Dave, 2026-10-20: Tiamat = 1,000, not
+// Knowhere): the median of 5 RAM runs on Tiamat (AMD Ryzen 9 9950X3D,
+// CachyOS, DDR5-6000 EXPO 2 x 16 GB 2R, 128-bit), rounded to 3 significant
+// figures. Release build of 8c95648 (the app, through the screenshot tour,
+// which Dave approved; no measurement hook), 2026-10-20 23:43-00:09 UTC, 2
+// minutes apart; AC, powersave / EPP balance_performance, chase on CPU 9,
+// 2 MiB THP pages on 100% of the buffers, background load 0.5-0.6%; Steam,
+// the browser and the Nextcloud client closed. The PipeWire filter-chain
+// daemon (~9% of one core: Sonar EQ, HeSuVi surround) ran during all 5,
+// exempted from the 5% quiet check by Dave. Every scored metric's CV <= 0.26%,
+// the RAM score's 0.04%; re-scored, the runs give 999-1,000. testVersion =
+// formulaVersion = 1. Never change an anchor, a weight or the formula
+// without bumping formulaVersion.
 
 #include "core/result.h"
 #include "core/scoring.h"

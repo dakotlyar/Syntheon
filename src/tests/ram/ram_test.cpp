@@ -1360,9 +1360,9 @@ RamTest::RamTest()
     m_info.name = QStringLiteral("RAM");
     m_info.summary = QStringLiteral("Latency curve, bandwidth, loaded latency");
     m_info.colorToken = QStringLiteral("t-ram");
-    // 0 until calibration freezes the anchors (task 14), then 1 (§2).
-    m_info.testVersion = 0;
-    m_info.formulaVersion = 0;
+    // 1 since calibration froze the anchors (task 14, Tiamat, 2026-10-20).
+    m_info.testVersion = 1;
+    m_info.formulaVersion = 1;
     // D15: every run runs all three; none is selectable.
     m_info.subTests = {{kLatency, QStringLiteral("Latency"), false, true},
                        {kBandwidthId, QStringLiteral("Bandwidth"), false, true},

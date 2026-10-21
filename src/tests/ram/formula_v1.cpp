@@ -5,18 +5,20 @@ namespace sb::ram::formula_v1 {
 
 namespace {
 
-// The provisional anchors (see the header): Tiamat, 2026-10-20.
-constexpr double kL1 = 0.708;     // ns
-constexpr double kL2 = 2.48;      // ns
-constexpr double kL3 = 8.54;      // ns
-constexpr double kDram = 75.8;    // ns
-constexpr double kRead = 64.7;    // GB/s, all threads
-constexpr double kWrite = 63.3;   // GB/s, all threads, non-temporal stores
-constexpr double kCopy = 57.7;    // GB/s, all threads, read + written
-constexpr double kStRead = 62.2;  // GB/s, single thread
-constexpr double kStWrite = 30.5;
-constexpr double kStCopy = 58.2;
-constexpr double kLoaded = 193;   // ns, full load
+// The anchors (see the header): the median of 5 quiet runs on Tiamat,
+// 2026-10-20, 3 significant figures. Frozen: never change one without
+// bumping formulaVersion.
+constexpr double kL1 = 0.701;     // ns
+constexpr double kL2 = 2.45;      // ns
+constexpr double kL3 = 8.44;      // ns
+constexpr double kDram = 75.2;    // ns
+constexpr double kRead = 67.5;    // GB/s, all threads
+constexpr double kWrite = 63.7;   // GB/s, all threads, non-temporal stores
+constexpr double kCopy = 58.8;    // GB/s, all threads, read + written
+constexpr double kStRead = 63.2;  // GB/s, single thread
+constexpr double kStWrite = 31.3;
+constexpr double kStCopy = 58.6;
+constexpr double kLoaded = 176;   // ns, full load
 
 GeometricGroup bandwidthGroup()
 {

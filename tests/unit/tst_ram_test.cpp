@@ -451,8 +451,8 @@ private slots:
         tests::RamTest t;
         QCOMPARE(t.info().id, QStringLiteral("ram"));
         QCOMPARE(t.info().colorToken, QStringLiteral("t-ram"));
-        QCOMPARE(t.info().testVersion, 0);  // until calibration (task 14)
-        QCOMPARE(t.info().formulaVersion, 0);
+        QCOMPARE(t.info().testVersion, 1);  // calibrated (task 14, Tiamat)
+        QCOMPARE(t.info().formulaVersion, 1);
         QStringList subs;
         for (const SubTestInfo &s : t.info().subTests) {
             subs << s.id;
@@ -1075,7 +1075,7 @@ private slots:
             QVERIFY2(ctx.logged(QLatin1StringView(line)), line);
         QCOMPARE(ram::LoadGenerator::liveThreads(), 0);
         QCOMPARE(cpu::WorkerPool::liveThreads(), 0);
-        // formula v1 scores it (provisional anchors: the number itself means little).
+        // formula v1 scores it (Tiamat's anchors: this stub run's number itself means little).
         const ScoreBreakdown b = t.score(r);
         QVERIFY(b.total && *b.total > 0);
         QCOMPARE(b.subScores.size(), 3);
