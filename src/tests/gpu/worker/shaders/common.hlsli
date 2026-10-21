@@ -56,7 +56,7 @@ SB_BIND_FRAME cbuffer Frame : register(b0)
     float4 cameraPos;        // xyz; w = animation time t, in seconds
     float4 cameraRight;      // xyz (billboards); w unused
     float4 cameraUp;         // xyz (billboards); w unused
-    float4 sunDir;           // xyz = the direction the light travels (normalised); w unused
+    float4 sunDir;           // xyz = the direction the light travels (normalised); w = Shading's point-light count
     float4 sunColour;        // rgb, intensity included; w unused
     float4 skyAmbient;       // rgb; w unused
     float4 groundAmbient;    // rgb; w unused

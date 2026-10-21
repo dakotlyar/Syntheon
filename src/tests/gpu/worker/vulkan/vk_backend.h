@@ -91,10 +91,19 @@ private:
 
     // vk_workloads.cpp (task 11): Geometry and Draw calls into sceneColor, tone mapped.
     bool tonemapped() const;          // the workload renders into sceneColor (present mode 0)
-    Image &outputImage();             // sceneColor or ldrA
+    Image &outputImage();             // sceneColor, ldrA, or ldrB (Particles)
     std::string loadScene(const SceneData &scene);   // the targets, pipeline and buffers of a scene workload
     void unloadScene();
     void recordScene(VkCommandBuffer cmd, Slot &slot, double t);
+    // Task 12: Shading (shadow, depth pre-pass, EQUAL shading) and Particles + post (14 passes).
+    std::string loadShading(const SceneData &scene);
+    std::string loadParticles(const SceneData &scene);
+    void recordShading(VkCommandBuffer cmd, Slot &slot, double t);
+    void recordParticles(VkCommandBuffer cmd, Slot &slot, double t);
+    // One full-screen post pass into `target` (§6.4); `accumulate` keeps its
+    // contents and blends (the upsamples), `toShaderRead` leaves it sampled.
+    void postPass(VkCommandBuffer cmd, Slot &slot, Image &target, bool accumulate, bool toShaderRead, VkPipeline pipeline,
+                  VkDescriptorSet sources, std::uint32_t block);
     void releaseWindow();
 
     BackendInit m_init;

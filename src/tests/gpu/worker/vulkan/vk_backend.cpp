@@ -126,6 +126,11 @@ std::string VulkanBackend::init(const BackendInit &init, const PresentTarget &ta
     s2.compareEnable = VK_TRUE;
     s2.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
     s2.maxLod = 0.0f;
+    // A 2x2 PCF per tap needs linear filtering of D32F (task 12); nearest where the format can't.
+    VkFormatProperties depthProps{};
+    vkGetPhysicalDeviceFormatProperties(m_ctx.physical, VK_FORMAT_D32_SFLOAT, &depthProps);
+    if (!(depthProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
+        s2.magFilter = s2.minFilter = VK_FILTER_NEAREST;
     const VkSamplerCreateInfo *samplerInfo[3] = {&s0, &s1, &s2};
     for (int i = 0; i < 3; ++i) {
         if (const VkResult r = vkCreateSampler(d, samplerInfo[i], nullptr, &m_samplers[std::size_t(i)]); r != VK_SUCCESS)
@@ -360,10 +365,18 @@ std::string VulkanBackend::load(const SceneData &scene)
     m_loaded = true;
     m_lastDraws = 0;
     // Geometry and Draw calls (task 11) render into sceneColor; the others still clear ldrA.
-    if (scene.workload == Workload::Geometry || scene.workload == Workload::DrawCalls) {
-        if (std::string e = loadScene(scene); !e.empty())
-            return e;
+    // Shading and Particles (task 12) too; Quads and Sprites still clear ldrA (task 29).
+    std::string e;
+    switch (scene.workload) {
+    case Workload::Geometry:
+    case Workload::DrawCalls: e = loadScene(scene); break;
+    case Workload::Shading: e = loadShading(scene); break;
+    case Workload::Particles: e = loadParticles(scene); break;
+    case Workload::Quads:
+    case Workload::Sprites: break;
     }
+    if (!e.empty())
+        return e;
     return m_ctx.validationProblem();
 }
 
@@ -525,14 +538,20 @@ bool VulkanBackend::tonemapped() const
 
 Image &VulkanBackend::outputImage()
 {
+    if (m_work && m_work->workload == Workload::Particles)
+        return m_ldrB;  // §6.4: the post chain ends in ldrB (FXAA), presented in Copy mode
     return tonemapped() ? m_sceneColor : m_ldrA;
 }
 
 void VulkanBackend::recordWorkload(VkCommandBuffer cmd, Slot &slot, double t)
 {
-    if (tonemapped()) {
-        recordScene(cmd, slot, t);
-        return;
+    switch (m_work ? m_work->workload : Workload::Quads) {
+    case Workload::Geometry:
+    case Workload::DrawCalls: recordScene(cmd, slot, t); return;
+    case Workload::Shading: recordShading(cmd, slot, t); return;
+    case Workload::Particles: recordParticles(cmd, slot, t); return;
+    case Workload::Quads:
+    case Workload::Sprites: break;
     }
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     // The previous frame's present pass sampled ldrA and a readback copied it:
@@ -725,7 +744,7 @@ std::string VulkanBackend::readback(double t, std::vector<std::uint8_t> *rgba8)
     // Slot 0 is idle (readImage waits for all of them first), so it supplies the constants.
     Slot &s = m_slots[0];
     if (!tonemapped()) {
-        return readImage(m_ldrA, [&](VkCommandBuffer cmd) { recordWorkload(cmd, s, t); }, rgba8);
+        return readImage(outputImage(), [&](VkCommandBuffer cmd) { recordWorkload(cmd, s, t); }, rgba8);
     }
     // A tone mapped workload (sceneColor is RGBA16F, linear): the present pass in
     // mode 0, no overlay, into an RGBA8 target at render size; that is what is read.

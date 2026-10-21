@@ -31,6 +31,21 @@ struct VulkanBackend::WorkloadState {
     VkPipeline readPipeline = VK_NULL_HANDLE;     // the present pass into the RGBA8 readback target
     Image readTarget;                             // render size, RGBA8: tone mapped, no overlay
     std::uint32_t draws = 0;
+
+    // Shading (task 12): scene.lights/lightMotion too (lightsAt); materials[0..3]
+    // are albedo, normal, roughness/metal and AO in materialSets[0]; the shadow
+    // map is the backend's m_shadow (set 0 b2). `pipeline` is the EQUAL shading pass.
+    VkPipeline shadowPipeline = VK_NULL_HANDLE, prepassPipeline = VK_NULL_HANDLE;
+
+    // Particles + post (task 12): the ground uses geometry.hlsl (pipeline), the
+    // sky and the particles their own; materials[0] is the soft disc (materialSets[0]).
+    Buffer particles;  // one Particle (32 bytes) per instance
+    std::uint32_t particleCount = 0;
+    VkPipeline skyPipeline = VK_NULL_HANDLE, particlePipeline = VK_NULL_HANDLE;
+    VkPipeline brightPipeline = VK_NULL_HANDLE, downPipeline = VK_NULL_HANDLE, upPipeline = VK_NULL_HANDLE,
+               compositePipeline = VK_NULL_HANDLE, tonemapPipeline = VK_NULL_HANDLE, fxaaPipeline = VK_NULL_HANDLE;
+    // Set 2 per post pass, in pass order: bright, down 1-5, up 5->4 .. 1->0, composite, tonemap, FXAA.
+    std::array<VkDescriptorSet, 14> postSets{};
 };
 
 } // namespace sb::gpu::vk

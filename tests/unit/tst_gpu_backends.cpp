@@ -206,6 +206,9 @@ private slots:
         QTest::addColumn<unsigned>("draws");
         QTest::newRow("geometry") << int(Workload::Geometry) << 1u;
         QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 189u;
+        // Task 12 (synchronisation validation on: any hazard is an error).
+        QTest::newRow("shading") << int(Workload::Shading) << 6u;
+        QTest::newRow("particles") << int(Workload::Particles) << 17u;
     }
 
     void vulkanScenes()
@@ -255,6 +258,8 @@ private slots:
         QTest::addColumn<QString>("plan");
         QTest::newRow("geometry") << QStringLiteral("geometry:200:300");
         QTest::newRow("drawcalls") << QStringLiteral("drawcalls:200:300");
+        QTest::newRow("shading") << QStringLiteral("shading:200:300");
+        QTest::newRow("particles") << QStringLiteral("particles:200:300");
     }
 
     void vulkanSceneWorker()
