@@ -58,6 +58,13 @@ public:
     // progress() on; empty clears it. Optional: a test that never sets one
     // gets its stage in the pill, as before. Safe from helper threads.
     virtual void setPart(const QString &part) { (void)part; }
+    // Holds the interface still while the test runs something the main
+    // window's own drawing would disturb (the GPU test, Phase 4a P10): no
+    // animation, no ticker, no live progress or log repaint until released.
+    // Progress, log lines and sub-test changes still arrive and are applied
+    // on release. The orchestrator releases it when run() returns. Safe from
+    // helper threads. Optional: tests that never call it are unchanged.
+    virtual void holdInterface(bool hold) { (void)hold; }
     virtual void log(LogLevel level, const QString &message) = 0;
     // Poll at least every 250 ms and return promptly once true.
     virtual bool cancelled() const = 0;

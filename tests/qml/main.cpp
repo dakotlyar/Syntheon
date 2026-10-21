@@ -44,6 +44,7 @@ public slots:
         m_runtime->registerQml();
         Fixtures::instance = &m_fixtures;
         Fixtures::app = &m_runtime->app();
+        Fixtures::run = &m_runtime->run();
         // Stubs at a fast time scale; probes and the (elevation-free) gate.
         qputenv("SYNBENCH_STUB_SCALE", "0.02");
         m_runtime->app().start();

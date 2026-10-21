@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 Q_LOGGING_CATEGORY(lcRun, "synbench.run")
 
@@ -170,14 +171,28 @@ void RunController::connectOrchestrator()
         m_stageColor = testColor(id);
         emit currentChanged();
     });
+    connect(&m_orchestrator, &Orchestrator::interfaceHold, this, [this](int, bool hold) { setHeld(hold); });
     connect(&m_orchestrator, &Orchestrator::progress, this, [this](const ProgressUpdate &u) {
-        m_queue->progress(u);
-        // The pill: the test's part when it reports one ("RAM · All-thread
-        // bandwidth"), else its stage; the queue row keeps the stage.
-        m_stage = QStringLiteral("%1 · %2").arg(testName(u.testId), u.part.isEmpty() ? u.stage : u.part);
-        emit currentChanged();
+        if (m_held) {
+            // Held: keep the last update; only the part reaches the screen (M8).
+            m_heldProgress = u;
+            QString part = u.part;
+            if (part.startsWith(QStringLiteral("GPU · ")))
+                part.remove(0, 6);
+            if (part != m_heldPart) {
+                m_heldPart = part;
+                emit heldPartChanged();
+            }
+            return;
+        }
+        applyProgress(u);
     });
-    connect(&m_orchestrator, &Orchestrator::logLine, this, [this](const LogLine &l) { m_log->append(l); });
+    connect(&m_orchestrator, &Orchestrator::logLine, this, [this](const LogLine &l) {
+        if (m_held)
+            m_heldLog.append(l);
+        else
+            m_log->append(l);
+    });
     connect(&m_orchestrator, &Orchestrator::testFinished, this, [this](int index, const TestResult &r) {
         m_queue->testFinished(index, r);
         if (r.status != Status::NotRun) {
@@ -192,6 +207,7 @@ void RunController::connectOrchestrator()
         emit runUpdated();
     });
     connect(&m_orchestrator, &Orchestrator::runFinished, this, [this](const RunRecord &run) {
+        setHeld(false);  // an abandoned run can't post its release
         // A run abandoned after a hung test leaves the storage locked until
         // restart; a normal finish unlocks it.
         if (m_orchestrator.state() != Orchestrator::State::Abandoned)
@@ -208,6 +224,53 @@ void RunController::connectOrchestrator()
     });
     connect(&m_orchestrator, &Orchestrator::storageError, this,
             [](const QString &message) { qCWarning(lcRun) << "history write failed:" << message; });
+}
+
+void RunController::applyProgress(const ProgressUpdate &u)
+{
+    m_queue->progress(u);
+    // The pill: the test's part when it reports one ("RAM · All-thread
+    // bandwidth"), else its stage; the queue row keeps the stage.
+    m_stage = QStringLiteral("%1 · %2").arg(testName(u.testId), u.part.isEmpty() ? u.stage : u.part);
+    emit currentChanged();
+}
+
+void RunController::setHeld(bool held)
+{
+    if (held == m_held)
+        return;
+    m_held = held;
+    if (held) {
+        m_ticker.stop();
+        m_heldProgress.reset();
+        m_heldLog.clear();
+    } else {
+        // In arrival order: the log, then the last progress (it can't step back).
+        const QVector<LogLine> lines = std::exchange(m_heldLog, {});
+        for (const LogLine &l : lines)
+            m_log->append(l);
+        if (m_heldProgress) {
+            const ProgressUpdate u = *m_heldProgress;
+            m_heldProgress.reset();
+            applyProgress(u);
+        }
+        if (!m_heldPart.isEmpty()) {
+            m_heldPart.clear();
+            emit heldPartChanged();
+        }
+        m_ticker.start();
+        emit etaChanged();
+    }
+    emit interfaceHeldChanged();
+}
+
+bool RunController::minimizeOnHold() const
+{
+#if defined(SYNBENCH_DEV_HOOKS)
+    return qEnvironmentVariable("SYNBENCH_GPU_MINIMIZE_MAIN") == QLatin1StringView("1");
+#else
+    return false;
+#endif
 }
 
 void RunController::updateRunning()

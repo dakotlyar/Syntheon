@@ -119,6 +119,9 @@ signals:
     void testStarted(int index, const QString &testId);
     void progress(const sb::ProgressUpdate &update);
     void subTestChanged(int index, const QString &subTestId, bool finished, sb::Status status);
+    // RunContext::holdInterface(): the running test (or the end of its run())
+    // asks the interface to hold still or to carry on.
+    void interfaceHold(int index, bool hold);
     void logLine(const sb::LogLine &line);
     void testFinished(int index, const sb::TestResult &result);
     void runFinished(const sb::RunRecord &run);

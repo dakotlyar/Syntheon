@@ -40,6 +40,51 @@ ScreenFrame {
               : ""
     }
 
+    // The interface is held while the GPU test draws in its own window (P10):
+    // one static card, changed only by the "Now:" line, once per part (M8).
+    Box {
+        objectName: "heldCard"
+        visible: RunController.interfaceHeld
+        Layout.fillWidth: true
+        implicitHeight: heldColumn.implicitHeight + 36
+        ColumnLayout {
+            id: heldColumn
+            anchors.fill: parent
+            anchors.margins: 18
+            spacing: 10
+            SbText { text: qsTr("GPU test running"); font.weight: Font.DemiBold }
+            SbText {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("The GPU test draws in its own window. This window is paused so it doesn't use the GPU, and catches up when the test finishes. Keep the test window in front. Press Esc in it, or Stop here, to stop.")
+                kind: "small"
+            }
+            SbText {
+                objectName: "heldPart"
+                visible: RunController.heldPart.length > 0
+                text: qsTr("Now: ") + RunController.heldPart
+                kind: "small"
+                font.weight: Font.DemiBold
+            }
+        }
+    }
+
+    // Dev hook SYNBENCH_GPU_MINIMIZE_MAIN=1: minimise the main window while held.
+    Connections {
+        target: RunController
+        function onInterfaceHeldChanged() {
+            if (!RunController.minimizeOnHold())
+                return
+            const w = root.Window.window
+            if (!w)
+                return
+            if (RunController.interfaceHeld)
+                w.showMinimized()
+            else
+                w.showNormal()
+        }
+    }
+
     // Nothing has run yet.
     Box {
         objectName: "emptyState"

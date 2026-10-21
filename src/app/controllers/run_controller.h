@@ -12,10 +12,12 @@
 #include <QObject>
 #include <QThreadPool>
 #include <QTimer>
+#include <QVector>
 #include <QVariantList>
 
 #include <map>
 #include <memory>
+#include <optional>
 
 namespace sb {
 
@@ -67,6 +69,12 @@ class RunController : public QObject
     Q_PROPERTY(QAbstractItemModel *log READ log CONSTANT)
     Q_PROPERTY(QString currentStage READ currentStage NOTIFY currentChanged)
     Q_PROPERTY(QString currentTestColor READ currentTestColor NOTIFY currentChanged)
+    // --- the held interface (Phase 4a P10): while a test draws in its own
+    // window (the GPU test) the main window holds still ---
+    Q_PROPERTY(bool interfaceHeld READ interfaceHeld NOTIFY interfaceHeldChanged)
+    // M8: the live part on the held card ("Shading · DirectX 12"), set when a
+    // held progress update's part differs from the last one; "GPU · " removed.
+    Q_PROPERTY(QString heldPart READ heldPart NOTIFY heldPartChanged)
 
 public:
     RunController(Storage &storage, StorageController &storageController, AppController &app,
@@ -103,6 +111,11 @@ public:
     QAbstractItemModel *log();
     QString currentStage() const { return m_stage; }
     QString currentTestColor() const { return m_stageColor; }
+    bool interfaceHeld() const { return m_held; }
+    QString heldPart() const { return m_heldPart; }
+    // True only with the dev hook SYNBENCH_GPU_MINIMIZE_MAIN=1: the Progress
+    // screen then minimises the main window while the interface is held.
+    Q_INVOKABLE bool minimizeOnHold() const;
 
     // The in-progress or last run, for "View results so far".
     const RunRecord &currentRun() const { return m_orchestrator.currentRun(); }
@@ -148,6 +161,8 @@ signals:
     void startRefused(const QStringList &errors);
     void startErrorsChanged();
     void runUpdated();  // a test finished: the current run changed
+    void interfaceHeldChanged();
+    void heldPartChanged();
 
 private:
     struct TestState {
@@ -164,6 +179,10 @@ private:
     OptionSchema effectiveSchema(const QString &id) const;
     void updateRunning();
     void refreshEta();
+    // Stops/starts m_ticker; on release applies what was buffered, in order,
+    // and emits etaChanged().
+    void setHeld(bool held);
+    void applyProgress(const ProgressUpdate &u);
     void connectOrchestrator();
     std::unique_ptr<ProbeContext> makeProbeContext() const;
     QStringList validationErrors() const;
@@ -201,6 +220,12 @@ private:
     QThreadPool m_probePool;  // this controller's probe tasks only
     bool m_smoke = false;
     bool m_smokeBatteryStarted = false;
+    // The held interface: what arrived while held, applied on release.
+    // (Sub-test changes aren't consumed by this controller, so none are buffered.)
+    bool m_held = false;
+    std::optional<ProgressUpdate> m_heldProgress;
+    QVector<LogLine> m_heldLog;
+    QString m_heldPart;
 };
 
 } // namespace sb

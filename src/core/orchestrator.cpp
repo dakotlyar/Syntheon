@@ -211,6 +211,21 @@ public:
         QMutexLocker lock(&m_s.mutex);
         m_s.part = part;
     }
+    void holdInterface(bool hold) override
+    {
+        m_held = hold;
+        const int index = m_index;
+        m_s.post([index, hold](Orchestrator *o) { emit o->interfaceHold(index, hold); });
+    }
+    // After run() returns: a test that held the interface and never let go is
+    // released here, once.
+    void releaseHold()
+    {
+        if (m_held.exchange(false)) {
+            const int index = m_index;
+            m_s.post([index](Orchestrator *o) { emit o->interfaceHold(index, false); });
+        }
+    }
     void log(LogLevel level, const QString &message) override { m_s.log(level, m_testId, message); }
     bool cancelled() const override { return m_s.cancelFlag.load(); }
 
@@ -293,6 +308,7 @@ private:
     const QString m_testId;
     int m_checkpointSeq = 0;
     QString m_scratch;
+    std::atomic<bool> m_held{false};
 };
 
 TestResult notRun(const Shared::Entry &e, const QString &reason)
@@ -413,6 +429,7 @@ void Orchestrator::Shared::workerMain(std::shared_ptr<Shared> s)
         }
         const qint64 durationMs =
             std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count();
+        ctx.releaseHold();
 
         Shared::Cancel cancel;
         {

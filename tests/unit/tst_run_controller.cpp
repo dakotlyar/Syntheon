@@ -286,6 +286,56 @@ private slots:
         QCOMPARE(RunController::durationText(7200), QStringLiteral("2 h 00 min"));
     }
 
+    // Phase 4a P10, M8: while the interface is held, progress and log lines are
+    // kept back (only the part shows), and applied in order on release.
+    void heldInterfaceBuffersUpdates()
+    {
+        startRuntime();
+        RunController &r = rc();
+        QAbstractItemModel *log = r.log();
+        const QString stageBefore = r.currentStage();
+        const int rowsBefore = log->rowCount();
+        QSignalSpy heldSpy(&r, &RunController::interfaceHeldChanged);
+        QSignalSpy partSpy(&r, &RunController::heldPartChanged);
+        QVERIFY(!r.interfaceHeld());
+        r.orchestrator().interfaceHold(0, true);
+        QVERIFY(r.interfaceHeld());
+        QCOMPARE(heldSpy.count(), 1);
+
+        const auto update = [&](const char *part, double fraction) {
+            ProgressUpdate u;
+            u.index = 0;
+            u.testId = QStringLiteral("gpu");
+            u.fraction = fraction;
+            u.stage = QStringLiteral("stage");
+            u.part = QString::fromUtf8(part);
+            r.orchestrator().progress(u);
+        };
+        update("GPU · Geometry · Vulkan", 0.1);
+        update("GPU · Geometry · Vulkan", 0.2);
+        update("GPU · Geometry · DirectX 12", 0.3);
+        for (const char *text : {"first", "second"}) {
+            LogLine l;
+            l.testId = QStringLiteral("gpu");
+            l.message = QString::fromLatin1(text);
+            r.orchestrator().logLine(l);
+        }
+        QCOMPARE(partSpy.count(), 2);
+        QCOMPARE(r.heldPart(), QStringLiteral("Geometry · DirectX 12"));
+        QCOMPARE(r.currentStage(), stageBefore);
+        QCOMPARE(log->rowCount(), rowsBefore);
+
+        r.orchestrator().interfaceHold(0, false);
+        QVERIFY(!r.interfaceHeld());
+        QCOMPARE(heldSpy.count(), 2);
+        QCOMPARE(log->rowCount(), rowsBefore + 2);
+        QCOMPARE(r.currentStage(), QStringLiteral("GPU · GPU · Geometry · DirectX 12"));  // the last update, applied once
+        QVERIFY(r.heldPart().isEmpty());
+        // Not held any more: updates apply at once again.
+        update("", 0.5);
+        QCOMPARE(r.currentStage(), QStringLiteral("GPU · stage"));
+    }
+
     void etaCountsDownWithinATest()
     {
         tests::setStubTimeScale(1.0);

@@ -37,6 +37,8 @@ public:
     std::chrono::seconds timeLimit(const OptionValues &) const override { return limit; }
     TestResult run(RunContext &ctx, const OptionValues &options) override
     {
+        if (holdDuringRun)
+            ctx.holdInterface(true);  // and never lets go: the orchestrator releases it
         return runner ? runner(ctx, options) : TestResult{};
     }
     TestResult recover(RecoveryContext &ctx) override { return recoverer ? recoverer(ctx) : ITest::recover(ctx); }
@@ -49,6 +51,7 @@ public:
     std::function<Validation(const OptionValues &)> validator;
     std::chrono::seconds estimateValue{1};
     std::chrono::seconds limit{60};
+    bool holdDuringRun = false;
     std::function<TestResult(RunContext &, const OptionValues &)> runner;
     std::function<ScoreBreakdown(const TestResult &)> scorer;
     std::function<TestResult(RecoveryContext &)> recoverer;

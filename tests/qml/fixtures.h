@@ -2,6 +2,7 @@
 #pragma once
 
 #include "app/controllers/app_controller.h"
+#include "app/controllers/run_controller.h"
 #include "app/models/options_model.h"
 #include "core/options.h"
 #include "tests/common/stub_clock.h"
@@ -38,6 +39,20 @@ public:
     // test doesn't depend on the host being on AC, on battery or without one.
     // chargePct -1 is "unknown". clearPower() goes back to the real readings.
     inline static sb::AppController *app = nullptr;
+    // The interface hold (Phase 4a P10): what a running GPU test would ask for,
+    // sent through the orchestrator's own signals.
+    inline static sb::RunController *run = nullptr;
+    Q_INVOKABLE void holdInterface(bool hold) { emit run->orchestrator().interfaceHold(0, hold); }
+    Q_INVOKABLE void heldProgress(const QString &part)
+    {
+        sb::ProgressUpdate u;
+        u.index = 0;
+        u.testId = QStringLiteral("gpu");
+        u.fraction = 0.1;
+        u.stage = QStringLiteral("stage");
+        u.part = part;
+        emit run->orchestrator().progress(u);
+    }
     Q_INVOKABLE void setPower(bool present, bool acOnline, double chargePct)
     {
         sb::BatteryInfo b;

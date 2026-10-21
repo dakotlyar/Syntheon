@@ -382,6 +382,46 @@ private slots:
         QCOMPARE(sub.at(1).at(2).toBool(), true);
     }
 
+    // Phase 4a P10: a test that holds the interface and never lets go is
+    // released once, by the orchestrator, when run() returns.
+    void interfaceHoldIsReleasedWhenRunReturns()
+    {
+        Fixture f;
+        f[QStringLiteral("cpu")]->holdDuringRun = true;
+        f[QStringLiteral("cpu")]->runner = [](RunContext &, const OptionValues &) { return okResult(1); };
+        RecordingSink sink(f.events);
+        Orchestrator o(f.registry, sink, f.inhibitor, fastConfig());
+        QSignalSpy hold(&o, &Orchestrator::interfaceHold);
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        QVERIFY(o.start(plan({QStringLiteral("cpu")}), meta()).ok);
+        QVERIFY(waitFinished(finished));
+        QCOMPARE(hold.count(), 2);
+        QCOMPARE(hold.at(0).at(0).toInt(), 0);
+        QCOMPARE(hold.at(0).at(1).toBool(), true);
+        QCOMPARE(hold.at(1).at(0).toInt(), 0);
+        QCOMPARE(hold.at(1).at(1).toBool(), false);
+    }
+
+    // A test that lets go itself isn't released a second time.
+    void interfaceHoldReleasedByTheTestIsNotReleasedAgain()
+    {
+        Fixture f;
+        f[QStringLiteral("cpu")]->runner = [](RunContext &ctx, const OptionValues &) {
+            ctx.holdInterface(true);
+            ctx.holdInterface(false);
+            return okResult(1);
+        };
+        RecordingSink sink(f.events);
+        Orchestrator o(f.registry, sink, f.inhibitor, fastConfig());
+        QSignalSpy hold(&o, &Orchestrator::interfaceHold);
+        QSignalSpy finished(&o, &Orchestrator::runFinished);
+        QVERIFY(o.start(plan({QStringLiteral("cpu")}), meta()).ok);
+        QVERIFY(waitFinished(finished));
+        QCOMPARE(hold.count(), 2);
+        QCOMPARE(hold.at(0).at(1).toBool(), true);
+        QCOMPARE(hold.at(1).at(1).toBool(), false);
+    }
+
     // Dave, 2026-10-20: RunContext::setPart reaches the progress updates
     // from the next progress() on; it is cleared when the next test starts,
     // and a test that sets none sends an empty part (the pill then shows its

@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
 import SynBench
+import SynBenchTest
 
 // The Progress screen on a real (fast) stub run.
 TestCase {
@@ -107,5 +108,26 @@ TestCase {
         compare(finished.signalArguments[0][1], "stopped")
         verify(findChild(screen, "queue-storage") !== null)
         const st = findChild(screen, "queue-storage").runState; verify(["cancelled", "done", "not_run"].indexOf(st) >= 0, "state was " + st)
+    }
+
+    // Phase 4a P10, M8: while a test holds the interface (the GPU test) the
+    // screen shows one static card with the live part; Stop stays active.
+    function test_5_heldInterfaceShowsTheCard() {
+        const screen = createTemporaryObject(screenComponent, test)
+        const card = findChild(screen, "heldCard")
+        verify(card !== null)
+        verify(!card.visible)
+        Fixtures.holdInterface(true)
+        verify(RunController.interfaceHeld)
+        verify(card.visible)
+        verify(findChild(screen, "stopRun").enabled)
+        verify(!findChild(screen, "heldPart").visible)  // no part yet
+        Fixtures.heldProgress("GPU · Geometry · DirectX 12")
+        verify(findChild(screen, "heldPart").visible)
+        compare(findChild(screen, "heldPart").text, "Now: Geometry · DirectX 12")
+        Fixtures.holdInterface(false)
+        verify(!RunController.interfaceHeld)
+        verify(!card.visible)
+        verify(!findChild(screen, "heldPart").visible)
     }
 }

@@ -22,6 +22,7 @@ Rectangle {
         width: parent.width * Math.max(0, Math.min(1, root.value))
         height: parent.height
         color: root.fill
-        Behavior on width { NumberAnimation { duration: 120 } }
+        // No animation while the interface is held (the GPU test, P10).
+        Behavior on width { enabled: !RunController.interfaceHeld; NumberAnimation { duration: 120 } }
     }
 }
