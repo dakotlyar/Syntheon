@@ -1,0 +1,7 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- The worker's own font: IBM Plex Sans for the native 2D text workload (Phase 4a design §7.1). -->
+<RCC>
+    <qresource prefix="/synbench-gpu/fonts">
+        <file alias="IBMPlexSans-Variable.ttf">../../../../assets/fonts/IBMPlexSans-Variable.ttf</file>
+    </qresource>
+</RCC>

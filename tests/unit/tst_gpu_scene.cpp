@@ -2,6 +2,7 @@
 // The GPU scene content (Phase 4a design §6): mesh and scene counts, the maths
 // helpers, the cameras, mip chains and the content hash. No GPU, no window.
 #include "tests/gpu/worker/scene/bitmap_font.h"
+#include "tests/gpu/worker/scene/golden_hashes.inc"
 #include "tests/gpu/worker/scene/mesh_gen.h"
 #include "tests/gpu/worker/scene/overlay.h"
 #include "tests/gpu/worker/scene/scenes.h"
@@ -177,21 +178,21 @@ private slots:
         QCOMPARE(atlas.rgba8.size(), std::size_t(256) * 256 * 4);
     }
 
-    // The pinned content hashes (Phase 4a task 8, M4): the same on every compiler
-    // and OS, so the CI on Windows proves Windows = Linux. A change of content
-    // changes them: update them here (task 9 moves them to golden_hashes.inc).
+    // The golden content hashes (golden_hashes.inc, Phase 4a task 9, M4): the
+    // same on every compiler and OS, so the CI on Windows proves Windows =
+    // Linux. A change of content changes them: regenerate the file with
+    // synbench-gpu --print-hashes.
     void contentHashes()
     {
-        const std::pair<Workload, std::uint64_t> golden[] = {
-            {Workload::Geometry, 0x2b81168797e0cc11ull}, {Workload::DrawCalls, 0xc7eaa6b6e7d910e0ull},
-            {Workload::Shading, 0xcd179ccf0a43b927ull},  {Workload::Particles, 0xc407bc16c53c1b4eull},
-            {Workload::Quads, 0x444342acaf246688ull},                  {Workload::Sprites, 0x77a7fa465482f45aull}};
-        for (const auto &[w, want] : golden) {
+        static_assert(kGoldenHash.size() == kAllWorkloads.size());
+        for (std::size_t i = 0; i < kAllWorkloads.size(); ++i) {
+            const Workload w = kAllWorkloads[i];
+            const std::uint64_t want = kGoldenHash[i];
             const SceneData a = buildScene(w), b = buildScene(w);
             const std::uint64_t h = contentHash(a);
             QCOMPARE(h, contentHash(b));  // the same seed builds the same scene
             if (h != want)
-                QFAIL(qPrintable(QStringLiteral("%1: got 0x%2, pinned 0x%3")
+                QFAIL(qPrintable(QStringLiteral("%1: got 0x%2, golden 0x%3")
                                      .arg(QString::fromLatin1(workloadId(w)))
                                      .arg(h, 16, 16, QLatin1Char('0'))
                                      .arg(want, 16, 16, QLatin1Char('0'))));

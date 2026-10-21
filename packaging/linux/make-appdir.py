@@ -15,6 +15,7 @@ Layout produced:
   AppDir/AppRun                       (dispatches --synbench-helper)
   AppDir/<app-id>.desktop, synbench.png, .DirIcon
   AppDir/usr/bin/SynBench (+ qt.conf), usr/libexec/synbench-helper
+  AppDir/usr/libexec/synbench-cpucrypto, synbench-gpu (+ qt.conf: the GPU worker is a Qt program)
   AppDir/usr/lib       bundled libraries (Qt and whatever Qt needs, minus the exclude list)
 
 The bundling rule, the same for both architectures (one exclude list):
@@ -191,7 +192,11 @@ class Deployer:
                 self.bundle_deps(p)
 
         # 4. Qt configuration next to the app, so it finds the bundled pieces
-        (self.usr / "bin" / "qt.conf").write_text("[Paths]\nPrefix = ..\nPlugins = plugins\nQml2Imports = qml\nLibraries = lib\n")
+        # (and next to the GPU worker in usr/libexec, which has the same relative layout)
+        qt_conf = "[Paths]\nPrefix = ..\nPlugins = plugins\nQml2Imports = qml\nLibraries = lib\n"
+        (self.usr / "bin" / "qt.conf").write_text(qt_conf)
+        (self.usr / "libexec").mkdir(parents=True, exist_ok=True)
+        (self.usr / "libexec" / "qt.conf").write_text(qt_conf)
 
         # 5. AppRun, desktop file, icon
         run_script = self.appdir / "AppRun"

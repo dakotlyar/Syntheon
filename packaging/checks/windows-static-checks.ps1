@@ -36,6 +36,8 @@ Write-Host "ok: the VC++ runtime is in the tree ($($crt -join ', '))"
 # The CPU test's encryption worker ships next to SynBench.exe (Phase 2 §11.3);
 # pe-check.ps1 above has checked its architecture and dependencies.
 if (-not (Test-Path (Join-Path $Tree 'synbench-cpucrypto.exe'))) { throw 'synbench-cpucrypto.exe (the encryption worker) is missing from the tree' }
+# The GPU test's worker, likewise (Phase 4a §2.2).
+if (-not (Test-Path (Join-Path $Tree 'synbench-gpu.exe'))) { throw 'synbench-gpu.exe (the GPU worker) is missing from the tree' }
 # D11: the licence and the third-party notices go into every package.
 foreach ($f in 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt') {
     if (-not (Test-Path (Join-Path $Tree $f))) { throw "$f is missing from the tree" }

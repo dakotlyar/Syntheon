@@ -19,3 +19,6 @@ add_subdirectory(worker/shaders)
 
 # The scene content: pure C++, no Qt.
 add_subdirectory(worker/scene)
+
+# The worker executable and its backends (after the shaders and the scene).
+add_subdirectory(worker)

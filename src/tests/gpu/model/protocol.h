@@ -57,8 +57,11 @@ struct ErrorEvent {
     bool na = false;
 };
 struct DoneEvent {};
+// Serve mode (D12, §2.3): the worker finished a run command (after its
+// result or error) and waits for the next one.
+struct IdleEvent {};
 
-using Event = std::variant<GpuEvent, GlEvent, ReadyEvent, StageEvent, ResultEvent, ErrorEvent, DoneEvent>;
+using Event = std::variant<GpuEvent, GlEvent, ReadyEvent, StageEvent, ResultEvent, ErrorEvent, DoneEvent, IdleEvent>;
 
 std::optional<Event> parseLine(const QByteArray &line, QString *error);
 QByteArray encode(const Event &event);  // compact JSON, no newline (QJsonDocument::Compact)

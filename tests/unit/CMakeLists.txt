@@ -59,6 +59,10 @@ synbench_add_unit_test(tst_protocol SOURCES tst_protocol.cpp LIBS synbench_proto
 synbench_add_unit_test(tst_gpu_model SOURCES tst_gpu_model.cpp LIBS synbench_gpu_model)
 synbench_add_unit_test(tst_gpu_scene SOURCES tst_gpu_scene.cpp LIBS synbench_gpu_scene)
 synbench_add_unit_test(tst_gpu_loaders SOURCES tst_gpu_loaders.cpp LIBS synbench::volk synbench::glad)
+# The built worker, through QProcess (the null backend, no GPU).
+synbench_add_unit_test(tst_gpu_worker SOURCES tst_gpu_worker.cpp LIBS synbench_gpu_model synbench_gpu_backends)
+add_dependencies(tst_gpu_worker synbench-gpu)
+target_compile_definitions(tst_gpu_worker PRIVATE SB_GPU_WORKER="$<TARGET_FILE:synbench-gpu>")
 synbench_add_unit_test(tst_stubs SOURCES tst_stubs.cpp fake_test.h LIBS synbench_builtin_tests synbench_storage)
 synbench_add_unit_test(tst_controllers SOURCES tst_controllers.cpp LIBS synbench_appcore)
 synbench_add_unit_test(tst_run_controller SOURCES tst_run_controller.cpp LIBS synbench_appcore)

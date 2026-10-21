@@ -385,6 +385,8 @@ jobs:
         run: |
           python3 packaging/checks/elf-check.py AppDir --arch x86_64
           test -x AppDir/usr/libexec/synbench-cpucrypto || { echo "::error::the encryption worker is not in the AppDir"; exit 1; }
+          test -x AppDir/usr/libexec/synbench-gpu || { echo "::error::the GPU worker is not in the AppDir"; exit 1; }
+          test -f AppDir/usr/libexec/qt.conf || { echo "::error::the GPU worker's qt.conf is not in the AppDir"; exit 1; }
           # D11: the licence and the third-party notices.
           for f in LICENSE.txt THIRD-PARTY-NOTICES.txt; do test -f "AppDir/usr/share/doc/synbench/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
           # Both Qt platform plugins: native Wayland and xcb (the X11/XWayland fallback).
@@ -576,7 +578,7 @@ jobs:
         shell: pwsh
         run: ./packaging/checks/test-windows-static-checks.ps1 -Tree stage -Arch x64
 
-      # AP-5 L3: both elevated executables load their imports from System32 and
+      # AP-5 L3: the elevated executables load their imports from System32 and
       # their own folder only (/DEPENDENTLOADFLAG:0xA00: SynBench.exe's since
       # Phase 1, packaged builds only). The check's negative control is the
       # pe_loadflags_rejects_planted CTest (windows-x64 job): a planted exe
@@ -584,7 +586,7 @@ jobs:
       - name: The elevated executables' DLL search is System32 + their folder
         shell: pwsh
         run: |
-          foreach ($exe in 'stage/synbench-cpucrypto.exe', 'stage/SynBench.exe') {
+          foreach ($exe in 'stage/synbench-cpucrypto.exe', 'stage/synbench-gpu.exe', 'stage/SynBench.exe') {
             python packaging/checks/pe-loadflags.py $exe --expect 0xA00
             if ($LASTEXITCODE -ne 0) { throw "$exe lacks DependentLoadFlags 0xA00" }
           }
@@ -779,7 +781,7 @@ jobs:
         shell: pwsh
         run: ./packaging/checks/test-windows-static-checks.ps1 -Tree stage -Arch arm64
 
-      # AP-5 L3: both elevated executables load their imports from System32 and
+      # AP-5 L3: the elevated executables load their imports from System32 and
       # their own folder only (/DEPENDENTLOADFLAG:0xA00: SynBench.exe's since
       # Phase 1, packaged builds only). The check's negative control is the
       # pe_loadflags_rejects_planted CTest (windows-x64 job): a planted exe
@@ -787,7 +789,7 @@ jobs:
       - name: The elevated executables' DLL search is System32 + their folder
         shell: pwsh
         run: |
-          foreach ($exe in 'stage/synbench-cpucrypto.exe', 'stage/SynBench.exe') {
+          foreach ($exe in 'stage/synbench-cpucrypto.exe', 'stage/synbench-gpu.exe', 'stage/SynBench.exe') {
             python packaging/checks/pe-loadflags.py $exe --expect 0xA00
             if ($LASTEXITCODE -ne 0) { throw "$exe lacks DependentLoadFlags 0xA00" }
           }
@@ -947,6 +949,8 @@ jobs:
         run: |
           python3 packaging/checks/elf-check.py AppDir --arch aarch64 --cross-prefix aarch64-linux-gnu-
           test -x AppDir/usr/libexec/synbench-cpucrypto || { echo "::error::the encryption worker is not in the AppDir"; exit 1; }
+          test -x AppDir/usr/libexec/synbench-gpu || { echo "::error::the GPU worker is not in the AppDir"; exit 1; }
+          test -f AppDir/usr/libexec/qt.conf || { echo "::error::the GPU worker's qt.conf is not in the AppDir"; exit 1; }
           # D11: the licence and the third-party notices.
           for f in LICENSE.txt THIRD-PARTY-NOTICES.txt; do test -f "AppDir/usr/share/doc/synbench/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
           for f in libqwayland.so libqxcb.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done

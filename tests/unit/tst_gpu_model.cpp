@@ -298,7 +298,8 @@ private slots:
             res.signature.append(char(i * 7));
         const QVector<pr::Event> events{pr::GpuEvent{g}, gl, ready, pr::StageEvent{QStringLiteral("geometry"), QStringLiteral("measure"), 12}, res,
                                         pr::ErrorEvent{QStringLiteral("shading"), QStringLiteral("the GPU driver reset"), false},
-                                        pr::ErrorEvent{{}, QStringLiteral("No Vulkan driver is installed"), true}, pr::DoneEvent{}};
+                                        pr::ErrorEvent{{}, QStringLiteral("No Vulkan driver is installed"), true}, pr::DoneEvent{},
+                                        pr::IdleEvent{}};
         for (const pr::Event &e : events) {
             const QByteArray line = pr::encode(e);
             QVERIFY(!line.contains('\n'));
@@ -340,6 +341,9 @@ private slots:
         // Extra keys are ignored.
         const auto done = pr::parseLine("{\"ev\":\"done\",\"extra\":[1,2]}", &err);
         QVERIFY(done && std::holds_alternative<pr::DoneEvent>(*done));
+        const auto idle = pr::parseLine("{\"ev\":\"idle\"}", &err);
+        QVERIFY(idle && std::holds_alternative<pr::IdleEvent>(*idle));
+        QCOMPARE(pr::encode(pr::IdleEvent{}), QByteArray("{\"ev\":\"idle\"}"));
         const auto stage = pr::parseLine("{\"ev\":\"stage\",\"workload\":\"g\",\"phase\":\"warmup\",\"seconds\":3,\"x\":true}", &err);
         QVERIFY(stage && std::get<pr::StageEvent>(*stage).seconds == 3);
         // 864 hex characters make 432 bytes.

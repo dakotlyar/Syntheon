@@ -9,6 +9,7 @@ add_library(synbench_gpu_scene STATIC
     scenes.h scenes.cpp
     bitmap_font.h bitmap_font.cpp bitmap_font.inc
     overlay.h overlay.cpp
+    golden_hashes.inc
 )
 target_include_directories(synbench_gpu_scene PUBLIC "${PROJECT_SOURCE_DIR}/src")
 # PUBLIC: math.h's inline maths (noise, matrices) is hashed, so every target that

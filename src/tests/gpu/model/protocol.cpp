@@ -95,7 +95,8 @@ QJsonObject encodeEvent(const Event &event)
             [](const ErrorEvent &e) {
                 return QJsonObject{{S("ev"), S("error")}, {S("workload"), e.workload}, {S("reason"), e.reason}, {S("na"), e.na}};
             },
-            [](const DoneEvent &) { return QJsonObject{{S("ev"), S("done")}}; }},
+            [](const DoneEvent &) { return QJsonObject{{S("ev"), S("done")}}; },
+            [](const IdleEvent &) { return QJsonObject{{S("ev"), S("idle")}}; }},
         event);
 }
 
@@ -364,6 +365,8 @@ std::optional<Event> parseLine(const QByteArray &line, QString *error)
         return parseError(o, error);
     if (ev == QLatin1StringView("done"))
         return Event{DoneEvent{}};
+    if (ev == QLatin1StringView("idle"))
+        return Event{IdleEvent{}};
     if (error)
         *error = QStringLiteral("unknown event '%1'").arg(ev);
     return std::nullopt;
