@@ -135,6 +135,55 @@ private slots:
         }
         QVERIFY(na);
     }
+    // M1: serve mode, the window lands on a screen too small for it (pretend): the run command
+    // answers with an N/A error (na:true), like at start, then idle; the worker stays usable.
+    void tooSmallAfterReplanIsNotAvailable()
+    {
+        QProcessEnvironment env = m_env;
+        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_SCREEN"), QStringLiteral("500x300@1"));
+        WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--serve"), env);
+        QVERIFY(w.started());
+        QVERIFY2(w.waitFor([](const pr::Event &e) { return is<pr::ReadyEvent>(e); }), qPrintable(w.problem()));
+        w.send("run geometry:100:300");
+        QVERIFY2(w.waitForIdle(), qPrintable(w.problem()));
+        w.send("quit");
+        QCOMPARE(w.finish(), 0);
+        bool na = false;
+        for (const pr::Event &e : w.events()) {
+            if (const auto *err = std::get_if<pr::ErrorEvent>(&e)) {
+                na = err->na;
+                QCOMPARE(err->reason, QStringLiteral("screen too small for the test window"));
+            }
+        }
+        QVERIFY(na);
+        QVERIFY(results(w.events()).isEmpty());
+    }
+
+    // L8: a swapchain that can't be made is N/A only on an API's first resume; later it is an Error.
+    void laterSwapchainFailureIsAnError()
+    {
+        QProcessEnvironment env = m_env;
+        env.insert(QStringLiteral("SYNBENCH_GPU_FAIL_SWAPCHAIN"), QStringLiteral("later"));
+        WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--serve"), env);
+        QVERIFY(w.started());
+        QVERIFY2(w.waitFor([](const pr::Event &e) { return is<pr::ReadyEvent>(e); }), qPrintable(w.problem()));
+        for (const char *cmd : {"run geometry:100:300", "run sprites:100:300"}) {
+            w.send(cmd);
+            QVERIFY2(w.waitForIdle(), qPrintable(w.problem()));
+        }
+        w.send("quit");
+        QCOMPARE(w.finish(), 0);
+        QCOMPARE(results(w.events()).size(), 1);  // the first workload ran
+        int errors = 0;
+        for (const pr::Event &e : w.events()) {
+            if (const auto *err = std::get_if<pr::ErrorEvent>(&e)) {
+                ++errors;
+                QVERIFY(!err->na);
+                QVERIFY2(err->reason.contains(QLatin1StringView("again after the first workload")), qPrintable(err->reason));
+            }
+        }
+        QCOMPARE(errors, 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestGpuPresent)

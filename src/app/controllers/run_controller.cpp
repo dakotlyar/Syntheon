@@ -803,7 +803,8 @@ void RunController::runSmoke()
             if (smokeAccepts(t)) {
                 if (t.status != Status::Ok)
                     qCInfo(lcRun) << "smoke:" << t.testId << "ended" << toKey(t.status) << t.statusReason
-                                  << "(loaded latency needs two cores: accepted)";
+                                  << (t.testId == QLatin1StringView("gpu") ? "(GPU: 2D not built yet: accepted)"
+                                                                           : "(loaded latency needs two cores: accepted)");
                 continue;
             }
             qCCritical(lcRun) << "smoke:" << t.testId << "ended" << toKey(t.status) << t.statusReason;

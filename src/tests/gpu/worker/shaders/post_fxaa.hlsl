@@ -2,7 +2,10 @@
 // Post pass 14 (Phase 4a design §6.4): FXAA 3.11 (Timothy Lottes, NVIDIA),
 // the quality path at preset 12 (5 search steps: 1.0, 1.5, 2.0, 4.0, 12.0),
 // subpix 0.75, edge threshold 0.166, minimum 0.0833; luma from the
-// display-encoded colour. ldrA -> ldrB. Written from the published algorithm.
+// display-encoded colour. ldrA -> ldrB.
+// The structure and the names follow the quality path of NVIDIA's Fxaa3_11.h closely (a
+// transliteration to HLSL SM 5.0 with preset 12's constants), so its licence is in the
+// third-party notices ("FXAA 3.11 (NVIDIA)").
 #include "post.hlsli"
 
 SB_BIND_T0 Texture2D<float4> source : register(t0);

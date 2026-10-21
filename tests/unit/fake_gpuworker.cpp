@@ -8,6 +8,8 @@
 //     crash              ready, then an access violation
 //     crash-after-ready  (serve) ready, then an access violation at the first `run`
 //     na                 an error event with na true, exit 5 (--probe still answers)
+//     protocol-error     ready, then an error event "protocol: unknown command 'x'" and exit 2
+//     mismatch           like ok, but the opengl worker is faster (200 fps) and draws something else (its signature differs)
 //     crash-at-shading   like ok, but the opengl worker crashes at `run shading` (the second API of the GPU test's case)
 // --probe answers one fake GPU (Vulkan and OpenGL OK, DirectX Windows only) and done, in every mode.
 // SB_FAKE_LOG=<file> (through SYNBENCH_GPU_WORKER_ENV): "<api> <workload>" appended per `run` command.
@@ -37,10 +39,16 @@ void out(const std::string &line)
 
 void ready() { out("{\"ev\":\"ready\",\"api\":\"fake\",\"device\":\"Fake GPU\",\"renderW\":320,\"renderH\":180,\"windowW\":0,\"windowH\":0}"); }
 
+std::string g_api;  // the worker's --api, for the modes that differ by API
+bool g_mismatch = false;
+
 void result(const std::string &workload)
 {
-    out("{\"ev\":\"result\",\"workload\":\"" + workload + "\",\"frames\":10,\"seconds\":0.1,\"fps\":100,"
-        "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11},\"cpuMs\":1,\"series\":[[0.05,10.0],[0.15,10.0]],\"sig\":\"\"}");
+    const bool other = g_mismatch && g_api == "opengl";
+    const std::string sig(864, other ? 'f' : '0');
+    const char *fps = other ? "200" : "100";
+    out("{\"ev\":\"result\",\"workload\":\"" + workload + "\",\"frames\":10,\"seconds\":0.1,\"fps\":" + std::string(fps) + ","
+        "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11},\"cpuMs\":1,\"series\":[[0.05,10.0],[0.15,10.0]],\"sig\":\"" + sig + "\"}");
 }
 
 // Sleeps ms in small steps; false when "stop" arrived (the caller exits 4).
@@ -87,6 +95,8 @@ int main(int argc, char **argv)
         else if (!std::strcmp(argv[i], "--api") && i + 1 < argc && api.empty())
             api = argv[++i];  // the first one: the GPU test's own, not a dev hook's override
     }
+    g_api = api;
+    g_mismatch = mode == "mismatch";
     if (probe) {
         out("{\"ev\":\"gpu\",\"id\":\"10de:2c05@0000:01:00.0\",\"name\":\"Fake GPU\",\"vendorId\":4318,\"deviceId\":11269,"
             "\"kind\":\"discrete\",\"vramBytes\":17179869184,\"pciSlot\":\"0000:01:00.0\",\"apis\":{"
@@ -122,6 +132,10 @@ int main(int argc, char **argv)
         return g_stop ? 4 : 0;
     }
     ready();
+    if (mode == "protocol-error") {
+        out("{\"ev\":\"error\",\"workload\":\"\",\"reason\":\"protocol: unknown command 'x'\",\"na\":false}");
+        return 2;
+    }
     if (mode == "crash")
         crash();
     if (mode == "hang") {

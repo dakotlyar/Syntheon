@@ -581,7 +581,7 @@ public:
                 const WindowPlan next = planWindow({avail.width(), avail.height()}, actualScale);
                 if (next.tooSmall) {
                     m_window->hide();
-                    emitLine(errorEvent(&w, "screen too small for the test window"));
+                    emitLine(errorEvent(&w, "N/A: screen too small for the test window"));  // na:true, as at start (M1)
                     return Outcome::ErrorNa;
                 }
                 m_screenName = actual->name();

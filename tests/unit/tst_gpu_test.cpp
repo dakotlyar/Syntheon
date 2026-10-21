@@ -317,6 +317,58 @@ private slots:
         QVERIFY(!t.score(r).subScores.contains(QStringLiteral("scenes3d")));    // a group that isn't Ok has no sub-score
         QVERIFY(!r.metric(QStringLiteral("score.3d")));
     }
+    // M2: the faster API that drew the scene differently is the outlier (an Error) and never
+    // the headline "best API" number.
+    void mismatchingApiIsNeverBest()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("mismatch")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::Partial);
+        QVERIFY(textOf(r, QStringLiteral("api.opengl.status")).startsWith(QLatin1StringView("Error: drew Geometry differently from Vulkan")));
+        QCOMPARE(number(r, QStringLiteral("scenes3d.opengl.geometry.fps")), 200.0);  // still stored
+        QVERIFY(r.metric(QStringLiteral("scenes3d.opengl.geometry.match")));
+        QCOMPARE(number(r, QStringLiteral("scenes3d.geometry.fps")), 100.0);          // Vulkan's, not the faster one
+        QCOMPARE(textOf(r, QStringLiteral("scenes3d.geometry.api")), QStringLiteral("Vulkan"));
+        QCOMPARE(r.subResults[0].status, Status::Error);
+    }
+
+    // L6: Stop with two APIs running still returns within 250 ms.
+    void stopWithTwoApis()
+    {
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        std::atomic<qint64> cancelAt{0};
+        QElapsedTimer clock;
+        clock.start();
+        std::thread stopper([&] {
+            QThread::msleep(700);
+            cancelAt = clock.elapsed();
+            ctx.cancel();
+        });
+        const TestResult r = t.run(ctx, {});
+        const qint64 returned = clock.elapsed();
+        stopper.join();
+        QCOMPARE(r.status, Status::Cancelled);
+        QVERIFY2(returned - cancelAt <= 250, qPrintable(QString::number(returned - cancelAt)));
+    }
+
+    // L8: when every API says N/A the test's reason is theirs.
+    void notAvailableReasonIsTheApis()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("na")});
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::NotAvailable);
+        QVERIFY2(r.statusReason.contains(QLatin1StringView("No Vulkan driver is installed")), qPrintable(r.statusReason));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestGpuTest)

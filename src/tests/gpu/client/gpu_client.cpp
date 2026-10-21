@@ -15,7 +15,7 @@ using Clock = std::chrono::steady_clock;
 
 namespace {
 
-constexpr int kPollMs = 50;  // P-STOP: Stop within 250 ms, so never block longer
+constexpr int kPollMs = 20;  // P-STOP: Stop within 250 ms (shorter than the 50 ms of the spec: headroom on a 1-core runner)
 constexpr qsizetype kMaxLine = pr::kMaxLine;
 
 #if defined(SYNBENCH_DEV_HOOKS)
@@ -112,11 +112,11 @@ public:
             m_p.waitForBytesWritten(100);
         }
     }
-    // Stop: "stop", up to 150 ms for the exit, then kill (<= 250 ms in all).
+    // Stop: "stop", up to 100 ms for the exit, then kill (<= 250 ms in all).
     void stopThenKill()
     {
         write("stop\n");
-        if (!m_p.waitForFinished(150))
+        if (!m_p.waitForFinished(100))  // 100 ms, not 150: the same headroom
             killNow();
     }
     void killNow()
@@ -198,6 +198,10 @@ void applyExit(Link &link, const QString &lastError, bool lastErrorNa, ClientOut
     } else if (!link.crashed() && code == 1 && !lastError.isEmpty() && !lastErrorNa) {
         out->status = ClientOutcome::Status::Failed;
         out->reason = lastError;  // the worker's own reason
+    } else if (!link.crashed() && (code == 2 || code == 3) && !lastError.isEmpty() && !lastErrorNa) {
+        // A protocol or argument error the worker explained ("protocol: ...") before it exited (L5).
+        out->status = ClientOutcome::Status::Failed;
+        out->reason = lastError;
     } else {
         out->status = ClientOutcome::Status::Failed;
         out->reason = QStringLiteral("the GPU worker exited with code %1%2").arg(code).arg(stderrLine.isEmpty() ? QString() : QStringLiteral(": ") + stderrLine);
@@ -346,8 +350,10 @@ ClientOutcome GpuClient::run(const ClientRunSpec &spec, const std::function<bool
     return out;
 }
 
-QVector<GpuEntry> GpuClient::probe(std::chrono::milliseconds timeout, QString *error)
+QVector<GpuEntry> GpuClient::probe(std::chrono::milliseconds timeout, QString *error, bool *timedOut)
 {
+    if (timedOut)
+        *timedOut = false;
     QVector<GpuEntry> gpus;
     Link link;
     if (!link.start(QStringList{QStringLiteral("--probe")} + extraArgs(), baseEnvironment(), error))
@@ -364,6 +370,8 @@ QVector<GpuEntry> GpuClient::probe(std::chrono::milliseconds timeout, QString *e
         return false;
     }, &problem);
     if (end == End::TimedOut) {
+        if (timedOut)
+            *timedOut = true;
         link.killNow();
         *error = QStringLiteral("the GPU probe didn't finish within %1 s").arg(seconds(timeout));
         gpus.clear();

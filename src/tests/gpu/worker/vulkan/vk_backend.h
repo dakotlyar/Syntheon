@@ -72,6 +72,7 @@ private:
                   VkDescriptorSet set0{}; };
     Context m_ctx; Swapchain m_swap; bool m_headless = false;
     std::array<Slot, 2> m_slots; std::uint64_t m_frame = 0; VkQueryPool m_queries{};
+    Image m_dummyDepth;  // a 1x1 depth view for set 0 b2 while no shadow map exists (no descriptor points at a destroyed view)
     Image m_sceneColor, m_sceneDepth, m_hdrB, m_ldrA, m_ldrB, m_shadow, m_headlessTarget; std::array<Image, 6> m_bloom;
     VkPipeline m_presentPipeline{}; VkPipelineLayout m_presentLayout{}; VkDescriptorPool m_pool{};
     struct WorkloadState; std::unique_ptr<WorkloadState> m_work;   // per-workload pipelines/buffers (tasks 11, 12, 29)
@@ -117,6 +118,7 @@ private:
     std::string m_overlay, m_presentModeName;
     double m_windowScale = 1.0;
     bool m_loaded = false, m_resumed = false;
+    bool m_everResumed = false;  // a swapchain was made once: a later failure to make one is an Error (L8)
 };
 
 } // namespace sb::gpu::vk

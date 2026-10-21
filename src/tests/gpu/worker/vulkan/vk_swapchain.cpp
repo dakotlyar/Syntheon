@@ -98,10 +98,6 @@ std::string Swapchain::create(Context &ctx, std::uint32_t w, std::uint32_t h)
     // XWayland: VK_ERROR_INITIALIZATION_FAILED, and vkcube crashes too) can't present here: that
     // API is N/A, not an Error. Errors during the measurement stay errors.
     constexpr const char *kCantPresent = "N/A: this GPU can't present to the test window on this display system";
-#if defined(SYNBENCH_DEV_HOOKS)
-    if (std::getenv("SYNBENCH_GPU_FAIL_SWAPCHAIN"))  // dev hook: the test of the N/A mapping
-        return kCantPresent;
-#endif
     if (const VkResult r = vkCreateSwapchainKHR(ctx.device, &ci, nullptr, &swapchain); r != VK_SUCCESS) {
         swapchain = VK_NULL_HANDLE;
         return r == VK_ERROR_DEVICE_LOST ? failure("vkCreateSwapchainKHR", r) : std::string(kCantPresent);
@@ -172,12 +168,13 @@ std::string Swapchain::present(Context &ctx, VkSemaphore wait, std::uint32_t ind
 
 void Swapchain::destroy(Context &ctx)
 {
-    for (VkSemaphore s : renderFinished)
-        vkDestroySemaphore(ctx.device, s, nullptr);
+    // The swapchain first: a present may still hold the semaphores until it is gone (L2).
     for (VkImageView v : views)
         vkDestroyImageView(ctx.device, v, nullptr);
     if (swapchain)
         vkDestroySwapchainKHR(ctx.device, swapchain, nullptr);
+    for (VkSemaphore s : renderFinished)
+        vkDestroySemaphore(ctx.device, s, nullptr);
     renderFinished.clear();
     views.clear();
     images.clear();

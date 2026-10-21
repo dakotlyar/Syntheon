@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "tests/gpu/worker/vulkan/vk_context.h"
 
+#include "tests/gpu/worker/vulkan/layer_manifests.h"
 #include "tests/gpu/worker/vulkan/vk_loader.h"
 
 #include <algorithm>
@@ -100,63 +101,104 @@ std::string pciSlotOf(VkPhysicalDevice pd)
     return slot;
 }
 
-// P17 (Antilles' rule): layers actually loaded into this process, never the
-// installed ones. Linux: each implicit-layer manifest's library_path against
-// /proc/self/maps (the loader maps a layer only when it uses it; implicit
-// layers are normally disabled, VK_LOADER_LAYERS_DISABLE=~implicit~).
-// Windows: the loaded modules named like a layer. The Khronos validation
-// layer is ours (dev hook), not a finding.
+// P17 (Antilles' rule): layers actually loaded into this process, never the installed ones
+// (layer_manifests.h). Linux: the implicit-layer manifests in the loader's folders against
+// /proc/self/maps (the loader maps a layer only when it uses it; implicit layers are normally
+// disabled, VK_LOADER_LAYERS_DISABLE=~implicit~, which loaders before 1.3.234 ignore).
+// Windows: the manifests named by the HKLM and HKCU SOFTWARE\Khronos\Vulkan\ImplicitLayers
+// values against the loaded modules, by full path.
+std::string readTextFile(const std::filesystem::path &path)
+{
+    std::ifstream f(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
 std::vector<std::string> activeLayerNames()
 {
-    std::vector<std::string> active;
+    std::vector<LayerEntry> entries;
+    std::vector<std::string> loaded;
 #if defined(__linux__)
-    std::string maps;
     {
         std::ifstream f("/proc/self/maps");
-        maps.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        std::string line;
+        while (std::getline(f, line)) {
+            const std::size_t slash = line.find('/');
+            if (slash != std::string::npos)
+                loaded.push_back(line.substr(slash));
+        }
     }
-    std::vector<std::filesystem::path> dirs = {"/usr/share/vulkan/implicit_layer.d", "/etc/vulkan/implicit_layer.d",
-                                               "/usr/local/share/vulkan/implicit_layer.d"};
-    if (const char *home = std::getenv("HOME"))
-        dirs.push_back(std::filesystem::path(home) / ".local/share/vulkan/implicit_layer.d");
-    const auto field = [](const std::string &text, const char *key) {
-        const std::size_t at = text.find(std::string("\"") + key + "\"");
-        if (at == std::string::npos)
-            return std::string();
-        const std::size_t open = text.find('"', text.find(':', at) + 1);
-        const std::size_t close = open == std::string::npos ? open : text.find('"', open + 1);
-        return close == std::string::npos ? std::string() : text.substr(open + 1, close - open - 1);
+    // The loader's search order (its documentation): $XDG_CONFIG_HOME or ~/.config, $XDG_CONFIG_DIRS
+    // or /etc/xdg, /etc, $XDG_DATA_HOME or ~/.local/share, $XDG_DATA_DIRS or /usr/local/share:/usr/share.
+    const auto env = [](const char *name) { const char *v = std::getenv(name); return std::string(v ? v : ""); };
+    const auto split = [](const std::string &list, std::vector<std::string> *out) {
+        std::size_t from = 0;
+        while (from <= list.size()) {
+            const std::size_t colon = list.find(':', from);
+            const std::string item = list.substr(from, colon == std::string::npos ? std::string::npos : colon - from);
+            if (!item.empty())
+                out->push_back(item);
+            if (colon == std::string::npos)
+                break;
+            from = colon + 1;
+        }
     };
+    const std::string home = env("HOME");
+    std::vector<std::string> bases;
+    bases.push_back(env("XDG_CONFIG_HOME").empty() ? (home.empty() ? "" : home + "/.config") : env("XDG_CONFIG_HOME"));
+    split(env("XDG_CONFIG_DIRS").empty() ? "/etc/xdg" : env("XDG_CONFIG_DIRS"), &bases);
+    bases.push_back("/etc");
+    bases.push_back(env("XDG_DATA_HOME").empty() ? (home.empty() ? "" : home + "/.local/share") : env("XDG_DATA_HOME"));
+    split(env("XDG_DATA_DIRS").empty() ? "/usr/local/share:/usr/share" : env("XDG_DATA_DIRS"), &bases);
+    std::vector<std::filesystem::path> dirs;
+    for (const std::string &base : bases) {
+        if (!base.empty())
+            dirs.push_back(std::filesystem::path(base) / "vulkan/implicit_layer.d");
+    }
     for (const std::filesystem::path &dir : dirs) {
         std::error_code ec;
         for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
             if (entry.path().extension() != ".json")
                 continue;
-            std::ifstream f(entry.path());
-            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-            const std::string library = std::filesystem::path(field(text, "library_path")).filename().string();
-            const std::string name = field(text, "name");
-            if (!library.empty() && !name.empty() && maps.find(library) != std::string::npos && name != kValidationLayer)
-                active.push_back(name);
+            const std::vector<LayerEntry> found = parseLayerManifest(readTextFile(entry.path()), entry.path().string());
+            entries.insert(entries.end(), found.begin(), found.end());
         }
     }
-    std::sort(active.begin(), active.end());
 #elif defined(_WIN32)
     HMODULE modules[1024];
     DWORD needed = 0;
     if (EnumProcessModules(GetCurrentProcess(), modules, sizeof modules, &needed)) {
         for (DWORD i = 0; i < needed / sizeof(HMODULE) && i < 1024; ++i) {
-            char path[MAX_PATH] = {};
-            if (!GetModuleFileNameA(modules[i], path, MAX_PATH))
-                continue;
-            const char *base = std::strrchr(path, '\\');
-            base = base ? base + 1 : path;
-            if (std::strstr(base, "VkLayer_") && !std::strstr(base, "khronos_validation"))
-                active.push_back(base);
+            wchar_t path[MAX_PATH] = {};
+            if (GetModuleFileNameExW(GetCurrentProcess(), modules[i], path, MAX_PATH)) {
+                std::string utf8(std::size_t(WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr)), '\0');
+                WideCharToMultiByte(CP_UTF8, 0, path, -1, utf8.data(), int(utf8.size()), nullptr, nullptr);
+                utf8.resize(std::strlen(utf8.c_str()));
+                loaded.push_back(utf8);
+            }
         }
     }
+    // HKLM and HKCU: value names are manifest paths; a data of 0 means enabled.
+    for (HKEY root : {HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER}) {
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(root, L"SOFTWARE\\Khronos\\Vulkan\\ImplicitLayers", 0, KEY_READ | KEY_WOW64_64KEY, &key) != ERROR_SUCCESS)
+            continue;
+        for (DWORD index = 0;; ++index) {
+            wchar_t name[2048];
+            DWORD nameLen = DWORD(sizeof name / sizeof name[0]), type = 0, data = 1, dataLen = sizeof data;
+            const LONG r = RegEnumValueW(key, index, name, &nameLen, nullptr, &type, reinterpret_cast<LPBYTE>(&data), &dataLen);
+            if (r == ERROR_NO_MORE_ITEMS)
+                break;
+            if (r != ERROR_SUCCESS || type != REG_DWORD || data != 0)
+                continue;
+            std::string utf8(std::size_t(WideCharToMultiByte(CP_UTF8, 0, name, int(nameLen), nullptr, 0, nullptr, nullptr)), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, name, int(nameLen), utf8.data(), int(utf8.size()), nullptr, nullptr);
+            const std::vector<LayerEntry> found = parseLayerManifest(readTextFile(std::filesystem::path(name, name + nameLen)), utf8);
+            entries.insert(entries.end(), found.begin(), found.end());
+        }
+        RegCloseKey(key);
+    }
 #endif
-    return active;
+    return activeLayers(entries, loaded);
 }
 
 } // namespace

@@ -85,6 +85,7 @@ private slots:
         // lavapipe, and no implicit layers (overlays, recorders) (§4.4).
         if (!lavapipeIcd().isEmpty()) {
             qputenv("VK_DRIVER_FILES", lavapipeIcd().toLocal8Bit());
+            qputenv("VK_ICD_FILENAMES", lavapipeIcd().toLocal8Bit());
             qputenv("VK_LOADER_LAYERS_DISABLE", "~implicit~");
         }
     }

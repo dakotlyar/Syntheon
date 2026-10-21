@@ -21,5 +21,7 @@ For THIRD-PARTY-NOTICES.txt (cmake/ThirdPartyNotices.cmake, cmake/QtNotices.cmak
   `spdx/CC0-1.0.txt` for the loader and `spdx/Apache-2.0.txt` for the Khronos
   registry parts of its output. `khrplatform-MIT.txt` is the MIT-style notice
   at the top of `KHR/khrplatform.h`.
+- `fxaa3_11.txt`: the licence text in NVIDIA's `Fxaa3_11.h` header (FXAA 3.11, Timothy Lottes), for the
+  GPU test's `post_fxaa.hlsl`, a close HLSL transliteration of its quality path.
 - `misc-fixed-5x7.txt`: the public-domain statement of X.Org's misc-fixed 5x7
   font (the GPU overlay's bitmap font, `font-misc-misc` 1.1.3).

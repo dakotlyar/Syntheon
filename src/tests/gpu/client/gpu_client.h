@@ -82,7 +82,8 @@ public:
     static ClientOutcome run(const ClientRunSpec &spec, const std::function<bool()> &cancelled,
                              const std::function<void(const protocol::Event &)> &onEvent = {});
     // `--probe`: the GPU list (empty + *error on failure).
-    static QVector<GpuEntry> probe(std::chrono::milliseconds timeout, QString *error);
+    // *timedOut (optional) says the probe ran out of time (D22), as opposed to failing.
+    static QVector<GpuEntry> probe(std::chrono::milliseconds timeout, QString *error, bool *timedOut = nullptr);
     // `--probe-gl --gpu <id>` with the GL environment glEnv.
     static protocol::GlEvent probeGl(const GpuEntry &gpu, const QProcessEnvironment &glEnv, std::chrono::milliseconds timeout);
 #if defined(SYNBENCH_DEV_HOOKS)

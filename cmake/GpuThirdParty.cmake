@@ -59,6 +59,9 @@ synbench_add_notice(NAME "glad (OpenGL loader)" VERSION ${SYNBENCH_GLAD_VERSION}
     NOTE "The loader glad generated is under (WTFPL OR CC0-1.0); SynBench uses it under CC0-1.0.")
 synbench_add_notice(NAME "Khronos platform header (KHR/khrplatform.h, in glad's loader)" LICENCE "MIT"
     FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/khrplatform-MIT.txt")
+synbench_add_notice(NAME "FXAA 3.11 (NVIDIA, Timothy Lottes)" LICENCE "NVIDIA FXAA 3.11 licence"
+    FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/fxaa3_11.txt"
+    NOTE "The GPU test's post_fxaa.hlsl is a transliteration of the quality path of Fxaa3_11.h.")
 synbench_add_notice(NAME "misc-fixed 5x7 font (X.Org font-misc-misc)" VERSION 1.1.3 LICENCE "Public domain"
     FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/misc-fixed-5x7.txt"
     NOTE "The overlay's bitmap font (tools/gpu-shaders/font5x7.py converts it into src/tests/gpu/worker/scene/bitmap_font.inc).")

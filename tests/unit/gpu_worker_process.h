@@ -61,6 +61,7 @@ inline QString lavapipeIcd()
 inline void addSoftwareVulkan(QProcessEnvironment &env)
 {
     env.insert(QStringLiteral("VK_DRIVER_FILES"), lavapipeIcd());
+    env.insert(QStringLiteral("VK_ICD_FILENAMES"), lavapipeIcd());  // old loaders (1.3.204) only know this name
     env.insert(QStringLiteral("VK_LOADER_LAYERS_DISABLE"), QStringLiteral("~implicit~"));
 }
 

@@ -6,6 +6,7 @@
 #include "tests/gpu/model/protocol.h"
 #include "tests/gpu/worker/null/null_backend.h"
 #include "tests/gpu/worker/runner.h"
+#include "tests/gpu/worker/vulkan/layer_manifests.h"
 #include "tests/gpu/worker/signature.h"
 
 #include <QElapsedTimer>
@@ -166,6 +167,48 @@ class TestGpuWorker : public QObject
     Q_OBJECT
 
 private slots:
+
+    // M3/L11: implicit-layer manifests and which of them are loaded, as pure functions (the Windows
+    // paths are the registry's, the Linux ones the loader's folders).
+    void layerManifests()
+    {
+        using namespace sb::gpu::vk;
+        const std::string steam = R"({"file_format_version":"1.0.0","layer":{"name":"VK_LAYER_VALVE_steam_overlay_64","type":"GLOBAL",
+            "library_path":".\\SteamOverlayVulkanLayer64.dll","api_version":"1.3.0","implementation_version":"1"}})";
+        auto e = parseLayerManifest(steam, "C:\\Program Files (x86)\\Steam\\steamoverlayvulkanlayer64.json");
+        QCOMPARE(e.size(), std::size_t(1));
+        QCOMPARE(e[0].name, std::string("VK_LAYER_VALVE_steam_overlay_64"));
+        QCOMPARE(e[0].library, std::string("C:/Program Files (x86)/Steam/SteamOverlayVulkanLayer64.dll"));
+        // layers[]: every entry; a relative path with "..", a bare name, an absolute path, an entry without a library.
+        const std::string many = R"({"file_format_version":"1.1.0","layers":[
+            {"name":"VK_LAYER_A","library_path":"../lib/liba.so"},
+            {"name":"VK_LAYER_B","library_path":"libb.so"},
+            {"name":"VK_LAYER_C","library_path":"/opt/c/libc.so"},
+            {"name":"VK_LAYER_NOLIB"}]})";
+        e = parseLayerManifest(many, "/usr/share/vulkan/implicit_layer.d/x.json");
+        QCOMPARE(e.size(), std::size_t(3));
+        QCOMPARE(e[0].library, std::string("/usr/share/vulkan/lib/liba.so"));
+        QCOMPARE(e[1].library, std::string("libb.so"));
+        QCOMPARE(e[2].library, std::string("/opt/c/libc.so"));
+        QVERIFY(parseLayerManifest("{not json", "x.json").empty());
+        QVERIFY(parseLayerManifest("[]", "x.json").empty());
+        // Matching: full paths without regard to case or slash direction; a bare name by its tail.
+        QVERIFY(libraryMatches("C:/Program Files (x86)/Steam/SteamOverlayVulkanLayer64.dll", "c:\\program files (x86)\\steam\\steamoverlayvulkanlayer64.DLL"));
+        QVERIFY(!libraryMatches("C:/a/x.dll", "C:/b/x.dll"));
+        QVERIFY(libraryMatches("libb.so", "/usr/lib/libb.so"));
+        QVERIFY(!libraryMatches("libb.so", "/usr/lib/xlibb.so"));
+        // Active layers: only the loaded ones, by name, without the validation layer and driver-internal ones.
+        const std::vector<LayerEntry> entries = {{"VK_LAYER_VALVE_steam_overlay_64", "C:/steam/overlay64.dll"},
+                                                 {"VK_LAYER_RTSS", "C:/rtss/vk.dll"},
+                                                 {"VK_LAYER_NV_optimus", "C:/windows/system32/nvoptimus.dll"},
+                                                 {"VK_LAYER_AMD_switchable_graphics_64", "C:/windows/system32/amdsw.dll"},
+                                                 {"VK_LAYER_KHRONOS_validation", "C:/vk/validation.dll"},
+                                                 {"VK_LAYER_INSTALLED_ONLY", "C:/nowhere/x.dll"}};
+        const std::vector<std::string> loaded = {"C:\\Steam\\overlay64.dll", "C:\\RTSS\\VK.DLL", "C:\\Windows\\System32\\NvOptimus.dll",
+                                                 "C:\\Windows\\System32\\amdsw.dll", "C:\\vk\\validation.dll"};
+        const std::vector<std::string> active = activeLayers(entries, loaded);
+        QCOMPARE(active, (std::vector<std::string>{"VK_LAYER_RTSS", "VK_LAYER_VALVE_steam_overlay_64"}));
+    }
 
     // D4: a probe run by hand with stdin closed (</dev/null) still answers and exits 0.
     void probeIgnoresStdinEof()

@@ -127,6 +127,16 @@ private slots:
         QVERIFY(gone(o.pid));
     }
 
+    // L5: a protocol error the worker explained before exiting 2 is the client's reason.
+    void protocolErrorReasonIsCarried()
+    {
+        GpuClient::setWorkerForTests(kFake, {QStringLiteral("protocol-error")});
+        const ClientOutcome o = GpuClient::run(spec(QStringLiteral("geometry:100:300")), {}, {});
+        QCOMPARE(o.status, Status::Failed);
+        QCOMPARE(o.reason, QStringLiteral("protocol: unknown command 'x'"));
+        QCOMPARE(o.exitCode, 2);
+    }
+
     void timeouts()
     {
         QCOMPARE(GpuClient::timeoutFor(*pr::parsePlan(QStringLiteral("geometry:5000:20000"), nullptr)), std::chrono::milliseconds(80000));

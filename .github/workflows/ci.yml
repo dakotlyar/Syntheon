@@ -132,7 +132,9 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           # The GPU test runs for real on lavapipe (the worker's windows on xvfb).
           SYNBENCH_GPU_WORKER_ARGS: "--allow-software --render-size 320x180 --content-scale 64"
-          SYNBENCH_GPU_WORKER_ENV: "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json|LIBGL_ALWAYS_SOFTWARE=1"
+          # VK_ICD_FILENAMES as well: ubuntu-22.04's Vulkan loader (1.3.204) predates VK_DRIVER_FILES (1.3.207),
+          # and ignores VK_LOADER_LAYERS_DISABLE (1.3.234), so a stray implicit layer is not switched off there.
+          SYNBENCH_GPU_WORKER_ENV: "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json|VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json|LIBGL_ALWAYS_SOFTWARE=1"
         run: xvfb-run -a build/linux-x64-release/bin/SynBench
 
       # A failing (or crashing) test must leave something to read: the tail of

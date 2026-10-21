@@ -54,10 +54,12 @@ if(UNIX)
             endif()
         endforeach()
     endforeach()
+    # VK_ICD_FILENAMES too: loaders older than 1.3.234 (ubuntu-22.04 has 1.3.204) know only that name
+    # for the driver list, and VK_LOADER_LAYERS_DISABLE (implicit layers off) is ignored by them.
     if(SB_LAVAPIPE_ICD)
         list(APPEND SB_TEST_ENVIRONMENT
             "SYNBENCH_GPU_WORKER_ARGS=--allow-software"
-            "SYNBENCH_GPU_WORKER_ENV=VK_DRIVER_FILES=${SB_LAVAPIPE_ICD}|LIBGL_ALWAYS_SOFTWARE=1")
+            "SYNBENCH_GPU_WORKER_ENV=VK_DRIVER_FILES=${SB_LAVAPIPE_ICD}|VK_ICD_FILENAMES=${SB_LAVAPIPE_ICD}|LIBGL_ALWAYS_SOFTWARE=1")
     endif()
     set(SB_TEST_FIXTURES test_home)
     add_test(NAME test_home_setup
@@ -180,6 +182,7 @@ set(_notices_expect
     "glad (OpenGL loader) ${SYNBENCH_GLAD_VERSION}|Creative Commons Legal Code"
     "Khronos OpenGL registry (in glad's loader)|Apache License"
     "Khronos platform header (KHR/khrplatform.h, in glad's loader)|Permission is hereby granted"
+    "FXAA 3.11 (NVIDIA, Timothy Lottes)|COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION"
     "misc-fixed 5x7 font (X.Org font-misc-misc) 1.1.3|Public domain font."
     "OpenSSL (libcrypto) ${SYNBENCH_OPENSSL_VERSION}|Apache License"
     "Qt ${Qt6_VERSION}|GNU LESSER GENERAL PUBLIC LICENSE"

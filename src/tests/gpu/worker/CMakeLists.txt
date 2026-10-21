@@ -12,12 +12,15 @@ add_library(synbench_gpu_backends STATIC
     null/null_backend.h null/null_backend.cpp
     vulkan/vk_context.h vulkan/vk_context.cpp
     vulkan/vk_probe.h vulkan/vk_probe.cpp
+    vulkan/layer_manifests.h vulkan/layer_manifests.cpp
     vulkan/vk_resources.h vulkan/vk_resources.cpp
     vulkan/vk_swapchain.h vulkan/vk_swapchain.cpp
     vulkan/vk_backend.h vulkan/vk_backend.cpp
     vulkan/vk_workload_state.h vulkan/vk_workloads.cpp
 )
 if(WIN32)
+    # Layer detection: EnumProcessModules (psapi) and the ImplicitLayers registry values (advapi32).
+    target_link_libraries(synbench_gpu_backends PRIVATE psapi advapi32)
     # System32's vulkan-1.dll for volk (P-WIN: Windows-only code in its own file).
     target_sources(synbench_gpu_backends PRIVATE vulkan/vk_loader.h vulkan/vk_loader_win.cpp)
 endif()

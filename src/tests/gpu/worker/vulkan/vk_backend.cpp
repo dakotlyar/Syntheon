@@ -7,6 +7,7 @@
 #include "tests/gpu/worker/scene/overlay.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <utility>
 
@@ -89,6 +90,7 @@ void VulkanBackend::shutdown()
             s = VK_NULL_HANDLE;
         }
         destroy(m_ctx, m_atlas);
+        destroy(m_ctx, m_dummyDepth);
     }
     m_queries = VK_NULL_HANDLE;
     m_presentPipeline = VK_NULL_HANDLE;
@@ -171,6 +173,10 @@ std::string VulkanBackend::init(const BackendInit &init, const PresentTarget &ta
 
     // The glyph atlas, once (§5.9).
     if (std::string e = uploadTexture(m_ctx, glyphAtlas(), &m_atlas); !e.empty())
+        return e;
+    if (std::string e = makeImage(m_ctx, 1, 1, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 1,
+                                  &m_dummyDepth);
+        !e.empty())
         return e;
 
     // Set 0 per slot.
@@ -397,6 +403,21 @@ void VulkanBackend::unload()
         destroy(m_ctx, *img);
     for (Image &img : m_bloom)
         destroy(m_ctx, img);
+    // Set 0 b2 held the shadow map's view: point it at the dummy one now that it is destroyed (L1).
+    if (m_dummyDepth.view) {
+        for (Slot &s : m_slots) {
+            if (!s.set0)
+                continue;
+            const VkDescriptorImageInfo ii{VK_NULL_HANDLE, m_dummyDepth.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            VkWriteDescriptorSet x{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            x.dstSet = s.set0;
+            x.dstBinding = 2;
+            x.descriptorCount = 1;
+            x.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            x.pImageInfo = &ii;
+            vkUpdateDescriptorSets(m_ctx.device, 1, &x, 0, nullptr);
+        }
+    }
     m_loaded = false;
     m_lastDraws = 0;
 }
@@ -465,8 +486,20 @@ std::string VulkanBackend::resume(const PresentTarget &target)
             if (const VkResult r = vkCreateSemaphore(m_ctx.device, &si, nullptr, &s.acquired); r != VK_SUCCESS)
                 return fail(failure("vkCreateSemaphore", r));
         }
-        if (std::string e = m_swap.create(m_ctx, target.windowWidth, target.windowHeight); !e.empty())
-            return fail(e);
+        std::string created;
+#if defined(SYNBENCH_DEV_HOOKS)
+        // Dev hook: "1" = no swapchain can be made; "later" = none after the first resume (L8's test).
+        if (const char *hook = std::getenv("SYNBENCH_GPU_FAIL_SWAPCHAIN"); hook && (hook[0] == '1' || (std::strcmp(hook, "later") == 0 && m_everResumed)))
+            created = "N/A: this GPU can't present to the test window on this display system";
+#endif
+        if (created.empty())
+            created = m_swap.create(m_ctx, target.windowWidth, target.windowHeight);
+        if (!created.empty()) {
+            // N/A only on an API's first resume (nothing was ever presented on it): after that it is an Error (L8).
+            if (m_everResumed && created.rfind("N/A: ", 0) == 0)
+                created = "the swapchain couldn't be made again after the first workload (" + created.substr(5) + ")";
+            return fail(created);
+        }
         format = m_swap.format;
         m_presentModeName = presentModeName(m_swap.mode);
     }
@@ -475,6 +508,7 @@ std::string VulkanBackend::resume(const PresentTarget &target)
             return fail(e);
     }
     m_resumed = true;
+    m_everResumed = true;
     if (std::string e = m_ctx.validationProblem(); !e.empty())
         return fail(e);
     return {};

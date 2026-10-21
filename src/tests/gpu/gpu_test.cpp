@@ -119,6 +119,9 @@ std::optional<int> chooseDefault(const QVector<GpuEntry> &gpus)
     return def ? std::optional<int>(where[*def]) : std::nullopt;
 }
 
+struct ApiRun;
+QString naReason(const std::vector<ApiRun> &apis);
+
 // One API's state through a run.
 struct ApiRun {
     ApiId id;
@@ -132,6 +135,23 @@ struct ApiRun {
     std::unique_ptr<GpuSession> session;
     std::map<SceneId, pr::ResultEvent> results;
 };
+
+// Why no API ran, in the APIs' own words: their distinct N/A reasons ("No Vulkan driver is
+// installed; DirectX is Windows only"), or the generic text when there are none.
+QString naReason(const std::vector<ApiRun> &apis)
+{
+    QStringList reasons;
+    for (const ApiRun &a : apis) {
+        QString r = a.status;
+        if (r.startsWith(QLatin1StringView("N/A: ")))
+            r.remove(0, 5);
+        else
+            continue;
+        if (!r.startsWith(QLatin1StringView("not built yet")) && !reasons.contains(r))  // a placeholder, not a reason
+            reasons << r;
+    }
+    return reasons.isEmpty() ? QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found") : reasons.join(QStringLiteral("; "));
+}
 
 // One GPU test run (§8): the sessions, the scene-by-scene loop, the metrics and the status.
 class GpuRun
@@ -242,7 +262,7 @@ TestResult GpuRun::run()
     for (const ApiRun &a : m_apis)
         activeCount += a.active ? 1 : 0;
     if (activeCount == 0) {
-        TestResult r = TestResult::notAvailable(QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found"));
+        TestResult r = TestResult::notAvailable(naReason(m_apis));
         for (const ApiRun &a : m_apis)
             r.metrics.append(text(apiStatusKey(apiKey(a.id), u"status"), {}, apiName(a.id) + QStringLiteral(" status"), a.status));
         return r;
@@ -348,14 +368,20 @@ TestResult GpuRun::run()
                 m_ctx.log(LogLevel::Error, QStringLiteral("%1 failed in %2: %3").arg(apiName(a.id), sceneName(scene), o.reason));
                 break;
             }
-            done += windows;
+            // Only a window that ran counts: an API that dropped out skips its windows, so the progress
+            // never runs ahead of the work (the orchestrator sets 1.0 at the end).
+            if (o.status == ClientOutcome::Status::Ok)
+                done += windows;
         }
         if (!stopped)
             compareSignatures(item, plan);
-        done = double(item + 1) * windows * activeCount + 4.0;  // however many APIs ran
     }
     for (ApiRun &a : m_apis) {
-        if (a.session && a.session->alive())
+        if (!a.session || !a.session->alive())
+            continue;
+        if (stopped || cancelled())
+            a.session->kill();  // Stop: no polite quit per API, so it stays within 250 ms with several of them (L6)
+        else
             a.session->quit();
     }
     m_ctx.holdInterface(false);
@@ -448,6 +474,8 @@ TestResult GpuRun::finish(bool stopped)
                 s.points = res.series;
                 r.series.append(s);
             }
+            if (m_mismatch.count({a.id, scene}))
+                continue;  // not counted in the API's own mean either
             fpsAll.append(res.fps);
             lowAll.append(low);
         }
@@ -465,7 +493,9 @@ TestResult GpuRun::finish(bool stopped)
         QVector<Candidate> candidates;
         for (const ApiRun &a : m_apis) {
             const auto it = a.results.find(scene);
-            if (it != a.results.end())
+            // An API that errored in this scene, or drew it differently from the reference, never
+            // gives the headline number (M2).
+            if (it != a.results.end() && !m_mismatch.count({a.id, scene}) && !(a.errored && a.errorScene == sceneName(scene)))
                 candidates.append({apiKey(a.id), it->second.fps});
         }
         const auto best = bestOf(candidates);
@@ -507,7 +537,7 @@ TestResult GpuRun::finish(bool stopped)
     } else if (!anyMeasured && !apiError) {
         // Every API said "not available" when it started (no driver, FIFO-only): no 3D API ran.
         r.status = Status::NotAvailable;
-        r.statusReason = QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found");
+        r.statusReason = naReason(m_apis);
     } else if (!anyMeasured) {
         r.status = Status::Error;
         r.statusReason = !firstReason.isEmpty() ? firstReason : QStringLiteral("no 3D API produced a result");
@@ -568,10 +598,11 @@ Availability GpuTest::probe(const ProbeContext &) const
     if (GpuClient::workerPath().isEmpty())
         return Availability::unavailable(QStringLiteral("The GPU worker is missing from this installation"));
     QString error;
-    const QVector<GpuEntry> found = GpuClient::probe(3s, &error);  // D22: 3 s at most
+    bool timedOut = false;
+    const QVector<GpuEntry> found = GpuClient::probe(3s, &error, &timedOut);  // D22: 3 s at most
     Availability a;
     if (found.isEmpty() && !error.isEmpty()) {
-        if (error.contains(QLatin1StringView("didn't finish"))) {
+        if (timedOut) {
             // A cold driver load: say so, and look again when the test starts.
             a.capabilities.append({QStringLiteral("GPU details: checked when the test starts"), Tone::Warn});
             return a;
