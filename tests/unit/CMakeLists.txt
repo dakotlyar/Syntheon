@@ -56,6 +56,7 @@ foreach(t tst_sysinfo_parsers tst_sysinfo_live tst_sysinfo_linux tst_isa tst_cac
     endif()
 endforeach()
 synbench_add_unit_test(tst_protocol SOURCES tst_protocol.cpp LIBS synbench_protocol Qt6::Core)
+synbench_add_unit_test(tst_gpu_model SOURCES tst_gpu_model.cpp LIBS synbench_gpu_model)
 synbench_add_unit_test(tst_stubs SOURCES tst_stubs.cpp fake_test.h LIBS synbench_builtin_tests synbench_storage)
 synbench_add_unit_test(tst_controllers SOURCES tst_controllers.cpp LIBS synbench_appcore)
 synbench_add_unit_test(tst_run_controller SOURCES tst_run_controller.cpp LIBS synbench_appcore)
