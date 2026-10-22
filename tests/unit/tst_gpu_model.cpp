@@ -708,6 +708,18 @@ private slots:
         QCOMPARE(kind(0x1002, 8 * GiB, 16 * GiB, true, false), GpuKind::Discrete);     // a discrete Radeon: UMA says no
         QCOMPARE(kind(0x1002, 512 * 1024, 16 * GiB, false, false), GpuKind::Integrated);  // fallback: shared > dedicated
         QCOMPARE(kind(0x8086, 128 * 1024 * 1024, 16 * GiB, false, false), GpuKind::Integrated);
+        // WARP reports UMA but is software: classified first, by the flag or by its ids.
+        const auto warp = [](bool flag) {
+            DxgiAdapterRecord r;
+            r.vendorId = 0x1414;
+            r.deviceId = 0x008c;
+            r.software = flag;
+            r.umaKnown = true;
+            r.uma = true;
+            return mergeWindowsGpus({r}, {})[0].kind;
+        };
+        QCOMPARE(warp(true), GpuKind::Software);
+        QCOMPARE(warp(false), GpuKind::Software);
         QCOMPARE(kind(0x10de, 6 * GiB, 16 * GiB, false, false), GpuKind::Discrete);   // NVIDIA: the 512 MiB rule
         QCOMPARE(kind(0x10de, 256 * 1024 * 1024, 16 * GiB, false, false), GpuKind::Integrated);
     }

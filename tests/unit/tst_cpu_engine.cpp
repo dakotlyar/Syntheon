@@ -145,12 +145,15 @@ public:
             std::uint64_t steps;
             std::vector<Unit> *out;
             const std::atomic<int> *window;
+            std::atomic<int> *inFlight;
             std::uint64_t unit(std::uint64_t index) override
             {
+                ++*inFlight;
                 Unit u{window->load(), Clock::now(), {}};
                 const std::uint64_t sum = chain(index + 1, steps);
                 u.end = Clock::now();
                 out->push_back(u);
+                --*inFlight;
                 return sum;
             }
         };
@@ -158,6 +161,7 @@ public:
         t->steps = m_steps(thread);
         t->out = &m_units[std::size_t(thread)];
         t->window = &m_window;
+        t->inFlight = &m_inFlight;
         return t;
     }
     // For measure()'s progress callback (on the coordinator): the window
@@ -185,11 +189,13 @@ public:
     const std::vector<Unit> &units(int thread) const { return m_units[std::size_t(thread)]; }
     Clock::time_point windowStart(int window) const { return m_windowStarts[std::size_t(window)]; }
     int window() const { return m_window.load(); }  // the current window (on the coordinator)
+    int unitsInFlight() const { return m_inFlight.load(); }  // units that have started and not finished
 
 private:
     std::function<std::uint64_t(int)> m_steps;
     mutable std::vector<std::vector<Unit>> m_units;
     std::atomic<int> m_window{-1};
+    mutable std::atomic<int> m_inFlight{0};
     std::vector<Clock::time_point> m_windowStarts;
     std::vector<Poll> m_polls;
 };
@@ -596,39 +602,55 @@ private slots:
     // run-queue wait (Linux; else 0).
     void cancelAtWindowChangeover()
     {
-        RecordingKernel k(1, [steps = chainStepsFor(175ms)](int) { return steps; });
-        WorkerPool pool({1, {}});
-        Clock::time_point armedAt{}, seenAt{};
-        std::uint64_t waitAtArm = 0, waitAtSeen = 0;
-        const Measurement m = pool.measure(
-            k, {100ms, 100ms, 3},
-            [&] {
-                const auto now = Clock::now();
-                if (armedAt != Clock::time_point{}) {
-                    if (seenAt == Clock::time_point{}) {
-                        seenAt = now;
-                        waitAtSeen = runQueueWaitNs();
+        // The scenario is defined by what the coordinator observes, not by wall-clock margins: the cancel is
+        // raised at a poll that finds the warm-up's deadline passed and its last unit still running. How
+        // long a unit really takes on a loaded or noisy runner is not ours to fix (a unit that finishes
+        // before any such poll never gives the scenario), so a measurement without it is tried again;
+        // every measurement WITH it must have the cancel honoured at the window's end.
+        constexpr int kAttempts = 8;
+        bool exercised = false;
+        for (int attempt = 0; attempt < kAttempts && !exercised; ++attempt) {
+            RecordingKernel k(1, [steps = chainStepsFor(175ms)](int) { return steps; });
+            WorkerPool pool({1, {}});
+            Clock::time_point armedAt{}, seenAt{};
+            std::uint64_t waitAtArm = 0, waitAtSeen = 0;
+            bool armedWithUnitRunning = false;
+            const Measurement m = pool.measure(
+                k, {100ms, 100ms, 3},
+                [&] {
+                    const auto now = Clock::now();
+                    if (armedAt != Clock::time_point{}) {
+                        if (seenAt == Clock::time_point{}) {
+                            seenAt = now;
+                            waitAtSeen = runQueueWaitNs();
+                        }
+                        return true;
                     }
-                    return true;
-                }
-                // The warm-up's first poll after stop was set (at the 100 ms
-                // deadline; the next poll is 50 ms later): its unit is still
-                // running.
-                if (k.window() == 0 && now - k.windowStart(0) >= 125ms) {
-                    armedAt = now;
-                    waitAtArm = runQueueWaitNs();
-                }
-                return false;
-            },
-            [&](int w) { k.startWindow(w); });
-        QCOMPARE(m.outcome, Measurement::Outcome::Cancelled);
-        QVERIFY(m.reps.empty());
-        QCOMPARE(k.window(), 0);  // repetition 1 never started
-        const double sawMs = secondsOf(seenAt - armedAt) * 1000, waitMs = double(waitAtSeen - waitAtArm) / 1e6;
-        QVERIFY2(sawMs - waitMs < kPollLateMs, qPrintable(QStringLiteral("the cancel was seen %1 ms after it came (%2 ms of "
-                                                                "it waiting for a CPU)")
-                                                     .arg(sawMs, 0, 'f', 1)
-                                                     .arg(waitMs, 0, 'f', 1)));
+                    // The first poll of the warm-up well after its 100 ms deadline (stop is set; the poll at 150 ms)
+                    // that finds its unit still running: the cancel is raised now, while the last unit finishes.
+                    if (k.window() == 0 && now - k.windowStart(0) >= 125ms && k.unitsInFlight() > 0) {
+                        armedAt = now;
+                        armedWithUnitRunning = true;
+                        waitAtArm = runQueueWaitNs();
+                    }
+                    return false;
+                },
+                [&](int w) { k.startWindow(w); });
+            if (!armedWithUnitRunning) {
+                QCOMPARE(m.outcome, Measurement::Outcome::Ok);  // nothing was raised: the measurement just ran
+                continue;
+            }
+            exercised = true;
+            QCOMPARE(m.outcome, Measurement::Outcome::Cancelled);
+            QVERIFY(m.reps.empty());
+            QCOMPARE(k.window(), 0);  // repetition 1 never started: the cancel was seen when the last unit ended
+            const double sawMs = secondsOf(seenAt - armedAt) * 1000, waitMs = double(waitAtSeen - waitAtArm) / 1e6;
+            QVERIFY2(sawMs - waitMs < kPollLateMs, qPrintable(QStringLiteral("the cancel was seen %1 ms after it came (%2 ms of "
+                                                                    "it waiting for a CPU)")
+                                                         .arg(sawMs, 0, 'f', 1)
+                                                         .arg(waitMs, 0, 'f', 1)));
+        }
+        QVERIFY2(exercised, "no poll ever found the warm-up's last unit still running (8 measurements)");
     }
 
     // Phase 1 threading rule 4: the workers are gone when the pool is.

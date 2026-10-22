@@ -17,9 +17,12 @@ QVector<GpuEntry> mergeWindowsGpus(const QVector<DxgiAdapterRecord> &adapters, c
         g.deviceId = a.deviceId;
         g.name = a.name;
         g.vramBytes = a.dedicatedBytes;
+        // Software first: WARP reports UMA, which must not make it "integrated". The adapter flag, or Microsoft's
+        // Basic Render Driver (1414:008c) when a list was built without it.
+        const bool software = a.software || (a.vendorId == 0x1414 && a.deviceId == 0x008c);
         const bool amdOrIntel = a.vendorId == 0x1002 || a.vendorId == 0x8086;
         const bool integrated = a.umaKnown ? a.uma : (amdOrIntel && a.sharedBytes > a.dedicatedBytes);
-        g.kind = a.software ? GpuKind::Software
+        g.kind = software ? GpuKind::Software
                  : integrated || a.dedicatedBytes < (qint64(512) << 20) ? GpuKind::Integrated
                                                                         : GpuKind::Discrete;
         g.luid = luidHex(a.luid);
