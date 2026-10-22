@@ -340,6 +340,29 @@ private slots:
         b->shutdown();
         QCOMPARE(b->validationErrors(), 0);
     }
+    // The sync-validation gate (CI's old layer): below the threshold the worker still speaks clean
+    // protocol (the note goes to stderr) and the run completes with core validation only. The dev
+    // hook fakes the layer's version, so this runs on Tiamat's new layer too.
+    void oldValidationLayerSkipsSyncValidation()
+    {
+        if (lavapipeIcd().isEmpty())
+            SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        addSoftwareVulkan(env);
+        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_LAYER_SPEC"), QStringLiteral("1.3.204"));
+        WorkerProcess w(kWorker,
+                        {QStringLiteral("--run"), QStringLiteral("--api"), QStringLiteral("vulkan"), QStringLiteral("--gpu"), kLavapipeId,
+                         QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
+                         QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation"),
+                         QStringLiteral("--headless"), QStringLiteral("--plan"), QStringLiteral("geometry:100:200")},
+                        env);
+        QVERIFY(w.started());
+        const int code = w.finish();
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
+        QVERIFY2(!w.problem().contains(QLatin1StringView("malformed")), qPrintable(w.problem()));  // every stdout line parsed
+        QVERIFY(w.stderrText().contains(QLatin1StringView("sync validation skipped: validation layer 1.3.204 too old")));
+        QCOMPARE(results(w.events()).size(), 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestGpuBackends)

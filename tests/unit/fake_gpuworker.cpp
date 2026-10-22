@@ -174,7 +174,7 @@ int fakeMain(int argc, char **argv)
         if (command.rfind("run ", 0) == 0) {
             const std::string item = command.substr(4);
             if (const char *log = std::getenv("SB_FAKE_LOG")) {
-                if (std::FILE *f = std::fopen(log, "a")) {
+                if (std::FILE *f = std::fopen(log, "ab")) {  // binary: no CRLF on Windows
                     std::fprintf(f, "%s %s\n", api.c_str(), item.substr(0, item.find(':')).c_str());
                     std::fclose(f);
                 }

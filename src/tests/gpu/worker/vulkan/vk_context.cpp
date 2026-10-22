@@ -388,7 +388,15 @@ std::string Context::create(const BackendInit &init, const PresentTarget &target
         extensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
         // Synchronisation validation: any hazard is an error (task 12, R1), where the layer is new
         // enough to be right about it; older ones get core validation only.
-        const std::uint32_t spec = layerSpecVersion(kValidationLayer);
+        std::uint32_t spec = layerSpecVersion(kValidationLayer);
+#if defined(SYNBENCH_DEV_HOOKS)
+        // Dev hook "1.3.204": pretend the validation layer is that old (the test of the sync-validation gate).
+        if (const char *fake = std::getenv("SYNBENCH_GPU_FAKE_LAYER_SPEC")) {
+            unsigned major = 0, minor = 0, patch = 0;
+            if (std::sscanf(fake, "%u.%u.%u", &major, &minor, &patch) == 3)
+                spec = VK_MAKE_API_VERSION(0, major, minor, patch);
+        }
+#endif
         if (layerSupportsSyncValidation(spec)) {
             features.enabledValidationFeatureCount = 1;
             features.pEnabledValidationFeatures = enables;

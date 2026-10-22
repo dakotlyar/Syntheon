@@ -102,6 +102,13 @@ public:
                 const QByteArray line = m_p.readLine().trimmed();
                 if (line.isEmpty())
                     continue;
+                // Debian's and Ubuntu's xvfb-run runs its command with 2>&1, so the worker's own
+                // diagnostics ("synbench-gpu: ...", on stderr) arrive on this channel when the test
+                // wraps the worker in xvfb-run: they are stderr, not protocol.
+                if (line.startsWith("synbench-gpu: ")) {
+                    m_stderr += QString::fromUtf8(line) + QLatin1Char('\n');
+                    continue;
+                }
                 QString err;
                 const auto e = pr::parseLine(line, &err);
                 if (!e) {

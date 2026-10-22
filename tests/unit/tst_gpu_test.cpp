@@ -287,7 +287,7 @@ private slots:
         QCOMPARE(r.subResults[0].status, Status::Ok);
         QFile f(log);
         QVERIFY(f.open(QIODevice::ReadOnly));
-        const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        const QStringList lines = QString::fromUtf8(f.readAll()).remove(QLatin1Char('\r')).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
         QCOMPARE(lines, (QStringList{QStringLiteral("vulkan geometry"), QStringLiteral("opengl geometry"), QStringLiteral("vulkan drawcalls"),
                                      QStringLiteral("opengl drawcalls"), QStringLiteral("vulkan shading"), QStringLiteral("opengl shading"),
                                      QStringLiteral("vulkan particles"), QStringLiteral("opengl particles")}));

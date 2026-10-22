@@ -317,7 +317,7 @@ private slots:
                 if (line.trimmed().isEmpty())
                     continue;
                 QString err;
-                const auto e = pr::parseLine(line, &err);
+                const auto e = pr::parseLine(line.trimmed(), &err);
                 QVERIFY2(e, qPrintable(err));
                 if (const auto *g = std::get_if<pr::GpuEvent>(&*e))
                     gpus.append(*g);

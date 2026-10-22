@@ -184,6 +184,19 @@ private slots:
         }
         QCOMPARE(errors, 1);
     }
+    // Under xvfb-run (which merges stderr into stdout on Debian/Ubuntu) the old-layer note must not
+    // break the protocol reading: the harness takes "synbench-gpu: ..." lines as stderr.
+    void oldLayerNoteDoesNotBreakTheProtocol()
+    {
+        QProcessEnvironment env = m_env;
+        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_LAYER_SPEC"), QStringLiteral("1.3.204"));
+        WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:100:300"), env);
+        QVERIFY(w.started());
+        QCOMPARE(w.finish(), 0);
+        QVERIFY2(!w.problem().contains(QLatin1StringView("malformed")), qPrintable(w.problem()));  // every stdout line parsed
+        QCOMPARE(results(w.events()).size(), 1);
+        QVERIFY(w.stderrText().contains(QLatin1StringView("sync validation skipped")));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestGpuPresent)
