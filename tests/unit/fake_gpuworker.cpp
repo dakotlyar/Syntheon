@@ -11,6 +11,9 @@
 //     protocol-error     ready, then an error event "protocol: unknown command 'x'" and exit 2
 //     mismatch           like ok, but the opengl worker is faster (200 fps) and draws something else (its signature differs)
 //     crash-at-shading   like ok, but the opengl worker crashes at `run shading` (the second API of the GPU test's case)
+//     crash-d2d / crash-qt   like ok, but the native path with that --api crashes right after ready
+//     d2d-fast           like ok, but the d2d worker's native results are four times faster (more frames)
+//     warn-d2d           like ok, but the d2d worker sends a `warning` event after ready
 // --probe answers one fake GPU (Vulkan and OpenGL OK, DirectX Windows only) and done, in every mode.
 // SB_FAKE_LOG=<file> (through SYNBENCH_GPU_WORKER_ENV): "<api> <workload>" appended per `run` command.
 // "stop" on stdin ends it with exit 4 (not in `hang`), "quit" with exit 0, EOF with exit 3.
@@ -42,12 +45,15 @@ void ready() { out("{\"ev\":\"ready\",\"api\":\"fake\",\"device\":\"Fake GPU\",\
 std::string g_api;  // the worker's --api, for the modes that differ by API
 bool g_mismatch = false;
 
+bool g_d2dFast = false;
+
 void result(const std::string &workload)
 {
     const bool other = g_mismatch && g_api == "opengl";
+    const int frames = g_d2dFast && g_api == "d2d" ? 40 : 10;
     const std::string sig(864, other ? 'f' : '0');
     const char *fps = other ? "200" : "100";
-    out("{\"ev\":\"result\",\"workload\":\"" + workload + "\",\"frames\":10,\"seconds\":0.1,\"fps\":" + std::string(fps) + ","
+    out("{\"ev\":\"result\",\"workload\":\"" + workload + "\",\"frames\":" + std::to_string(frames) + ",\"seconds\":0.1,\"fps\":" + std::string(fps) + ","
         "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11},\"cpuMs\":1,\"series\":[[0.05,10.0],[0.15,10.0]],\"sig\":\"" + sig + "\"}");
 }
 
@@ -97,6 +103,7 @@ int fakeMain(int argc, char **argv)
     }
     g_api = api;
     g_mismatch = mode == "mismatch";
+    g_d2dFast = mode == "d2d-fast";
     if (probe) {
         out("{\"ev\":\"gpu\",\"id\":\"10de:2c05@0000:01:00.0\",\"name\":\"Fake GPU\",\"vendorId\":4318,\"deviceId\":11269,"
             "\"kind\":\"discrete\",\"vramBytes\":17179869184,\"pciSlot\":\"0000:01:00.0\",\"apis\":{"
@@ -132,6 +139,10 @@ int fakeMain(int argc, char **argv)
         return g_stop ? 4 : 0;
     }
     ready();
+    if ((mode == "crash-d2d" && api == "d2d") || (mode == "crash-qt" && api == "qt"))
+        crash();
+    if (mode == "warn-d2d" && api == "d2d")
+        out("{\"ev\":\"warning\",\"text\":\"the bundled font IBM Plex Sans isn't in the worker; the text workload uses Segoe UI instead of IBM Plex Sans\"}");
     if (mode == "protocol-error") {
         out("{\"ev\":\"error\",\"workload\":\"\",\"reason\":\"protocol: unknown command 'x'\",\"na\":false}");
         return 2;

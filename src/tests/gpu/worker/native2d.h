@@ -32,6 +32,9 @@ public:
     virtual void setOverlay(const std::string &text) = 0;
     // The path's name in the overlay and the window title: "Qt raster", "Direct2D".
     virtual const char *overlayName() const = 0;
+    // A warning for the result (a fallback the path made, e.g. a missing bundled font); "" = none. The worker
+    // sends it as a `warning` event after `ready`; it never fails the run.
+    virtual std::string warning() const { return {}; }
 };
 
 } // namespace sb::gpu

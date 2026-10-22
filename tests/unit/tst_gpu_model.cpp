@@ -345,6 +345,23 @@ private slots:
         QCOMPARE(kindText(GpuKind::Other), QStringLiteral("other"));
     }
 
+    // Task 28: the `warning` event (a fallback that doesn't fail the run) round-trips; without its text it is a protocol error.
+    void warningEvent()
+    {
+        namespace pr = sb::gpu::protocol;
+        const QByteArray line = pr::encode(pr::WarningEvent{QStringLiteral("the text workload uses Segoe UI")});
+        QCOMPARE(line, QByteArray("{\"ev\":\"warning\",\"text\":\"the text workload uses Segoe UI\"}"));
+        QString err;
+        const auto e = pr::parseLine(line, &err);
+        QVERIFY2(e, qPrintable(err));
+        QCOMPARE(std::get<pr::WarningEvent>(*e).text, QStringLiteral("the text workload uses Segoe UI"));
+        QVERIFY(!pr::parseLine(QByteArray("{\"ev\":\"warning\"}"), &err));
+        QCOMPARE(err, QStringLiteral("warning without text"));
+        for (const NativeWorkload w : kNativeWorkloads)  // the ops MOps/s is measured against (§7.1)
+            QVERIFY(nativeOpsPerFrame(w) > 0);
+        QCOMPARE(nativeOpsPerFrame(NativeWorkload::Text), 8000u);
+    }
+
     void protocolRoundTrips()
     {
         namespace pr = sb::gpu::protocol;

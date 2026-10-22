@@ -63,6 +63,7 @@ public:
     std::string load(const NativeOps &ops) override;
     std::string frame(double t) override;
     const char *overlayName() const override { return "Direct2D"; }
+    std::string warning() const override { return m_warning; }
 
     void shutdown();
     // D3D11 debug-layer errors seen so far (--validation).
@@ -102,6 +103,7 @@ private:
     ComPtr<IDWriteFontCollection> m_fonts;          // null: the system collection
     ComPtr<IDWriteTextFormat> m_textFormat;
     std::wstring m_family;
+    std::string m_warning;  // why the bundled font wasn't used ("" when it was): the `warning` event's text
     ComPtr<ID2D1PathGeometry> m_star;               // the unit 10-vertex star (outer radius 1, inner 0.45)
     std::array<ComPtr<ID3D11Query>, 2> m_frameQueries;
     std::array<bool, 2> m_queryPending{};

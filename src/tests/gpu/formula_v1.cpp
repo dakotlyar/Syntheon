@@ -4,7 +4,8 @@
 namespace sb::gpu::formula_v1 {
 
 namespace {
-constexpr double kProvisionalFps = 100.0;  // versions 0: replaced by the calibration (task 36)
+constexpr double kProvisionalFps = 100.0;   // versions 0: replaced by the calibration (task 36)
+constexpr double kProvisionalMops = 1.0;
 }
 
 const QVector<GeometricGroup> &groups()
@@ -15,6 +16,12 @@ const QVector<GeometricGroup> &groups()
           {QStringLiteral("scenes3d.drawcalls.fps"), kProvisionalFps, 0.20},
           {QStringLiteral("scenes3d.shading.fps"), kProvisionalFps, 0.30},
           {QStringLiteral("scenes3d.particles.fps"), kProvisionalFps, 0.30}}},
+        // §11.1: Qt raster's MOps/s (D8), 0.25 each; provisional anchors of 1 MOps/s (task 36 freezes them).
+        {QStringLiteral("native2d"), 0.10,
+         {{QStringLiteral("native2d.shapes"), kProvisionalMops, 0.25},
+          {QStringLiteral("native2d.text"), kProvisionalMops, 0.25},
+          {QStringLiteral("native2d.blits"), kProvisionalMops, 0.25},
+          {QStringLiteral("native2d.gradients"), kProvisionalMops, 0.25}}},
     };
     return g;
 }

@@ -118,6 +118,7 @@ private slots:
         gpu::GpuClient::setWorkerForTests({});
         qunsetenv("SYNBENCH_GPU_FAKE_APIS");
         qunsetenv("SYNBENCH_GPU_WORKER_ENV");
+        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
         tests::setStubTimeScale(0.02);
     }
 
@@ -215,8 +216,8 @@ private slots:
         QCOMPARE(r.subResults.size(), 3);
         QCOMPARE(r.subResults[0].id, QStringLiteral("scenes3d"));
         QCOMPARE(r.subResults[0].status, Status::Ok);
-        QCOMPARE(r.subResults[1].status, Status::NotAvailable);
-        QCOMPARE(r.subResults[2].status, Status::NotAvailable);
+        QCOMPARE(r.subResults[1].status, Status::Ok);  // native 2D: Qt raster finished all four workloads
+        QCOMPARE(r.subResults[2].status, Status::NotAvailable);  // fill-rate: task 32
         QCOMPARE(number(r, QStringLiteral("scenes3d.geometry.fps")), number(r, QStringLiteral("scenes3d.vulkan.geometry.fps")));
         QCOMPARE(number(r, QStringLiteral("scenes3d.geometry.fps")), 100.0);
         QCOMPARE(textOf(r, QStringLiteral("scenes3d.geometry.api")), QStringLiteral("Vulkan"));
@@ -227,6 +228,17 @@ private slots:
 #if !defined(Q_OS_WIN)
         QCOMPARE(textOf(r, QStringLiteral("api.dx12.status")), QStringLiteral("N/A: DirectX is Windows only"));
 #endif
+        // Native 2D (task 28): Qt raster's MOps/s per workload and as the scored native2d.<w>; Linux has no Direct2D.
+        QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("OK"));
+        QCOMPARE(textOf(r, QStringLiteral("api.d2d.status")), QStringLiteral("N/A: Direct2D is Windows only"));
+        QVERIFY(!r.metric(QStringLiteral("native2d.d2d.text")));
+        for (const char *w : {"shapes", "text", "blits", "gradients"}) {
+            QVERIFY(r.metric(QStringLiteral("native2d.%1").arg(QLatin1String(w))));
+            QCOMPARE(number(r, QStringLiteral("native2d.%1").arg(QLatin1String(w))), number(r, QStringLiteral("native2d.qt.%1").arg(QLatin1String(w))));
+        }
+        // The fake's result is 10 frames in 0.1 s: MOps/s = the UNSCALED ops (§7.1) x 100 / 1e6.
+        QVERIFY(std::fabs(number(r, QStringLiteral("native2d.text")) - 8000.0 * 100.0 / 1e6) < 1e-9);
+        QVERIFY(std::fabs(number(r, QStringLiteral("native2d.shapes")) - 2000.0 * 100.0 / 1e6) < 1e-9);
         QCOMPARE(textOf(r, QStringLiteral("gpu.name")), QStringLiteral("Fake GPU"));
         bool series = false;
         for (const Series &s : r.series)
@@ -242,7 +254,8 @@ private slots:
         QCOMPARE(ctx.parts(), (QStringList{QStringLiteral("Geometry · Vulkan"), QStringLiteral("Geometry · OpenGL"),
                                            QStringLiteral("Draw calls · Vulkan"), QStringLiteral("Draw calls · OpenGL"),
                                            QStringLiteral("Shading · Vulkan"), QStringLiteral("Shading · OpenGL"),
-                                           QStringLiteral("Particles + post · Vulkan"), QStringLiteral("Particles + post · OpenGL")}));
+                                           QStringLiteral("Particles + post · Vulkan"), QStringLiteral("Particles + post · OpenGL"),
+                                           QStringLiteral("Native 2D · Qt raster")}));  // after the 3D scenes (§8)
         QVERIFY(!ctx.backwards());
         QVERIFY(ctx.fractions().last() < 1.0);
     }
@@ -341,6 +354,107 @@ private slots:
         QCOMPARE(number(r, QStringLiteral("scenes3d.geometry.fps")), 100.0);          // Vulkan's, not the faster one
         QCOMPARE(textOf(r, QStringLiteral("scenes3d.geometry.api")), QStringLiteral("Vulkan"));
         QCOMPARE(r.subResults[0].status, Status::Error);
+    }
+
+    // Task 28, D8: native2d.<w> is Qt raster's number even when Direct2D's is larger; Direct2D is stored and shown, not scored.
+    void qtRasterIsTheScoredNativePath()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("d2d-fast")});
+        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QVERIFY(number(r, QStringLiteral("native2d.d2d.text")) > number(r, QStringLiteral("native2d.qt.text")));
+        QCOMPARE(number(r, QStringLiteral("native2d.text")), number(r, QStringLiteral("native2d.qt.text")));
+        QVERIFY(!r.metric(QStringLiteral("native2d.text.path")));  // retired: there is no best-of-two
+        QCOMPARE(textOf(r, QStringLiteral("api.d2d.status")), QStringLiteral("OK"));
+        QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("OK"));
+        QCOMPARE(r.subResults[1].status, Status::Ok);
+        // The parts: Direct2D before Qt raster, after the 3D scenes.
+        const QStringList parts = ctx.parts();
+        QVERIFY(parts.indexOf(QStringLiteral("Native 2D · Direct2D")) > parts.indexOf(QStringLiteral("Particles + post · OpenGL")));
+        QCOMPARE(parts.indexOf(QStringLiteral("Native 2D · Qt raster")), parts.indexOf(QStringLiteral("Native 2D · Direct2D")) + 1);
+        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+    }
+
+    // D23 a: a Direct2D crash is a warning note and its own status; the test's status and the native2d sub-result are untouched.
+    void direct2dCrashIsOnlyAWarning()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-d2d")});
+        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QVERIFY2(textOf(r, QStringLiteral("api.d2d.status")).startsWith(QLatin1StringView("Error: ")), qPrintable(textOf(r, QStringLiteral("api.d2d.status"))));
+        const QString note = textOf(r, QStringLiteral("api.d2d.note"));
+        QVERIFY2(note.startsWith(QLatin1StringView("Direct2D failed during Shapes (")) && note.endsWith(QLatin1StringView("It isn't scored, so the GPU score stands.")), qPrintable(note));
+        QCOMPARE(r.subResults[0].status, Status::Ok);
+        QCOMPARE(r.subResults[1].status, Status::Ok);  // Qt raster finished all four
+        QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("OK"));
+        QVERIFY(r.metric(QStringLiteral("native2d.text")));
+        QVERIFY2(!r.statusReason.contains(QLatin1StringView("Direct2D")), qPrintable(r.statusReason));  // never an API error for D6
+        QCOMPARE(r.status, Status::Partial);  // fill-rate isn't built yet (task 32): the only reason
+        QCOMPARE(r.statusReason, QStringLiteral("No GPU score: not every part ran"));
+        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+    }
+
+    // A worker's `warning` event (Direct2D's font fallback) reaches the result as the D2D note, and stays a warning.
+    void direct2dWarningEventIsANote()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("warn-d2d")});
+        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(textOf(r, QStringLiteral("api.d2d.status")), QStringLiteral("OK"));
+        QVERIFY2(textOf(r, QStringLiteral("api.d2d.note")).contains(QLatin1StringView("Segoe UI")), qPrintable(textOf(r, QStringLiteral("api.d2d.note"))));
+        QCOMPARE(r.subResults[1].status, Status::Ok);
+        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+    }
+
+    // A Qt raster crash is the native2d sub-test's Error, so the test is Partial with no score.
+    void qtRasterCrashIsPartial()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-qt")});
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::Partial);
+        QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: Qt raster failed in Shapes: ")), qPrintable(r.statusReason));
+        QCOMPARE(r.subResults[0].status, Status::Ok);
+        QCOMPARE(r.subResults[1].status, Status::Error);
+        QVERIFY2(textOf(r, QStringLiteral("api.qt.status")).startsWith(QLatin1StringView("Error: ")), qPrintable(textOf(r, QStringLiteral("api.qt.status"))));
+        QVERIFY(!r.metric(QStringLiteral("native2d.text")));
+        QVERIFY(!t.score(r).subScores.contains(QStringLiteral("native2d")));  // a group that isn't Ok has no sub-score
+        QVERIFY(!t.score(r).total);
+    }
+
+    // Formula (§11.1): the native2d group at its anchors (1 MOps/s each) is 1000, and 2x on all four is 2000.
+    void native2dFormula()
+    {
+        GpuTest t;
+        TestResult r;
+        r.testId = QStringLiteral("gpu");
+        r.status = Status::Partial;
+        r.subResults = {{QStringLiteral("native2d"), Status::Ok, {}, std::nullopt}};
+        const auto add = [&](const char *w, double v) {
+            Metric m;
+            m.key = QStringLiteral("native2d.%1").arg(QLatin1String(w));
+            m.subTestId = QStringLiteral("native2d");
+            m.value = v;
+            r.metrics.append(m);
+        };
+        for (const char *w : {"shapes", "text", "blits", "gradients"})
+            add(w, 1.0);
+        QCOMPARE(t.score(r).subScores.value(QStringLiteral("native2d")), 1000.0);
+        r.metrics.clear();
+        for (const char *w : {"shapes", "text", "blits", "gradients"})
+            add(w, 2.0);
+        QCOMPARE(t.score(r).subScores.value(QStringLiteral("native2d")), 2000.0);  // the group's own score is 1000 x G; the total's weight (0.10) gives 2^0.1 = 1072 (task 32's test)
     }
 
     // L6: Stop with two APIs running still returns within 250 ms.

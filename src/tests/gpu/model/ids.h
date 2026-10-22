@@ -8,6 +8,7 @@
 #include <QStringView>
 
 #include <array>
+#include <cstdint>
 #include <optional>
 
 namespace sb::gpu {
@@ -36,6 +37,9 @@ QString nativePathKey(NativePath);   // "d2d" "qt"
 QString nativePathName(NativePath);  // "Direct2D" "Qt raster"
 QString nativeKey(NativeWorkload);   // "shapes" "text" "blits" "gradients"
 QString nativeName(NativeWorkload);  // "Shapes" "Text" "Image blits" "Gradients"
+// §7.1: the ops one frame draws at content scale 1 (2,000 shapes, 8,000 glyphs = 200 strings x 40, 1,000 blits, 1,000 gradients);
+// MOps/s = this x frames / seconds / 1e6. (native_ops.h's opsPerFrame is the same, a test checks it.)
+std::uint32_t nativeOpsPerFrame(NativeWorkload);
 
 std::optional<ApiId> apiFromKey(QStringView);
 std::optional<SceneId> sceneFromKey(QStringView);

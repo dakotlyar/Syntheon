@@ -202,6 +202,7 @@ std::string Direct2DNative::createTextFormat()
     const std::string why = bundled();
     if (!why.empty()) {
         std::fprintf(stderr, "synbench-gpu: d2d: warning: %s; the text workload uses Segoe UI\n", why.c_str());
+        m_warning = why + "; the text workload uses Segoe UI instead of IBM Plex Sans";  // reaches the result (a `warning` event)
         m_fonts.Reset();  // the system collection
         m_family = kFallbackFamily;
     }

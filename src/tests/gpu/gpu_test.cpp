@@ -151,6 +151,38 @@ void probeOpenGl(QVector<GpuEntry> &list, std::chrono::steady_clock::time_point 
     }, waylandSession());
 }
 
+// One native 2D path's state through a run (§7.1, §8): Direct2D (Windows, GPU, shown) then Qt raster (CPU, scored).
+struct NativeRun {
+    NativePath path = NativePath::QtRaster;
+    bool available = false;    // a worker runs for it
+    bool errored = false;
+    QString status;            // "OK", "N/A: ...", "Error: ..."
+    QString errorWorkload, errorReason;  // the first workload without a result, and why
+    QString present;
+    QStringList notes;         // warnings (D23 a, a fallback the worker reported)
+    std::optional<pr::ReadyEvent> ready;
+    std::map<NativeWorkload, pr::ResultEvent> results;
+};
+
+// Dev hook: SYNBENCH_GPU_FAKE_D2D=1 runs the Direct2D path on any OS (the tests serve it with the fake worker).
+bool fakeD2d()
+{
+#if defined(SYNBENCH_DEV_HOOKS)
+    return qEnvironmentVariable("SYNBENCH_GPU_FAKE_D2D") == QLatin1StringView("1");
+#else
+    return false;
+#endif
+}
+
+QVector<pr::PlanItem> nativePlan()
+{
+    // D14: warm-up 1 s, measure 10 s per workload, at the dev time scale.
+    QVector<pr::PlanItem> plan;
+    for (const NativeWorkload w : kNativeWorkloads)
+        plan.append({nativeKey(w), int(scaled(1000).count()), int(scaled(10000).count())});
+    return plan;
+}
+
 struct ApiRun;
 QString naReason(const std::vector<ApiRun> &apis);
 
@@ -213,11 +245,14 @@ private:
             a.session->kill();  // its remaining workloads are skipped
     }
     void compareSignatures(int item, const QVector<pr::PlanItem> &plan);
+    // §8: after the 3D workers, Direct2D (Windows) then Qt raster, one worker per path. `done` is the planned seconds so far.
+    void runNatives(double *done, bool *stopped);
     TestResult finish(bool stopped);
 
     RunContext &m_ctx;
     const GpuEntry m_gpu;
     std::vector<ApiRun> m_apis;
+    std::vector<NativeRun> m_natives;  // Direct2D, Qt raster
     TestResult m_r;
     double m_total = 1, m_last = 0;
     std::map<std::pair<ApiId, SceneId>, QString> m_mismatch;  // api, scene -> "drew X differently from Y (mean 9.3/255)"
@@ -286,6 +321,28 @@ TestResult GpuRun::run()
     for (const pr::PlanItem &p : plan)
         perApi += double(p.warmupMs + p.measureMs) / 1000.0;
     m_total = perApi * activeCount + 10.0;  // + starting the workers and switching windows
+    // The native 2D paths (§7.1): Direct2D only where the probe says it is available (Windows), Qt raster always.
+    {
+        NativeRun d2d;
+        d2d.path = NativePath::Direct2D;
+        const auto entry = m_gpu.apis.constFind(QStringLiteral("d2d"));
+#if defined(Q_OS_WIN)
+        d2d.available = entry != m_gpu.apis.cend() && entry->ok;
+#endif
+        if (fakeD2d())
+            d2d.available = true;
+        if (!d2d.available)
+            d2d.status = QStringLiteral("N/A: ") + (entry != m_gpu.apis.cend() && !entry->reason.isEmpty() ? entry->reason : QStringLiteral("Direct2D is Windows only"));
+        NativeRun qt;
+        qt.path = NativePath::QtRaster;
+        qt.available = true;
+        m_natives = {d2d, qt};
+        double perNative = 2.0;  // the start
+        for (const pr::PlanItem &p : nativePlan())
+            perNative += double(p.warmupMs + p.measureMs) / 1000.0;
+        for (const NativeRun &n : m_natives)
+            m_total += n.available ? perNative : 0.0;
+    }
 
     // M8 / the mockup: the row says where the test is before the interface is held.
     m_ctx.progress(0, QStringLiteral("Running in its own window"));
@@ -398,8 +455,98 @@ TestResult GpuRun::run()
         else
             a.session->quit();
     }
+    if (!stopped && !cancelled())
+        runNatives(&done, &stopped);
     m_ctx.holdInterface(false);
     return finish(stopped || cancelled());
+}
+
+void GpuRun::runNatives(double *done, bool *stopped)
+{
+    const QVector<pr::PlanItem> plan = nativePlan();
+    for (NativeRun &n : m_natives) {
+        if (*stopped || cancelled())
+            break;
+        if (!n.available)
+            continue;
+        const QString pathName = nativePathName(n.path);
+        m_ctx.setPart(QStringLiteral("Native 2D · %1").arg(pathName));
+        const auto stage = [&](const QString &what) { return QStringLiteral("%1 · %2").arg(pathName, what); };
+        report(*done, stage(QStringLiteral("starting")));
+        ClientRunSpec spec;
+        spec.api = nativePathKey(n.path);
+        spec.gpuId = m_gpu.id;
+        spec.luid = m_gpu.luid;
+        spec.plan = plan;
+        double itemStart = *done + 2.0;  // the worker's start
+        const ClientOutcome o = GpuClient::run(spec, [this] { return cancelled(); }, [&](const pr::Event &e) {
+            const auto *s = std::get_if<pr::StageEvent>(&e);
+            if (!s)
+                return;
+            double before = 0;  // the windows of the workloads before this one
+            for (const pr::PlanItem &p : plan) {
+                if (p.workload == s->workload)
+                    break;
+                before += double(p.warmupMs + p.measureMs) / 1000.0;
+            }
+            const auto item = std::find_if(plan.begin(), plan.end(), [&](const pr::PlanItem &p) { return p.workload == s->workload; });
+            const double warm = item == plan.end() ? 0.0 : double(item->warmupMs) / 1000.0;
+            const auto kind = nativeFromKey(s->workload);
+            const QString what = kind ? nativeName(*kind) : s->workload;
+            if (s->phase == QLatin1StringView("warmup"))
+                report(itemStart + before + double(s->seconds), stage(what + QStringLiteral(" · warming up")));
+            else if (s->phase == QLatin1StringView("measure"))
+                report(itemStart + before + warm + double(s->seconds), stage(what));
+        });
+        n.ready = o.ready;
+        n.notes += o.warnings;
+        for (const pr::ResultEvent &r : o.results) {
+            if (const auto w = nativeFromKey(r.workload)) {
+                n.results[*w] = r;
+                if (n.present.isEmpty())
+                    n.present = r.present;
+                m_ctx.log(LogLevel::Info, QStringLiteral("%1 on %2: %3 MOps/s")
+                                              .arg(nativeName(*w), pathName)
+                                              .arg(double(nativeOpsPerFrame(*w)) * double(r.frames) / r.seconds / 1e6, 0, 'f', 1));
+            }
+        }
+        double windows = 2.0;
+        for (const pr::PlanItem &p : plan)
+            windows += double(p.warmupMs + p.measureMs) / 1000.0;
+        // The first workload with no result is the one that failed (or the one the worker never reached).
+        QString failedIn;
+        for (const NativeWorkload w : kNativeWorkloads) {
+            if (!n.results.count(w)) {
+                failedIn = nativeName(w);
+                break;
+            }
+        }
+        switch (o.status) {
+        case ClientOutcome::Status::Ok:
+            *done += windows;
+            break;
+        case ClientOutcome::Status::Cancelled:
+            *stopped = true;
+            break;
+        case ClientOutcome::Status::NotAvailable:
+            n.available = false;
+            n.status = QStringLiteral("N/A: ") + o.reason;
+            m_ctx.log(LogLevel::Info, QStringLiteral("%1: N/A (%2)").arg(pathName, o.reason));
+            break;
+        case ClientOutcome::Status::Failed:
+            n.errored = true;
+            n.errorWorkload = failedIn.isEmpty() ? QStringLiteral("starting") : failedIn;
+            n.errorReason = o.reason;
+            n.status = QStringLiteral("Error: ") + o.reason;
+            // D23 a: a Direct2D failure is a warning and its own status, never an API error for D6.
+            if (n.path == NativePath::Direct2D)
+                n.notes << QStringLiteral("Direct2D failed during %1 (%2). It isn't scored, so the GPU score stands.").arg(n.errorWorkload, o.reason);
+            m_ctx.log(n.path == NativePath::Direct2D ? LogLevel::Warning : LogLevel::Error,
+                      QStringLiteral("%1 failed in %2: %3").arg(pathName, n.errorWorkload, o.reason));
+            *done += windows;  // its windows are over: the progress never runs ahead of the work
+            break;
+        }
+    }
 }
 
 TestResult GpuRun::finish(bool stopped)
@@ -526,8 +673,38 @@ TestResult GpuRun::finish(bool stopped)
                                 res.ftP99 > 0 ? 1000.0 / res.ftP99 : 0.0, QStringLiteral("fps"), Direction::HigherIsBetter));
     }
 
-    // Sub-results (§12): scenes3d is an Error when any API errored or a scene has no API; native2d
-    // and fill2d are placeholders until tasks 28 and 32.
+    // The native 2D paths (§10): api.<path>.status for both (N/A ones included), the version / driver / present of the
+    // ones that ran, the notes (D23 a warnings), `native2d.<path>.<w>` MOps/s per path and `native2d.<w>` = Qt raster's
+    // (the scored number, D8). Direct2D is shown, not scored.
+    const QString native = kNative2dId;
+    for (const NativeRun &n : m_natives) {
+        const QString key = nativePathKey(n.path), name = nativePathName(n.path);
+        r.metrics.append(text(apiStatusKey(key, u"status"), {}, name + QStringLiteral(" status"), n.status.isEmpty() ? QStringLiteral("OK") : n.status));
+        if (n.ready) {
+            r.metrics.append(text(apiStatusKey(key, u"version"), {}, name + QStringLiteral(" version"), n.ready->version));
+            r.metrics.append(text(apiStatusKey(key, u"driver"), {}, name + QStringLiteral(" driver"), n.ready->driver));
+            if (!n.present.isEmpty())
+                r.metrics.append(text(apiStatusKey(key, u"present"), {}, name + QStringLiteral(" present mode"), n.present));
+        }
+        QStringList notes = n.notes;
+        if (n.ready && !n.ready->note.isEmpty())
+            notes.prepend(n.ready->note);
+        if (!notes.isEmpty())
+            r.metrics.append(text(apiStatusKey(key, u"note"), {}, name + QStringLiteral(" note"), notes.join(QStringLiteral(" · "))));
+        for (const NativeWorkload w : kNativeWorkloads) {
+            const auto it = n.results.find(w);
+            if (it == n.results.end() || it->second.seconds <= 0)
+                continue;
+            const double mops = double(nativeOpsPerFrame(w)) * double(it->second.frames) / it->second.seconds / 1e6;  // unscaled ops (§7.1)
+            r.metrics.append(number(nativePathMetricKey(n.path, w), native, QStringLiteral("%1 on %2").arg(nativeName(w), name), mops,
+                                    QStringLiteral("MOps/s"), Direction::HigherIsBetter));
+            if (n.path == NativePath::QtRaster)
+                r.metrics.append(number(nativeBestKey(w), native, nativeName(w), mops, QStringLiteral("MOps/s"), Direction::HigherIsBetter));
+        }
+    }
+
+    // Sub-results (§12): scenes3d is an Error when any API errored or a scene has no API; native2d is Ok when Qt raster
+    // finished all four workloads; fill2d is a placeholder until task 32.
     SubResult s3d{kScenes3dId, Status::Ok, {}, std::nullopt};
     QString firstReason;
     for (const ApiRun &a : m_apis) {
@@ -540,9 +717,25 @@ TestResult GpuRun::finish(bool stopped)
     }
     if (stopped)
         s3d.status = Status::Cancelled;
-    r.subResults = {s3d,
-                    SubResult{kNative2dId, Status::NotAvailable, QStringLiteral("not built yet (Phase 4a-3)"), std::nullopt},
-                    SubResult{kFill2dId, Status::NotAvailable, QStringLiteral("not built yet (Phase 4a-4)"), std::nullopt}};
+    SubResult n2d{kNative2dId, Status::Ok, {}, std::nullopt};
+    QString nativeReason;  // a Qt raster failure, for the test's status
+    {
+        const NativeRun &qt = m_natives.back();
+        if (stopped) {
+            n2d.status = Status::Cancelled;
+        } else if (qt.errored) {
+            nativeReason = QStringLiteral("Qt raster failed in %1: %2").arg(qt.errorWorkload, qt.errorReason);
+            n2d.status = Status::Error;
+            n2d.reason = nativeReason;
+        } else if (!qt.available) {
+            n2d.status = Status::NotAvailable;  // Qt raster itself said N/A (for instance a screen too small for the window)
+            n2d.reason = qt.status.startsWith(QLatin1StringView("N/A: ")) ? qt.status.mid(5) : qt.status;
+        } else if (qt.results.size() != std::size_t(kNativeWorkloads.size())) {
+            n2d.status = Status::Error;
+            n2d.reason = QStringLiteral("not every native 2D workload ran");
+        }
+    }
+    r.subResults = {s3d, n2d, SubResult{kFill2dId, Status::NotAvailable, QStringLiteral("not built yet (Phase 4a-4)"), std::nullopt}};
 
     // The test's status (§12, D6).
     if (stopped) {
@@ -556,8 +749,8 @@ TestResult GpuRun::finish(bool stopped)
         r.status = Status::Error;
         r.statusReason = !firstReason.isEmpty() ? firstReason : QStringLiteral("no 3D API produced a result");
     } else if (s3d.status == Status::Ok) {
-        r.status = Status::Partial;  // native 2D and fill-rate aren't built yet
-        r.statusReason = QStringLiteral("No GPU score: not every part ran");
+        r.status = Status::Partial;  // fill-rate isn't built yet (task 32), or Qt raster failed
+        r.statusReason = !nativeReason.isEmpty() ? QStringLiteral("No GPU score: ") + nativeReason : QStringLiteral("No GPU score: not every part ran");
     } else {
         r.status = Status::Partial;
         r.statusReason = apiError ? QStringLiteral("No GPU score: ") + firstReason : QStringLiteral("No GPU score: not every part ran");

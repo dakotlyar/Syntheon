@@ -53,6 +53,7 @@ struct ClientOutcome {
     std::optional<protocol::ReadyEvent> ready;
     QVector<protocol::ResultEvent> results;
     QMap<QString, QString> workloadErrors;  // workload -> reason (error events that weren't fatal to the process)
+    QStringList warnings;                   // `warning` events (a fallback that didn't fail the run)
     int exitCode = -1;
     qint64 pid = 0;
     bool ok() const { return status == Status::Ok; }

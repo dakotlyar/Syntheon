@@ -65,12 +65,17 @@ struct ErrorEvent {
     QString workload, reason;
     bool na = false;
 };
+// A warning the worker wants in the result without failing the run (task 28): e.g. Direct2D's
+// fallback from the bundled font. {"ev":"warning","text":"..."}; the GPU test stores it as a note.
+struct WarningEvent {
+    QString text;
+};
 struct DoneEvent {};
 // Serve mode (D12, §2.3): the worker finished a run command (after its
 // result or error) and waits for the next one.
 struct IdleEvent {};
 
-using Event = std::variant<GpuEvent, GlEvent, ReadyEvent, StageEvent, ResultEvent, ErrorEvent, DoneEvent, IdleEvent>;
+using Event = std::variant<GpuEvent, GlEvent, ReadyEvent, StageEvent, ResultEvent, ErrorEvent, WarningEvent, DoneEvent, IdleEvent>;
 
 std::optional<Event> parseLine(const QByteArray &line, QString *error);
 QByteArray encode(const Event &event);  // compact JSON, no newline (QJsonDocument::Compact)

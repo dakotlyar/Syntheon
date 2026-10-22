@@ -599,6 +599,11 @@ public:
         ready.fit = m_plan.fit;
         ready.gpuTimestamps = m_info.gpuTimestamps;
         emitLine(ready);
+        // A fallback the native path made (Direct2D without the bundled font): a warning in the result, never a failure.
+        if (m_native) {
+            if (const std::string w = m_native->warning(); !w.empty())
+                emitLine(pr::WarningEvent{QString::fromStdString(w)});
+        }
 
         Runner::Hooks hooks;
         hooks.stopRequested = [this] { return stopRequested(); };

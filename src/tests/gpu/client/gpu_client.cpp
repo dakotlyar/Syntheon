@@ -358,6 +358,8 @@ ClientOutcome GpuClient::run(const ClientRunSpec &spec, const std::function<bool
             lastNa = err->na;
             if (!err->workload.isEmpty())
                 out.workloadErrors.insert(err->workload, err->reason);
+        } else if (const auto *warn = std::get_if<pr::WarningEvent>(&e)) {
+            out.warnings.append(warn->text);
         }
         return false;
     }, &problem);

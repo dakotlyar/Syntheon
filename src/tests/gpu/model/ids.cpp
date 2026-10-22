@@ -76,6 +76,17 @@ QString nativePathName(NativePath p) { return L(row(kPathText, p).name); }
 QString nativeKey(NativeWorkload w) { return L(row(kNativeText, w).key); }
 QString nativeName(NativeWorkload w) { return L(row(kNativeText, w).name); }
 
+std::uint32_t nativeOpsPerFrame(NativeWorkload w)
+{
+    switch (w) {
+    case NativeWorkload::Shapes: return 2000;
+    case NativeWorkload::Text: return 8000;
+    case NativeWorkload::Blits: return 1000;
+    case NativeWorkload::Gradients: return 1000;
+    }
+    return 0;
+}
+
 std::optional<ApiId> apiFromKey(QStringView k) { return fromKey<ApiId>(kApiText, k); }
 std::optional<SceneId> sceneFromKey(QStringView k) { return fromKey<SceneId>(kSceneText, k); }
 std::optional<FillId> fillFromKey(QStringView k) { return fromKey<FillId>(kFillText, k); }
