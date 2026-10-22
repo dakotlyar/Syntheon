@@ -750,9 +750,27 @@ void RunController::stop()
 
 // ---------------------------------------------------------------- smoke
 
+// "(GPU: no API available on this runner: accepted; vulkan: N/A: …; dx12: N/A: …)" from the api.<api>.status metrics.
+static QString gpuNaNote(const TestResult &result)
+{
+    QStringList apis;
+    for (const char *api : {"vulkan", "dx12", "dx11", "opengl"}) {
+        const Metric *m = result.metric(QStringLiteral("api.%1.status").arg(QLatin1String(api)));
+        if (m && !m->isNumeric())
+            apis << QStringLiteral("%1: %2").arg(QLatin1String(api), std::get<QString>(m->value));
+    }
+    return QStringLiteral("(GPU: no API available on this runner: accepted; %1)").arg(apis.join(QStringLiteral("; ")));
+}
+
 bool smokeAccepts(const TestResult &result)
 {
     if (result.status == Status::Ok)
+        return true;
+    // The GPU test is NotAvailable when no API could run: on a CI runner that is just the environment
+    // (no Vulkan driver, a desktop that may not make a flip swapchain, GDI-only OpenGL). An API Error
+    // (a window that never appears, a signature outlier) is a Partial or Error result and is not accepted;
+    // the D3D coverage is the WARP unit tests'.
+    if (result.status == Status::NotAvailable && result.testId == QLatin1StringView("gpu"))
         return true;
     // The GPU test is Partial until its native 2D and fill-rate parts are built (Phase 4a, tasks
     // 28 and 32): the 3D scenes ran, and every other sub-test says "not built yet".
@@ -803,7 +821,8 @@ void RunController::runSmoke()
             if (smokeAccepts(t)) {
                 if (t.status != Status::Ok)
                     qCInfo(lcRun) << "smoke:" << t.testId << "ended" << toKey(t.status) << t.statusReason
-                                  << (t.testId == QLatin1StringView("gpu") ? "(GPU: 2D not built yet: accepted)"
+                                  << (t.testId == QLatin1StringView("gpu") ? (t.status == Status::NotAvailable ? gpuNaNote(t)
+                                                                                                                : "(GPU: 2D not built yet: accepted)")
                                                                            : "(loaded latency needs two cores: accepted)");
                 continue;
             }

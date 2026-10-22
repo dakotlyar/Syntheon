@@ -517,6 +517,22 @@ private slots:
         QVERIFY(!smokeAccepts(ram(Status::Ok, {}, Status::Error)));
         TestResult noneFailed = ram(Status::Ok, {});
         QVERIFY(!smokeAccepts(noneFailed));  // Partial with nothing N/A: not this case
+        // The GPU test: NotAvailable (no API could run on this runner) is accepted; an API Error or any other Partial is not.
+        TestResult gpuNa;
+        gpuNa.testId = QStringLiteral("gpu");
+        gpuNa.status = Status::NotAvailable;
+        gpuNa.statusReason = QStringLiteral("No Vulkan driver is installed; DirectX is Windows only");
+        QVERIFY(smokeAccepts(gpuNa));
+        TestResult gpuError = gpuNa;
+        gpuError.status = Status::Error;
+        QVERIFY(!smokeAccepts(gpuError));
+        TestResult gpuPartial = gpuNa;  // an API Error: Partial with an Error 3D sub-result
+        gpuPartial.status = Status::Partial;
+        gpuPartial.subResults = {{QStringLiteral("scenes3d"), Status::Error, QStringLiteral("DirectX 11 failed in Geometry: x"), std::nullopt}};
+        QVERIFY(!smokeAccepts(gpuPartial));
+        TestResult notGpu = gpuNa;
+        notGpu.testId = QStringLiteral("cpu");
+        QVERIFY(!smokeAccepts(notGpu));
         TestResult cpu = ram(Status::NotAvailable, twoCores);
         cpu.testId = QStringLiteral("cpu");
         QVERIFY(!smokeAccepts(cpu));
