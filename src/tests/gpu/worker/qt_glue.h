@@ -27,6 +27,9 @@ PresentTarget rasterTarget(const WorkerWindow &window);
 // QVulkanInstance::surfaceForWindow(&window). The surface belongs to the
 // window: Qt destroys it with the platform window (on Wayland already at hide).
 PresentTarget vulkanTarget(WorkerWindow &window);
+// A shown Direct3D window (task 18; DX11 and D2D too): its physical size and
+// scale and its native handle (HWND, from winId()).
+PresentTarget nativeWindowTarget(WorkerWindow &window);
 // "VK_KHR_surface" + "VK_KHR_win32_surface" / "VK_KHR_xcb_surface" /
 // "VK_KHR_wayland_surface" by QGuiApplication::platformName(); none otherwise
 // (offscreen).

@@ -244,8 +244,12 @@ std::unique_ptr<IBackend> makeBackend(const std::string &api)
 #endif
     if (api == "vulkan")
         return makeVulkanBackend();
-    // Tasks 18 (dx12), 20 (dx11), 21 (opengl) add theirs here; 26/27 run the
-    // native paths (qt, d2d).
+#if defined(_WIN32)
+    if (api == "dx12")
+        return makeD3D12Backend();
+#endif
+    // Tasks 20 (dx11), 21 (opengl) add theirs here; 26/27 run the native
+    // paths (qt, d2d). Elsewhere "the <api> backend isn't in this build".
     return nullptr;
 }
 
@@ -584,7 +588,9 @@ public:
             if (m_window) {
                 if (const auto outcome = replanFromWindow(w))
                     return *outcome;
-                target = m_backend->api() == Api::Vulkan ? glue::vulkanTarget(*m_window) : glue::rasterTarget(*m_window);
+                target = m_backend->api() == Api::Vulkan                                     ? glue::vulkanTarget(*m_window)
+                         : m_backend->api() == Api::Dx12 || m_backend->api() == Api::Dx11 ? glue::nativeWindowTarget(*m_window)
+                                                                                          : glue::rasterTarget(*m_window);
             }
             if (const std::string e = m_backend->resume(target); !e.empty()) {
                 if (m_window)

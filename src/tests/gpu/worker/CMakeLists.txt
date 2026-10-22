@@ -6,7 +6,7 @@
 # signature and the backends themselves (null; Vulkan from task 10; D3D12,
 # D3D11 and OpenGL from tasks 18, 20 and 21).
 add_library(synbench_gpu_backends STATIC
-    backend.h
+    backend.h present_constants.h
     runner.h runner.cpp
     signature.h signature.cpp
     null/null_backend.h null/null_backend.cpp
@@ -23,6 +23,14 @@ if(WIN32)
     target_link_libraries(synbench_gpu_backends PRIVATE psapi advapi32)
     # System32's vulkan-1.dll for volk (P-WIN: Windows-only code in its own file).
     target_sources(synbench_gpu_backends PRIVATE vulkan/vk_loader.h vulkan/vk_loader_win.cpp)
+    # Task 18: DXGI (shared by DX12, DX11 and D2D) and the D3D12 backend, with
+    # the import libraries of the in-box DLLs (§13: no Agility SDK).
+    target_sources(synbench_gpu_backends PRIVATE
+        dxgi/dxgi_swapchain.h dxgi/dxgi_swapchain.cpp
+        d3d12/d12_context.h d3d12/d12_context.cpp
+        d3d12/d12_resources.h d3d12/d12_resources.cpp
+        d3d12/d12_backend.h d3d12/d12_backend.cpp)
+    target_link_libraries(synbench_gpu_backends PRIVATE d3d12 dxgi dxguid)
 endif()
 target_link_libraries(synbench_gpu_backends PUBLIC synbench_gpu_scene synbench::volk)
 set_target_properties(synbench_gpu_backends PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)

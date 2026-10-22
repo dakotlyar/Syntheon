@@ -38,6 +38,10 @@ namespace pr = sb::gpu::protocol;
 // no PCI slot: makeLinuxGpuId gives "10005:0000#0").
 inline const QString kLavapipeId = QStringLiteral("10005:0000#0");
 inline constexpr std::uint32_t kLavapipeVendor = 0x10005;
+// WARP, Windows' software D3D12/D3D11 rasteriser (the Microsoft Basic Render
+// Driver), as the worker's --gpu takes it (task 18; DXGI order, dxgi_swapchain.h).
+inline const QString kWarpId = QStringLiteral("1414:008c#0");
+inline constexpr std::uint32_t kWarpVendor = 0x1414, kWarpDevice = 0x008c;
 
 // lavapipe's ICD manifest: Arch names it lvp_icd.json, Debian/Ubuntu
 // lvp_icd.<arch>.json (x86_64, aarch64); never assume either. "" if none.

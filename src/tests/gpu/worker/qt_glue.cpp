@@ -48,6 +48,13 @@ PresentTarget rasterTarget(const WorkerWindow &window)
     return t;
 }
 
+PresentTarget nativeWindowTarget(WorkerWindow &window)
+{
+    PresentTarget t = rasterTarget(window);
+    t.hwnd = reinterpret_cast<void *>(window.winId());
+    return t;
+}
+
 PresentTarget vulkanTarget(WorkerWindow &window)
 {
     PresentTarget t = rasterTarget(window);

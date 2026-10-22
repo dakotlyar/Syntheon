@@ -3,6 +3,8 @@
 
 #include "tests/gpu/worker/vulkan/vk_workload_state.h"
 
+#include "tests/gpu/worker/present_constants.h"
+
 #include "tests/gpu/worker/scene/bitmap_font.h"
 #include "tests/gpu/worker/scene/overlay.h"
 
@@ -22,18 +24,6 @@ namespace {
 
 // The clear-only workload of task 10 (§5.3 Copy mode): ldrA = (64, 128, 192, 255).
 constexpr float kClearColour[4] = {64.0f / 255.0f, 128.0f / 255.0f, 192.0f / 255.0f, 1.0f};
-
-// present.hlsl's cbuffer Present (b2; std140, 80 bytes).
-struct PresentConstants {
-    std::uint32_t mode;   // 0 = TonemapAces, 1 = Copy
-    std::uint32_t flipV;  // 0 on Vulkan
-    std::int32_t overlayScale, overlayChars;
-    std::int32_t overlayBox[4];
-    std::uint32_t overlayText[12];
-};
-static_assert(sizeof(PresentConstants) == 80, "the Present cbuffer is 80 bytes");
-
-constexpr std::uint32_t kPresentTonemap = 0, kPresentCopy = 1;
 
 std::string makeShader(VkDevice device, const std::uint32_t *code, std::size_t bytes, VkShaderModule *out)
 {
@@ -545,23 +535,7 @@ std::string VulkanBackend::waitAll()
 
 void VulkanBackend::writePresentConstants(Slot &slot, std::uint32_t windowW, std::uint32_t windowH, std::uint32_t mode, bool withOverlay)
 {
-    PresentConstants c{};
-    c.mode = mode;
-    c.flipV = 0;
-    if (withOverlay && !m_overlay.empty()) {
-        const OverlayLayout l = overlayLayout(m_overlay.size(), m_windowScale);
-        // A window too small for the box shows none of it (never a partial box).
-        if (std::uint32_t(l.x + l.w) <= windowW && std::uint32_t(l.y + l.h) <= windowH) {
-            c.overlayScale = l.k;
-            c.overlayChars = std::int32_t(m_overlay.size());
-            c.overlayBox[0] = l.x;
-            c.overlayBox[1] = l.y;
-            c.overlayBox[2] = l.w;
-            c.overlayBox[3] = l.h;
-            const std::array<std::uint32_t, 12> packed = packOverlay(m_overlay);
-            std::memcpy(c.overlayText, packed.data(), sizeof c.overlayText);
-        }
-    }
+    const PresentConstants c = presentConstants(mode, withOverlay ? m_overlay : std::string(), m_windowScale, windowW, windowH);
     std::memcpy(static_cast<std::uint8_t *>(slot.frameConstants.mapped) + kPassBase, &c, sizeof c);
 }
 

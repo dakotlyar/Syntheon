@@ -5,6 +5,11 @@
 // ctest): every unit test runs with QT_QPA_PLATFORM=offscreen and the
 // session's DISPLAY, so ctest alone can't tell xvfb from Dave's desktop, and
 // a test window must never appear there. Skipped without xvfb-run or lavapipe.
+//
+// Windows (task 18): d3d12Present runs the DX12 worker on WARP in a real window
+// on the session's desktop; it skips with the reason when no window or no
+// swapchain can be made there (R9: CI desktops may not allow it). The Vulkan
+// cases are Linux only.
 #include "gpu_worker_process.h"
 
 #include <QStandardPaths>
@@ -24,6 +29,7 @@ class TestGpuPresent : public QObject
 
     QProcessEnvironment m_env;
     QString m_xvfbRun;
+    QString m_vulkanSkip;  // why the Vulkan (xvfb) cases can't run here, or ""
 
     // xvfb-run -a -s "-screen 0 1920x1080x24" synbench-gpu --run --api vulkan ... (A-X's screen).
     static QStringList vulkanArgs()
@@ -38,18 +44,65 @@ private slots:
     void initTestCase()
     {
 #if !defined(Q_OS_LINUX)
-        QSKIP("the windowed Vulkan case runs on Linux (lavapipe under xvfb)");
+        m_vulkanSkip = QStringLiteral("the windowed Vulkan cases run on Linux (lavapipe under xvfb)");
+        return;
 #endif
         m_xvfbRun = QStandardPaths::findExecutable(QStringLiteral("xvfb-run"));
         if (m_xvfbRun.isEmpty())
-            SB_SKIP_OR_FAIL("xvfb-run isn't installed (the windowed cases never use the real display)");
-        if (lavapipeIcd().isEmpty())
-            SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
+            m_vulkanSkip = QStringLiteral("xvfb-run isn't installed (the windowed cases never use the real display)");
+        else if (lavapipeIcd().isEmpty())
+            m_vulkanSkip = QStringLiteral("lavapipe (the software Vulkan driver) isn't installed");
         // X11 (xcb) on xvfb-run's DISPLAY, never the session's Wayland.
         m_env = QProcessEnvironment::systemEnvironment();
         m_env.remove(QStringLiteral("WAYLAND_DISPLAY"));
         m_env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("xcb"));
         addSoftwareVulkan(m_env);
+    }
+
+    // Before each case: the Vulkan cases need xvfb and lavapipe (a CI failure
+    // on Linux when SYNBENCH_REQUIRE_SOFTWARE_GPU is set, task 16).
+    void init()
+    {
+        if (QLatin1StringView(QTest::currentTestFunction()) == QLatin1StringView("d3d12Present") || m_vulkanSkip.isEmpty())
+            return;
+#if defined(Q_OS_LINUX)
+        SB_SKIP_OR_FAIL(qPrintable(m_vulkanSkip));
+#else
+        QSKIP(qPrintable(m_vulkanSkip));
+#endif
+    }
+
+    // Task 18 (Windows, WARP): a 1 s DX12 window run with the flip-model
+    // swapchain, no debug-layer error. The desktop session's own window
+    // system (QT_QPA_PLATFORM=windows: the tests' environment says offscreen).
+    void d3d12Present()
+    {
+#if !defined(Q_OS_WIN)
+        QSKIP("DirectX 12 is Windows only");
+#else
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("windows"));
+        WorkerProcess w(kWorker,
+                        {QStringLiteral("--run"), QStringLiteral("--api"), QStringLiteral("dx12"), QStringLiteral("--gpu"), kWarpId,
+                         QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
+                         QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation"), QStringLiteral("--plan"),
+                         QStringLiteral("geometry:200:1000")},
+                        env);
+        QVERIFY(w.started());
+        const int code = w.finish();
+        const QString why = errors(w.events());
+        if (code != 0 && (why.contains(QLatin1StringView("didn't appear")) || why.contains(QLatin1StringView("can't present to the test window"))))
+            QSKIP(qPrintable(QStringLiteral("no window or swapchain on this desktop (R9): %1").arg(why)));
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(why, w.stderrText())));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 1);
+        QVERIFY2(rs[0].present == QLatin1StringView("flip, tearing") || rs[0].present == QLatin1StringView("flip, no tearing"),
+                 qPrintable(rs[0].present));
+        QVERIFY(rs[0].frames >= 3);
+        QCOMPARE(rs[0].renderW, 320);
+        QVERIFY2(!w.stderrText().contains(QLatin1StringView("d3d12: ")) || w.stderrText().contains(QLatin1StringView("debug layer isn't installed")),
+                 qPrintable(w.stderrText()));
+#endif
     }
 
     // A 1 s window run with a swapchain: vsync off (IMMEDIATE or MAILBOX), no

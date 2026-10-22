@@ -10,6 +10,9 @@
 #include "tests/gpu/worker/signature.h"
 #include "tests/gpu/worker/vulkan/vk_backend.h"
 #include "tests/gpu/worker/vulkan/vk_swapchain.h"
+#if defined(Q_OS_WIN)
+#include "tests/gpu/worker/d3d12/d12_backend.h"
+#endif
 
 #include <QTest>
 
@@ -44,6 +47,43 @@ BackendInit lavapipeInit(std::uint32_t w, std::uint32_t h)
     init.validation = true;
     return init;
 }
+
+#if defined(Q_OS_WIN)
+// Task 18: D3D12 on WARP (headless, the debug layer where Windows has it).
+BackendInit warpInit(std::uint32_t w, std::uint32_t h)
+{
+    BackendInit init;
+    init.gpuId = kWarpId.toStdString();
+    init.vendorId = kWarpVendor;
+    init.deviceId = kWarpDevice;
+    init.renderWidth = w;
+    init.renderHeight = h;
+    init.allowSoftware = true;
+    init.validation = true;
+    return init;
+}
+
+// The task 10 Vulkan pattern on D3D12: init headless, resume, load. Null and
+// a reason when WARP can't run it (an "N/A: " reason starts with "no D3D12").
+std::unique_ptr<d3d12::D3D12Backend> headlessD3D12(std::uint32_t w, std::uint32_t h, const SceneData &scene, QString *why)
+{
+    auto b = std::make_unique<d3d12::D3D12Backend>();
+    BackendInfo info;
+    const std::string e = b->init(warpInit(w, h), PresentTarget{true}, &info);
+    if (e.rfind("N/A: ", 0) == 0) {
+        *why = QStringLiteral("no D3D12 on WARP here: %1").arg(QString::fromStdString(e));
+        return nullptr;
+    }
+    std::string r = e.empty() ? b->resume(PresentTarget{true}) : "init: " + e;
+    if (r.empty())
+        r = b->load(scene);
+    if (!r.empty()) {
+        *why = QString::fromStdString(r);
+        return nullptr;
+    }
+    return b;
+}
+#endif
 
 } // namespace
 
@@ -362,6 +402,99 @@ private slots:
         QVERIFY2(!w.problem().contains(QLatin1StringView("malformed")), qPrintable(w.problem()));  // every stdout line parsed
         QVERIFY(w.stderrText().contains(QLatin1StringView("sync validation skipped: validation layer 1.3.204 too old")));
         QCOMPARE(results(w.events()).size(), 1);
+    }
+
+    // Task 18 (Windows CI, WARP): task 10's vulkanClear on D3D12.
+    void d3d12Clear()
+    {
+#if !defined(Q_OS_WIN)
+        QSKIP("DirectX 12 is Windows only");
+#else
+        QString why;
+        auto b = headlessD3D12(320, 180, buildScene(Workload::Quads, 64), &why);
+        if (!b && why.startsWith(QLatin1StringView("no D3D12")))
+            QSKIP(qPrintable(why));
+        QVERIFY2(b, qPrintable(why));
+        std::vector<double> gpu;
+        for (int i = 0; i < 30; ++i)
+            SB_OK(b->frame(i / 60.0, &gpu));
+        QCOMPARE(b->lastFrameDraws(), 0u);
+        SB_OK(b->drain(&gpu));
+        QVERIFY(gpu.size() <= std::size_t(30));
+        std::vector<std::uint8_t> pixels;
+        SB_OK(b->readback(10.0, &pixels));
+        QCOMPARE(pixels.size(), std::size_t(320 * 180 * 4));
+        for (std::size_t i = 0; i < pixels.size(); i += 4) {
+            if (pixels[i] != kClear[0] || pixels[i + 1] != kClear[1] || pixels[i + 2] != kClear[2] || pixels[i + 3] != kClear[3])
+                QFAIL(qPrintable(QStringLiteral("pixel %1 is (%2, %3, %4, %5)")
+                                     .arg(i / 4)
+                                     .arg(pixels[i])
+                                     .arg(pixels[i + 1])
+                                     .arg(pixels[i + 2])
+                                     .arg(pixels[i + 3])));
+        }
+        // A second workload on the same device (serve mode's unload, suspend, resume, load).
+        b->unload();
+        SB_OK(b->suspend());
+        SB_OK(b->resume(PresentTarget{true}));
+        SB_OK(b->load(buildScene(Workload::Sprites, 64)));
+        for (int i = 0; i < 3; ++i)
+            SB_OK(b->frame(i / 60.0, &gpu));
+        SB_OK(b->drain(&gpu));
+        b->unload();
+        SB_OK(b->suspend());
+        b->shutdown();
+        QCOMPARE(b->validationErrors(), 0);
+#endif
+    }
+
+    // Task 18 (Windows CI, WARP): task 10's vulkanOverlay on D3D12, the same
+    // shader and constants, so the same box over the clear colour.
+    void d3d12Overlay()
+    {
+#if !defined(Q_OS_WIN)
+        QSKIP("DirectX 12 is Windows only");
+#else
+        QString why;
+        constexpr std::uint32_t W = 640, H = 360;
+        auto b = headlessD3D12(W, H, buildScene(Workload::Quads, 64), &why);
+        if (!b && why.startsWith(QLatin1StringView("no D3D12")))
+            QSKIP(qPrintable(why));
+        QVERIFY2(b, qPrintable(why));
+        const std::string text = "Geometry | DX12 | 412 fps";
+        b->setOverlay(text);
+        std::vector<double> gpu;
+        SB_OK(b->frame(0.0, &gpu));
+        SB_OK(b->drain(&gpu));
+        std::vector<std::uint8_t> out;
+        SB_OK(b->readbackPresented(&out));
+        QCOMPARE(out.size(), std::size_t(W * H * 4));
+        OverlayLayout l;
+        const std::vector<std::uint8_t> box = rasterOverlay(text, 1.0, &l);
+        int background = 0, ink = 0;
+        for (std::uint32_t y = 0; y < H; ++y) {
+            for (std::uint32_t x = 0; x < W; ++x) {
+                const std::uint8_t *p = &out[(std::size_t(y) * W + x) * 4];
+                const bool inBox = int(x) >= l.x && int(x) < l.x + l.w && int(y) >= l.y && int(y) < l.y + l.h;
+                for (int c = 0; c < 3; ++c) {
+                    int want = kClear[c];
+                    if (inBox) {
+                        const std::uint8_t *s = &box[(std::size_t(int(y) - l.y) * std::size_t(l.w) + std::size_t(int(x) - l.x)) * 4];
+                        want = int(std::lround(s[c] + kClear[c] * (1.0 - s[3] / 255.0)));
+                        if (c == 0)
+                            (s[3] == 255 ? ink : background)++;
+                    }
+                    if (std::abs(int(p[c]) - want) > 1)
+                        QFAIL(qPrintable(QStringLiteral("pixel (%1, %2) channel %3 is %4, not %5").arg(x).arg(y).arg(c).arg(p[c]).arg(want)));
+                }
+            }
+        }
+        QVERIFY(ink > 100 && background > 1000);
+        b->unload();
+        SB_OK(b->suspend());
+        b->shutdown();
+        QCOMPARE(b->validationErrors(), 0);
+#endif
     }
 };
 
