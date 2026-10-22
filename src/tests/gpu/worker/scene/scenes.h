@@ -98,8 +98,8 @@ std::vector<PointLight> lightsAt(const SceneData &s, double t);
 std::uint64_t contentHash(const SceneData &s);
 
 // Scene constants (the only place they live; D15 may change them).
-inline constexpr std::uint32_t kGeometryInstances = 36, kGeometryLevels = 7, kDrawObjects = 12000, kShadingObjects = 64,
-                               kPointLights = 128, kParticles = 524288, kQuadLayers = 128, kSprites = 100000,
+inline constexpr std::uint32_t kGeometryInstances = 36, kGeometryLevels = 7, kDrawObjects = 38400, kShadingObjects = 64,
+                               kPointLights = 128, kParticles = 2359296, kQuadLayers = 128, kSprites = 100000,
                                kSpriteBatch = 4096;
 
 } // namespace sb::gpu

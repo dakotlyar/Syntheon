@@ -97,7 +97,8 @@ SceneData drawCalls(double contentScale)
     std::vector<Instance> objects;
     objects.reserve(n);
     for (std::uint32_t i = 0; i < n; ++i) {
-        const float x = (float(i % 120) - 59.5f) * 1.5f, z = (float(i / 120) - 49.5f) * 1.5f;
+        // 120 columns, kDrawObjects / 120 rows centred on the origin (D15: 38,400 objects = 320 rows).
+        const float x = (float(i % 120) - 59.5f) * 1.5f, z = (float(i / 120) - float(kDrawObjects / 120 - 1) / 2.f) * 1.5f;
         const float size = uniform(rng, 0.5f, 0.9f);
         const float angle = uniform(rng, 0.f, float(2.0 * kPi));
         const Mat4 model = translate({x, size, z}) * rotate(angle, {0, 1, 0}) * scale({size, size, size});

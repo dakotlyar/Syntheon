@@ -198,7 +198,7 @@ private slots:
     }
 
     // Task 11: Geometry and Draw calls at content / 64, headless on lavapipe.
-    // The draw count is the scene's content-scaled drawsPerFrame (1 and 189),
+    // The draw count is the scene's content-scaled drawsPerFrame (1 and 601),
     // the readback (tone mapped, no overlay, render size) isn't flat, and
     // the validation layers, with synchronisation validation, saw nothing.
     void vulkanScenes_data()
@@ -206,7 +206,7 @@ private slots:
         QTest::addColumn<int>("workload");
         QTest::addColumn<unsigned>("draws");
         QTest::newRow("geometry") << int(Workload::Geometry) << 1u;
-        QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 189u;
+        QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 601u;
         // Task 12 (synchronisation validation on: any hazard is an error).
         QTest::newRow("shading") << int(Workload::Shading) << 6u;
         QTest::newRow("particles") << int(Workload::Particles) << 17u;

@@ -66,8 +66,8 @@ private slots:
             std::uint64_t tris;
             std::uint32_t draws;
         };
-        for (const Row &r : {Row{Workload::Geometry, 11796480, 36}, Row{Workload::DrawCalls, 1566002, 12001},
-                             Row{Workload::Shading, 915456, 195}, Row{Workload::Particles, 1048579, 17}}) {
+        for (const Row &r : {Row{Workload::Geometry, 11796480, 36}, Row{Workload::DrawCalls, 5011202, 38401},
+                             Row{Workload::Shading, 915456, 195}, Row{Workload::Particles, 4718595, 17}}) {
             const SceneData s = buildScene(r.w);
             QVERIFY2(s.trianglesPerFrame == r.tris, workloadId(r.w));
             QVERIFY2(s.drawsPerFrame == r.draws, workloadId(r.w));
@@ -90,7 +90,7 @@ private slots:
         QCOMPARE(draw.textures.size(), std::size_t(16));
         QCOMPARE(draw.instances[0].mesh, 8u);  // the ground plane is drawn first
         const SceneData part = buildScene(Workload::Particles);
-        QCOMPARE(part.particles.size(), std::size_t(524288));
+        QCOMPARE(part.particles.size(), std::size_t(2359296));
         for (const Particle &p : part.particles) {
             QVERIFY(p.life >= 2.f && p.life <= 4.f && p.phase >= 0.f && p.phase < p.life + 1e-4f);
             QVERIFY(p.speed >= 6.f && p.speed <= 10.f && p.size >= 0.04f && p.size <= 0.12f);
@@ -102,12 +102,12 @@ private slots:
         const double s = 64;
         QCOMPARE(buildScene(Workload::Geometry, s).instances.size(), std::size_t(1));
         const SceneData d = buildScene(Workload::DrawCalls, s);
-        QCOMPARE(d.instances.size(), std::size_t(1 + 188));
-        QCOMPARE(d.drawsPerFrame, 189u);
+        QCOMPARE(d.instances.size(), std::size_t(1 + 600));
+        QCOMPARE(d.drawsPerFrame, 601u);
         const SceneData sh = buildScene(Workload::Shading, s);
         QCOMPARE(sh.lights.size(), std::size_t(2));
         QCOMPARE(sh.drawsPerFrame, 6u);
-        QCOMPARE(buildScene(Workload::Particles, s).particles.size(), std::size_t(8192));
+        QCOMPARE(buildScene(Workload::Particles, s).particles.size(), std::size_t(36864));
         QCOMPARE(buildScene(Workload::Quads, s).quadLayers, 2u);
         const SceneData sp = buildScene(Workload::Sprites, s);
         QCOMPARE(sp.sprites.size(), std::size_t(1563));
