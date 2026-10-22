@@ -85,7 +85,7 @@ private:
     std::string readBitmap(ID2D1Bitmap1 *source, std::uint32_t w, std::uint32_t h, std::vector<std::uint8_t> *rgba8);
     std::string endDraw(const char *what);          // D2D-2: EndDraw reports the errors; RECREATE_TARGET -> "LOST: ..."
     std::string waitSlot(std::size_t slot);         // §5.4: at most 2 frames queued
-    std::string waitIdle();
+    std::string waitIdle() override;
     void releaseWindow();
     std::string validationProblem();
 

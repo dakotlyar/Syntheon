@@ -72,6 +72,9 @@ std::string QtNative::load(const NativeOps &ops)
     if (m_init.renderWidth == 0 || m_init.renderHeight == 0)
         return "Qt raster has no render size";
     m_ops = ops;
+    m_texts.clear();
+    for (const TextOp &op : ops.texts)
+        m_texts.push_back(QString::fromLatin1(op.text.data(), qsizetype(op.text.size())));  // once, not per frame
     m_content = QImage(int(m_init.renderWidth), int(m_init.renderHeight), QImage::Format_ARGB32_Premultiplied);
     if (m_content.isNull())
         return "Qt raster couldn't allocate the " + std::to_string(m_init.renderWidth) + "x" + std::to_string(m_init.renderHeight) + " image";
@@ -105,6 +108,8 @@ void QtNative::unload()
     m_loaded = false;
     m_content = QImage();
     m_image = QImage();
+    m_texts.clear();
+    m_presented = QImage();
     m_ops = NativeOps{};
 }
 
@@ -175,9 +180,10 @@ void QtNative::drawOps(double t)
         break;
     case NativeKind::Text:
         p.setFont(m_font);
-        for (const TextOp &op : m_ops.texts) {
+        for (std::size_t i = 0; i < m_ops.texts.size(); ++i) {
+            const TextOp &op = m_ops.texts[i];
             p.setPen(colourOf(op.rgba8));
-            p.drawText(QPointF(double(op.x), double(op.y)), QString::fromLatin1(op.text.data(), qsizetype(op.text.size())));
+            p.drawText(QPointF(double(op.x), double(op.y)), m_texts[i]);
         }
         break;
     case NativeKind::Blits:
@@ -206,19 +212,39 @@ void QtNative::drawOps(double t)
     }
 }
 
-QImage QtNative::overlayImage(std::uint32_t w, std::uint32_t h, int *x, int *y) const
+void QtNative::refreshOverlay()
 {
+    if (m_overlay == m_overlayDrawn && m_overlayScale == m_scale)
+        return;
+    m_overlayDrawn = m_overlay;
+    m_overlayScale = m_scale;
+    m_overlayBox = QImage();
     if (m_overlay.empty())
-        return {};
+        return;
     OverlayLayout layout;
     const std::vector<std::uint8_t> pixels = rasterOverlay(m_overlay, m_scale, &layout);
-    // An overlay that doesn't fit the window is left out entirely (never a partial box), as the 3D present pass does.
-    if (std::uint32_t(layout.x + layout.w) > w || std::uint32_t(layout.y + layout.h) > h)
-        return {};
-    *x = layout.x;
-    *y = layout.y;
+    m_overlayX = layout.x;
+    m_overlayY = layout.y;
     const QImage box(pixels.data(), layout.w, layout.h, layout.w * 4, QImage::Format_RGBA8888_Premultiplied);
-    return box.copy();  // owns its pixels
+    m_overlayBox = box.copy();  // owns its pixels
+}
+
+void QtNative::compose(std::uint32_t w, std::uint32_t h)
+{
+    if (m_presented.width() != int(w) || m_presented.height() != int(h) || m_presented.format() != QImage::Format_ARGB32_Premultiplied)
+        m_presented = QImage(int(w), int(h), QImage::Format_ARGB32_Premultiplied);
+    m_presented.setDevicePixelRatio(1.0);  // physical px: the painter's units are pixels
+    QPainter p(&m_presented);
+    p.setCompositionMode(QPainter::CompositionMode_Source);
+    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    p.drawImage(QRectF(0, 0, double(w), double(h)), m_content);  // the content scaled to the window
+    refreshOverlay();
+    // An overlay that doesn't fit the window is left out entirely (never a partial box), as the 3D present pass does.
+    if (!m_overlayBox.isNull() && std::uint32_t(m_overlayX + m_overlayBox.width()) <= w && std::uint32_t(m_overlayY + m_overlayBox.height()) <= h) {
+        p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+        p.setRenderHint(QPainter::SmoothPixmapTransform, false);  // unscaled, nearest, over the content (Revised: SourceOver)
+        p.drawImage(QPoint(m_overlayX, m_overlayY), m_overlayBox);
+    }
 }
 
 std::string QtNative::frame(double t)
@@ -226,28 +252,26 @@ std::string QtNative::frame(double t)
     if (!m_loaded)
         return "frame() before load()";
     drawOps(t);
-    if (!m_store || !m_window)
+    if (!m_store || !m_window) {
+#if defined(SYNBENCH_DEV_HOOKS)
+        compose(m_content.width() > 0 ? std::uint32_t(m_content.width()) : 0, std::uint32_t(m_content.height()));  // headless: the dev hook's image
+#endif
         return {};  // headless: nothing is presented
+    }
     const QSize logical = m_window->size();
     if (logical.isEmpty())
         return "the test window has no size";
+    compose(m_windowW, m_windowH);
     m_store->resize(logical);
     const QRegion region(QRect(QPoint(0, 0), logical));
     m_store->beginPaint(region);
     {
+        // The composed image is in physical px; at the store's device pixel ratio it covers the logical window 1:1.
+        QImage flush = m_presented;
+        flush.setDevicePixelRatio(m_scale);
         QPainter p(m_store->paintDevice());
         p.setCompositionMode(QPainter::CompositionMode_Source);
-        p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-        p.drawImage(QRectF(QPointF(0, 0), QSizeF(logical)), m_content);  // the content scaled to the window
-        int ox = 0, oy = 0;
-        const QImage overlay = overlayImage(m_windowW, m_windowH, &ox, &oy);
-        if (!overlay.isNull()) {
-            // The overlay in physical px, unscaled, nearest, over the content (§5.9; Revised: SourceOver).
-            p.setCompositionMode(QPainter::CompositionMode_SourceOver);
-            p.setRenderHint(QPainter::SmoothPixmapTransform, false);
-            p.scale(1.0 / m_scale, 1.0 / m_scale);
-            p.drawImage(QPoint(ox, oy), overlay);
-        }
+        p.drawImage(QPointF(0, 0), flush);
     }
     m_store->endPaint();
     m_store->flush(region);
@@ -265,28 +289,6 @@ std::string QtNative::readback(double t, std::vector<std::uint8_t> *rgba8)
         std::memcpy(rgba8->data() + std::size_t(y) * std::size_t(out.width()) * 4, out.constScanLine(y), std::size_t(out.width()) * 4);
     return {};
 }
-
-#if defined(SYNBENCH_DEV_HOOKS)
-QImage QtNative::presentedImage()
-{
-    // Composed as frame() does, into an image of the window's physical size (headless: the render size).
-    const std::uint32_t w = m_window ? m_windowW : std::uint32_t(m_content.width());
-    const std::uint32_t h = m_window ? m_windowH : std::uint32_t(m_content.height());
-    QImage out(int(w), int(h), QImage::Format_ARGB32_Premultiplied);
-    QPainter p(&out);
-    p.setCompositionMode(QPainter::CompositionMode_Source);
-    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    p.drawImage(QRectF(0, 0, double(w), double(h)), m_content);
-    int ox = 0, oy = 0;
-    const QImage overlay = overlayImage(w, h, &ox, &oy);
-    if (!overlay.isNull()) {
-        p.setCompositionMode(QPainter::CompositionMode_SourceOver);
-        p.setRenderHint(QPainter::SmoothPixmapTransform, false);
-        p.drawImage(QPoint(ox, oy), overlay);
-    }
-    return out;
-}
-#endif
 
 std::unique_ptr<IBackend> makeQtRasterBackend(QWindow *window)
 {

@@ -42,6 +42,10 @@ if(WIN32)
     target_link_libraries(synbench_gpu_backends PRIVATE d3d11)
     # Task 27: the Direct2D native 2D path (a D3D11 device with BGRA support, the same DXGI swapchain, DirectWrite).
     target_sources(synbench_gpu_backends PRIVATE d2d/d2d_native.h d2d/d2d_native.cpp)
+    # MSVC's dwrite_3.h guards IDWriteFactory5, IDWriteInMemoryFontFileLoader and IDWriteFontSetBuilder1 behind
+    # NTDDI_VERSION >= NTDDI_WIN10_RS2 (0x0A000003); nothing else in the repo sets the target version. Only this file
+    # (the SDK's default may already be newer: the definitions can't lower it below what the headers need).
+    set_source_files_properties(d2d/d2d_native.cpp PROPERTIES COMPILE_DEFINITIONS "_WIN32_WINNT=0x0A00;NTDDI_VERSION=0x0A000003")
     target_link_libraries(synbench_gpu_backends PRIVATE d2d1 dwrite)
 endif()
 target_link_libraries(synbench_gpu_backends PUBLIC synbench_gpu_scene synbench::volk)

@@ -158,7 +158,7 @@ WorkloadResult Runner::runNative(const WorkloadPlan &plan, const NativeOps &ops,
     d.apiName = native.overlayName();
     d.load = [&] { return native.load(ops); };
     d.frame = [&](double t, std::vector<double> *) { return native.frame(t); };  // no GPU timestamps: a CPU path or a CPU-timed one
-    d.drain = [](std::vector<double> *) { return std::string(); };
+    d.drain = [&](std::vector<double> *) { return native.waitIdle(); };  // queued frames finish inside the window, as the 3D drain
     d.readback = [&](double t, std::vector<std::uint8_t> *px) { return native.readback(t, px); };
     d.unload = [&] { native.unload(); };
     d.setOverlay = [&](const std::string &text) { native.setOverlay(text); };

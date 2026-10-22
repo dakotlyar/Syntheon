@@ -473,10 +473,11 @@ std::string Direct2DNative::drawContent(double t)
                 b->SetRadiusY(op.h / 2);
                 m_dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(op.cx, op.cy), op.w / 2, op.h / 2), b);
             } else {
-                // Qt's object-bounding linear (0, 0) -> (1, 1): corner to corner.
+                // Qt's object-bounding linear (0, 0) -> (1, 1) in the unit box, which Qt then scales by (w, h): the
+                // bands lie along x/w + y/h = c, also for a non-square box. The brush stays in unit space and its
+                // transform (scale(w, h), then translate to the box) puts it there.
                 ID2D1LinearGradientBrush *b = m_linear[op.gradient].Get();
-                b->SetStartPoint(D2D1::Point2F(l, tp));
-                b->SetEndPoint(D2D1::Point2F(l + op.w, tp + op.h));
+                b->SetTransform(D2D1::Matrix3x2F::Scale(op.w, op.h) * D2D1::Matrix3x2F::Translation(l, tp));
                 m_dc->FillRectangle(D2D1::RectF(l, tp, l + op.w, tp + op.h), b);
             }
         }

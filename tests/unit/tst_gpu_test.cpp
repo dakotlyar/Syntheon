@@ -230,7 +230,12 @@ private slots:
 #endif
         // Native 2D (task 28): Qt raster's MOps/s per workload and as the scored native2d.<w>; Linux has no Direct2D.
         QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("OK"));
+#if defined(Q_OS_WIN)
+        // Windows with no d2d probe entry (the fake's list has none): honest text, not "Windows only" (L3).
+        QCOMPARE(textOf(r, QStringLiteral("api.d2d.status")), QStringLiteral("N/A: Direct2D wasn't checked (the GPU list came from the fallback)"));
+#else
         QCOMPARE(textOf(r, QStringLiteral("api.d2d.status")), QStringLiteral("N/A: Direct2D is Windows only"));
+#endif
         QVERIFY(!r.metric(QStringLiteral("native2d.d2d.text")));
         for (const char *w : {"shapes", "text", "blits", "gradients"}) {
             QVERIFY(r.metric(QStringLiteral("native2d.%1").arg(QLatin1String(w))));
@@ -279,6 +284,9 @@ private slots:
         QCOMPARE(r.status, Status::Cancelled);
         QVERIFY2(returned - cancelAt <= 250, qPrintable(QString::number(returned - cancelAt)));
         QCOMPARE(ctx.holds().last(), false);
+        // L4: what the Stop cut short is "Stopped", never "OK" (3D API and native path alike).
+        QCOMPARE(textOf(r, QStringLiteral("api.vulkan.status")), QStringLiteral("Stopped"));
+        QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("Stopped"));
     }
 
     void notAvailableWhenTheApiIs()
@@ -389,7 +397,7 @@ private slots:
         const TestResult r = t.run(ctx, {});
         QVERIFY2(textOf(r, QStringLiteral("api.d2d.status")).startsWith(QLatin1StringView("Error: ")), qPrintable(textOf(r, QStringLiteral("api.d2d.status"))));
         const QString note = textOf(r, QStringLiteral("api.d2d.note"));
-        QVERIFY2(note.startsWith(QLatin1StringView("Direct2D failed during Shapes (")) && note.endsWith(QLatin1StringView("It isn't scored, so the GPU score stands.")), qPrintable(note));
+        QVERIFY2(note.startsWith(QLatin1StringView("Direct2D failed during start-up (")) && note.endsWith(QLatin1StringView("It isn't scored, so the GPU score stands.")), qPrintable(note));
         QCOMPARE(r.subResults[0].status, Status::Ok);
         QCOMPARE(r.subResults[1].status, Status::Ok);  // Qt raster finished all four
         QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("OK"));
@@ -415,6 +423,36 @@ private slots:
         qunsetenv("SYNBENCH_GPU_FAKE_D2D");
     }
 
+    // L2: all four results delivered, then a bad exit: the numbers stand, with a note (Qt raster stays Ok; Direct2D only a note).
+    void exitAfterFinishingKeepsTheResults()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("exit-after-finish")});
+        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.subResults[1].status, Status::Ok);
+        QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("OK"));
+        QVERIFY2(textOf(r, QStringLiteral("api.qt.note")).contains(QLatin1StringView("the Qt raster worker exited with code 1 after finishing")),
+                 qPrintable(textOf(r, QStringLiteral("api.qt.note"))));
+        QVERIFY(textOf(r, QStringLiteral("api.d2d.note")).contains(QLatin1StringView("the Direct2D worker exited with code 1 after finishing")));
+        QVERIFY(r.metric(QStringLiteral("native2d.text")));
+        QVERIFY(r.metric(QStringLiteral("native2d.d2d.text")));
+        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+    }
+
+    // A worker that dies before any result: "during start-up", not a workload name.
+    void startupFailureSaysSo()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-qt")});
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: Qt raster failed during start-up: ")), qPrintable(r.statusReason));
+    }
+
     // A Qt raster crash is the native2d sub-test's Error, so the test is Partial with no score.
     void qtRasterCrashIsPartial()
     {
@@ -424,7 +462,7 @@ private slots:
         Ctx ctx;
         const TestResult r = t.run(ctx, {});
         QCOMPARE(r.status, Status::Partial);
-        QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: Qt raster failed in Shapes: ")), qPrintable(r.statusReason));
+        QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: Qt raster failed during start-up: ")), qPrintable(r.statusReason));
         QCOMPARE(r.subResults[0].status, Status::Ok);
         QCOMPARE(r.subResults[1].status, Status::Error);
         QVERIFY2(textOf(r, QStringLiteral("api.qt.status")).startsWith(QLatin1StringView("Error: ")), qPrintable(textOf(r, QStringLiteral("api.qt.status"))));

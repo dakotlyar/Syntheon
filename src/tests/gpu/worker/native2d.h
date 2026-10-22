@@ -28,6 +28,9 @@ public:
     // The frame at time t, RGBA8 at render size, top row first, before the overlay (the verification frame).
     virtual std::string readback(double t, std::vector<std::uint8_t> *rgba8) = 0;
     virtual void unload() = 0;
+    // Waits until every frame the path has queued has finished (the 3D backends' drain): called before the measured
+    // window's end time is read, so queued work is inside it. A CPU path has nothing queued.
+    virtual std::string waitIdle() { return {}; }
     // The overlay text (§5.9) drawn after the scaled blit; "" = none.
     virtual void setOverlay(const std::string &text) = 0;
     // The path's name in the overlay and the window title: "Qt raster", "Direct2D".

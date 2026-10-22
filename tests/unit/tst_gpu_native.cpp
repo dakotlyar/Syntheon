@@ -101,7 +101,7 @@ class TestGpuNative : public QObject
 {
     Q_OBJECT
 
-    std::unique_ptr<QtNative> make(std::uint32_t w, std::uint32_t h, const NativeOps &ops)
+    std::unique_ptr<QtNative> make(std::uint32_t w, std::uint32_t h, const NativeOps &ops, double scale = 1.0)
     {
         auto n = std::make_unique<QtNative>(nullptr);
         BackendInit init;
@@ -110,7 +110,9 @@ class TestGpuNative : public QObject
         BackendInfo info;
         [&] { SB_OK(n->init(init, PresentTarget{true}, &info)); }();
         [&] { QVERIFY(info.apiVersion.rfind("Qt ", 0) == 0 && info.apiVersion.find(" raster") != std::string::npos); }();
-        [&] { SB_OK(n->resume(PresentTarget{true})); }();
+        PresentTarget target{true};
+        target.scale = scale;  // the window's devicePixelRatio: the overlay's size
+        [&] { SB_OK(n->resume(target)); }();
         [&] { SB_OK(n->load(ops)); }();
         return n;
     }
@@ -149,12 +151,22 @@ private slots:
     }
 
     // Revised (Dave): the overlay is rasterOverlay() drawn unscaled at (layout.x, layout.y), SourceOver, after the
-    // scaled content: the box pixels equal the shared overlay over the content, and nothing else changes.
+    // scaled content: the box pixels equal the shared overlay over the content, and nothing else changes. The image
+    // checked is the one frame() really composes and presents (presentedImage()), at devicePixelRatio 1, 1.25 and 2.
+    void overlayIsTheSharedRasterOverlay_data()
+    {
+        QTest::addColumn<double>("scale");
+        QTest::newRow("dpr 1") << 1.0;
+        QTest::newRow("dpr 1.25") << 1.25;
+        QTest::newRow("dpr 2") << 2.0;
+    }
+
     void overlayIsTheSharedRasterOverlay()
     {
+        QFETCH(double, scale);
         const NativeOps ops = buildNativeOps(NativeKind::Shapes, 64);
-        constexpr std::uint32_t W = 640, H = 360;
-        auto n = make(W, H, ops);
+        constexpr std::uint32_t W = 800, H = 450;
+        auto n = make(W, H, ops, scale);
         QVERIFY(n);
         const std::string text = "Shapes | Qt raster | 412 fps";
         n->setOverlay(text);
@@ -165,7 +177,8 @@ private slots:
         std::vector<std::uint8_t> content;
         SB_OK(n->readback(0.0, &content));  // the same frame time, no overlay
         OverlayLayout layout;
-        const std::vector<std::uint8_t> box = rasterOverlay(text, 1.0, &layout);
+        const std::vector<std::uint8_t> box = rasterOverlay(text, scale, &layout);
+        QVERIFY(layout.w > 0 && layout.h > 0);
         int inside = 0;
         for (int y = 0; y < int(H); ++y) {
             for (int x = 0; x < int(W); ++x) {
@@ -186,6 +199,12 @@ private slots:
             }
         }
         QCOMPARE(inside, layout.w * layout.h);
+        // The box is cached until the text or the scale changes: a second frame with the same text gives the same image.
+        SB_OK(n->frame(0.0));
+        QCOMPARE(n->presentedImage(), presented);
+        n->setOverlay("Shapes | Qt raster | 99 fps");
+        SB_OK(n->frame(0.0));
+        QVERIFY(n->presentedImage() != presented);
     }
 
     // §7.1: Text draws with IBM Plex Sans from the worker's resources; the other paths never need it.

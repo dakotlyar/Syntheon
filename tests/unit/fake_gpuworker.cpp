@@ -13,6 +13,7 @@
 //     crash-at-shading   like ok, but the opengl worker crashes at `run shading` (the second API of the GPU test's case)
 //     crash-d2d / crash-qt   like ok, but the native path with that --api crashes right after ready
 //     d2d-fast           like ok, but the d2d worker's native results are four times faster (more frames)
+//     exit-after-finish  like ok, but the native paths (d2d, qt) exit with code 1 right after their last result
 //     warn-d2d           like ok, but the d2d worker sends a `warning` event after ready
 // --probe answers one fake GPU (Vulkan and OpenGL OK, DirectX Windows only) and done, in every mode.
 // SB_FAKE_LOG=<file> (through SYNBENCH_GPU_WORKER_ENV): "<api> <workload>" appended per `run` command.
@@ -163,6 +164,10 @@ int fakeMain(int argc, char **argv)
             if (!sleepMs(millis(item), true))
                 return 4;
             result(item.substr(0, item.find(':')));
+        }
+        if (mode == "exit-after-finish" && (api == "d2d" || api == "qt")) {
+            out("{\"ev\":\"error\",\"workload\":\"\",\"reason\":\"the worker failed while closing\",\"na\":false}");
+            return 1;
         }
         out("{\"ev\":\"done\"}");
         return 0;
