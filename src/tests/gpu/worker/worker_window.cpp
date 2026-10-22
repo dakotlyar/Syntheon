@@ -53,7 +53,15 @@ bool WorkerWindow::windowOk() const
 
 QString WorkerWindow::problem() const
 {
-    if (!m_armed || !isExposed() || windowStates().testFlag(Qt::WindowMinimized))
+    // DEF-1 (Zeb, checkpoint 3): a lost window is an explicit hide (Hide clears the
+    // baseline), a minimise, a screen change or a real resize, never a mere loss of
+    // exposure on Wayland: Qt Wayland marks a window "inexposed" when a frame
+    // callback is late (a GL frame slower than its timeout, the 610M's Shading),
+    // which said "hidden or minimised" for a window in plain view. The client also
+    // raises that timeout (QT_WAYLAND_FRAME_CALLBACK_TIMEOUT). Elsewhere (xcb,
+    // Windows) exposure is the window system's own map/unmap and still counts.
+    static const bool wayland = QGuiApplication::platformName().startsWith(QLatin1StringView("wayland"));
+    if (!m_armed || windowStates().testFlag(Qt::WindowMinimized) || (!wayland && !isExposed()))
         return QStringLiteral("the test window was hidden or minimised during the measurement");
 #if defined(SYNBENCH_DEV_HOOKS)
     if (m_fakeMoved)

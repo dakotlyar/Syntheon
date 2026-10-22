@@ -150,6 +150,22 @@ PresentTarget GlContext::windowTarget(WorkerWindow &window)
     QOpenGLContext *ctx = m_context.get();
     if (!ctx || !ctx->makeCurrent(&window))
         return t;  // no swap: the backend says "the test window has no OpenGL surface"
+    // DEF-2: Qt first makes a desktop-GL context current without a surface (its
+    // create() and our offscreen surface), so GL_DRAW_BUFFER/GL_READ_BUFFER of the
+    // window's framebuffer start as GL_NONE, and every frame drawn there goes nowhere:
+    // the Wayland window stayed empty (transparent on NVIDIA), while GLES contexts,
+    // which have no draw-buffer state, were fine. Point both at the back buffer.
+    // (xcb's GLX context happened to start with GL_BACK; setting it there is a no-op.)
+    if (ctx->defaultFramebufferObject() == 0) {
+        using Buffer = void (*)(GLenum);
+        const auto drawBuffer = reinterpret_cast<Buffer>(ctx->getProcAddress("glDrawBuffer"));
+        const auto readBuffer = reinterpret_cast<Buffer>(ctx->getProcAddress("glReadBuffer"));
+        if (drawBuffer && readBuffer) {
+            ctx->functions()->glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            drawBuffer(GL_BACK);
+            readBuffer(GL_BACK);
+        }
+    }
     t.glGetProcAddress = [ctx](const char *name) -> void * { return reinterpret_cast<void *>(ctx->getProcAddress(name)); };
     t.glSwapBuffers = [ctx, &window] { ctx->swapBuffers(&window); };
     t.glDefaultFramebuffer = ctx->defaultFramebufferObject();

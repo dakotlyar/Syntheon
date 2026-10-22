@@ -290,6 +290,10 @@ QProcessEnvironment GpuClient::baseEnvironment()
     }
     // §4.4: overlays and recorders (implicit layers) stay out of the measurement.
     env.insert(QStringLiteral("VK_LOADER_LAYERS_DISABLE"), QStringLiteral("~implicit~"));
+    // DEF-1 (Zeb, checkpoint 3), every API: Qt Wayland turns a window "inexposed" when a
+    // frame callback is later than 100 ms, i.e. on any frame slower than 10 fps (the
+    // 610M's OpenGL Shading at ~8 fps); 60 s is far beyond any frame the test accepts.
+    env.insert(QStringLiteral("QT_WAYLAND_FRAME_CALLBACK_TIMEOUT"), QStringLiteral("60000"));
 #endif
 #if defined(SYNBENCH_DEV_HOOKS)
     for (const QString &pair : parent.value(QStringLiteral("SYNBENCH_GPU_WORKER_ENV")).split(QLatin1Char('|'), Qt::SkipEmptyParts)) {

@@ -154,6 +154,8 @@ private slots:
         QVERIFY(!env.contains(QStringLiteral("VK_DRIVER_FILES")));
 #if defined(Q_OS_LINUX)
         QCOMPARE(env.value(QStringLiteral("VK_LOADER_LAYERS_DISABLE")), QStringLiteral("~implicit~"));
+        // DEF-1: slow frames never turn the Wayland window "inexposed".
+        QCOMPARE(env.value(QStringLiteral("QT_WAYLAND_FRAME_CALLBACK_TIMEOUT")), QStringLiteral("60000"));
 #endif
 #if defined(Q_OS_WIN)
         // The worker must be able to start: the system folder and a PATH (a DLL search needs both).
