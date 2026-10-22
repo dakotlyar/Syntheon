@@ -28,6 +28,7 @@ struct GlBackend::WorkloadState {
     Program depthOnly;  // Shading: the shadow and the pre-pass (DepthPass block)
     Program sky, particle, bright, down, up, composite, toneMap, fxaa;
     std::uint32_t particleBuffer = 0, particleVao = 0, particleCount = 0;
+    std::uint32_t spriteBuffer = 0, spriteVao = 0, fillCount = 0;  // Quads' layers or Sprites' count; scene3d is the fill program, materials[0] its texture
 };
 
 } // namespace sb::gpu::gl

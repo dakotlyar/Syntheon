@@ -352,7 +352,7 @@ std::string GlBackend::init(const BackendInit &init, const PresentTarget &target
     if (!GLAD_GL_ARB_texture_filter_anisotropic && !GLAD_GL_EXT_texture_filter_anisotropic)
         return "N/A: OpenGL needs anisotropic filtering (GL_ARB/EXT_texture_filter_anisotropic)";
 
-    // The samplers (§13.1): s0 trilinear wrap with 8x anisotropy, s1 linear clamp, s2 the
+    // The samplers (§13.1): s0 trilinear wrap with 8x anisotropy, s1 trilinear clamp, s2 the
     // comparison sampler (LEQUAL, border white).
     glGenSamplers(3, m_samplers.data());
     glSamplerParameteri(m_samplers[0], GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -362,7 +362,8 @@ std::string GlBackend::init(const BackendInit &init, const PresentTarget &target
     GLfloat maxAniso = 1.0f;
     glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAniso);
     glSamplerParameterf(m_samplers[0], GL_TEXTURE_MAX_ANISOTROPY, std::min(8.0f, maxAniso));
-    glSamplerParameteri(m_samplers[1], GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // Trilinear like Vulkan's and D3D's s1 (MIN_MAG_MIP_LINEAR): the post targets have one level, so only the sprite atlas (task 31) sees the mips.
+    glSamplerParameteri(m_samplers[1], GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glSamplerParameteri(m_samplers[1], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glSamplerParameteri(m_samplers[1], GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glSamplerParameteri(m_samplers[1], GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -437,11 +438,11 @@ std::string GlBackend::load(const SceneData &scene)
     case Workload::Shading: e = loadShading(scene); break;
     case Workload::Particles: e = loadParticles(scene); break;
     case Workload::Quads:
+    case Workload::Sprites: e = loadFill(scene); break;
     case Workload::Shapes:
     case Workload::Text:
     case Workload::Blits:
-    case Workload::Gradients:
-    case Workload::Sprites: break;  // still the clear workload (task 29)
+    case Workload::Gradients: break;
     }
     if (!e.empty())
         return e;
@@ -594,11 +595,11 @@ void GlBackend::recordWorkload(Slot &slot, double t)
     case Workload::Shading: recordShading(slot, t); return;
     case Workload::Particles: recordParticles(slot, t); return;
     case Workload::Quads:
+    case Workload::Sprites: recordFill(slot, t); return;
     case Workload::Shapes:
     case Workload::Text:
     case Workload::Blits:
-    case Workload::Gradients:
-    case Workload::Sprites: break;
+    case Workload::Gradients: break;
     }
     uploadConstants(slot);
     glBindFramebuffer(GL_FRAMEBUFFER, m_ldrA.fbo);

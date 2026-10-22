@@ -102,10 +102,12 @@ private:
     std::string loadScene(const SceneData &scene);  // Geometry, Draw calls
     std::string loadShading(const SceneData &scene);
     std::string loadParticles(const SceneData &scene);
+    std::string loadFill(const SceneData &scene);  // Quads, Sprites (task 31)
     void releaseWorkload();
     void recordScene(Slot &slot, double t);
     void recordShading(Slot &slot, double t);
     void recordParticles(Slot &slot, double t);
+    void recordFill(Slot &slot, double t);
     std::uint32_t drawObjects(Slot &slot, bool materials);
     // One post pass into `target`: program, t0 (and t1), the Post block.
     void postPass(Slot &slot, const Target &target, const Program &program, std::uint32_t t0, std::uint32_t t1, std::uint32_t block, bool blend);

@@ -18,11 +18,17 @@ using namespace sb::gpu::testing;
 namespace {
 
 const QString kWorker = QStringLiteral(SB_GPU_WORKER);
-const char *const kScenes[] = {"geometry", "drawcalls", "shading", "particles"};
+const QStringList kScenes = {QStringLiteral("geometry"), QStringLiteral("drawcalls"), QStringLiteral("shading"), QStringLiteral("particles")};
+// Task 31 (§5.7, the fill workloads): at content scale 1, i.e. the full 128 alpha-blended layers and 100,000
+// sprites (25 batches, so GL-3's re-pointed attributes are really exercised).
+const QStringList kFills = {QStringLiteral("quads"), QStringLiteral("sprites")};
 
-// One API's four signatures, in scene order; empty with *why on a failure ("skip:" starts a skip).
-QVector<QByteArray> run(const QString &api, QString *why)
+// One API's signatures of `scenes`, in order; empty with *why on a failure ("skip:" starts a skip).
+QVector<QByteArray> run(const QString &api, const QStringList &scenes, const QString &contentScale, QString *why)
 {
+    QStringList plan;
+    for (const QString &scene : scenes)
+        plan << scene + QStringLiteral(":200:300");
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     QString program = kWorker;
     QStringList args;
@@ -51,9 +57,9 @@ QVector<QByteArray> run(const QString &api, QString *why)
 #endif
     WorkerProcess w(program,
                     args + QStringList{QStringLiteral("--run"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), gpu, QStringLiteral("--allow-software"),
-                                       QStringLiteral("--render-size"), QStringLiteral("160x90"), QStringLiteral("--content-scale"), QStringLiteral("64"),
+                                       QStringLiteral("--render-size"), QStringLiteral("160x90"), QStringLiteral("--content-scale"), contentScale,
                                        QStringLiteral("--headless"), QStringLiteral("--plan"),
-                                       QStringLiteral("geometry:200:300,drawcalls:200:300,shading:200:300,particles:200:300")},
+                                       plan.join(QLatin1Char(','))},
                     env);
     if (!w.started()) {
         *why = QStringLiteral("the worker didn't start");
@@ -70,15 +76,15 @@ QVector<QByteArray> run(const QString &api, QString *why)
     }
     QVector<QByteArray> out;
     const QList<pr::ResultEvent> rs = results(w.events());
-    for (const char *scene : kScenes) {
+    for (const QString &scene : scenes) {
         QByteArray sig;
         for (const pr::ResultEvent &r : rs) {
-            if (r.workload == QLatin1StringView(scene))
+            if (r.workload == scene)
                 sig = r.signature;
         }
         out.append(sig);
     }
-    if (out.size() != 4 || out.contains(QByteArray())) {
+    if (out.size() != scenes.size() || out.contains(QByteArray())) {
         *why = QStringLiteral("%1: not every scene sent a signature").arg(api);
         return {};
     }
@@ -92,7 +98,11 @@ class TestGpuSignature : public QObject
     Q_OBJECT
 
 private slots:
-    void sameImageOnEveryApi()
+    void sameImageOnEveryApi() { compare(kScenes, QStringLiteral("64")); }
+    void fillsOnEveryApi() { compare(kFills, QStringLiteral("1")); }
+
+private:
+    void compare(const QStringList &scenes, const QString &contentScale)
     {
 #if defined(Q_OS_WIN)
         const QStringList apis = {QStringLiteral("dx12"), QStringLiteral("dx11")};
@@ -102,7 +112,7 @@ private slots:
         QVector<QVector<QByteArray>> sigs;
         for (const QString &api : apis) {
             QString why;
-            const QVector<QByteArray> s = run(api, &why);
+            const QVector<QByteArray> s = run(api, scenes, contentScale, &why);
             if (s.isEmpty()) {
                 if (why.startsWith(QLatin1StringView("skip:"))) {
 #if defined(Q_OS_LINUX)
@@ -117,7 +127,7 @@ private slots:
         }
         QStringList report;
         bool allMatch = true;
-        for (int scene = 0; scene < 4; ++scene) {
+        for (int scene = 0; scene < scenes.size(); ++scene) {
             QVector<QByteArray> inRunOrder;
             for (const auto &s : std::as_const(sigs))
                 inRunOrder.append(s[scene]);
@@ -128,7 +138,7 @@ private slots:
                     continue;
                 const SigDiff &d = verdict.diffToReference[i];
                 report << QStringLiteral("%1 %2 vs %3: mean %4/255, max %5/255")
-                              .arg(QLatin1StringView(kScenes[scene]), apis[i], apis[verdict.reference]).arg(d.mean, 0, 'f', 2).arg(d.max);
+                              .arg(scenes[scene], apis[i], apis[verdict.reference]).arg(d.mean, 0, 'f', 2).arg(d.max);
             }
             allMatch = allMatch && verdict.outliers.isEmpty();
         }

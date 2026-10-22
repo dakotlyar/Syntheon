@@ -22,6 +22,7 @@
 #include "tests/gpu/worker/scene_constants.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 
 namespace {
@@ -47,10 +48,14 @@ namespace {
 #include "tests/gpu/worker/shaders/generated/post_tonemap_vs.glsl.inc"
 #include "tests/gpu/worker/shaders/generated/post_up_ps.glsl.inc"
 #include "tests/gpu/worker/shaders/generated/post_up_vs.glsl.inc"
+#include "tests/gpu/worker/shaders/generated/quads_ps.glsl.inc"
+#include "tests/gpu/worker/shaders/generated/quads_vs.glsl.inc"
 #include "tests/gpu/worker/shaders/generated/shading_ps.glsl.inc"
 #include "tests/gpu/worker/shaders/generated/shading_vs.glsl.inc"
 #include "tests/gpu/worker/shaders/generated/sky_ps.glsl.inc"
 #include "tests/gpu/worker/shaders/generated/sky_vs.glsl.inc"
+#include "tests/gpu/worker/shaders/generated/sprites_ps.glsl.inc"
+#include "tests/gpu/worker/shaders/generated/sprites_vs.glsl.inc"
 } // namespace
 
 namespace sb::gpu::gl {
@@ -283,6 +288,10 @@ void GlBackend::releaseWorkload()
         glDeleteBuffers(1, &w.particleBuffer);
     if (w.particleVao)
         glDeleteVertexArrays(1, &w.particleVao);
+    if (w.spriteBuffer)
+        glDeleteBuffers(1, &w.spriteBuffer);
+    if (w.spriteVao)
+        glDeleteVertexArrays(1, &w.spriteVao);
     for (const Program *p : {&w.scene3d, &w.depthOnly, &w.sky, &w.particle, &w.bright, &w.down, &w.up, &w.composite, &w.toneMap, &w.fxaa}) {
         if (p->id)
             glDeleteProgram(p->id);
@@ -486,6 +495,103 @@ void GlBackend::recordParticles(Slot &slot, double t)
     postPass(slot, m_ldrA, w.toneMap, m_hdrB.texture, 0, n, false), ++n;                           // 13
     postPass(slot, m_ldrB, w.fxaa, m_ldrA.texture, 0, n, false), ++n;                              // 14
     m_lastDraws = draws + n;
+}
+
+// ---- Task 31: the fill workloads, Quads and Sprites (§6.5, §6.6) ----
+
+std::string GlBackend::loadFill(const SceneData &scene)
+{
+    WorkloadState &w = *m_work;
+    w.tonemap = false;  // display-encoded colour into ldrA, presented in Copy mode
+    w.scene.workload = scene.workload;
+    w.scene.sprites = scene.sprites;
+    const bool quads = scene.workload == Workload::Quads;
+    w.fillCount = quads ? scene.quadLayers : std::uint32_t(scene.sprites.size());
+    if (scene.textures.size() != 1)
+        return "a fill workload needs its one texture";
+    std::uint32_t tex = 0;
+    if (std::string e = uploadTexture(scene.textures[0], &tex); !e.empty())
+        return e;
+    w.materials.push_back(tex);
+    if (std::string e = quads ? makeProgram("quads", kQuadsVsGlsl, kQuadsPsGlsl, &w.scene3d)
+                              : makeProgram("sprites", kSpritesVsGlsl, kSpritesPsGlsl, &w.scene3d);
+        !e.empty())
+        return e;
+    if (!quads) {
+        // One buffer of every sprite, orphaned and mapped once per frame; the batches re-point the
+        // instance attributes at their byte offset (GL-3: GL 3.3 has no base instance).
+        glGenBuffers(1, &w.spriteBuffer);
+        glGenVertexArrays(1, &w.spriteVao);
+        glBindVertexArray(w.spriteVao);
+        glBindBuffer(GL_ARRAY_BUFFER, w.spriteBuffer);
+        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(std::size_t(w.fillCount) * sc::kSpriteBytes), nullptr, GL_STREAM_DRAW);
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glEnableVertexAttribArray(2);
+        glVertexAttribDivisor(0, 1);
+        glVertexAttribDivisor(1, 1);
+        glVertexAttribDivisor(2, 1);
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+    w.draws = quads ? 1 : std::uint32_t(sc::spriteBatches(w.fillCount).size());
+    return {};
+}
+
+void GlBackend::recordFill(Slot &slot, double t)
+{
+    WorkloadState &w = *m_work;
+    const bool quads = w.workload == Workload::Quads;
+    const std::uint32_t width = m_ldrA.width, height = m_ldrA.height;
+    sc::writeFrame(w.scene, t, width, height, m_constants.data(), 1);
+    uploadConstants(slot);
+    if (!quads && w.fillCount > 0) {
+        // Orphan, then map for write: the previous frames' draws keep the old storage.
+        const GLsizeiptr bytes = GLsizeiptr(std::size_t(w.fillCount) * sc::kSpriteBytes);
+        glBindBuffer(GL_ARRAY_BUFFER, w.spriteBuffer);
+        glBufferData(GL_ARRAY_BUFFER, bytes, nullptr, GL_STREAM_DRAW);
+        void *p = glMapBufferRange(GL_ARRAY_BUFFER, 0, bytes, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+        if (p) {
+            sc::writeSprites(w.scene, t, static_cast<std::uint8_t *>(p));
+            glUnmapBuffer(GL_ARRAY_BUFFER);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+    beginPass(m_ldrA.fbo, width, height);
+    setPassState(false, false, GL_ALWAYS, false);
+    glClearColor(sc::kFillClear[0], sc::kFillClear[1], sc::kFillClear[2], sc::kFillClear[3]);
+    glClear(GL_COLOR_BUFFER_BIT);
+    std::uint32_t draws = 0;
+    if (w.fillCount > 0) {
+        glEnable(GL_BLEND);  // colour SRC_ALPHA / ONE_MINUS_SRC_ALPHA, alpha ONE / ONE_MINUS_SRC_ALPHA, as every API
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        glBlendEquation(GL_FUNC_ADD);
+        useProgram(w.scene3d);
+        bindFrameConstants(slot);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, w.materials[0]);
+        if (quads) {
+            glBindVertexArray(m_vao);  // no vertex data: the corners come from gl_VertexID, the layer from gl_InstanceID
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 6, GLsizei(w.fillCount));
+            draws = 1;
+        } else {
+            glBindVertexArray(w.spriteVao);
+            glBindBuffer(GL_ARRAY_BUFFER, w.spriteBuffer);
+            const GLsizei stride = GLsizei(sc::kSpriteBytes);
+            for (const sc::SpriteBatch &b : sc::spriteBatches(w.fillCount)) {
+                const void *offset = reinterpret_cast<const void *>(std::uintptr_t(b.first) * sc::kSpriteBytes);
+                glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, offset);
+                glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, stride, static_cast<const char *>(offset) + 8);
+                glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, stride, static_cast<const char *>(offset) + 12);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, GLsizei(b.count));
+                ++draws;
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+        }
+        glBindVertexArray(0);
+        glDisable(GL_BLEND);
+    }
+    m_lastDraws = draws;
 }
 
 } // namespace sb::gpu::gl

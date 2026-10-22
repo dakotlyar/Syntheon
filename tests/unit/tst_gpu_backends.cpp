@@ -953,7 +953,8 @@ private slots:
         QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 601u;
         QTest::newRow("shading") << int(Workload::Shading) << 6u;
         QTest::newRow("particles") << int(Workload::Particles) << 17u;
-
+        QTest::newRow("quads") << int(Workload::Quads) << 1u;  // task 31: the fill workloads
+        QTest::newRow("sprites") << int(Workload::Sprites) << 1u;
     }
 
     void openglScenes()
