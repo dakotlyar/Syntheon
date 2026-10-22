@@ -52,6 +52,13 @@ if(TARGET synbench_gpu_shaders)
     target_include_directories(synbench_gpu_backends PRIVATE "${SYNBENCH_GPU_SHADER_DIR}")
 endif()
 
+# The Qt raster native 2D path (task 26): Qt Gui, so a library of its own (the backends are Qt-free), shared
+# by the worker and tst_gpu_native. The font it draws text with is worker.qrc's (attach it to the executable).
+add_library(synbench_gpu_qtraster STATIC qtraster/qt_native.h qtraster/qt_native.cpp)
+target_link_libraries(synbench_gpu_qtraster PUBLIC synbench_gpu_scene Qt6::Gui)
+target_include_directories(synbench_gpu_qtraster PUBLIC "${PROJECT_SOURCE_DIR}/src")
+set_target_properties(synbench_gpu_qtraster PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+
 # The worker: Qt only for the window, the screen and the event loop (QtGui,
 # not Quick), the default C runtime (unlike synbench-cpucrypto).
 add_executable(synbench-gpu
@@ -62,7 +69,7 @@ add_executable(synbench-gpu
     worker.qrc
 )
 # Vulkan::Headers (through volk) for qt_glue's QVulkanInstance.
-target_link_libraries(synbench-gpu PRIVATE synbench_gpu_backends synbench_gpu_model Qt6::Gui)
+target_link_libraries(synbench-gpu PRIVATE synbench_gpu_backends synbench_gpu_qtraster synbench_gpu_model Qt6::Gui)
 set_target_properties(synbench-gpu PROPERTIES AUTORCC ON)
 if(MSVC AND NOT SYNBENCH_DEV_HOOKS)
     # The loader resolves the worker's own imports (Qt, the VC++ runtime) from

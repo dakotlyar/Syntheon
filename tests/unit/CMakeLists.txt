@@ -84,6 +84,11 @@ foreach(t tst_gpu_backends tst_gpu_present tst_gpu_signature)
     add_dependencies(${t} synbench-gpu)
     target_compile_definitions(${t} PRIVATE SB_GPU_WORKER="$<TARGET_FILE:synbench-gpu>")
 endforeach()
+# The Qt raster native 2D path in process (task 26): headless on Qt's offscreen platform; the font is the
+# worker's own resource file.
+synbench_add_unit_test(tst_gpu_native SOURCES tst_gpu_native.cpp "${PROJECT_SOURCE_DIR}/src/tests/gpu/worker/worker.qrc"
+                       LIBS synbench_gpu_qtraster synbench_gpu_scene Qt6::Gui)
+set_target_properties(tst_gpu_native PROPERTIES AUTORCC ON)
 synbench_add_unit_test(tst_stubs SOURCES tst_stubs.cpp fake_test.h LIBS synbench_builtin_tests synbench_storage)
 synbench_add_unit_test(tst_controllers SOURCES tst_controllers.cpp LIBS synbench_appcore)
 synbench_add_unit_test(tst_run_controller SOURCES tst_run_controller.cpp LIBS synbench_appcore)
@@ -99,7 +104,7 @@ if(TARGET synbench_app)
 endif()
 
 # The GPU tests, to run (or skip) as a group: ctest -L gpu.
-foreach(t tst_gpu_model tst_gpu_scene tst_gpu_loaders tst_gpu_worker tst_gpu_client tst_gpu_test tst_gpu_backends tst_gpu_present tst_gpu_signature)
+foreach(t tst_gpu_model tst_gpu_scene tst_gpu_loaders tst_gpu_worker tst_gpu_client tst_gpu_test tst_gpu_backends tst_gpu_present tst_gpu_signature tst_gpu_native)
     if(TARGET ${t})
         set_property(TEST ${t} APPEND PROPERTY LABELS gpu)
     endif()

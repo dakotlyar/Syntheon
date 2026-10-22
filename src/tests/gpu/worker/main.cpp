@@ -35,6 +35,7 @@
 #include "tests/gpu/worker/backend.h"
 #include "tests/gpu/worker/emit.h"
 #include "tests/gpu/worker/qt_glue.h"
+#include "tests/gpu/worker/qtraster/qt_native.h"
 #include "tests/gpu/worker/runner.h"
 #include "tests/gpu/worker/scene/golden_hashes.inc"
 #include "tests/gpu/worker/scene/native_ops.h"
@@ -465,10 +466,13 @@ public:
     // Everything up to "ready"; an exit code if the worker can't go on.
     std::optional<int> start()
     {
-        m_backend = makeBackend(m_args.api);
-        if (!m_backend) {
-            emitLine(pr::ErrorEvent{{}, QStringLiteral("the %1 backend isn't in this build").arg(QString::fromStdString(m_args.api)), false});
-            return kExitError;
+        // Qt raster is made below, once the window it presents to exists.
+        if (m_args.api != "qt") {
+            m_backend = makeBackend(m_args.api);
+            if (!m_backend) {
+                emitLine(pr::ErrorEvent{{}, QStringLiteral("the %1 backend isn't in this build").arg(QString::fromStdString(m_args.api)), false});
+                return kExitError;
+            }
         }
         QString screenName;
         double scale = 1.0;
@@ -505,6 +509,9 @@ public:
         }
         if (m_args.renderSize)
             m_plan.render = *m_args.renderSize;
+        if (m_args.api == "qt")
+            m_backend = makeQtRasterBackend(m_window.get());  // the native 2D path: Qt raster (task 26)
+        m_native = dynamic_cast<INative2D *>(m_backend.get());
 
         BackendInit init;
         if (!m_args.gpu.isEmpty() && !parseGpuId(m_args.gpu, &init)) {
@@ -554,8 +561,12 @@ public:
         for (const WorkloadPlan &p : m_runPlan)
             wanted.push_back(p.workload);
         for (const Workload w : wanted) {
-            if (!m_scenes.count(w))
+            if (const auto kind = nativeKindOf(w)) {
+                if (!m_nativeOps.count(w))
+                    m_nativeOps.emplace(w, buildNativeOps(*kind, m_args.contentScale));
+            } else if (!m_scenes.count(w)) {
                 m_scenes.emplace(w, buildScene(w, m_args.contentScale));
+            }
         }
 
         pr::ReadyEvent ready;
@@ -653,7 +664,13 @@ public:
                 return failed(w, e);
             }
             m_present = m_backend->presentMode();
-            r = m_runner->run(p, m_scenes.at(w));
+            if (nativeKindOf(w)) {
+                if (!m_native)
+                    return failed(w, "this API draws 3D scenes, not native 2D");
+                r = m_runner->runNative(p, m_nativeOps.at(w), *m_native);
+            } else {
+                r = m_runner->run(p, m_scenes.at(w));
+            }
             suspended = m_backend->suspend();
             // GL: the context leaves the window before it is hidden (a hidden Wayland
             // window has no surface); the backend's objects stay (Revised, task 21).
@@ -833,6 +850,8 @@ private:
     WindowPlan m_plan;
     std::vector<WorkloadPlan> m_runPlan;
     std::map<Workload, SceneData> m_scenes;
+    std::map<Workload, NativeOps> m_nativeOps;
+    INative2D *m_native = nullptr;  // the backend, when it is a native 2D path
     BackendInfo m_info;
     // ~Worker() orders their destruction (the window's surface before the backend).
     std::unique_ptr<WorkerWindow> m_window;

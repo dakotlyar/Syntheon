@@ -8,6 +8,7 @@
 
 #include "tests/gpu/model/best_of.h"
 
+#include "tests/gpu/worker/scene/native_ops.h"
 #include "tests/gpu/worker/scene/overlay.h"
 #include "tests/gpu/worker/scene/scenes.h"
 #include "tests/gpu/worker/signature.h"
@@ -978,6 +979,48 @@ private slots:
         QVERIFY2(b.validationErrors() == 0, b.firstValidationError().c_str());
     }
 #endif
+
+    // Task 26: the Qt raster native 2D path through the worker, headless on Qt's offscreen platform (no
+    // display needed): each workload at content / 64 runs at least 3 frames in 300 ms, reads back something
+    // that isn't flat, and the result's fields give the MOps/s of §7.1 (ops x frames / seconds / 10^6).
+    void qtRasterNative_data()
+    {
+        QTest::addColumn<QString>("workload");
+        for (const char *w : {"shapes", "text", "blits", "gradients"})
+            QTest::newRow(w) << QString::fromLatin1(w);
+    }
+
+    void qtRasterNative()
+    {
+        QFETCH(QString, workload);
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+        WorkerProcess w(kWorker,
+                        {QStringLiteral("--run"), QStringLiteral("--api"), QStringLiteral("qt"), QStringLiteral("--gpu"), kLavapipeId,
+                         QStringLiteral("--render-size"), QStringLiteral("320x180"), QStringLiteral("--content-scale"), QStringLiteral("64"),
+                         QStringLiteral("--headless"), QStringLiteral("--plan"), workload + QStringLiteral(":100:300")},
+                        env);
+        QVERIFY(w.started());
+        const int code = w.finish(60000);
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
+        const auto ready = std::get<pr::ReadyEvent>(w.events().first());
+        QCOMPARE(ready.api, QStringLiteral("qt"));
+        QVERIFY2(ready.version.startsWith(QLatin1StringView("Qt ")) && ready.version.endsWith(QLatin1StringView(" raster")), qPrintable(ready.version));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 1);
+        const pr::ResultEvent &r = rs[0];
+        QCOMPARE(r.workload, workload);
+        QVERIFY2(r.frames >= 3, qPrintable(QString::number(r.frames)));
+        QVERIFY(r.seconds > 0);
+        QCOMPARE(r.signature.size(), 432);
+        QVERIFY2(deviation(std::vector<std::uint8_t>(r.signature.begin(), r.signature.end())) > 2.0, "a flat image");
+        // MOps/s from the event: ops per frame x frames / seconds / 1e6, which is ops x fps / 1e6.
+        const NativeKind kind = *nativeKindOf(*workloadFromId(workload.toStdString()));
+        const double ops = double(buildNativeOps(kind, 64).opsPerFrame);
+        const double mops = ops * double(r.frames) / r.seconds / 1e6;
+        QVERIFY(mops > 0);
+        QVERIFY2(std::fabs(mops - ops * r.fps / 1e6) <= 1e-9 * std::max(1.0, mops), qPrintable(QStringLiteral("%1 vs %2").arg(mops).arg(ops * r.fps / 1e6)));
+    }
 
     // D20 (task 19): every API draws the four scenes like the pinned Vulkan
     // reference (gpu_reference_signatures.h), within §5.7's tolerance. Vulkan

@@ -107,7 +107,7 @@ private slots:
         const QLatin1StringView current(QTest::currentTestFunction());
         const bool needsNoVulkan = current == QLatin1StringView("d3d12Present") || current == QLatin1StringView("d3d11Present")
                                    || current == QLatin1StringView("d3d12SuspendResume") || current == QLatin1StringView("d3d11SuspendResume")
-                                   || current == QLatin1StringView("openglPresent");
+                                   || current == QLatin1StringView("openglPresent") || current == QLatin1StringView("qtRasterPresent");
         if (needsNoVulkan || m_vulkanSkip.isEmpty())
             return;
 #if defined(Q_OS_LINUX)
@@ -131,6 +131,34 @@ private slots:
     // scene after the first.
     void d3d12SuspendResume() { warpSuspendResume(QStringLiteral("dx12"), QStringLiteral("d3d12: ")); }
     void d3d11SuspendResume() { warpSuspendResume(QStringLiteral("dx11"), QStringLiteral("d3d11: ")); }
+
+    // Task 26: the Qt raster path in a real window (xvfb's X11): the backing store presents, two workloads.
+    void qtRasterPresent()
+    {
+#if !defined(Q_OS_LINUX)
+        QSKIP("the windowed Qt raster case runs on Linux (xvfb)");
+#else
+        if (m_xvfbRun.isEmpty())
+            SB_SKIP_OR_FAIL("xvfb-run isn't installed (the windowed cases never use the real display)");
+        WorkerProcess w(m_xvfbRun,
+                        {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker, QStringLiteral("--run"),
+                         QStringLiteral("--api"), QStringLiteral("qt"), QStringLiteral("--gpu"), kLavapipeId, QStringLiteral("--render-size"),
+                         QStringLiteral("320x180"), QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--plan"),
+                         QStringLiteral("shapes:200:1000,text:100:500")},
+                        m_env);
+        QVERIFY(w.started());
+        const int code = w.finish();
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 2);
+        for (const pr::ResultEvent &r : rs) {
+            QCOMPARE(r.present, QStringLiteral("backing store"));
+            QVERIFY(r.frames >= 3);
+            QCOMPARE(r.renderW, 320);
+            QVERIFY(r.windowW >= 640);
+        }
+#endif
+    }
 
     // A 1 s window run with a swapchain: vsync off (IMMEDIATE or MAILBOX), no
     // validation error.
