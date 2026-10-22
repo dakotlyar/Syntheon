@@ -37,6 +37,10 @@ namespace {
 #include "post_tonemap_ps.dxbc.inc"
 #include "post_up_ps.dxbc.inc"
 #include "present_vs.dxbc.inc"
+#include "quads_ps.dxbc.inc"
+#include "quads_vs.dxbc.inc"
+#include "sprites_ps.dxbc.inc"
+#include "sprites_vs.dxbc.inc"
 #include "shading_ps.dxbc.inc"
 #include "shading_vs.dxbc.inc"
 #include "sky_ps.dxbc.inc"
@@ -421,6 +425,85 @@ std::string D3D11Backend::recordParticles(double t)
     // 14: FXAA into ldrB, left the bound render target: frame() / readback() read it (outputImage()).
     postPass(m_ldrB, w.fxaaPipeline, w.postTables[n], n), ++n;
     m_lastDraws = draws + n;
+    return {};
+}
+
+// ---- Task 30: the fill workloads, Quads and Sprites (§6.5, §6.6) ----
+
+std::string D3D11Backend::loadFill(const SceneData &scene)
+{
+    WorkloadState &w = *m_work;
+    w.tonemap = false;  // display-encoded colour into ldrA, presented in Copy mode
+    w.scene.workload = scene.workload;
+    w.scene.sprites = scene.sprites;
+    const bool quads = scene.workload == Workload::Quads;
+    w.fillCount = quads ? scene.quadLayers : std::uint32_t(scene.sprites.size());
+    if (scene.textures.size() != 1)
+        return "a fill workload needs its one texture";
+    Image tex;
+    if (std::string e = uploadTexture(scene.textures[0], &tex); !e.empty())
+        return e;
+    w.materials.push_back(tex);
+    w.materialTables.push_back(makeTable({&w.materials[0]}));
+    PipelineDesc p = quads ? shaders(kQuadsVsDxbc, kQuadsVsDxbcSize, kQuadsPsDxbc, kQuadsPsDxbcSize)
+                           : shaders(kSpritesVsDxbc, kSpritesVsDxbcSize, kSpritesPsDxbc, kSpritesPsDxbcSize);
+    p.input = quads ? PipelineDesc::Input::None : PipelineDesc::Input::Sprite;
+    p.alphaBlend = true;
+    if (std::string e = makePipeline(m_device.Get(), p, &w.pipeline); !e.empty())
+        return e;
+    if (!quads && w.fillCount > 0) {
+        // DX11-2: a DYNAMIC vertex buffer, Map(WRITE_DISCARD) once per frame, the batches' offsets through StartInstanceLocation.
+        D3D11_BUFFER_DESC bd{};
+        bd.ByteWidth = UINT(w.fillCount * sc::kSpriteBytes);
+        bd.Usage = D3D11_USAGE_DYNAMIC;
+        bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        if (const HRESULT hr = m_device->CreateBuffer(&bd, nullptr, &m_spriteCb); FAILED(hr))
+            return dxgi::failure("CreateBuffer (sprites)", hr);
+    }
+    w.draws = quads ? 1 : std::uint32_t(sc::spriteBatches(w.fillCount).size());
+    return {};
+}
+
+std::string D3D11Backend::recordFill(double t)
+{
+    WorkloadState &w = *m_work;
+    const bool quads = w.workload == Workload::Quads;
+    const std::uint32_t width = m_ldrA.width, height = m_ldrA.height;
+    sc::writeFrame(w.scene, t, width, height, m_frameShadow.data());
+    if (std::string e = flushFrameConstants(); !e.empty())
+        return e;
+    if (!quads && m_spriteCb) {
+        D3D11_MAPPED_SUBRESOURCE m{};
+        if (const HRESULT hr = m_cx->Map(m_spriteCb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m); FAILED(hr))
+            return dxgi::failure("Map (sprites)", hr);
+        sc::writeSprites(w.scene, t, static_cast<std::uint8_t *>(m.pData));
+        m_cx->Unmap(m_spriteCb.Get(), 0);
+    }
+    unbindSrvs();  // DX11-1: last frame's present pass sampled ldrA
+    ID3D11RenderTargetView *rtv = m_ldrA.rtv.Get();
+    m_cx->OMSetRenderTargets(1, &rtv, nullptr);
+    m_cx->ClearRenderTargetView(rtv, sc::kFillClear);
+    std::uint32_t draws = 0;
+    if (w.fillCount > 0) {
+        setViewport(width, height);
+        bindPipeline(w.pipeline);
+        setConstants(2, m_frameCb.Get(), sc::kPresentOffset, sc::kBlock);  // unused by the fill shaders; a valid range
+        bindTable(w.materialTables[0]);
+        if (quads) {
+            m_cx->DrawInstanced(6, w.fillCount, 0, 0);  // one instanced draw: a layer per instance
+            draws = 1;
+        } else {
+            ID3D11Buffer *ring = m_spriteCb.Get();
+            const UINT stride = UINT(sc::kSpriteBytes), offset = 0;
+            m_cx->IASetVertexBuffers(0, 1, &ring, &stride, &offset);
+            for (const sc::SpriteBatch &b : sc::spriteBatches(w.fillCount)) {
+                m_cx->DrawInstanced(6, b.count, 0, b.first);  // StartInstanceLocation = the batch's first sprite
+                ++draws;
+            }
+        }
+    }
+    m_lastDraws = draws;
     return {};
 }
 

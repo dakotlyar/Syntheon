@@ -33,6 +33,10 @@ namespace {
 #include "post_tonemap_ps.dxil.inc"
 #include "post_up_ps.dxil.inc"
 #include "present_vs.dxil.inc"
+#include "quads_ps.dxil.inc"
+#include "quads_vs.dxil.inc"
+#include "sprites_ps.dxil.inc"
+#include "sprites_vs.dxil.inc"
 #include "shading_ps.dxil.inc"
 #include "shading_vs.dxil.inc"
 #include "sky_ps.dxil.inc"
@@ -48,11 +52,12 @@ constexpr D3D12_RESOURCE_STATES kShaderRead = D3D12_RESOURCE_STATE_PIXEL_SHADER_
 // A graphics pipeline on the one root signature (Vulkan's PipelineDesc).
 struct PipelineDesc {
     D3D12_SHADER_BYTECODE vs{}, ps{};  // ps empty: no pixel shader (depth only)
-    enum class Input { None, Mesh, Particle } input = Input::None;
+    enum class Input { None, Mesh, Particle, Sprite } input = Input::None;
     DXGI_FORMAT colour = DXGI_FORMAT_UNKNOWN, depth = DXGI_FORMAT_UNKNOWN;
     bool depthTest = false, depthWrite = false;
     D3D12_COMPARISON_FUNC compare = D3D12_COMPARISON_FUNC_LESS;
     bool additive = false;   // blend ONE, ONE
+    bool alphaBlend = false; // blend SRC_ALPHA, INV_SRC_ALPHA (colour), ONE, INV_SRC_ALPHA (alpha): the fill workloads
     bool depthBias = false;  // §6.3: DepthBias 0, SlopeScaledDepthBias 2.0 (Vulkan: vkCmdSetDepthBias(0, 0, 2))
 };
 
@@ -68,6 +73,12 @@ std::string makePipeline(ID3D12Device *d, ID3D12RootSignature *root, const Pipel
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
         {"TEXCOORD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
     };
+    // §6.6: 16 bytes per sprite, one instance each: {float x, y; uint packed; uint rgba8}.
+    const D3D12_INPUT_ELEMENT_DESC sprite[] = {
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 1, DXGI_FORMAT_R32_UINT, 0, 8, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 2, DXGI_FORMAT_R32_UINT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+    };
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pd{};
     pd.pRootSignature = root;
     pd.VS = p.vs;
@@ -76,12 +87,21 @@ std::string makePipeline(ID3D12Device *d, ID3D12RootSignature *root, const Pipel
         pd.InputLayout = {mesh, 3};
     else if (p.input == PipelineDesc::Input::Particle)
         pd.InputLayout = {particle, 2};
+    else if (p.input == PipelineDesc::Input::Sprite)
+        pd.InputLayout = {sprite, 3};
     D3D12_RENDER_TARGET_BLEND_DESC &rt = pd.BlendState.RenderTarget[0];
     rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     if (p.additive) {
         rt.BlendEnable = TRUE;
         rt.SrcBlend = rt.DestBlend = D3D12_BLEND_ONE;
         rt.SrcBlendAlpha = rt.DestBlendAlpha = D3D12_BLEND_ONE;
+        rt.BlendOp = rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    } else if (p.alphaBlend) {
+        rt.BlendEnable = TRUE;
+        rt.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+        rt.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+        rt.SrcBlendAlpha = D3D12_BLEND_ONE;
+        rt.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
         rt.BlendOp = rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
     }
     rt.LogicOp = D3D12_LOGIC_OP_NOOP;
@@ -576,6 +596,85 @@ void D3D12Backend::recordParticles(ID3D12GraphicsCommandList *list, Slot &slot, 
     // 14: FXAA into ldrB, left a render target: frame() / readback() transition it (outputImage()).
     postPass(list, slot, m_ldrB, false, false, w.fxaaPipeline.Get(), w.postTables[n], n), ++n;
     m_lastDraws = draws + n;
+}
+
+// ---- Task 30: the fill workloads, Quads and Sprites (§6.5, §6.6) ----
+
+std::string D3D12Backend::loadFill(const SceneData &scene)
+{
+    ID3D12Device *d = m_ctx.device.Get();
+    WorkloadState &w = *m_work;
+    w.tonemap = false;  // display-encoded colour into ldrA, presented in Copy mode
+    w.scene.workload = scene.workload;
+    w.scene.sprites = scene.sprites;
+    const bool quads = scene.workload == Workload::Quads;
+    w.fillCount = quads ? scene.quadLayers : std::uint32_t(scene.sprites.size());
+    if (scene.textures.size() != 1)
+        return "a fill workload needs its one texture";
+    Image tex;
+    if (std::string e = uploadTexture(m_ctx, scene.textures[0], &tex); !e.empty())
+        return e;
+    w.materials.push_back(tex);
+    w.materialTables.push_back(makeTable({&w.materials[0]}));
+    PipelineDesc p;
+    p.vs = quads ? code(kQuadsVsDxil, kQuadsVsDxilSize) : code(kSpritesVsDxil, kSpritesVsDxilSize);
+    p.ps = quads ? code(kQuadsPsDxil, kQuadsPsDxilSize) : code(kSpritesPsDxil, kSpritesPsDxilSize);
+    p.input = quads ? PipelineDesc::Input::None : PipelineDesc::Input::Sprite;
+    p.colour = DXGI_FORMAT_R8G8B8A8_UNORM;
+    p.alphaBlend = true;
+    if (std::string e = makePipeline(d, m_root.Get(), p, &w.pipeline); !e.empty())
+        return e;
+    if (!quads && w.fillCount > 0) {
+        // §6.6, DX-2: a persistently mapped UPLOAD buffer per slot, rewritten every frame after the slot's fence.
+        for (Slot &s : m_slots) {
+            Buffer ring;
+            if (std::string e = makeBuffer(m_ctx, UINT64(w.fillCount) * sc::kSpriteBytes, D3D12_HEAP_TYPE_UPLOAD, &ring); !e.empty())
+                return e;
+            s.spriteRing = ring.resource;
+            s.mapped[2] = ring.mapped;
+        }
+    }
+    w.draws = quads ? 1 : std::uint32_t(sc::spriteBatches(w.fillCount).size());
+    return {};
+}
+
+void D3D12Backend::recordFill(ID3D12GraphicsCommandList *list, Slot &slot, double t)
+{
+    WorkloadState &w = *m_work;
+    const bool quads = w.workload == Workload::Quads;
+    const std::uint32_t width = m_ldrA.width, height = m_ldrA.height;
+    sc::writeFrame(w.scene, t, width, height, static_cast<std::uint8_t *>(slot.mapped[0]));
+    if (!quads && slot.mapped[2])
+        sc::writeSprites(w.scene, t, static_cast<std::uint8_t *>(slot.mapped[2]));
+    // DX-1: last frame's present pass sampled ldrA, a readback copied it.
+    transition(list, m_ldrA, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_ctx.rtv(m_ldrA.rtv);
+    list->ClearRenderTargetView(rtv, sc::kFillClear, 0, nullptr);
+    std::uint32_t draws = 0;
+    if (w.fillCount > 0) {
+        list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        setViewport(list, width, height);
+        list->SetGraphicsRootSignature(m_root.Get());
+        list->SetPipelineState(w.pipeline.Get());
+        const D3D12_GPU_VIRTUAL_ADDRESS constants = slot.frameConstants->GetGPUVirtualAddress();
+        list->SetGraphicsRootConstantBufferView(0, constants);
+        list->SetGraphicsRootConstantBufferView(1, constants);  // unused by the fill shaders; a valid address
+        list->SetGraphicsRootConstantBufferView(2, constants + sc::kPresentOffset);
+        list->SetGraphicsRootDescriptorTable(3, m_ctx.srvGpu(w.materialTables[0]));
+        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        if (quads) {
+            list->DrawInstanced(6, w.fillCount, 0, 0);  // one instanced draw: a layer per instance
+            draws = 1;
+        } else {
+            const D3D12_VERTEX_BUFFER_VIEW ring{slot.spriteRing->GetGPUVirtualAddress(), UINT(w.fillCount * sc::kSpriteBytes), UINT(sc::kSpriteBytes)};
+            list->IASetVertexBuffers(0, 1, &ring);
+            for (const sc::SpriteBatch &b : sc::spriteBatches(w.fillCount)) {
+                list->DrawInstanced(6, b.count, 0, b.first);  // StartInstanceLocation = the batch's first sprite
+                ++draws;
+            }
+        }
+    }
+    m_lastDraws = draws;
 }
 
 } // namespace sb::gpu::d3d12

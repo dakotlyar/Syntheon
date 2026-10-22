@@ -97,6 +97,9 @@ private:
     void recordScene(ID3D12GraphicsCommandList *list, Slot &slot, double t);
     void recordShading(ID3D12GraphicsCommandList *list, Slot &slot, double t);
     void recordParticles(ID3D12GraphicsCommandList *list, Slot &slot, double t);
+    // Task 30: Quads and Sprites into ldrA (§6.5, §6.6).
+    std::string loadFill(const SceneData &scene);
+    void recordFill(ID3D12GraphicsCommandList *list, Slot &slot, double t);
     void postPass(ID3D12GraphicsCommandList *list, Slot &slot, Image &target, bool accumulate, bool toShaderRead, ID3D12PipelineState *pipeline,
                   UINT table, std::uint32_t block);
     // A render target (rtv) or depth buffer (dsv) of the load region; depth formats: R32_TYPELESS (sampled) or D32_FLOAT.

@@ -57,10 +57,11 @@ struct Pipeline {
 struct PipelineDesc {
     const unsigned char *vs = nullptr, *ps = nullptr;  // DXBC (SM 5.0); ps null: no pixel shader
     std::size_t vsSize = 0, psSize = 0;
-    enum class Input { None, Mesh, Particle } input = Input::None;
+    enum class Input { None, Mesh, Particle, Sprite } input = Input::None;
     bool depthTest = false, depthWrite = false;
     D3D11_COMPARISON_FUNC compare = D3D11_COMPARISON_LESS;
     bool additive = false;   // blend ONE, ONE
+    bool alphaBlend = false; // blend SRC_ALPHA, INV_SRC_ALPHA (colour), ONE, INV_SRC_ALPHA (alpha): the fill workloads
     bool depthBias = false;  // §6.3: DepthBias 0, SlopeScaledDepthBias 2.0 (Vulkan: vkCmdSetDepthBias(0, 0, 2))
 };
 std::string makePipeline(ID3D11Device *device, const PipelineDesc &desc, Pipeline *out);
@@ -145,6 +146,9 @@ private:
     // The frame constants and the objects of scene time t (scene_constants.h), then the upload of both.
     std::string writeConstants(double t);
     std::uint32_t drawObjects(bool materials);
+    // Task 30: Quads and Sprites into ldrA (§6.5, §6.6).
+    std::string loadFill(const SceneData &scene);
+    std::string recordFill(double t);
     void postPass(Image &target, const Pipeline &pipeline, const Table &table, std::uint32_t block);
     std::string uploadMeshes(const SceneData &scene);  // every mesh's immutable vertex and index buffers
     // A render target (rtv + srv), depth buffer (dsv) or sampled depth buffer (dsv + srv, R32_TYPELESS).
@@ -168,7 +172,7 @@ private:
     std::array<Image, 6> m_bloom;
     std::unique_ptr<WorkloadState> m_work;
     std::array<ComPtr<ID3D11SamplerState>, 3> m_samplers;  // s0 anisotropic 8 wrap, s1 linear clamp, s2 comparison
-    ComPtr<ID3D11Buffer> m_frameCb, m_objectCb;
+    ComPtr<ID3D11Buffer> m_frameCb, m_objectCb, m_spriteCb;  // m_spriteCb: the Sprites' DYNAMIC instance buffer (Map(WRITE_DISCARD) once per frame)
     std::vector<std::uint8_t> m_frameShadow;  // the CPU side of the frame buffer
     Pipeline m_presentPipeline;
     Table m_presentTable;  // t0 = the workload's output ... t5 = the atlas

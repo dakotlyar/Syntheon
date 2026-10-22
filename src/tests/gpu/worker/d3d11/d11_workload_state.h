@@ -22,6 +22,7 @@ struct D3D11Backend::WorkloadState {
     std::vector<Table> materialTables;
     Image readTarget;                // render size, RGBA8: tone mapped, no overlay (§5.7)
     std::uint32_t draws = 0;
+    std::uint32_t fillCount = 0;  // Quads' layers or Sprites' count (scene.sprites is the CPU copy; pipeline + materialTables[0])
 
     Pipeline pipeline;  // Geometry/Draw calls: the scene; Shading: the EQUAL pass; Particles: the ground
     Pipeline shadowPipeline, prepassPipeline;  // Shading

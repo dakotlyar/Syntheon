@@ -75,13 +75,20 @@ std::string makePipeline(ID3D11Device *d, const PipelineDesc &p, Pipeline *out)
         {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, nx), D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(Vertex, u), D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
+    // §6.6: 16 bytes per sprite, one instance each: {float x, y; uint packed; uint rgba8}.
+    const D3D11_INPUT_ELEMENT_DESC sprite[] = {
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 1, DXGI_FORMAT_R32_UINT, 0, 8, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 2, DXGI_FORMAT_R32_UINT, 0, 12, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+    };
     const D3D11_INPUT_ELEMENT_DESC particle[] = {
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"TEXCOORD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1},
     };
     if (p.input != PipelineDesc::Input::None) {
-        const bool isMesh = p.input == PipelineDesc::Input::Mesh;
-        if (const HRESULT hr = d->CreateInputLayout(isMesh ? mesh : particle, isMesh ? 3 : 2, p.vs, p.vsSize, &r.layout); FAILED(hr))
+        const bool isMesh = p.input == PipelineDesc::Input::Mesh, isSprite = p.input == PipelineDesc::Input::Sprite;
+        if (const HRESULT hr = d->CreateInputLayout(isMesh ? mesh : isSprite ? sprite : particle, isMesh || isSprite ? 3 : 2, p.vs, p.vsSize, &r.layout);
+            FAILED(hr))
             return dxgi::failure("CreateInputLayout", hr);
     }
     D3D11_RASTERIZER_DESC rd{};
@@ -107,6 +114,13 @@ std::string makePipeline(ID3D11Device *d, const PipelineDesc &p, Pipeline *out)
         rt.BlendEnable = TRUE;
         rt.SrcBlend = rt.DestBlend = D3D11_BLEND_ONE;
         rt.SrcBlendAlpha = rt.DestBlendAlpha = D3D11_BLEND_ONE;
+        rt.BlendOp = rt.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    } else if (p.alphaBlend) {
+        rt.BlendEnable = TRUE;
+        rt.SrcBlend = D3D11_BLEND_SRC_ALPHA;
+        rt.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+        rt.SrcBlendAlpha = D3D11_BLEND_ONE;
+        rt.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
         rt.BlendOp = rt.BlendOpAlpha = D3D11_BLEND_OP_ADD;
     }
     if (const HRESULT hr = d->CreateBlendState(&bd, &r.blend); FAILED(hr))
@@ -397,11 +411,11 @@ std::string D3D11Backend::load(const SceneData &scene)
     case Workload::Shading: e = loadShading(scene); break;
     case Workload::Particles: e = loadParticles(scene); break;
     case Workload::Quads:
+    case Workload::Sprites: e = loadFill(scene); break;
     case Workload::Shapes:
     case Workload::Text:
     case Workload::Blits:
-    case Workload::Gradients:
-    case Workload::Sprites: break;  // still the clear workload (task 30)
+    case Workload::Gradients: break;
     }
     if (!e.empty())
         return e;
@@ -434,6 +448,7 @@ void D3D11Backend::unload()
     }
     m_work.reset();
     m_objectCb.Reset();
+    m_spriteCb.Reset();
     for (Image *img : {&m_ldrA, &m_sceneColor, &m_sceneDepth, &m_hdrB, &m_ldrB, &m_shadow})
         *img = Image{};
     for (Image &img : m_bloom)
@@ -643,11 +658,11 @@ std::string D3D11Backend::recordWorkload(double t)
     case Workload::Shading: return recordShading(t);
     case Workload::Particles: return recordParticles(t);
     case Workload::Quads:
+    case Workload::Sprites: return recordFill(t);
     case Workload::Shapes:
     case Workload::Text:
     case Workload::Blits:
-    case Workload::Gradients:
-    case Workload::Sprites: break;
+    case Workload::Gradients: break;
     }
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     if (std::string e = flushFrameConstants(); !e.empty())

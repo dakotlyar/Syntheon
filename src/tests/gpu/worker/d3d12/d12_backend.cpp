@@ -228,11 +228,11 @@ std::string D3D12Backend::load(const SceneData &scene)
     case Workload::Shading: e = loadShading(scene); break;
     case Workload::Particles: e = loadParticles(scene); break;
     case Workload::Quads:
+    case Workload::Sprites: e = loadFill(scene); break;
     case Workload::Shapes:
     case Workload::Text:
     case Workload::Blits:
-    case Workload::Gradients:
-    case Workload::Sprites: break;
+    case Workload::Gradients: break;
     }
     if (!e.empty())
         return e;
@@ -266,6 +266,8 @@ void D3D12Backend::unload()
         s.submitted = false;  // after the wait: their timestamps belong to the old workload
         s.objectConstants.Reset();  // made in load() (DX-2: after the wait)
         s.mapped[1] = nullptr;
+        s.spriteRing.Reset();       // task 30: the sprites' instance ring, made in load()
+        s.mapped[2] = nullptr;
     }
     unloadScene();
     m_work.reset();
@@ -398,11 +400,11 @@ void D3D12Backend::recordWorkload(ID3D12GraphicsCommandList *list, Slot &slot, d
     case Workload::Shading: recordShading(list, slot, t); return;
     case Workload::Particles: recordParticles(list, slot, t); return;
     case Workload::Quads:
+    case Workload::Sprites: recordFill(list, slot, t); return;
     case Workload::Shapes:
     case Workload::Text:
     case Workload::Blits:
-    case Workload::Gradients:
-    case Workload::Sprites: break;
+    case Workload::Gradients: break;
     }
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     // DX-1: the previous frame's present pass sampled ldrA, a readback copied it.

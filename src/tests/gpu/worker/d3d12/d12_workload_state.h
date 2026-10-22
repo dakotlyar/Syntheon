@@ -22,6 +22,7 @@ struct D3D12Backend::WorkloadState {
     std::vector<UINT> materialTables;  // SRV tables (t0-t5)
     Image readTarget;                  // render size, RGBA8: tone mapped, no overlay (§5.7)
     std::uint32_t draws = 0;
+    std::uint32_t fillCount = 0;  // task 30: Quads' layers or Sprites' count (w.scene.sprites is the CPU copy; pipeline + materialTables[0])
 
     ComPtr<ID3D12PipelineState> pipeline;  // Geometry/Draw calls: the scene; Shading: the EQUAL pass; Particles: the ground
     ComPtr<ID3D12PipelineState> shadowPipeline, prepassPipeline;  // Shading
