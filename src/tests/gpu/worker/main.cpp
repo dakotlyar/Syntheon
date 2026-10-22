@@ -54,6 +54,7 @@
 #include <QScreen>
 #include <QThread>
 
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -112,7 +113,7 @@ enum class Mode { None, Probe, ProbeGl, Run };
 struct Args {
     Mode mode = Mode::None;
     std::string api;  // as given: vulkan dx12 dx11 opengl d2d qt (null: dev hook)
-    QString gpu, screen;
+    QString gpu, screen, luid;  // luid: Windows, 16 hex digits (the GUI's GpuEntry::luid)
     std::optional<QString> planText;
     bool serve = false;
     bool headless = false, allowSoftware = false, validation = false, overlay = true;
@@ -160,6 +161,11 @@ Args parseArgs(const std::vector<std::string> &argv)
                 failArgs("unknown --api '" + a.api + "'");
         } else if (opt == "--gpu") {
             a.gpu = QString::fromStdString(value(i));
+        } else if (opt == "--luid") {
+            a.luid = QString::fromStdString(value(i));
+            std::array<quint8, 8> bytes;
+            if (!parseLuidHex(a.luid, &bytes))
+                failArgs("bad --luid '" + a.luid.toStdString() + "'");
         } else if (opt == "--plan") {
             a.planText = QString::fromStdString(value(i));
         } else if (opt == "--screen") {
@@ -490,6 +496,14 @@ public:
         if (!m_args.gpu.isEmpty() && !parseGpuId(m_args.gpu, &init)) {
             std::fprintf(stderr, "synbench-gpu: bad --gpu '%s'\n", qPrintable(m_args.gpu));
             return kExitArgs;
+        }
+        if (!m_args.luid.isEmpty()) {
+            // Vulkan and DXGI both select by LUID (checkpoint 3, M2): every API on the same physical GPU.
+            std::array<quint8, 8> bytes{};
+            parseLuidHex(m_args.luid, &bytes);
+            for (std::size_t i = 0; i < 8; ++i)
+                init.luid[i] = bytes[i];
+            init.hasLuid = true;
         }
         init.renderWidth = std::uint32_t(m_plan.render.width);
         init.renderHeight = std::uint32_t(m_plan.render.height);
@@ -857,7 +871,9 @@ int main(int argc, char **argv)
     std::vector<char *> qtArgv{argv[0]};
     char platformOption[] = "-platform", offscreen[] = "offscreen";
     // A probe opens no window: the offscreen platform, so it never touches the user's display.
-    if (a.headless || a.mode == Mode::Probe || a.mode == Mode::ProbeGl) {
+    // --probe-gl is not one: its context is made through the platform a real run uses (H2: Windows has no GL
+    // on the offscreen platform; on Linux EGL on Wayland, GLX on X11), so the verdict matches the run.
+    if (a.headless || a.mode == Mode::Probe) {
         qtArgv.push_back(platformOption);
         qtArgv.push_back(offscreen);
     }
@@ -918,6 +934,9 @@ int main(int argc, char **argv)
             r.deviceId = p.deviceId;
             r.software = p.software;
             r.dedicatedBytes = p.dedicatedBytes;
+            r.sharedBytes = p.sharedBytes;
+            r.umaKnown = p.umaKnown;
+            r.uma = p.uma;
             std::memcpy(r.luid, p.luid.data(), sizeof r.luid);
             r.dx12 = api(p.dx12);
             r.dx11 = api(p.dx11);

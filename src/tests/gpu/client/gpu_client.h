@@ -43,6 +43,7 @@ struct ClientRunSpec {
     QVector<protocol::PlanItem> plan;
     QProcessEnvironment extraEnv;
     std::optional<std::chrono::milliseconds> timeout;  // tests: instead of timeoutFor(plan)
+    QString luid;                                      // Windows: the adapter's LUID (GpuEntry::luid)
 };
 
 struct ClientOutcome {
@@ -85,7 +86,8 @@ public:
     // *timedOut (optional) says the probe ran out of time (D22), as opposed to failing.
     static QVector<GpuEntry> probe(std::chrono::milliseconds timeout, QString *error, bool *timedOut = nullptr);
     // `--probe-gl --gpu <id>` with the GL environment glEnv.
-    static protocol::GlEvent probeGl(const GpuEntry &gpu, const QProcessEnvironment &glEnv, std::chrono::milliseconds timeout);
+    // nullopt when no gl event arrived (a timeout, a crash, a worker that wouldn't start): the caller stores no answer (D22).
+    static std::optional<protocol::GlEvent> probeGl(const GpuEntry &gpu, const QProcessEnvironment &glEnv, std::chrono::milliseconds timeout);
 #if defined(SYNBENCH_DEV_HOOKS)
     // Tests: run `program` (with `extraArgs` before the usual ones) instead of
     // the real worker; an empty program restores the real one.
@@ -105,7 +107,8 @@ public:
     // Starts `synbench-gpu --run --serve --api <api> --gpu <id>` (+ extraArgs()),
     // environment baseEnvironment() + extraEnv. Returns at once; call waitReady()
     // after starting all sessions.
-    bool start(const QString &api, const QString &gpuId, const QProcessEnvironment &extraEnv, QString *error);
+    // luid (Windows, 16 hex digits): the adapter every API selects by, so they all run on the same physical GPU.
+    bool start(const QString &api, const QString &gpuId, const QProcessEnvironment &extraEnv, QString *error, const QString &luid = {});
     // Blocks until `ready` (Ok, `ready` filled), an error or exit 5 (NotAvailable),
     // an exit, a timeout or a cancel.
     ClientOutcome waitReady(std::chrono::milliseconds timeout, const std::function<bool()> &cancelled);

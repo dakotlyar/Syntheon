@@ -13,7 +13,9 @@
 
 #include <QTest>
 
+#include <chrono>
 #include <cmath>
+#include <cstring>
 
 using namespace sb::gpu;
 
@@ -618,6 +620,108 @@ private slots:
         QVERIFY(gpus[0].apis.value(QStringLiteral("dx12")).ok);
         QCOMPARE(gpus[2].apis.value(QStringLiteral("dx12")).reason, QStringLiteral("Needs shader model 6.0"));
         QCOMPARE(defaultGpuIndex(gpus), std::optional<int>(0));
+    }
+
+    // ---- checkpoint 3 fix round ----
+
+    // H3 (D22): a probe that gets no answer in time stores no entry, and nothing after it is probed.
+    void glProbeTimeoutStoresNothing()
+    {
+        namespace pr = sb::gpu::protocol;
+        GpuEntry a, b, c;
+        a.id = QStringLiteral("a");
+        b.id = QStringLiteral("b");
+        c.id = QStringLiteral("c");
+        a.vendorId = 0x10de;
+        b.vendorId = 0x1002;
+        c.vendorId = 0x8086;
+        QVector<GpuEntry> list{a, b, c};
+        QStringList probed;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        probeOpenGlOver(list, {0, 1, 2}, deadline, false, false, [&](const GpuEntry &g, std::chrono::milliseconds) -> std::optional<pr::GlEvent> {
+            probed << g.id;
+            if (g.id == QLatin1StringView("b"))
+                return std::nullopt;  // ran out of time
+            pr::GlEvent gl;
+            gl.ok = true;
+            gl.version = QStringLiteral("OpenGL 4.6");
+            gl.renderer = QStringLiteral("NVIDIA GeForce");
+            gl.vendor = QStringLiteral("NVIDIA Corporation");
+            return gl;
+        });
+        QCOMPARE(probed, (QStringList{QStringLiteral("a"), QStringLiteral("b")}));  // c was never probed
+        QVERIFY(list[0].apis.value(QStringLiteral("opengl")).ok);
+        QVERIFY(!list[1].apis.contains(QStringLiteral("opengl")));  // no entry: its worker checks it at the start
+        QVERIFY(!list[2].apis.contains(QStringLiteral("opengl")));
+        // An expired deadline probes nothing; Linux ARM stores its fixed reason without a probe.
+        QVector<GpuEntry> late{a};
+        probeOpenGlOver(late, {0}, std::chrono::steady_clock::now() - std::chrono::seconds(1), false, false,
+                        [&](const GpuEntry &, std::chrono::milliseconds) -> std::optional<pr::GlEvent> { return pr::GlEvent{}; });
+        QVERIFY(late[0].apis.isEmpty());
+        QVector<GpuEntry> arm{a};
+        probeOpenGlOver(arm, {0}, deadline, true, false, [&](const GpuEntry &, std::chrono::milliseconds) -> std::optional<pr::GlEvent> {
+            [] { QFAIL("probed on Linux ARM"); }();
+            return std::nullopt;
+        });
+        QCOMPARE(arm[0].apis.value(QStringLiteral("opengl")).reason, QStringLiteral("OpenGL isn't tested on Linux ARM"));
+    }
+
+    // M2: the LUID is carried (probe list -> protocol -> the worker's arguments) so every API selects the same adapter.
+    void luidIsCarried()
+    {
+        namespace pr = sb::gpu::protocol;
+        DxgiAdapterRecord r;
+        r.name = QStringLiteral("GPU");
+        r.vendorId = 0x10de;
+        r.deviceId = 0x2c05;
+        r.dedicatedBytes = qint64(16) << 30;
+        const quint8 luid[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
+        std::memcpy(r.luid, luid, 8);
+        const QVector<GpuEntry> gpus = mergeWindowsGpus({r}, {});
+        QCOMPARE(gpus[0].luid, QStringLiteral("0123456789abcdef"));
+        const auto e = pr::parseLine(pr::encode(pr::GpuEvent{gpus[0]}), nullptr);
+        QVERIFY(e);
+        QCOMPARE(std::get<pr::GpuEvent>(*e).gpu.luid, QStringLiteral("0123456789abcdef"));
+        std::array<quint8, 8> back{};
+        QVERIFY(parseLuidHex(gpus[0].luid, &back));
+        QCOMPARE(std::memcmp(back.data(), luid, 8), 0);
+        QVERIFY(!parseLuidHex(QStringLiteral("0123"), &back));
+        QVERIFY(!parseLuidHex(QStringLiteral("zzzzzzzzzzzzzzzz"), &back));
+        QCOMPARE(luidHex(luid), QStringLiteral("0123456789abcdef"));
+    }
+
+    // L5: UMA decides (or, without the answer, shared > dedicated on AMD and Intel); else the 512 MiB rule.
+    void windowsKinds()
+    {
+        const auto kind = [](quint32 vendor, qint64 dedicated, qint64 shared, bool umaKnown, bool uma) {
+            DxgiAdapterRecord r;
+            r.vendorId = vendor;
+            r.dedicatedBytes = dedicated;
+            r.sharedBytes = shared;
+            r.umaKnown = umaKnown;
+            r.uma = uma;
+            return mergeWindowsGpus({r}, {})[0].kind;
+        };
+        const qint64 GiB = qint64(1) << 30;
+        QCOMPARE(kind(0x1002, 4 * GiB, 16 * GiB, true, true), GpuKind::Integrated);    // an APU with a big carve-out
+        QCOMPARE(kind(0x1002, 8 * GiB, 16 * GiB, true, false), GpuKind::Discrete);     // a discrete Radeon: UMA says no
+        QCOMPARE(kind(0x1002, 512 * 1024, 16 * GiB, false, false), GpuKind::Integrated);  // fallback: shared > dedicated
+        QCOMPARE(kind(0x8086, 128 * 1024 * 1024, 16 * GiB, false, false), GpuKind::Integrated);
+        QCOMPARE(kind(0x10de, 6 * GiB, 16 * GiB, false, false), GpuKind::Discrete);   // NVIDIA: the 512 MiB rule
+        QCOMPARE(kind(0x10de, 256 * 1024 * 1024, 16 * GiB, false, false), GpuKind::Integrated);
+    }
+
+    // L3 and L6: a software GPU gets Mesa's software GL; the vendor table is case-insensitive.
+    void softwareGlAndVendorTable()
+    {
+        GpuEntry lvp;
+        lvp.kind = GpuKind::Software;
+        lvp.apis.insert(QStringLiteral("vulkan"), ApiAvailability{true, QStringLiteral("Vulkan 1.4"), QStringLiteral("llvmpipe Mesa 26.2.4"), {}, {}, {}});
+        QCOMPARE(glEnvironmentFor(lvp, false, [](const QString &) { return false; }).value(QStringLiteral("LIBGL_ALWAYS_SOFTWARE")), QStringLiteral("1"));
+        QCOMPARE(glVendorToPci(QStringLiteral("nvidia corporation")), std::optional<quint32>(0x10de));
+        QCOMPARE(glVendorToPci(QStringLiteral("advanced micro devices, inc.")), std::optional<quint32>(0x1002));
+        QVERIFY(isSoftwareGl(QStringLiteral("LLVMPIPE (LLVM 21)")));
+        QVERIFY(!isSoftwareGl(QStringLiteral("NVIDIA GeForce RTX 5070 Ti")));
     }
 
     // D20: the reference is the API that matches the most others, ties to the earlier one.

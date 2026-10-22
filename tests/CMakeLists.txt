@@ -54,12 +54,24 @@ if(UNIX)
             endif()
         endforeach()
     endforeach()
+    # Mesa's EGL vendor manifest (GLVND), found the same way: GL must never reach another vendor's driver,
+    # through GLX (__GLX_VENDOR_LIBRARY_NAME) or EGL (__EGL_VENDOR_LIBRARY_FILENAMES) (checkpoint 3, M4).
+    set(SB_MESA_EGL_JSON "")
+    foreach(_dir /usr/share/glvnd/egl_vendor.d /usr/local/share/glvnd/egl_vendor.d /etc/glvnd/egl_vendor.d)
+        if(NOT SB_MESA_EGL_JSON AND EXISTS "${_dir}/50_mesa.json")
+            set(SB_MESA_EGL_JSON "${_dir}/50_mesa.json")
+        endif()
+    endforeach()
+    set(SB_SOFTWARE_GL_ENV "LIBGL_ALWAYS_SOFTWARE=1|__GLX_VENDOR_LIBRARY_NAME=mesa")
+    if(SB_MESA_EGL_JSON)
+        string(APPEND SB_SOFTWARE_GL_ENV "|__EGL_VENDOR_LIBRARY_FILENAMES=${SB_MESA_EGL_JSON}")
+    endif()
     # VK_ICD_FILENAMES too: loaders older than 1.3.234 (ubuntu-22.04 has 1.3.204) know only that name
     # for the driver list, and VK_LOADER_LAYERS_DISABLE (implicit layers off) is ignored by them.
     if(SB_LAVAPIPE_ICD)
         list(APPEND SB_TEST_ENVIRONMENT
             "SYNBENCH_GPU_WORKER_ARGS=--allow-software"
-            "SYNBENCH_GPU_WORKER_ENV=VK_DRIVER_FILES=${SB_LAVAPIPE_ICD}|VK_ICD_FILENAMES=${SB_LAVAPIPE_ICD}|LIBGL_ALWAYS_SOFTWARE=1")
+            "SYNBENCH_GPU_WORKER_ENV=VK_DRIVER_FILES=${SB_LAVAPIPE_ICD}|VK_ICD_FILENAMES=${SB_LAVAPIPE_ICD}|${SB_SOFTWARE_GL_ENV}")
     endif()
     set(SB_TEST_FIXTURES test_home)
     add_test(NAME test_home_setup

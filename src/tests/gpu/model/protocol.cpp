@@ -57,6 +57,7 @@ QJsonObject encodeGpu(const GpuEntry &g)
             {S("vramBytes"), double(g.vramBytes)},
             {S("pciSlot"), g.pciSlot},
             {S("kernelDriver"), g.kernelDriver},
+            {S("luid"), g.luid},
             {S("apis"), apis}};
 }
 
@@ -174,6 +175,7 @@ std::optional<Event> parseGpu(const QJsonObject &o, QString *error)
     g.vramBytes = qint64(o.value(S("vramBytes")).toDouble());
     g.pciSlot = o.value(S("pciSlot")).toString();
     g.kernelDriver = o.value(S("kernelDriver")).toString();
+    g.luid = o.value(S("luid")).toString();
     const QJsonObject apis = o.value(S("apis")).toObject();
     for (auto it = apis.begin(); it != apis.end(); ++it) {
         const QJsonObject a = it.value().toObject();

@@ -61,6 +61,29 @@ inline QString lavapipeIcd()
     return {};
 }
 
+// Mesa's EGL vendor manifest (GLVND), found the way lavapipe's ICD is: "" when there is none.
+inline QString mesaEglJson()
+{
+#if defined(Q_OS_LINUX)
+    for (const char *dir : {"/usr/share/glvnd/egl_vendor.d", "/usr/local/share/glvnd/egl_vendor.d", "/etc/glvnd/egl_vendor.d"}) {
+        const QString path = QDir(QString::fromLatin1(dir)).filePath(QStringLiteral("50_mesa.json"));
+        if (QFileInfo::exists(path))
+            return path;
+    }
+#endif
+    return {};
+}
+
+// The worker's software GL environment (checkpoint 3, M4): Mesa's llvmpipe only, through BOTH GLVND
+// vendor libraries (GLX and EGL), so nothing in a test ever reaches NVIDIA's.
+inline void addSoftwareGl(QProcessEnvironment &env)
+{
+    env.insert(QStringLiteral("LIBGL_ALWAYS_SOFTWARE"), QStringLiteral("1"));
+    env.insert(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME"), QStringLiteral("mesa"));
+    if (const QString json = mesaEglJson(); !json.isEmpty())
+        env.insert(QStringLiteral("__EGL_VENDOR_LIBRARY_FILENAMES"), json);
+}
+
 // The worker's software environment: only lavapipe, no implicit layers (§4.4).
 inline void addSoftwareVulkan(QProcessEnvironment &env)
 {

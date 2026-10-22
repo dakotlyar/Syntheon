@@ -795,9 +795,7 @@ std::string VulkanBackend::loadParticles(const SceneData &scene)
         !e.empty())
         return e;
     for (std::uint32_t k = 0; k < m_bloom.size(); ++k) {
-        const std::uint32_t div = 2u << k;
-        if (std::string e = makeImage(m_ctx, std::max(1u, (W + div - 1) / div), std::max(1u, (H + div - 1) / div),
-                                      VK_FORMAT_R16G16B16A16_SFLOAT, target, 1, &m_bloom[k]);
+        if (std::string e = makeImage(m_ctx, sc::bloomSize(W, k), sc::bloomSize(H, k), VK_FORMAT_R16G16B16A16_SFLOAT, target, 1, &m_bloom[k]);
             !e.empty())
             return e;
     }

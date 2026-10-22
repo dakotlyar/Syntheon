@@ -72,7 +72,7 @@ std::string findAdapter(const BackendInit &init, ComPtr<IDXGIAdapter1> *out, boo
         }
     }
     // WARP isn't always in the list (it is as the Basic Render Driver on a machine without a GPU).
-    if (allowSoftware && init.vendorId == kWarpVendor && init.deviceId == kWarpDevice && !init.hasLuid) {
+    if (allowSoftware && init.vendorId == kWarpVendor && init.deviceId == kWarpDevice) {  // also with a LUID: the probe lists WARP from EnumWarpAdapter
         ComPtr<IDXGIFactory4> factory4;
         ComPtr<IDXGIAdapter1> warp;
         if (SUCCEEDED(factory.As(&factory4)) && SUCCEEDED(factory4->EnumWarpAdapter(IID_PPV_ARGS(&warp)))) {
@@ -81,6 +81,34 @@ std::string findAdapter(const BackendInit &init, ComPtr<IDXGIAdapter1> *out, boo
         }
     }
     return "N/A: this GPU isn't in DirectX's adapter list";
+}
+
+std::string adapterDescription(const BackendInit &init, bool allowSoftware)
+{
+    ComPtr<IDXGIAdapter1> adapter;
+    if (!findAdapter(init, &adapter, allowSoftware).empty())
+        return {};
+    DXGI_ADAPTER_DESC1 desc{};
+    adapter->GetDesc1(&desc);
+    return utf8(desc.Description);
+}
+
+int countHardwareAdapters(std::uint32_t vendorId)
+{
+    ComPtr<IDXGIFactory1> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+        return 0;
+    int count = 0;
+    for (UINT i = 0;; ++i) {
+        ComPtr<IDXGIAdapter1> adapter;
+        if (FAILED(factory->EnumAdapters1(i, &adapter)))
+            break;
+        DXGI_ADAPTER_DESC1 desc{};
+        adapter->GetDesc1(&desc);
+        if (!(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) && desc.VendorId == vendorId)
+            ++count;
+    }
+    return count;
 }
 
 std::string Swapchain::create(IUnknown *deviceOrQueue, HWND hwnd, std::uint32_t w, std::uint32_t h)

@@ -5,13 +5,20 @@
 
 #include <glad/gl.h>
 
+#include "tests/gpu/model/gl_vendor.h"
 #include "tests/gpu/worker/present_constants.h"
 #include "tests/gpu/worker/scene/bitmap_font.h"
 #include "tests/gpu/worker/scene/textures.h"
 #include "tests/gpu/worker/scene_constants.h"
+#if defined(_WIN32)
+#include "tests/gpu/worker/dxgi/dxgi_swapchain.h"
+#endif
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <cstring>
 
 namespace {
@@ -47,30 +54,25 @@ std::string glString(GLenum name)
     return s ? s : "";
 }
 
-bool contains(const std::string &s, const char *part)
+// How many non-software GPUs have this PCI vendor (§4.3: with two, OpenGL can't tell which it uses).
+int hardwareGpusOfVendor(std::uint32_t vendor)
 {
-    return s.find(part) != std::string::npos;
-}
-
-// §4.3's vendor rule, Qt-free (the model's glVendorToPci has the same table):
-// GL_VENDOR -> PCI vendor, 0 when unknown.
-std::uint32_t pciVendor(const std::string &vendor)
-{
-    if (contains(vendor, "NVIDIA"))
-        return 0x10de;
-    if (contains(vendor, "AMD") || contains(vendor, "ATI Technologies") || contains(vendor, "Advanced Micro Devices"))
-        return 0x1002;
-    if (contains(vendor, "Intel"))
-        return 0x8086;
-    if (contains(vendor, "Qualcomm"))
-        return 0x5143;
-    return 0;
-}
-
-bool softwareRenderer(const std::string &renderer)
-{
-    return contains(renderer, "llvmpipe") || contains(renderer, "softpipe") || contains(renderer, "GDI Generic")
-           || contains(renderer, "Microsoft Basic Render");
+#if defined(_WIN32)
+    return dxgi::countHardwareAdapters(vendor);
+#else
+    int count = 0;
+    std::error_code ec;
+    for (const auto &entry : std::filesystem::directory_iterator("/sys/class/drm", ec)) {
+        const std::string name = entry.path().filename().string();
+        if (name.rfind("card", 0) != 0 || name.find('-') != std::string::npos)
+            continue;
+        std::ifstream f(entry.path() / "device" / "vendor");
+        std::string text;
+        if (f >> text && std::strtoul(text.c_str(), nullptr, 16) == vendor)
+            ++count;
+    }
+    return count;
+#endif
 }
 
 // The sampler object a SPIRV-Cross combined sampler's name asks for (task 7's
@@ -300,16 +302,26 @@ std::string GlBackend::init(const BackendInit &init, const PresentTarget &target
     // §4.3, D17: the context must be on the chosen GPU. A software renderer
     // counts only with --allow-software; Microsoft's GLon12 is labelled (task 23
     // matches its adapter).
-    const bool glOn12 = contains(vendor, "Microsoft Corporation") && renderer.rfind("D3D12 (", 0) == 0;
-    if (softwareRenderer(renderer)) {
+    const bool glOn12 = vendor == "Microsoft Corporation" && renderer.rfind("D3D12 (", 0) == 0;
+    if (glSoftwareRenderer(renderer)) {
         if (!init.allowSoftware)
             return "N/A: OpenGL runs on " + renderer + " here, not on this GPU";
-    } else if (!glOn12) {
-        const std::uint32_t pci = pciVendor(vendor);
+    } else if (glOn12) {
+        // GLon12: its device (the text inside the parentheses) must be the chosen DXGI adapter.
+#if defined(_WIN32)
+        const std::string inside = renderer.size() > 8 ? renderer.substr(7, renderer.size() - 8) : std::string();
+        const std::string chosen = dxgi::adapterDescription(init, init.allowSoftware);
+        if (!glContainsNoCase(chosen, inside) || !glContainsNoCase(inside, chosen))  // equal, ignoring case
+            return "N/A: OpenGL runs on " + renderer + " here, not on this GPU";
+#endif
+    } else {
+        const std::uint32_t pci = glVendorPci(vendor);
         if (pci == 0)
             return "N/A: Can't tell which GPU OpenGL uses (" + vendor + ")";
         if (pci != init.vendorId)
             return "N/A: OpenGL runs on " + renderer + " here, not on this GPU";
+        if (hardwareGpusOfVendor(pci) > 1)
+            return "N/A: Can't tell which GPU OpenGL uses (" + vendor + ")";
     }
 
     if (init.validation) {

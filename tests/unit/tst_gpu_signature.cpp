@@ -39,8 +39,7 @@ QVector<QByteArray> run(const QString &api, QString *why)
         }
         args = {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker};
         env.remove(QStringLiteral("WAYLAND_DISPLAY"));
-        env.insert(QStringLiteral("LIBGL_ALWAYS_SOFTWARE"), QStringLiteral("1"));
-        env.insert(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME"), QStringLiteral("mesa"));  // never the NVIDIA GLX
+        addSoftwareGl(env);  // llvmpipe through Mesa's GLX and EGL only (M4)
     } else {
         if (lavapipeIcd().isEmpty()) {
             *why = QStringLiteral("skip:lavapipe (the software Vulkan driver) isn't installed");

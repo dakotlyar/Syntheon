@@ -8,6 +8,7 @@
 #include <QString>
 #include <QVector>
 
+#include <array>
 #include <optional>
 
 namespace sb::gpu {
@@ -28,6 +29,7 @@ struct GpuEntry {
     qint64 vramBytes = 0;
     QString pciSlot;                       // Linux "0000:01:00.0"
     QString kernelDriver;                  // Linux "nvidia", "amdgpu"
+    QString luid;                          // Windows: the adapter's LUID, 16 hex digits (bytes in memory order); the run selects by it
     QMap<QString, ApiAvailability> apis;   // key: "vulkan","dx12","dx11","opengl","d2d"
     bool operator==(const GpuEntry &) const = default;
 };
@@ -43,6 +45,9 @@ bool isGlOn12(const QString &glVendor, const QString &glRenderer);
 QString glOn12DeviceName(const QString &glRenderer);  // "D3D12 (X)" -> "X"
 bool isSoftwareGl(const QString &glRenderer);          // llvmpipe | softpipe | "GDI Generic" | "Microsoft Basic Render"
 std::optional<quint32> glVendorToPci(const QString &glVendor);  // §4.3 table; GLon12 and unknown -> nullopt
+// The LUID as 16 lowercase hex digits (8 bytes in memory order) and back.
+QString luidHex(const quint8 *bytes);
+bool parseLuidHex(const QString &text, std::array<quint8, 8> *out);
 QString kindText(GpuKind);       // "discrete" "integrated" "software" "other"
 QString vramText(qint64 bytes);  // round(bytes / 2^30) + " GB"; < 1 GiB: round(bytes / 2^20) + " MB"
 

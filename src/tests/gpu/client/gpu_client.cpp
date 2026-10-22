@@ -327,9 +327,11 @@ ClientOutcome GpuClient::run(const ClientRunSpec &spec, const std::function<bool
                              const std::function<void(const pr::Event &)> &onEvent)
 {
     ClientOutcome out;
-    const QStringList args = QStringList{QStringLiteral("--run"), QStringLiteral("--api"), spec.api, QStringLiteral("--gpu"), spec.gpuId,
-                                         QStringLiteral("--plan"), pr::planText(spec.plan)}
-                             + extraArgs();
+    QStringList args = QStringList{QStringLiteral("--run"), QStringLiteral("--api"), spec.api, QStringLiteral("--gpu"), spec.gpuId,
+                                   QStringLiteral("--plan"), pr::planText(spec.plan)};
+    if (!spec.luid.isEmpty())
+        args << QStringLiteral("--luid") << spec.luid;
+    args += extraArgs();
     QProcessEnvironment env = baseEnvironment();
     env.insert(spec.extraEnv);
     Link link;
@@ -398,36 +400,23 @@ QVector<GpuEntry> GpuClient::probe(std::chrono::milliseconds timeout, QString *e
     return gpus;
 }
 
-pr::GlEvent GpuClient::probeGl(const GpuEntry &gpu, const QProcessEnvironment &glEnv, std::chrono::milliseconds timeout)
+std::optional<pr::GlEvent> GpuClient::probeGl(const GpuEntry &gpu, const QProcessEnvironment &glEnv, std::chrono::milliseconds timeout)
 {
-    pr::GlEvent gl;
-    gl.reason = QStringLiteral("the OpenGL probe failed");
     Link link;
     QProcessEnvironment env = baseEnvironment();
     env.insert(glEnv);
     QString error;
-    if (!link.start(QStringList{QStringLiteral("--probe-gl"), QStringLiteral("--gpu"), gpu.id} + extraArgs(), env, &error)) {
-        gl.reason = error;
-        return gl;
-    }
+    if (!link.start(QStringList{QStringLiteral("--probe-gl"), QStringLiteral("--gpu"), gpu.id} + extraArgs(), env, &error))
+        return std::nullopt;
     QString problem;
-    bool got = false;
-    QString lastError;
+    std::optional<pr::GlEvent> gl;
     const End end = drive(link, {}, Clock::now() + timeout, [&](const pr::Event &e) {
-        if (const auto *g = std::get_if<pr::GlEvent>(&e)) {
+        if (const auto *g = std::get_if<pr::GlEvent>(&e))
             gl = *g;
-            got = true;
-        } else if (const auto *err = std::get_if<pr::ErrorEvent>(&e)) {
-            lastError = err->reason;
-        }
-        return got;
+        return gl.has_value();
     }, &problem);
-    if (end == End::TimedOut || end == End::Malformed)
+    if (end == End::TimedOut || end == End::Malformed || !gl)
         link.killNow();
-    if (!got) {
-        gl.ok = false;
-        gl.reason = !lastError.isEmpty() ? lastError : end == End::TimedOut ? QStringLiteral("the OpenGL probe timed out") : gl.reason;
-    }
     return gl;
 }
 
@@ -453,11 +442,12 @@ GpuSession::~GpuSession()
     kill();
 }
 
-bool GpuSession::start(const QString &api, const QString &gpuId, const QProcessEnvironment &extraEnv, QString *error)
+bool GpuSession::start(const QString &api, const QString &gpuId, const QProcessEnvironment &extraEnv, QString *error, const QString &luid)
 {
-    const QStringList args = QStringList{QStringLiteral("--run"), QStringLiteral("--serve"), QStringLiteral("--api"), api,
-                                         QStringLiteral("--gpu"), gpuId}
-                             + GpuClient::extraArgs();
+    QStringList args = QStringList{QStringLiteral("--run"), QStringLiteral("--serve"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), gpuId};
+    if (!luid.isEmpty())
+        args << QStringLiteral("--luid") << luid;
+    args += GpuClient::extraArgs();
     QProcessEnvironment env = GpuClient::baseEnvironment();
     env.insert(extraEnv);
     if (!m_d->link.start(args, env, error))

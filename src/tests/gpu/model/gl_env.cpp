@@ -48,6 +48,8 @@ QProcessEnvironment glEnvironmentFor(const GpuEntry &gpu, bool windows, const st
     QProcessEnvironment env;
     if (windows)
         return env;
+    if (gpu.kind == GpuKind::Software)
+        env.insert(QStringLiteral("LIBGL_ALWAYS_SOFTWARE"), QStringLiteral("1"));  // the dev hook's rasteriser: Mesa's software GL
     if (gpu.kernelDriver == QLatin1StringView("nvidia")) {
         env.insert(QStringLiteral("__NV_PRIME_RENDER_OFFLOAD"), QStringLiteral("1"));
         env.insert(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME"), QStringLiteral("nvidia"));
@@ -70,6 +72,26 @@ QProcessEnvironment glEnvironment(const GpuEntry &gpu, const std::function<bool(
 #else
     return glEnvironmentFor(gpu, false, fileExists);
 #endif
+}
+
+void probeOpenGlOver(QVector<GpuEntry> &list, const QVector<int> &order, std::chrono::steady_clock::time_point deadline, bool linuxArm,
+                     bool windowsArm, const GlProber &prober)
+{
+    for (const int i : order) {
+        if (list[i].apis.contains(QStringLiteral("opengl")))
+            continue;
+        if (linuxArm) {
+            list[i].apis.insert(QStringLiteral("opengl"), verifyGl({}, list[i], list, true));  // no probe on Linux ARM
+            continue;
+        }
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        if (left.count() <= 0)
+            break;
+        const std::optional<protocol::GlEvent> gl = prober(list[i], left);
+        if (!gl)
+            break;  // no answer in time: no entry, and no more probing (D22)
+        list[i].apis.insert(QStringLiteral("opengl"), verifyGl(*gl, list[i], list, false, windowsArm));
+    }
 }
 
 ApiAvailability verifyGl(const protocol::GlEvent &gl, const GpuEntry &chosen, const QVector<GpuEntry> &all, bool linuxArm, bool windowsArm)

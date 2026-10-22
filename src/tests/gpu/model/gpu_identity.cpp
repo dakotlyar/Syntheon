@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "tests/gpu/model/gpu_identity.h"
 
+#include "tests/gpu/model/gl_vendor.h"
+
 #include <cmath>
 
 namespace sb::gpu {
@@ -64,25 +66,35 @@ QString glOn12DeviceName(const QString &glRenderer)
 
 bool isSoftwareGl(const QString &glRenderer)
 {
-    for (const char *needle : {"llvmpipe", "softpipe", "GDI Generic", "Microsoft Basic Render"}) {
-        if (glRenderer.contains(QLatin1StringView(needle), Qt::CaseInsensitive))
-            return true;
-    }
-    return false;
+    return glSoftwareRenderer(glRenderer.toStdString());
 }
 
 std::optional<quint32> glVendorToPci(const QString &glVendor)
 {
-    const auto has = [&](const char *s) { return glVendor.contains(QLatin1StringView(s), Qt::CaseSensitive); };
-    if (has("NVIDIA"))
-        return 0x10de;
-    if (has("AMD") || has("ATI Technologies") || has("Advanced Micro Devices"))
-        return 0x1002;
-    if (has("Intel"))
-        return 0x8086;
-    if (has("Qualcomm"))
-        return 0x5143;
-    return std::nullopt;
+    const std::uint32_t pci = glVendorPci(glVendor.toStdString());
+    return pci ? std::optional<quint32>(pci) : std::nullopt;
+}
+
+QString luidHex(const quint8 *bytes)
+{
+    QString out;
+    for (int i = 0; i < 8; ++i)
+        out += QStringLiteral("%1").arg(bytes[i], 2, 16, QLatin1Char('0'));
+    return out;
+}
+
+bool parseLuidHex(const QString &text, std::array<quint8, 8> *out)
+{
+    if (text.size() != 16)
+        return false;
+    for (int i = 0; i < 8; ++i) {
+        bool ok = false;
+        const uint v = text.mid(2 * i, 2).toUInt(&ok, 16);
+        if (!ok)
+            return false;
+        (*out)[std::size_t(i)] = quint8(v);
+    }
+    return true;
 }
 
 QString kindText(GpuKind k)

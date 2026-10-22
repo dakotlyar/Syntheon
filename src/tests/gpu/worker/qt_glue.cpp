@@ -113,9 +113,13 @@ std::string GlContext::create(bool debug)
     m_surface->create();
     const bool made = m_context->create();
     const QSurfaceFormat got = m_context->format();
-    if (made && got.profile() == QSurfaceFormat::CoreProfile && (got.majorVersion() > 3 || (got.majorVersion() == 3 && got.minorVersion() >= 3))
-        && m_context->makeCurrent(m_surface.get()))
-        return {};
+    if (made && got.profile() == QSurfaceFormat::CoreProfile && (got.majorVersion() > 3 || (got.majorVersion() == 3 && got.minorVersion() >= 3))) {
+        if (m_context->makeCurrent(m_surface.get()))
+            return {};
+        // A 3.3+ context exists but can't be used: an Error (not "needs OpenGL 3.3"), in the driver's own terms.
+        m_context.reset();
+        return "couldn't make the OpenGL context current";
+    }
     // Which version is there, for the reason (§4.2: "Needs OpenGL 3.3 (the driver has 1.1)").
     std::string have = "less";
     QOpenGLContext probe;

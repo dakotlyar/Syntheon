@@ -356,8 +356,8 @@ private slots:
             SB_SKIP_OR_FAIL("xvfb-run isn't installed");
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         env.remove(QStringLiteral("WAYLAND_DISPLAY"));
-        env.insert(QStringLiteral("LIBGL_ALWAYS_SOFTWARE"), QStringLiteral("1"));
-        env.insert(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME"), QStringLiteral("mesa"));
+        sb::gpu::testing::addSoftwareGl(env);  // llvmpipe through Mesa's GLX and EGL only (M4)
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("xcb"));  // H2: the probe uses the run's own platform (xvfb's X11), not offscreen
         QProcess p;
         p.setProcessEnvironment(env);
         p.start(xvfb, {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker, QStringLiteral("--probe-gl"),

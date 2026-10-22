@@ -276,13 +276,11 @@ private slots:
         // The in-process GL cases (task 21): Mesa's software rasteriser only. GLVND
         // would otherwise hand EGL to another vendor (NVIDIA's on Tiamat): Mesa's
         // manifest only, as gl_env does for a Mesa GPU (§4.3).
-        qputenv("LIBGL_ALWAYS_SOFTWARE", "1");
-        for (const char *dir : {"/usr/share/glvnd/egl_vendor.d", "/etc/glvnd/egl_vendor.d"}) {
-            const QString mesa = QDir(QString::fromLatin1(dir)).filePath(QStringLiteral("50_mesa.json"));
-            if (QFileInfo::exists(mesa)) {
-                qputenv("__EGL_VENDOR_LIBRARY_FILENAMES", mesa.toLocal8Bit());
-                break;
-            }
+        {
+            QProcessEnvironment gl;
+            addSoftwareGl(gl);
+            for (const QString &key : gl.keys())
+                qputenv(qPrintable(key), gl.value(key).toLocal8Bit());
         }
     }
 
@@ -1015,8 +1013,7 @@ private slots:
                 SB_SKIP_OR_FAIL("xvfb-run isn't installed");
             args = {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker};
             env.remove(QStringLiteral("WAYLAND_DISPLAY"));
-            env.insert(QStringLiteral("LIBGL_ALWAYS_SOFTWARE"), QStringLiteral("1"));
-            env.insert(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME"), QStringLiteral("mesa"));  // never the NVIDIA GLX
+            addSoftwareGl(env);  // llvmpipe through Mesa's GLX and EGL only (M4)
         } else {
             if (lavapipeIcd().isEmpty())
                 SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");

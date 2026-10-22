@@ -380,6 +380,14 @@ std::string D3D12Backend::waitAll()
 
 void D3D12Backend::recordWorkload(ID3D12GraphicsCommandList *list, Slot &slot, double t)
 {
+    // M1: valid defaults for every root parameter, so no draw of any workload runs with one unset
+    // (the descriptor heap is already set by frame() / readImage()).
+    list->SetGraphicsRootSignature(m_root.Get());
+    const D3D12_GPU_VIRTUAL_ADDRESS frameAddress = slot.frameConstants->GetGPUVirtualAddress();
+    list->SetGraphicsRootConstantBufferView(0, frameAddress);
+    list->SetGraphicsRootConstantBufferView(1, slot.objectConstants ? slot.objectConstants->GetGPUVirtualAddress() : frameAddress);
+    list->SetGraphicsRootConstantBufferView(2, frameAddress + kPassBase);
+    list->SetGraphicsRootDescriptorTable(3, m_ctx.srvGpu(m_presentTable));
     switch (m_work ? m_work->workload : Workload::Quads) {
     case Workload::Geometry:
     case Workload::DrawCalls: recordScene(list, slot, t); return;

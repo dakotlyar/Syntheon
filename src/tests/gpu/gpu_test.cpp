@@ -135,19 +135,9 @@ void probeOpenGl(QVector<GpuEntry> &list, std::chrono::steady_clock::time_point 
         if (!order.contains(i))
             order.append(i);
     }
-    for (const int i : order) {
-        if (list[i].apis.contains(QStringLiteral("opengl")))
-            continue;
-        if (linuxArm) {
-            list[i].apis.insert(QStringLiteral("opengl"), verifyGl({}, list[i], list, true));  // no probe on Linux ARM
-            continue;
-        }
-        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
-        if (left.count() <= 0)
-            break;
-        const pr::GlEvent gl = GpuClient::probeGl(list[i], glEnvironment(list[i]), left);
-        list[i].apis.insert(QStringLiteral("opengl"), verifyGl(gl, list[i], list, false, windowsArm));
-    }
+    probeOpenGlOver(list, order, deadline, linuxArm, windowsArm, [](const GpuEntry &g, std::chrono::milliseconds left) {
+        return GpuClient::probeGl(g, glEnvironment(g), left);
+    });
 }
 
 struct ApiRun;
@@ -305,7 +295,7 @@ TestResult GpuRun::run()
         a.session = std::make_unique<GpuSession>();
         QString err;
         // D17: OpenGL runs in the environment that puts it on the chosen GPU (the offload variables).
-        if (!a.session->start(apiKey(a.id), m_gpu.id, a.id == ApiId::OpenGl ? glEnvironment(m_gpu) : QProcessEnvironment(), &err))
+        if (!a.session->start(apiKey(a.id), m_gpu.id, a.id == ApiId::OpenGl ? glEnvironment(m_gpu) : QProcessEnvironment(), &err, m_gpu.luid))
             fail(a, QStringLiteral("starting"), err);
     }
     bool stopped = cancelled();
@@ -643,6 +633,15 @@ Availability GpuTest::probe(const ProbeContext &) const
     }
     if (!any)
         return Availability::unavailable(QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found"));
+    // L4 (the approved mockup): a missing-component hint (Windows on ARM's compatibility pack) is the
+    // probe hint of Run tests, not of the Detail page.
+    for (const char *key : kApiKeys) {
+        const ApiAvailability av = g.apis.value(QString::fromLatin1(key));
+        if (!av.ok && !av.hint.isEmpty()) {
+            a.hint = Hint{QStringLiteral("Get the compatibility pack for OpenGL"), av.hint};
+            break;
+        }
+    }
     if (g.vramBytes > 0 && g.vramBytes < (qint64(512) << 20))
         a.capabilities.append({QStringLiteral("Little video memory (%1)").arg(vramText(g.vramBytes)), Tone::Warn});
     return a;
@@ -694,7 +693,7 @@ OptionSchema GpuTest::options(const ProbeContext &ctx, const Availability &) con
             if (av.ok)
                 ok << (av.version.isEmpty() ? name : av.version);
             else if (!av.reason.isEmpty())
-                na << QStringLiteral("%1: %2").arg(name, av.reason);
+                na << (av.hint.isEmpty() ? QStringLiteral("%1: %2").arg(name, av.reason) : QStringLiteral("%1: %2 (%3)").arg(name, av.reason, av.hint));
         }
     }
     info("apis", "APIs", ok.isEmpty() ? QStringLiteral("none found") : ok.join(QStringLiteral(", ")) + (na.isEmpty() ? QString() : QStringLiteral(" · N/A: ") + na.join(QStringLiteral("; "))));

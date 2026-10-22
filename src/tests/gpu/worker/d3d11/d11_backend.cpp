@@ -441,13 +441,16 @@ void D3D11Backend::unload()
 
 void D3D11Backend::releaseWindow()
 {
-    if (m_cx) {
-        m_cx->ClearState();  // revised (Dave): release the back buffer's views before the swapchain
-        m_cx->Flush();
-    }
+    // The order Microsoft requires for a flip-model swapchain (H1): the views, the back buffer and the
+    // swapchain are released FIRST, then ClearState and Flush let the runtime drop its last references.
+    // Otherwise the next CreateSwapChainForHwnd on the same HWND can fail with E_ACCESSDENIED.
     m_backRtv.Reset();
     m_backTexture.Reset();
     m_swap.destroy();
+    if (m_cx) {
+        m_cx->ClearState();
+        m_cx->Flush();
+    }
     m_headlessTarget = Image{};
     m_resumed = false;
 }
@@ -520,6 +523,7 @@ std::string D3D11Backend::waitSlot(std::uint32_t index, std::vector<double> *gpu
     const auto poll = [this](ID3D11Query *query, void *data, UINT size) -> std::string {
         m_cx->Flush();
         const auto start = std::chrono::steady_clock::now();
+        unsigned spins = 0;
         for (;;) {
             const HRESULT hr = m_cx->GetData(query, data, size, D3D11_ASYNC_GETDATA_DONOTFLUSH);
             if (hr == S_OK)
@@ -530,7 +534,16 @@ std::string D3D11Backend::waitSlot(std::uint32_t index, std::vector<double> *gpu
                 return lost;
             if (std::chrono::steady_clock::now() - start > std::chrono::seconds(10))  // P-STOP
                 return "LOST: the GPU stopped responding";
-            std::this_thread::yield();
+            // L1: a short back-off, not a hot spin: a few pauses, then the thread's quantum, then 1 ms naps.
+            if (++spins < 32)
+                YieldProcessor();
+            else if (spins < 4096)
+            {
+                if (!SwitchToThread())
+                    Sleep(0);
+            }
+            else
+                Sleep(1);
         }
     };
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};

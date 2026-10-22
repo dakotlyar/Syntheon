@@ -12,7 +12,9 @@
 #include <QString>
 #include <QVector>
 
+#include <chrono>
 #include <functional>
+#include <optional>
 
 namespace sb::gpu {
 
@@ -27,6 +29,15 @@ bool defaultFileExists(const QString &path);
 QProcessEnvironment glEnvironment(const GpuEntry &gpu, const std::function<bool(const QString &)> &fileExists = defaultFileExists);
 // The same for a given OS (tests): windows = true gives an empty environment.
 QProcessEnvironment glEnvironmentFor(const GpuEntry &gpu, bool windows, const std::function<bool(const QString &)> &fileExists);
+
+// §4.2, D22: the OpenGL probe over a GPU list, within a shared deadline. `order` is the order to
+// probe in (the default GPU first); a GPU that already has an `opengl` entry is left as it is. A
+// prober that gives no answer (nullopt: the budget ran out, the worker didn't answer) stops the whole
+// loop and stores NO entry for that GPU or any later one: the OpenGL worker checks it when the test
+// starts. Linux ARM stores the fixed reason without probing.
+using GlProber = std::function<std::optional<protocol::GlEvent>(const GpuEntry &gpu, std::chrono::milliseconds left)>;
+void probeOpenGlOver(QVector<GpuEntry> &list, const QVector<int> &order, std::chrono::steady_clock::time_point deadline, bool linuxArm,
+                     bool windowsArm, const GlProber &prober);
 
 // "0000:79:00.0" -> "pci-0000_79_00_0".
 QString driPrimeValue(const QString &pciSlot);

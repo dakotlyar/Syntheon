@@ -23,13 +23,19 @@ const char *level12(D3D_FEATURE_LEVEL l)
     }
 }
 
-ApiProbe probeDx12(IDXGIAdapter1 *adapter)
+ApiProbe probeDx12(IDXGIAdapter1 *adapter, bool *umaKnown, bool *uma)
 {
     ApiProbe p;
     ComPtr<ID3D12Device> device;
     if (FAILED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device)))) {
         p.reason = "Needs DirectX 12 feature level 12_0";
         return p;
+    }
+    // L5: unified memory (integrated GPUs) from the device itself.
+    D3D12_FEATURE_DATA_ARCHITECTURE arch{};
+    if (SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_ARCHITECTURE, &arch, sizeof arch))) {
+        *umaKnown = true;
+        *uma = arch.UMA == TRUE;
     }
     D3D12_FEATURE_DATA_SHADER_MODEL sm{D3D_SHADER_MODEL_6_0};
     if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &sm, sizeof sm)) || sm.HighestShaderModel < D3D_SHADER_MODEL_6_0) {
@@ -54,40 +60,32 @@ HRESULT createDevice11(IDXGIAdapter1 *adapter, UINT flags, ComPtr<ID3D11Device> 
     return D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, flags, levels, 2, D3D11_SDK_VERSION, device->GetAddressOf(), level, nullptr);
 }
 
-ApiProbe probeDx11(IDXGIAdapter1 *adapter)
+// M5: one D3D11 device with BGRA support answers both DirectX 11 (feature level, constant-buffer offsets:
+// the backend's own requirement, task 20) and Direct2D (BGRA support).
+void probeDx11AndD2d(IDXGIAdapter1 *adapter, ApiProbe *dx11, ApiProbe *d2d)
 {
-    ApiProbe p;
     ComPtr<ID3D11Device> device;
     D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;
-    if (FAILED(createDevice11(adapter, 0, &device, &level))) {
-        p.reason = "Needs DirectX 11 feature level 11_0";
-        return p;
+    if (SUCCEEDED(createDevice11(adapter, D3D11_CREATE_DEVICE_BGRA_SUPPORT, &device, &level))) {
+        d2d->ok = true;
+        d2d->version = "Direct2D";
+    } else {
+        d2d->reason = "Needs a Direct3D 11 device with BGRA support";
+        // No device with BGRA support: the plain one still decides DirectX 11.
+        if (FAILED(createDevice11(adapter, 0, &device, &level))) {
+            dx11->reason = "Needs DirectX 11 feature level 11_0";
+            return;
+        }
     }
-    // The backend's own requirement (task 20): per-draw constant-buffer offsets.
     D3D11_FEATURE_DATA_D3D11_OPTIONS options{};
     ComPtr<ID3D11Device1> device1;
     if (FAILED(device.As(&device1)) || FAILED(device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options, sizeof options))
         || !options.ConstantBufferOffsetting) {
-        p.reason = "Needs DirectX 11.1 constant-buffer offsets";
-        return p;
+        dx11->reason = "Needs DirectX 11.1 constant-buffer offsets";
+        return;
     }
-    p.ok = true;
-    p.version = std::string("DirectX 11 (feature level ") + (level == D3D_FEATURE_LEVEL_11_1 ? "11_1" : "11_0") + ")";
-    return p;
-}
-
-ApiProbe probeD2d(IDXGIAdapter1 *adapter)
-{
-    ApiProbe p;
-    ComPtr<ID3D11Device> device;
-    D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;
-    if (FAILED(createDevice11(adapter, D3D11_CREATE_DEVICE_BGRA_SUPPORT, &device, &level))) {
-        p.reason = "Needs a Direct3D 11 device with BGRA support";
-        return p;
-    }
-    p.ok = true;
-    p.version = "Direct2D";
-    return p;
+    dx11->ok = true;
+    dx11->version = std::string("DirectX 11 (feature level ") + (level == D3D_FEATURE_LEVEL_11_1 ? "11_1" : "11_0") + ")";
 }
 
 AdapterProbe describe(IDXGIAdapter1 *adapter, const DXGI_ADAPTER_DESC1 &desc)
@@ -104,9 +102,9 @@ AdapterProbe describe(IDXGIAdapter1 *adapter, const DXGI_ADAPTER_DESC1 &desc)
         a.luid[std::size_t(i)] = std::uint8_t(low >> (8 * i));  // little-endian, as VkPhysicalDeviceIDProperties::deviceLUID
         a.luid[std::size_t(4 + i)] = std::uint8_t(DWORD(high) >> (8 * i));
     }
-    a.dx12 = probeDx12(adapter);
-    a.dx11 = probeDx11(adapter);
-    a.d2d = probeD2d(adapter);
+    a.sharedBytes = std::int64_t(desc.SharedSystemMemory);
+    a.dx12 = probeDx12(adapter, &a.umaKnown, &a.uma);
+    probeDx11AndD2d(adapter, &a.dx11, &a.d2d);
     return a;
 }
 

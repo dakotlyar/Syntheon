@@ -49,6 +49,11 @@ struct Swapchain {
 // without IDXGIFactory6), software adapters included only with allowSoftware;
 // WARP (1414:008c) is also found through EnumWarpAdapter. Task 23's probe must
 // number adapters the same way.
+// The DXGI description of the adapter findAdapter would pick ("" when none), and how many non-software
+// adapters have this PCI vendor (OpenGL's two-GPUs-of-one-vendor rule, §4.3: the worker's own check).
+std::string adapterDescription(const BackendInit &init, bool allowSoftware);
+int countHardwareAdapters(std::uint32_t vendorId);
+
 std::string findAdapter(const BackendInit &init, Microsoft::WRL::ComPtr<IDXGIAdapter1> *out, bool allowSoftware);
 
 } // namespace sb::gpu::dxgi

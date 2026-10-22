@@ -25,7 +25,8 @@ struct AdapterProbe {
     std::string name;
     std::uint32_t vendorId = 0, deviceId = 0;
     bool software = false;
-    std::int64_t dedicatedBytes = 0;
+    std::int64_t dedicatedBytes = 0, sharedBytes = 0;
+    bool umaKnown = false, uma = false;  // D3D12_FEATURE_DATA_ARCHITECTURE::UMA, when a D3D12 device could be made
     std::array<std::uint8_t, 8> luid{};
     ApiProbe dx12, dx11, d2d;
 };

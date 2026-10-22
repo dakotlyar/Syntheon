@@ -71,7 +71,7 @@ private slots:
         if (m_xvfbRun.isEmpty())
             SB_SKIP_OR_FAIL("xvfb-run isn't installed (the windowed cases never use the real display)");
         QProcessEnvironment env = m_env;
-        env.insert(QStringLiteral("LIBGL_ALWAYS_SOFTWARE"), QStringLiteral("1"));
+        addSoftwareGl(env);  // llvmpipe through Mesa's GLX and EGL only (M4)
         WorkerProcess w(m_xvfbRun,
                         {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker, QStringLiteral("--run"),
                          QStringLiteral("--serve"), QStringLiteral("--api"), QStringLiteral("opengl"), QStringLiteral("--gpu"), kLavapipeId,
@@ -105,8 +105,10 @@ private slots:
     void init()
     {
         const QLatin1StringView current(QTest::currentTestFunction());
-        if (current == QLatin1StringView("d3d12Present") || current == QLatin1StringView("d3d11Present")
-            || current == QLatin1StringView("openglPresent") || m_vulkanSkip.isEmpty())
+        const bool needsNoVulkan = current == QLatin1StringView("d3d12Present") || current == QLatin1StringView("d3d11Present")
+                                   || current == QLatin1StringView("d3d12SuspendResume") || current == QLatin1StringView("d3d11SuspendResume")
+                                   || current == QLatin1StringView("openglPresent");
+        if (needsNoVulkan || m_vulkanSkip.isEmpty())
             return;
 #if defined(Q_OS_LINUX)
         SB_SKIP_OR_FAIL(qPrintable(m_vulkanSkip));
@@ -122,6 +124,13 @@ private slots:
 
     // Task 20 (Windows, WARP): the same on DX11 (the shared DXGI swapchain, created on the device).
     void d3d11Present() { warpPresent(QStringLiteral("dx11"), QStringLiteral("d3d11: ")); }
+
+    // Checkpoint 3 (H1, Windows CI): serve mode with a window, three workloads, so the swapchain is
+    // released (suspend, hide) and made again on the same HWND twice. A flip-model swapchain whose
+    // release order is wrong fails the second CreateSwapChainForHwnd (E_ACCESSDENIED), i.e. every
+    // scene after the first.
+    void d3d12SuspendResume() { warpSuspendResume(QStringLiteral("dx12"), QStringLiteral("d3d12: ")); }
+    void d3d11SuspendResume() { warpSuspendResume(QStringLiteral("dx11"), QStringLiteral("d3d11: ")); }
 
     // A 1 s window run with a swapchain: vsync off (IMMEDIATE or MAILBOX), no
     // validation error.
@@ -315,6 +324,44 @@ private slots:
     }
 
 private:
+    void warpSuspendResume(const QString &api, const QString &layerPrefix)
+    {
+#if !defined(Q_OS_WIN)
+        Q_UNUSED(api)
+        Q_UNUSED(layerPrefix)
+        QSKIP("DirectX is Windows only");
+#else
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("windows"));
+        WorkerProcess w(kWorker,
+                        {QStringLiteral("--run"), QStringLiteral("--serve"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), kWarpId,
+                         QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
+                         QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation")},
+                        env);
+        QVERIFY(w.started());
+        if (!w.waitFor([](const pr::Event &e) { return is<pr::ReadyEvent>(e); }))
+            QSKIP(qPrintable(QStringLiteral("no WARP %1 here: %2").arg(api, w.problem())));
+        for (const char *cmd : {"run geometry:100:300", "run sprites:100:300", "run geometry:100:300"}) {
+            w.send(cmd);
+            QVERIFY2(w.waitForIdle(), qPrintable(w.problem()));
+        }
+        w.send("quit");
+        QCOMPARE(w.finish(), 0);
+        const QString why = errors(w.events());
+        if (why.contains(QLatin1StringView("didn't appear")) || why.contains(QLatin1StringView("can't present to the test window")))
+            QSKIP(qPrintable(QStringLiteral("no window or swapchain on this desktop (R9): %1").arg(why)));
+        QVERIFY2(why.isEmpty(), qPrintable(why));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 3);  // every workload after the first got its swapchain too
+        for (const pr::ResultEvent &r : rs) {
+            QVERIFY(r.present == QLatin1StringView("flip, tearing") || r.present == QLatin1StringView("flip, no tearing"));
+            QVERIFY(r.frames >= 3);
+        }
+        QVERIFY2(!w.stderrText().contains(layerPrefix) || w.stderrText().contains(QLatin1StringView("debug layer isn't installed")),
+                 qPrintable(w.stderrText()));
+#endif
+    }
+
     // A 1 s windowed run of a DirectX API on WARP (Windows only): flip-model swapchain, no debug-layer
     // error of `layerPrefix` ("d3d12: " / "d3d11: "), unless the layer isn't installed.
     void warpPresent(const QString &api, const QString &layerPrefix)
