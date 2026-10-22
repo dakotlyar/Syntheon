@@ -55,6 +55,10 @@ QString WorkerWindow::problem() const
 {
     if (!m_armed || !isExposed() || windowStates().testFlag(Qt::WindowMinimized))
         return QStringLiteral("the test window was hidden or minimised during the measurement");
+#if defined(SYNBENCH_DEV_HOOKS)
+    if (m_fakeMoved)
+        return QStringLiteral("the test window moved to another screen during the measurement");
+#endif
     if (screen() != m_screen)
         return QStringLiteral("the test window moved to another screen during the measurement");  // D1b
     if (physicalSize() != m_size || devicePixelRatio() != m_dpr)
@@ -73,7 +77,7 @@ void WorkerWindow::applyPlan(const sb::gpu::WindowPlan &plan)
 
 void WorkerWindow::rebase()
 {
-    if (isExposed() && !m_armed) {
+    if (isExposed()) {
         m_armed = true;
         m_size = physicalSize();
         m_screen = screen();

@@ -183,6 +183,10 @@ WorkloadResult Runner::run(const WorkloadPlan &plan, const SceneData &scene)
                 warmFps = f;
         }
         warm.tick(ret);
+        // A screen or scale change during the warm-up is not an error: the compositor only reports
+        // the window's real screen after its first frames. The caller re-plans and restarts (DEF-1).
+        if (m_hooks.windowReplan && m_hooks.windowReplan())
+            return fail(kReplan);
     } while (ret < warmEnd);
     const Clock::time_point t0 = ret;
     const std::size_t warmFrames = submitted;

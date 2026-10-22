@@ -19,6 +19,8 @@ namespace sb::gpu {
 inline constexpr const char *kStopped = "stopped";
 // WorkloadResult::error when Hooks::windowOk failed during the measurement;
 // the worker replaces it with the window's own reason (WorkerWindow::problem).
+// The window changed screen or scale during the warm-up: the worker re-plans and runs the workload again (DEF-1).
+inline constexpr const char *kReplan = "the test window changed screen during the warm-up";
 inline constexpr const char *kWindowLost = "the test window was hidden or minimised during the measurement";
 
 // The overlay's names (§5.9): "Geometry" ... "Sprites"; "Vulkan" "DX12" "DX11" "OpenGL" "Null".
@@ -43,6 +45,7 @@ public:
     struct Hooks {
         std::function<bool()> stopRequested;     // stdin "stop" or Esc
         std::function<bool()> windowOk;          // exposed and unchanged (§3.3)
+        std::function<bool()> windowReplan;      // warm-up only: the window moved to another screen or scale
         std::function<void()> pumpEvents;        // processEvents()
         std::function<void(Workload, const char *phase, int seconds)> stage;
     };

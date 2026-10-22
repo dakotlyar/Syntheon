@@ -39,7 +39,12 @@ public:
     // expose the worker re-plans for the screen it really got: a new fixed size, and a new
     // baseline once the window has settled (rebase()).
     void applyPlan(const sb::gpu::WindowPlan &plan);
-    void rebase();  // take the baseline now, if exposed
+    void rebase();  // take the baseline now (screen, scale, size), if exposed
+    // The screen or the scale differs from the baseline (the compositor moved the window).
+    bool placementChanged() const { return m_armed && (screen() != m_screen || devicePixelRatio() != m_dpr); }
+#if defined(SYNBENCH_DEV_HOOKS)
+    void fakeMove() { m_fakeMoved = true; }  // dev hook: the next problem() says the window moved
+#endif
     // Task 10 (qt_glue::vulkanTarget): the QVulkanInstance that adopted the
     // backend's VkInstance lives as long as this window.
     void keepVulkanInstance(std::unique_ptr<QVulkanInstance> instance);
@@ -49,6 +54,9 @@ protected:
 
 private:
     bool m_stop = false;
+#if defined(SYNBENCH_DEV_HOOKS)
+    bool m_fakeMoved = false;
+#endif
     bool m_armed = false;  // the baseline below is set (the first expose since show())
     QSize m_size;
     QPointer<QScreen> m_screen;

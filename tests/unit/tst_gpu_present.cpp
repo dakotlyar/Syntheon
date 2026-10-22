@@ -197,6 +197,51 @@ private slots:
         QCOMPARE(results(w.events()).size(), 1);
         QVERIFY(w.stderrText().contains(QLatin1StringView("sync validation skipped")));
     }
+    // DEF-1: KWin reports the window's real screen only after its first frames. A change of screen
+    // or scale during the warm-up is not an error: the worker re-plans from the window's own
+    // (fractional) ratio, resizes, restarts the warm-up, and the result shows the final placement.
+    void screenChangeDuringWarmupReplans()
+    {
+        QProcessEnvironment env = m_env;
+        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_SCREEN"), QStringLiteral("1280x800@1;3440x1400@1.25"));
+        WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:300:500"), env);
+        QVERIFY(w.started());
+        const int code = w.finish();
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 1);
+        QVERIFY(rs[0].frames >= 3);
+        QCOMPARE(rs[0].windowW, 1920);  // the second screen's plan, not the first's
+        QCOMPARE(rs[0].windowH, 1080);
+        QVERIFY(!rs[0].fit);
+        QCOMPARE(rs[0].scale, 1.25);    // fractional, as the window reports it
+    }
+
+    // DEF-2 and "only a change during the measurement is an error": the real hide path runs, and the
+    // reason is the window's own ("moved"), not "hidden or minimised".
+    void moveDuringMeasurementIsReportedAsMoved()
+    {
+        QProcessEnvironment env = m_env;
+        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_MOVE"), QStringLiteral("measure"));
+        WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:100:500"), env);
+        QVERIFY(w.started());
+        QCOMPARE(w.finish(), 1);
+        QVERIFY(results(w.events()).isEmpty());
+        QCOMPARE(errors(w.events()), QStringLiteral("the test window moved to another screen during the measurement"));
+    }
+
+    // At most 3 re-plans, then an Error.
+    void windowThatKeepsMovingIsAnError()
+    {
+        QProcessEnvironment env = m_env;
+        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_SCREEN"),
+                   QStringLiteral("1280x800@1;1281x800@1;1282x800@1;1283x800@1;1284x800@1"));
+        WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:300:500"), env);
+        QVERIFY(w.started());
+        QCOMPARE(w.finish(), 1);
+        QVERIFY(results(w.events()).isEmpty());
+        QCOMPARE(errors(w.events()), QStringLiteral("the test window kept moving between screens"));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestGpuPresent)

@@ -522,8 +522,16 @@ public:
 
         Runner::Hooks hooks;
         hooks.stopRequested = [this] { return stopRequested(); };
-        if (m_window)
-            hooks.windowOk = [this] { return m_window->windowOk(); };
+        if (m_window) {
+            hooks.windowOk = [this] {
+#if defined(SYNBENCH_DEV_HOOKS)
+                if (qEnvironmentVariable("SYNBENCH_GPU_FAKE_MOVE") == QLatin1StringView("measure"))
+                    m_window->fakeMove();  // dev hook: the window "moved" during the measurement
+#endif
+                return m_window->windowOk();
+            };
+            hooks.windowReplan = [this] { return m_window->placementChanged() || m_fakeIndex < fakeSteps().size(); };
+        }
         hooks.pumpEvents = [] { QCoreApplication::processEvents(); };
         hooks.stage = [](Workload w, const char *phase, int seconds) {
             emitLine(pr::StageEvent{QString::fromLatin1(workloadId(w)), QString::fromLatin1(phase), seconds});
@@ -563,57 +571,49 @@ public:
                 emitLine(errorEvent(&w, "the test window didn't appear"));
                 return Outcome::Error;
             }
-            // D1: the compositor, not this process, chose the screen. Re-plan for the one the window
-            // really got (its scale and available area), resize if the plan differs, and only then
-            // measure. A screen change between show and the first measured frame is not an error.
-            if (QScreen *actual = m_window->screen()) {
-                QRect avail = actual->availableGeometry();
-                double actualScale = actual->devicePixelRatio();
-#if defined(SYNBENCH_DEV_HOOKS)
-                // Dev hook "WxH@scale": pretend the compositor put the window on a screen like that
-                // (the test of D1's re-plan; the offscreen and xvfb platforms have one screen).
-                static const QRegularExpression fake(QStringLiteral("^(\\d+)x(\\d+)@([0-9.]+)$"));
-                if (const auto m = fake.match(qEnvironmentVariable("SYNBENCH_GPU_FAKE_SCREEN")); m.hasMatch()) {
-                    avail = QRect(0, 0, m.captured(1).toInt(), m.captured(2).toInt());
-                    actualScale = m.captured(3).toDouble();
-                }
-#endif
-                const WindowPlan next = planWindow({avail.width(), avail.height()}, actualScale);
-                if (next.tooSmall) {
-                    m_window->hide();
-                    emitLine(errorEvent(&w, "N/A: screen too small for the test window"));  // na:true, as at start (M1)
-                    return Outcome::ErrorNa;
-                }
-                m_screenName = actual->name();
-                if (replan(next, actualScale)) {
-                    m_window->applyPlan(m_plan);
-                    QElapsedTimer settle;
-                    settle.start();
-                    while (!m_window->exposedSinceShow() && settle.elapsed() < 1000 && !stopRequested()) {
-                        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
-                        QThread::msleep(2);
-                    }
-                    if (stopRequested())
-                        return stopped(w);
-                    m_window->rebase();  // no expose came for the resize: the window is settled anyway
-                }
+        }
+        // D1, DEF-1: the compositor, not this process, chooses the screen, and KWin reports the real
+        // one only after the window's first frames. So the plan is made from the window as it is now
+        // (its own fractional devicePixelRatio, DEF-3), and a change of screen or scale during the
+        // warm-up re-plans, resizes and restarts the warm-up, at most 3 times. Only a change during
+        // the measurement is an error.
+        WorkloadResult r;
+        std::string suspended;
+        int replans = 0;
+        for (;;) {
+            if (m_window) {
+                if (const auto outcome = replanFromWindow(w))
+                    return *outcome;
+                target = m_backend->api() == Api::Vulkan ? glue::vulkanTarget(*m_window) : glue::rasterTarget(*m_window);
             }
-            target = m_backend->api() == Api::Vulkan ? glue::vulkanTarget(*m_window) : glue::rasterTarget(*m_window);
+            if (const std::string e = m_backend->resume(target); !e.empty()) {
+                if (m_window)
+                    m_window->hide();
+                return failed(w, e);
+            }
+            m_present = m_backend->presentMode();
+            r = m_runner->run(p, m_scenes.at(w));
+            suspended = m_backend->suspend();
+            if (r.error != kReplan)
+                break;
+            if (stopRequested())
+                return stopped(w);
+            if (++replans > 3) {
+                if (m_window)
+                    m_window->hide();
+                emitLine(errorEvent(&w, "the test window kept moving between screens"));
+                return Outcome::Error;
+            }
         }
-        if (const std::string e = m_backend->resume(target); !e.empty()) {
-            if (m_window)
-                m_window->hide();
-            return failed(w, e);
-        }
-        m_present = m_backend->presentMode();
-        WorkloadResult r = m_runner->run(p, m_scenes.at(w));
-        const std::string suspended = m_backend->suspend();
+        // The window's reason before it is hidden: hiding clears its baseline, and every lost window
+        // would read "hidden or minimised" (DEF-2).
+        const QString windowProblem = m_window ? m_window->problem() : QString();
         if (m_window)
             m_window->hide();
         if (stopRequested())
             return stopped(w);
-        if (r.error == kWindowLost && m_window && !m_window->problem().isEmpty())
-            r.error = m_window->problem().toStdString();
+        if (r.error == kWindowLost && !windowProblem.isEmpty())
+            r.error = windowProblem.toStdString();
         if (!r.error.empty())
             return failed(w, r.error);
         if (!suspended.empty())
@@ -623,6 +623,63 @@ public:
     }
 
 private:
+    // The window's steps of SYNBENCH_GPU_FAKE_SCREEN ("WxH@scale;WxH@scale"): dev hook, see replanFromWindow().
+    struct FakeStep {
+        int w, h;
+        double scale;
+    };
+    std::vector<FakeStep> fakeSteps() const
+    {
+        std::vector<FakeStep> steps;
+#if defined(SYNBENCH_DEV_HOOKS)
+        static const QRegularExpression one(QStringLiteral("^(\\d+)x(\\d+)@([0-9.]+)$"));
+        for (const QString &part : qEnvironmentVariable("SYNBENCH_GPU_FAKE_SCREEN").split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
+            if (const auto m = one.match(part); m.hasMatch())
+                steps.push_back({m.captured(1).toInt(), m.captured(2).toInt(), m.captured(3).toDouble()});
+        }
+#endif
+        return steps;
+    }
+
+    // Plans for the screen and scale the window has now, resizes it if the plan differs, waits for the
+    // expose and takes the baseline. An outcome if the run can't go on (too small, Stop).
+    std::optional<Outcome> replanFromWindow(Workload w)
+    {
+        QScreen *actual = m_window->screen();
+        if (!actual)
+            return std::nullopt;
+        QRect avail = actual->availableGeometry();
+        // The window's own ratio (fractional: 1.25), not QScreen's (Qt Wayland rounds that up, DEF-3).
+        double scale = m_window->devicePixelRatio();
+        const std::vector<FakeStep> steps = fakeSteps();
+        if (!steps.empty()) {
+            const FakeStep &step = steps[std::min(m_fakeIndex, steps.size() - 1)];
+            avail = QRect(0, 0, step.w, step.h);
+            scale = step.scale;
+        }
+        ++m_fakeIndex;
+        const WindowPlan next = planWindow({avail.width(), avail.height()}, scale);
+        if (next.tooSmall) {
+            m_window->hide();
+            emitLine(errorEvent(&w, "N/A: screen too small for the test window"));  // na:true, as at start (M1)
+            return Outcome::ErrorNa;
+        }
+        m_screenName = actual->name();
+        if (replan(next, scale)) {
+            m_window->applyPlan(m_plan);
+            QElapsedTimer settle;
+            settle.start();
+            while (!m_window->exposedSinceShow() && settle.elapsed() < 1000 && !stopRequested()) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+                QThread::msleep(2);
+            }
+            if (stopRequested())
+                return stopped(w);
+        }
+        m_window->rebase();  // the baseline is the placement as it is now, resized or not
+        return std::nullopt;
+    }
+
     // The plan for the screen the window really got. True if the window size or the scale changed
     // (the render size follows the scale, unless --render-size is given).
     bool replan(const WindowPlan &next, double scale)
@@ -714,6 +771,7 @@ private:
     std::unique_ptr<IBackend> m_backend;
     std::unique_ptr<Runner> m_runner;
     double m_scale = 1.0;
+    std::size_t m_fakeIndex = 0;  // dev hook: how many re-plans have looked at SYNBENCH_GPU_FAKE_SCREEN
     QString m_screenName;
     std::string m_present;  // the last resume()'s present mode (the result's "present")
 };
