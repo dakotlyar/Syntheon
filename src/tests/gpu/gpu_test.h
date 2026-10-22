@@ -3,9 +3,10 @@
 
 // The GPU test (Phase 4a design): four 3D scenes on every graphics API, run
 // scene by scene across the APIs (D12) in a worker process per API
-// (synbench-gpu), with the main window held still while they draw. Task 15:
-// Vulkan only; the other APIs, native 2D and fill-rate are N/A placeholders
-// that tasks 23, 28 and 32 remove.
+// (synbench-gpu), with the main window held still while they draw. Task 24:
+// every API the probe found (Vulkan, DirectX 12 and 11, OpenGL) runs, with the
+// cross-API signature check (D20); native 2D and fill-rate are N/A
+// placeholders that tasks 28 and 32 remove.
 
 #include "core/itest.h"
 #include "tests/gpu/model/gpu_identity.h"

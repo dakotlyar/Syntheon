@@ -79,7 +79,7 @@ target_compile_definitions(tst_gpu_test PRIVATE SB_FAKE_GPUWORKER="$<TARGET_FILE
 # The real backends on software drivers (task 10: Vulkan on lavapipe, with
 # validation): headless in-process and through the worker; tst_gpu_present
 # with a window, under xvfb-run only (A-X; it skips under offscreen).
-foreach(t tst_gpu_backends tst_gpu_present)
+foreach(t tst_gpu_backends tst_gpu_present tst_gpu_signature)
     synbench_add_unit_test(${t} SOURCES ${t}.cpp gpu_worker_process.h LIBS synbench_gpu_model synbench_gpu_backends)
     add_dependencies(${t} synbench-gpu)
     target_compile_definitions(${t} PRIVATE SB_GPU_WORKER="$<TARGET_FILE:synbench-gpu>")
@@ -99,7 +99,7 @@ if(TARGET synbench_app)
 endif()
 
 # The GPU tests, to run (or skip) as a group: ctest -L gpu.
-foreach(t tst_gpu_model tst_gpu_scene tst_gpu_loaders tst_gpu_worker tst_gpu_client tst_gpu_test tst_gpu_backends tst_gpu_present)
+foreach(t tst_gpu_model tst_gpu_scene tst_gpu_loaders tst_gpu_worker tst_gpu_client tst_gpu_test tst_gpu_backends tst_gpu_present tst_gpu_signature)
     if(TARGET ${t})
         set_property(TEST ${t} APPEND PROPERTY LABELS gpu)
     endif()

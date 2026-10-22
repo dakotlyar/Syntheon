@@ -198,9 +198,10 @@ private slots:
 #endif
     }
 
-    // One Vulkan run: Partial (native 2D and fill-rate aren't built), the 3D numbers, the
-    // hold pair, the parts, monotonic progress.
-    void vulkanRun()
+    // A run of every API the fake GPU has (Vulkan and OpenGL: task 24 lifted the placeholders):
+    // Partial (native 2D and fill-rate aren't built), the 3D numbers, the hold pair, the parts
+    // scene by scene, monotonic progress.
+    void allApisRun()
     {
         GpuTest t;
         probed(t);
@@ -218,7 +219,8 @@ private slots:
         QCOMPARE(textOf(r, QStringLiteral("scenes3d.geometry.api")), QStringLiteral("Vulkan"));
         QVERIFY(r.metric(QStringLiteral("scenes3d.vulkan.fps")));  // the stub key kept: all four scenes are there
         QCOMPARE(textOf(r, QStringLiteral("api.vulkan.status")), QStringLiteral("OK"));
-        QCOMPARE(textOf(r, QStringLiteral("api.opengl.status")), QStringLiteral("N/A: not built yet (Phase 4a-2)"));
+        QCOMPARE(textOf(r, QStringLiteral("api.opengl.status")), QStringLiteral("OK"));
+        QVERIFY(r.metric(QStringLiteral("scenes3d.opengl.particles.fps")));
 #if !defined(Q_OS_WIN)
         QCOMPARE(textOf(r, QStringLiteral("api.dx12.status")), QStringLiteral("N/A: DirectX is Windows only"));
 #endif
@@ -234,8 +236,10 @@ private slots:
         QCOMPARE(b.subScores.value(QStringLiteral("scenes3d")), 1000.0);
         QVERIFY(!b.total);  // Partial: no GPU score
         QCOMPARE(ctx.holds(), (QVector<bool>{true, false}));
-        QCOMPARE(ctx.parts(), (QStringList{QStringLiteral("Geometry · Vulkan"), QStringLiteral("Draw calls · Vulkan"),
-                                           QStringLiteral("Shading · Vulkan"), QStringLiteral("Particles + post · Vulkan")}));
+        QCOMPARE(ctx.parts(), (QStringList{QStringLiteral("Geometry · Vulkan"), QStringLiteral("Geometry · OpenGL"),
+                                           QStringLiteral("Draw calls · Vulkan"), QStringLiteral("Draw calls · OpenGL"),
+                                           QStringLiteral("Shading · Vulkan"), QStringLiteral("Shading · OpenGL"),
+                                           QStringLiteral("Particles + post · Vulkan"), QStringLiteral("Particles + post · OpenGL")}));
         QVERIFY(!ctx.backwards());
         QVERIFY(ctx.fractions().last() < 1.0);
     }

@@ -42,12 +42,6 @@ constexpr int kDefaultApis = 2;  // Vulkan and OpenGL
 
 const char *const kApiKeys[] = {"vulkan", "dx12", "dx11", "opengl"};
 
-// The APIs this build can drive (task 15: Vulkan; tasks 18, 20 and 21 add the others).
-bool builtIn(ApiId id)
-{
-    return id == ApiId::Vulkan;
-}
-
 #if defined(SYNBENCH_DEV_HOOKS)
 // Dev hook: SYNBENCH_GPU_FAKE_APIS=vulkan,opengl treats those APIs as available on any GPU
 // (the tests serve them all with the null backend).
@@ -184,7 +178,7 @@ QString naReason(const std::vector<ApiRun> &apis)
             r.remove(0, 5);
         else
             continue;
-        if (!r.startsWith(QLatin1StringView("not built yet")) && !reasons.contains(r))  // a placeholder, not a reason
+        if (!reasons.contains(r))
             reasons << r;
     }
     return reasons.isEmpty() ? QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found") : reasons.join(QStringLiteral("; "));
@@ -231,46 +225,26 @@ private:
 void GpuRun::compareSignatures(int item, const QVector<pr::PlanItem> &plan)
 {
     const SceneId scene = *sceneFromKey(plan[item].workload);
-    struct Entry {
-        ApiRun *api;
-        QByteArray sig;
-    };
-    std::vector<Entry> have;
-    for (ApiRun &a : m_apis) {
+    // §5.7, D20: in run order; an API that didn't run (or sent no usable signature) is an empty entry.
+    QVector<QByteArray> sigs;
+    int ran = 0;
+    for (const ApiRun &a : m_apis) {
         const auto it = a.results.find(scene);
-        if (a.active && it != a.results.end() && it->second.signature.size() == 432)
-            have.push_back({&a, it->second.signature});
+        const bool have = a.active && it != a.results.end() && it->second.signature.size() == 432;
+        sigs.append(have ? it->second.signature : QByteArray());
+        ran += have ? 1 : 0;
     }
-    if (have.size() < 2)
+    if (ran < 2)
         return;  // a single API: no comparison
-    // §5.7: the reference is the API that matches the most others (ties: the earlier API).
-    std::vector<int> matches(have.size(), 0);
-    for (std::size_t i = 0; i < have.size(); ++i) {
-        for (std::size_t j = 0; j < have.size(); ++j) {
-            if (i == j)
-                continue;
-            const auto d = gpu::compareSignatures(have[i].sig, have[j].sig);
-            if (d && signaturesMatch(*d))
-                ++matches[i];
-        }
-    }
-    std::size_t ref = 0;
-    for (std::size_t i = 1; i < have.size(); ++i) {
-        if (matches[i] > matches[ref])
-            ref = i;
-    }
-    for (std::size_t i = 0; i < have.size(); ++i) {
-        if (i == ref)
-            continue;
-        const auto d = gpu::compareSignatures(have[i].sig, have[ref].sig);
-        if (d && signaturesMatch(*d))
-            continue;
+    const SignatureVerdict verdict = judgeSignatures(sigs);
+    for (const int i : verdict.outliers) {
+        ApiRun &a = m_apis[std::size_t(i)];
         const QString why = QStringLiteral("drew %1 differently from %2 (mean %3/255)")
-                                .arg(sceneName(scene), apiName(have[ref].api->id))
-                                .arg(d ? d->mean : 0.0, 0, 'f', 1);
-        m_mismatch[{have[i].api->id, scene}] = why;
-        m_ctx.log(LogLevel::Error, QStringLiteral("%1: %2").arg(apiName(have[i].api->id), why));
-        fail(*have[i].api, sceneName(scene), why);
+                                .arg(sceneName(scene), apiName(m_apis[std::size_t(verdict.reference)].id))
+                                .arg(verdict.diffToReference[i].mean, 0, 'f', 1);
+        m_mismatch[{a.id, scene}] = why;
+        m_ctx.log(LogLevel::Error, QStringLiteral("%1: %2").arg(apiName(a.id), why));
+        fail(a, sceneName(scene), why);  // an Error (D20): the score is withheld through D6
     }
 }
 
@@ -285,13 +259,14 @@ TestResult GpuRun::run()
     for (const ApiId id : kApis) {
         ApiRun a;
         a.id = id;
-        const ApiAvailability av = m_gpu.apis.value(apiKey(id));
-        if (fakeApi(id) || (av.ok && builtIn(id))) {
+        // Every API the probe found runs, scene by scene (D12). One the probe has no answer for
+        // (OpenGL when the 3 s probe budget ran out) is started anyway: its worker checks itself and
+        // answers N/A when it can't run.
+        const auto found = m_gpu.apis.constFind(apiKey(id));
+        if (fakeApi(id) || found == m_gpu.apis.cend() || found->ok) {
             a.active = true;
-        } else if (!av.reason.isEmpty() && !av.ok) {
-            a.status = QStringLiteral("N/A: ") + av.reason;
         } else {
-            a.status = QStringLiteral("N/A: not built yet (Phase 4a-2)");
+            a.status = QStringLiteral("N/A: ") + (found->reason.isEmpty() ? QStringLiteral("not available") : found->reason);
         }
         m_apis.push_back(std::move(a));
     }

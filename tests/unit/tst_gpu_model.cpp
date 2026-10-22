@@ -620,6 +620,36 @@ private slots:
         QCOMPARE(defaultGpuIndex(gpus), std::optional<int>(0));
     }
 
+    // D20: the reference is the API that matches the most others, ties to the earlier one.
+    void judge()
+    {
+        const auto sig = [](char c) { return QByteArray(432, c); };
+        const QByteArray a = sig(0x10), b = sig(0x60);  // 80/255 apart: no match
+        const auto verdict = [&](QVector<QByteArray> v) { return judgeSignatures(v); };
+        SignatureVerdict v = verdict({a, a, b, a});
+        QCOMPARE(v.reference, 0);
+        QCOMPARE(v.outliers, (QVector<int>{2}));
+        v = verdict({a, b});
+        QCOMPARE(v.reference, 0);
+        QCOMPARE(v.outliers, (QVector<int>{1}));
+        v = verdict({a, b, b, b});
+        QCOMPARE(v.reference, 1);
+        QCOMPARE(v.outliers, (QVector<int>{0}));
+        v = verdict({a});
+        QCOMPARE(v.reference, 0);
+        QVERIFY(v.outliers.isEmpty());
+        v = verdict({a, QByteArray(), a});
+        QCOMPARE(v.reference, 0);
+        QVERIFY(v.outliers.isEmpty());
+        v = verdict({QByteArray(), QByteArray()});
+        QCOMPARE(v.reference, -1);
+        // Within the tolerance is a match (mean 4, max 4).
+        v = verdict({sig(0x10), sig(0x14)});
+        QVERIFY(v.outliers.isEmpty());
+        v = verdict({a, b});
+        QVERIFY(v.diffToReference[1].mean > 70.0);
+    }
+
     void planText()
     {
         namespace pr = sb::gpu::protocol;

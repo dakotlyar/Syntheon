@@ -37,4 +37,44 @@ std::optional<SigDiff> compareSignatures(const QByteArray &a, const QByteArray &
 
 bool signaturesMatch(const SigDiff &d) { return d.mean <= 4.0 && d.max <= 32; }
 
+SignatureVerdict judgeSignatures(const QVector<QByteArray> &inRunOrder)
+{
+    SignatureVerdict v;
+    v.diffToReference.resize(inRunOrder.size());
+    QVector<int> ran;
+    for (int i = 0; i < inRunOrder.size(); ++i) {
+        if (!inRunOrder[i].isEmpty())
+            ran.append(i);
+    }
+    if (ran.isEmpty())
+        return v;
+    const auto matches = [&](int a, int b) {
+        const auto d = compareSignatures(inRunOrder[a], inRunOrder[b]);
+        return d && signaturesMatch(*d);
+    };
+    int best = -1, bestCount = -1;
+    for (const int i : ran) {
+        int count = 0;
+        for (const int j : ran)
+            count += (i != j && matches(i, j)) ? 1 : 0;
+        if (count > bestCount) {  // strictly more: a tie keeps the earlier API
+            best = i;
+            bestCount = count;
+        }
+    }
+    v.reference = best;
+    for (const int i : ran) {
+        if (i == best)
+            continue;
+        const auto d = compareSignatures(inRunOrder[i], inRunOrder[best]);
+        if (d)
+            v.diffToReference[i] = *d;
+        else
+            v.diffToReference[i] = SigDiff{255.0, 255};
+        if (!d || !signaturesMatch(*d))
+            v.outliers.append(i);
+    }
+    return v;
+}
+
 } // namespace sb::gpu
