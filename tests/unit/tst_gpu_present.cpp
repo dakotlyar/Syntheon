@@ -63,7 +63,8 @@ private slots:
     // on Linux when SYNBENCH_REQUIRE_SOFTWARE_GPU is set, task 16).
     void init()
     {
-        if (QLatin1StringView(QTest::currentTestFunction()) == QLatin1StringView("d3d12Present") || m_vulkanSkip.isEmpty())
+        const QLatin1StringView current(QTest::currentTestFunction());
+        if (current == QLatin1StringView("d3d12Present") || current == QLatin1StringView("d3d11Present") || m_vulkanSkip.isEmpty())
             return;
 #if defined(Q_OS_LINUX)
         SB_SKIP_OR_FAIL(qPrintable(m_vulkanSkip));
@@ -75,35 +76,10 @@ private slots:
     // Task 18 (Windows, WARP): a 1 s DX12 window run with the flip-model
     // swapchain, no debug-layer error. The desktop session's own window
     // system (QT_QPA_PLATFORM=windows: the tests' environment says offscreen).
-    void d3d12Present()
-    {
-#if !defined(Q_OS_WIN)
-        QSKIP("DirectX 12 is Windows only");
-#else
-        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("windows"));
-        WorkerProcess w(kWorker,
-                        {QStringLiteral("--run"), QStringLiteral("--api"), QStringLiteral("dx12"), QStringLiteral("--gpu"), kWarpId,
-                         QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
-                         QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation"), QStringLiteral("--plan"),
-                         QStringLiteral("geometry:200:1000")},
-                        env);
-        QVERIFY(w.started());
-        const int code = w.finish();
-        const QString why = errors(w.events());
-        if (code != 0 && (why.contains(QLatin1StringView("didn't appear")) || why.contains(QLatin1StringView("can't present to the test window"))))
-            QSKIP(qPrintable(QStringLiteral("no window or swapchain on this desktop (R9): %1").arg(why)));
-        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(why, w.stderrText())));
-        const QList<pr::ResultEvent> rs = results(w.events());
-        QCOMPARE(rs.size(), 1);
-        QVERIFY2(rs[0].present == QLatin1StringView("flip, tearing") || rs[0].present == QLatin1StringView("flip, no tearing"),
-                 qPrintable(rs[0].present));
-        QVERIFY(rs[0].frames >= 3);
-        QCOMPARE(rs[0].renderW, 320);
-        QVERIFY2(!w.stderrText().contains(QLatin1StringView("d3d12: ")) || w.stderrText().contains(QLatin1StringView("debug layer isn't installed")),
-                 qPrintable(w.stderrText()));
-#endif
-    }
+    void d3d12Present() { warpPresent(QStringLiteral("dx12"), QStringLiteral("d3d12: ")); }
+
+    // Task 20 (Windows, WARP): the same on DX11 (the shared DXGI swapchain, created on the device).
+    void d3d11Present() { warpPresent(QStringLiteral("dx11"), QStringLiteral("d3d11: ")); }
 
     // A 1 s window run with a swapchain: vsync off (IMMEDIATE or MAILBOX), no
     // validation error.
@@ -294,6 +270,41 @@ private slots:
         QCOMPARE(w.finish(), 1);
         QVERIFY(results(w.events()).isEmpty());
         QCOMPARE(errors(w.events()), QStringLiteral("the test window kept moving between screens"));
+    }
+
+private:
+    // A 1 s windowed run of a DirectX API on WARP (Windows only): flip-model swapchain, no debug-layer
+    // error of `layerPrefix` ("d3d12: " / "d3d11: "), unless the layer isn't installed.
+    void warpPresent(const QString &api, const QString &layerPrefix)
+    {
+#if !defined(Q_OS_WIN)
+        Q_UNUSED(api)
+        Q_UNUSED(layerPrefix)
+        QSKIP("DirectX is Windows only");
+#else
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("windows"));
+        WorkerProcess w(kWorker,
+                        {QStringLiteral("--run"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), kWarpId,
+                         QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
+                         QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation"), QStringLiteral("--plan"),
+                         QStringLiteral("geometry:200:1000")},
+                        env);
+        QVERIFY(w.started());
+        const int code = w.finish();
+        const QString why = errors(w.events());
+        if (code != 0 && (why.contains(QLatin1StringView("didn't appear")) || why.contains(QLatin1StringView("can't present to the test window"))))
+            QSKIP(qPrintable(QStringLiteral("no window or swapchain on this desktop (R9): %1").arg(why)));
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(why, w.stderrText())));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 1);
+        QVERIFY2(rs[0].present == QLatin1StringView("flip, tearing") || rs[0].present == QLatin1StringView("flip, no tearing"),
+                 qPrintable(rs[0].present));
+        QVERIFY(rs[0].frames >= 3);
+        QCOMPARE(rs[0].renderW, 320);
+        QVERIFY2(!w.stderrText().contains(layerPrefix) || w.stderrText().contains(QLatin1StringView("debug layer isn't installed")),
+                 qPrintable(w.stderrText()));
+#endif
     }
 };
 

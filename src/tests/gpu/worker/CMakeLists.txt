@@ -32,6 +32,11 @@ if(WIN32)
         d3d12/d12_backend.h d3d12/d12_backend.cpp
         d3d12/d12_workload_state.h d3d12/d12_workloads.cpp)
     target_link_libraries(synbench_gpu_backends PRIVATE d3d12 dxgi dxguid)
+    # Task 20: the D3D11 backend (the same DXGI swapchain; FXC's DXBC).
+    target_sources(synbench_gpu_backends PRIVATE
+        d3d11/d11_backend.h d3d11/d11_backend.cpp
+        d3d11/d11_workload_state.h d3d11/d11_workloads.cpp)
+    target_link_libraries(synbench_gpu_backends PRIVATE d3d11)
 endif()
 target_link_libraries(synbench_gpu_backends PUBLIC synbench_gpu_scene synbench::volk)
 set_target_properties(synbench_gpu_backends PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)

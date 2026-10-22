@@ -247,8 +247,10 @@ std::unique_ptr<IBackend> makeBackend(const std::string &api)
 #if defined(_WIN32)
     if (api == "dx12")
         return makeD3D12Backend();
+    if (api == "dx11")
+        return makeD3D11Backend();
 #endif
-    // Tasks 20 (dx11), 21 (opengl) add theirs here; 26/27 run the native
+    // Task 21 (opengl) adds its own here; 26/27 run the native
     // paths (qt, d2d). Elsewhere "the <api> backend isn't in this build".
     return nullptr;
 }

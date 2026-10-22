@@ -14,6 +14,7 @@
 #include "tests/gpu/worker/vulkan/vk_backend.h"
 #include "tests/gpu/worker/vulkan/vk_swapchain.h"
 #if defined(Q_OS_WIN)
+#include "tests/gpu/worker/d3d11/d11_backend.h"
 #include "tests/gpu/worker/d3d12/d12_backend.h"
 #endif
 
@@ -75,6 +76,27 @@ std::unique_ptr<d3d12::D3D12Backend> headlessD3D12(std::uint32_t w, std::uint32_
     const std::string e = b->init(warpInit(w, h), PresentTarget{true}, &info);
     if (e.rfind("N/A: ", 0) == 0) {
         *why = QStringLiteral("no D3D12 on WARP here: %1").arg(QString::fromStdString(e));
+        return nullptr;
+    }
+    std::string r = e.empty() ? b->resume(PresentTarget{true}) : "init: " + e;
+    if (r.empty())
+        r = b->load(scene);
+    if (!r.empty()) {
+        *why = QString::fromStdString(r);
+        return nullptr;
+    }
+    return b;
+}
+
+// The same on D3D11 (task 20): init headless, resume, load. Null and
+// a reason when WARP can't run it (an "N/A: " reason starts with "no D3D11").
+std::unique_ptr<d3d11::D3D11Backend> headlessD3D11(std::uint32_t w, std::uint32_t h, const SceneData &scene, QString *why)
+{
+    auto b = std::make_unique<d3d11::D3D11Backend>();
+    BackendInfo info;
+    const std::string e = b->init(warpInit(w, h), PresentTarget{true}, &info);
+    if (e.rfind("N/A: ", 0) == 0) {
+        *why = QStringLiteral("no D3D11 on WARP here: %1").arg(QString::fromStdString(e));
         return nullptr;
     }
     std::string r = e.empty() ? b->resume(PresentTarget{true}) : "init: " + e;
@@ -554,19 +576,178 @@ private slots:
 #endif
     }
 
+    // Task 20 (Windows CI, WARP): task 10's vulkanClear on D3D11.
+    void d3d11Clear()
+    {
+#if !defined(Q_OS_WIN)
+        QSKIP("DirectX 11 is Windows only");
+#else
+        QString why;
+        auto b = headlessD3D11(320, 180, buildScene(Workload::Quads, 64), &why);
+        if (!b && why.startsWith(QLatin1StringView("no D3D11")))
+            QSKIP(qPrintable(why));
+        QVERIFY2(b, qPrintable(why));
+        std::vector<double> gpu;
+        for (int i = 0; i < 30; ++i)
+            SB_OK(b->frame(i / 60.0, &gpu));
+        QCOMPARE(b->lastFrameDraws(), 0u);
+        SB_OK(b->drain(&gpu));
+        QVERIFY(gpu.size() <= std::size_t(30));
+        std::vector<std::uint8_t> pixels;
+        SB_OK(b->readback(10.0, &pixels));
+        QCOMPARE(pixels.size(), std::size_t(320 * 180 * 4));
+        for (std::size_t i = 0; i < pixels.size(); i += 4) {
+            if (pixels[i] != kClear[0] || pixels[i + 1] != kClear[1] || pixels[i + 2] != kClear[2] || pixels[i + 3] != kClear[3])
+                QFAIL(qPrintable(QStringLiteral("pixel %1 is (%2, %3, %4, %5)")
+                                     .arg(i / 4)
+                                     .arg(pixels[i])
+                                     .arg(pixels[i + 1])
+                                     .arg(pixels[i + 2])
+                                     .arg(pixels[i + 3])));
+        }
+        // A second workload on the same device (serve mode's unload, suspend, resume, load).
+        b->unload();
+        SB_OK(b->suspend());
+        SB_OK(b->resume(PresentTarget{true}));
+        SB_OK(b->load(buildScene(Workload::Sprites, 64)));
+        for (int i = 0; i < 3; ++i)
+            SB_OK(b->frame(i / 60.0, &gpu));
+        SB_OK(b->drain(&gpu));
+        b->unload();
+        SB_OK(b->suspend());
+        b->shutdown();
+        QCOMPARE(b->validationErrors(), 0);
+#endif
+    }
+
+    // Task 20 (Windows CI, WARP): task 10's vulkanOverlay on D3D11, the same
+    // shader and constants, so the same box over the clear colour.
+    void d3d11Overlay()
+    {
+#if !defined(Q_OS_WIN)
+        QSKIP("DirectX 11 is Windows only");
+#else
+        QString why;
+        constexpr std::uint32_t W = 640, H = 360;
+        auto b = headlessD3D11(W, H, buildScene(Workload::Quads, 64), &why);
+        if (!b && why.startsWith(QLatin1StringView("no D3D11")))
+            QSKIP(qPrintable(why));
+        QVERIFY2(b, qPrintable(why));
+        const std::string text = "Geometry | DX11 | 412 fps";
+        b->setOverlay(text);
+        std::vector<double> gpu;
+        SB_OK(b->frame(0.0, &gpu));
+        SB_OK(b->drain(&gpu));
+        std::vector<std::uint8_t> out;
+        SB_OK(b->readbackPresented(&out));
+        QCOMPARE(out.size(), std::size_t(W * H * 4));
+        OverlayLayout l;
+        const std::vector<std::uint8_t> box = rasterOverlay(text, 1.0, &l);
+        int background = 0, ink = 0;
+        for (std::uint32_t y = 0; y < H; ++y) {
+            for (std::uint32_t x = 0; x < W; ++x) {
+                const std::uint8_t *p = &out[(std::size_t(y) * W + x) * 4];
+                const bool inBox = int(x) >= l.x && int(x) < l.x + l.w && int(y) >= l.y && int(y) < l.y + l.h;
+                for (int c = 0; c < 3; ++c) {
+                    int want = kClear[c];
+                    if (inBox) {
+                        const std::uint8_t *s = &box[(std::size_t(int(y) - l.y) * std::size_t(l.w) + std::size_t(int(x) - l.x)) * 4];
+                        want = int(std::lround(s[c] + kClear[c] * (1.0 - s[3] / 255.0)));
+                        if (c == 0)
+                            (s[3] == 255 ? ink : background)++;
+                    }
+                    if (std::abs(int(p[c]) - want) > 1)
+                        QFAIL(qPrintable(QStringLiteral("pixel (%1, %2) channel %3 is %4, not %5").arg(x).arg(y).arg(c).arg(p[c]).arg(want)));
+                }
+            }
+        }
+        QVERIFY(ink > 100 && background > 1000);
+        b->unload();
+        SB_OK(b->suspend());
+        b->shutdown();
+        QCOMPARE(b->validationErrors(), 0);
+#endif
+    }
+
+    // Task 20 (Windows CI, WARP): the four scenes on D3D11, as vulkanScenes:
+    // the draw counts of tasks 11-12, a readback that isn't flat, no debug-layer error.
+    void d3d11Scenes_data()
+    {
+        QTest::addColumn<int>("workload");
+        QTest::addColumn<unsigned>("draws");
+        QTest::newRow("geometry") << int(Workload::Geometry) << 1u;
+        QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 601u;
+        QTest::newRow("shading") << int(Workload::Shading) << 6u;
+        QTest::newRow("particles") << int(Workload::Particles) << 17u;
+    }
+
+    void d3d11Scenes()
+    {
+#if !defined(Q_OS_WIN)
+        QSKIP("DirectX 11 is Windows only");
+#else
+        QFETCH(int, workload);
+        QFETCH(unsigned, draws);
+        const SceneData scene = buildScene(Workload(workload), 64);
+        QCOMPARE(scene.drawsPerFrame, draws);
+        QString why;
+        auto b = headlessD3D11(320, 180, scene, &why);
+        if (!b && why.startsWith(QLatin1StringView("no D3D11")))
+            QSKIP(qPrintable(why));
+        QVERIFY2(b, qPrintable(why));
+        std::vector<double> gpu;
+        for (int i = 0; i < 8; ++i)
+            SB_OK(b->frame(i / 60.0, &gpu));
+        QCOMPARE(b->lastFrameDraws(), draws);
+        SB_OK(b->drain(&gpu));
+        std::vector<std::uint8_t> pixels;
+        SB_OK(b->readback(2.0, &pixels));
+        QCOMPARE(pixels.size(), std::size_t(320 * 180 * 4));
+        QCOMPARE(b->lastFrameDraws(), draws);
+        const std::vector<std::uint8_t> sig = blockSignature(pixels.data(), 320, 180);
+        QVERIFY2(deviation(sig) > 2.0, qPrintable(QStringLiteral("a flat image (deviation %1)").arg(deviation(sig))));
+        // Again after unload .. resume .. load (serve mode), with the overlay on.
+        b->setOverlay("Geometry | DX11 | 1 fps");
+        SB_OK(b->frame(0.5, &gpu));
+        SB_OK(b->drain(&gpu));
+        b->unload();
+        SB_OK(b->suspend());
+        SB_OK(b->resume(PresentTarget{true}));
+        SB_OK(b->load(scene));
+        SB_OK(b->frame(0.0, &gpu));
+        SB_OK(b->drain(&gpu));
+        b->unload();
+        SB_OK(b->suspend());
+        b->shutdown();
+        QCOMPARE(b->validationErrors(), 0);
+#endif
+    }
+
     // D20 (task 19): every API draws the four scenes like the pinned Vulkan
     // reference (gpu_reference_signatures.h), within §5.7's tolerance. Vulkan
-    // on lavapipe here (any Mesa version), DX12 on WARP on Windows.
+    // on lavapipe here (any Mesa version), DX12 and DX11 (task 20) on WARP on Windows.
+    void signaturesMatchVulkanReference_data()
+    {
+        QTest::addColumn<QString>("api");
+#if defined(Q_OS_WIN)
+        QTest::newRow("dx12") << QStringLiteral("dx12");
+        QTest::newRow("dx11") << QStringLiteral("dx11");  // task 20
+#else
+        QTest::newRow("vulkan") << QStringLiteral("vulkan");
+#endif
+    }
+
     void signaturesMatchVulkanReference()
     {
+        QFETCH(QString, api);
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
 #if defined(Q_OS_WIN)
-        const QString api = QStringLiteral("dx12"), gpu = kWarpId;
+        const QString gpu = kWarpId;
 #else
         if (lavapipeIcd().isEmpty())
             SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
         addSoftwareVulkan(env);
-        const QString api = QStringLiteral("vulkan"), gpu = kLavapipeId;
+        const QString gpu = kLavapipeId;
 #endif
         WorkerProcess w(kWorker,
                         {QStringLiteral("--run"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), gpu, QStringLiteral("--allow-software"),
@@ -578,7 +759,7 @@ private slots:
         const int code = w.finish(120000);
 #if defined(Q_OS_WIN)
         if (code == 5)
-            QSKIP(qPrintable(QStringLiteral("no D3D12 on WARP here: %1").arg(errors(w.events()))));
+            QSKIP(qPrintable(QStringLiteral("no %1 on WARP here: %2").arg(api, errors(w.events()))));
 #endif
         QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
         const QList<pr::ResultEvent> rs = results(w.events());
