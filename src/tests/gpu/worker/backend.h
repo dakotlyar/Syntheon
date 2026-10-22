@@ -57,6 +57,7 @@ struct BackendInit {
     bool hasLuid = false;
     std::uint32_t renderWidth = 1920, renderHeight = 1080;  // physical
     bool allowSoftware = false, validation = false;
+    bool waylandSession = false;  // Linux: the session is Wayland (the GL backend's display-output rule)
 };
 
 struct BackendInfo {

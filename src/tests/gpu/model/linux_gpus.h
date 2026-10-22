@@ -10,6 +10,8 @@
 #include <QString>
 #include <QVector>
 
+#include <optional>
+
 namespace sb::gpu {
 
 struct VkDeviceRecord {
@@ -26,6 +28,7 @@ struct DrmCard {
     QString pciSlot;
     quint32 vendorId = 0, deviceId = 0;
     QString driver;
+    std::optional<bool> drivesDisplay;  // a connector card<N>-* is connected and enabled (drm_display.h)
     bool operator==(const DrmCard &) const = default;
 };
 

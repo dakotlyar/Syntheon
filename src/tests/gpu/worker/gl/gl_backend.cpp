@@ -5,6 +5,7 @@
 
 #include <glad/gl.h>
 
+#include "tests/gpu/model/drm_display.h"
 #include "tests/gpu/model/gl_vendor.h"
 #include "tests/gpu/worker/present_constants.h"
 #include "tests/gpu/worker/scene/bitmap_font.h"
@@ -322,6 +323,15 @@ std::string GlBackend::init(const BackendInit &init, const PresentTarget &target
             return "N/A: OpenGL runs on " + renderer + " here, not on this GPU";
         if (hardwareGpusOfVendor(pci) > 1)
             return "N/A: Can't tell which GPU OpenGL uses (" + vendor + ")";
+#if !defined(_WIN32)
+        // Dave's Wayland rule (also decided by the GUI's probe): a GPU that drives no enabled display output
+        // can't show its window on this session, so a worker started without a probe entry answers N/A too.
+        if (init.waylandSession) {
+            const std::optional<bool> drives = drmGpuDrivesDisplay("/", init.pciSlot);
+            if (drives.has_value() && !*drives)
+                return "N/A: OpenGL's test window can't be shown from this GPU on this Wayland session (it doesn't drive a display)";
+        }
+#endif
     }
 
     if (init.validation) {

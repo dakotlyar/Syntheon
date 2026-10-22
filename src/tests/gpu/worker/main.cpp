@@ -508,6 +508,9 @@ public:
         init.renderWidth = std::uint32_t(m_plan.render.width);
         init.renderHeight = std::uint32_t(m_plan.render.height);
         init.allowSoftware = m_args.allowSoftware;
+#if defined(Q_OS_LINUX)
+        init.waylandSession = !qEnvironmentVariable("WAYLAND_DISPLAY").isEmpty() && QGuiApplication::platformName().startsWith(QLatin1StringView("wayland"));
+#endif
         init.validation = m_args.validation;
         PresentTarget target = m_args.headless ? glue::headlessTarget() : glue::windowlessTarget(m_backend->api());
         if (m_backend->api() == Api::OpenGl) {

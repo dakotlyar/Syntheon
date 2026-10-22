@@ -2,6 +2,7 @@
 // The GPU test's pure model (Phase 4a design §9, §10): ids and keys, frame
 // statistics, best-of and the signature comparison.
 #include "tests/gpu/model/best_of.h"
+#include "tests/gpu/model/drm_display.h"
 #include "tests/gpu/model/frame_stats.h"
 #include "tests/gpu/model/gl_env.h"
 #include "tests/gpu/model/gpu_identity.h"
@@ -227,8 +228,8 @@ private slots:
     {
         const QVector<DrmCard> cards = readDrmCards(fixtureRoot("/linux/tiamat"));
         QCOMPARE(cards.size(), 2);
-        QCOMPARE(cards[0], (DrmCard{QStringLiteral("0000:79:00.0"), 0x1002, 0x13c0, QStringLiteral("amdgpu")}));
-        QCOMPARE(cards[1], (DrmCard{QStringLiteral("0000:01:00.0"), 0x10de, 0x2c05, QStringLiteral("nvidia")}));
+        QCOMPARE(cards[0], (DrmCard{QStringLiteral("0000:79:00.0"), 0x1002, 0x13c0, QStringLiteral("amdgpu"), false}));  // DP-9 is connected but disabled
+        QCOMPARE(cards[1], (DrmCard{QStringLiteral("0000:01:00.0"), 0x10de, 0x2c05, QStringLiteral("nvidia"), true}));  // DP-2 and DP-3 connected and enabled
         QVERIFY(readDrmCards(fixtureRoot("/linux/nowhere")).isEmpty());
     }
 
@@ -722,6 +723,55 @@ private slots:
         QCOMPARE(glVendorToPci(QStringLiteral("advanced micro devices, inc.")), std::optional<quint32>(0x1002));
         QVERIFY(isSoftwareGl(QStringLiteral("LLVMPIPE (LLVM 21)")));
         QVERIFY(!isSoftwareGl(QStringLiteral("NVIDIA GeForce RTX 5070 Ti")));
+    }
+
+    // Dave's Wayland OpenGL rule: a GPU that drives no enabled display output is N/A on a Wayland session.
+    void waylandGlNeedsADisplayOutput()
+    {
+        namespace pr = sb::gpu::protocol;
+        const auto glFor = [](const char *vendor, const char *renderer) {
+            pr::GlEvent g;
+            g.ok = true;
+            g.version = QStringLiteral("OpenGL 4.6");
+            g.vendor = QLatin1StringView(vendor);
+            g.renderer = QLatin1StringView(renderer);
+            return g;
+        };
+        const QString reason = QStringLiteral("OpenGL's test window can't be shown from this GPU on this Wayland session (it doesn't drive a display)");
+        // Tiamat: the 5070 Ti drives DP-2/DP-3; the 610M's only connected connector is disabled.
+        const QVector<GpuEntry> tiamat = mergeLinuxGpus(tiamatVulkan(), readDrmCards(fixtureRoot("/linux/tiamat")));
+        QCOMPARE(tiamat[0].drivesDisplay, std::optional<bool>(false));
+        QCOMPARE(tiamat[1].drivesDisplay, std::optional<bool>(true));
+        const pr::GlEvent amdGl = glFor("AMD", "AMD Radeon Graphics (radeonsi, raphael_mendocino)");
+        const pr::GlEvent nvGl = glFor("NVIDIA Corporation", "NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2");
+        ApiAvailability a = verifyGl(amdGl, tiamat[0], tiamat, false, false, true);
+        QVERIFY(!a.ok);
+        QCOMPARE(a.reason, reason);
+        QVERIFY(verifyGl(nvGl, tiamat[1], tiamat, false, false, true).ok);
+        // X11 (or any non-Wayland session): the rule doesn't apply.
+        QVERIFY(verifyGl(amdGl, tiamat[0], tiamat, false, false, false).ok);
+        // A laptop: the iGPU drives the panel, the dGPU nothing.
+        const QVector<DrmCard> cards = readDrmCards(fixtureRoot("/linux/laptop"));
+        QCOMPARE(cards.size(), 2);
+        const QVector<GpuEntry> laptop = mergeLinuxGpus({}, cards);
+        QCOMPARE(laptop[0].drivesDisplay, std::optional<bool>(true));   // Intel, eDP-1 connected and enabled
+        QCOMPARE(laptop[1].drivesDisplay, std::optional<bool>(false));  // NVIDIA, HDMI disconnected
+        QVERIFY(verifyGl(glFor("Intel", "Mesa Intel(R) Graphics"), laptop[0], laptop, false, false, true).ok);
+        QCOMPARE(verifyGl(nvGl, laptop[1], laptop, false, false, true).reason, reason);
+        QVERIFY(verifyGl(nvGl, laptop[1], laptop, false, false, false).ok);
+        // Unknown (no DRM card: a Vulkan-only device) and software GPUs are never N/A by this rule.
+        GpuEntry unknown = tiamat[0];
+        unknown.drivesDisplay.reset();
+        QVERIFY(verifyGl(amdGl, unknown, {unknown}, false, false, true).ok);
+        // The worker's own check reads the same sysfs by PCI slot.
+        const std::filesystem::path tiamatRoot = fixtureRoot("/linux/tiamat").toStdString();
+        QCOMPARE(drmGpuDrivesDisplay(tiamatRoot, "0000:79:00.0"), std::optional<bool>(false));
+        QCOMPARE(drmGpuDrivesDisplay(tiamatRoot, "0000:01:00.0"), std::optional<bool>(true));
+        QVERIFY(!drmGpuDrivesDisplay(tiamatRoot, "0000:99:00.0").has_value());
+        // The flag survives the protocol.
+        const auto e = pr::parseLine(pr::encode(pr::GpuEvent{tiamat[0]}), nullptr);
+        QVERIFY(e);
+        QCOMPARE(std::get<pr::GpuEvent>(*e).gpu.drivesDisplay, std::optional<bool>(false));
     }
 
     // D20: the reference is the API that matches the most others, ties to the earlier one.

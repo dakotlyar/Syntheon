@@ -29,6 +29,7 @@ struct GpuEntry {
     qint64 vramBytes = 0;
     QString pciSlot;                       // Linux "0000:01:00.0"
     QString kernelDriver;                  // Linux "nvidia", "amdgpu"
+    std::optional<bool> drivesDisplay;     // Linux: a connected, enabled DRM connector belongs to this GPU (unknown: no DRM card)
     QString luid;                          // Windows: the adapter's LUID, 16 hex digits (bytes in memory order); the run selects by it
     QMap<QString, ApiAvailability> apis;   // key: "vulkan","dx12","dx11","opengl","d2d"
     bool operator==(const GpuEntry &) const = default;

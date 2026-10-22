@@ -48,7 +48,7 @@ QJsonObject encodeGpu(const GpuEntry &g)
         }
         apis.insert(it.key(), a);
     }
-    return {{S("ev"), S("gpu")},
+    QJsonObject out{{S("ev"), S("gpu")},
             {S("id"), g.id},
             {S("name"), g.name},
             {S("vendorId"), double(g.vendorId)},
@@ -59,6 +59,9 @@ QJsonObject encodeGpu(const GpuEntry &g)
             {S("kernelDriver"), g.kernelDriver},
             {S("luid"), g.luid},
             {S("apis"), apis}};
+    if (g.drivesDisplay)
+        out.insert(S("drivesDisplay"), *g.drivesDisplay);
+    return out;
 }
 
 QJsonObject encodeEvent(const Event &event)
@@ -176,6 +179,8 @@ std::optional<Event> parseGpu(const QJsonObject &o, QString *error)
     g.pciSlot = o.value(S("pciSlot")).toString();
     g.kernelDriver = o.value(S("kernelDriver")).toString();
     g.luid = o.value(S("luid")).toString();
+    if (o.contains(S("drivesDisplay")))
+        g.drivesDisplay = o.value(S("drivesDisplay")).toBool();
     const QJsonObject apis = o.value(S("apis")).toObject();
     for (auto it = apis.begin(); it != apis.end(); ++it) {
         const QJsonObject a = it.value().toObject();

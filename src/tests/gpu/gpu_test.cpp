@@ -14,6 +14,7 @@
 #include "sysinfo/system_info.h"
 #include "tests/gpu/model/render_size.h"
 
+#include <QGuiApplication>
 #include <QMutexLocker>
 #include <QSysInfo>
 
@@ -119,6 +120,16 @@ std::optional<int> chooseDefault(const QVector<GpuEntry> &gpus)
 // the offload variables of D17) verified against the machine's list; the default GPU first, within
 // the time left until `deadline` (D22). A GPU whose entry already has an opengl answer is left as it
 // is; one the time didn't reach has none, and its OpenGL worker checks it when the test starts.
+// A Wayland session: WAYLAND_DISPLAY is set and Qt runs on the wayland platform (Dave's OpenGL rule).
+bool waylandSession()
+{
+#if defined(Q_OS_LINUX)
+    return !qEnvironmentVariable("WAYLAND_DISPLAY").isEmpty() && QGuiApplication::platformName().startsWith(QLatin1StringView("wayland"));
+#else
+    return false;
+#endif
+}
+
 void probeOpenGl(QVector<GpuEntry> &list, std::chrono::steady_clock::time_point deadline)
 {
 #if defined(Q_OS_LINUX)
@@ -137,7 +148,7 @@ void probeOpenGl(QVector<GpuEntry> &list, std::chrono::steady_clock::time_point 
     }
     probeOpenGlOver(list, order, deadline, linuxArm, windowsArm, [](const GpuEntry &g, std::chrono::milliseconds left) {
         return GpuClient::probeGl(g, glEnvironment(g), left);
-    });
+    }, waylandSession());
 }
 
 struct ApiRun;

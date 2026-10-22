@@ -5,6 +5,8 @@
 #include <QFile>
 #include <QRegularExpression>
 
+#include "tests/gpu/model/drm_display.h"
+
 #include <algorithm>
 
 namespace sb::gpu {
@@ -87,6 +89,7 @@ QVector<DrmCard> readDrmCards(const QString &root)
         }
         if (c.vendorId == 0 && c.deviceId == 0)
             continue;  // not a PCI device
+        c.drivesDisplay = drmCardDrivesDisplay(drm.path().toStdString(), m.captured(1).toInt());
         found.append({m.captured(1).toInt(), c});
     }
     std::sort(found.begin(), found.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
@@ -117,6 +120,7 @@ QVector<GpuEntry> mergeLinuxGpus(const QVector<VkDeviceRecord> &vk, const QVecto
         g.deviceId = c.deviceId;
         g.pciSlot = c.pciSlot;
         g.kernelDriver = c.driver;
+        g.drivesDisplay = c.drivesDisplay;
         g.id = makeLinuxGpuId(c.vendorId, c.deviceId, c.pciSlot);
         const int v = matchVulkan(c);
         if (v >= 0) {

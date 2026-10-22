@@ -75,7 +75,7 @@ QProcessEnvironment glEnvironment(const GpuEntry &gpu, const std::function<bool(
 }
 
 void probeOpenGlOver(QVector<GpuEntry> &list, const QVector<int> &order, std::chrono::steady_clock::time_point deadline, bool linuxArm,
-                     bool windowsArm, const GlProber &prober)
+                     bool windowsArm, const GlProber &prober, bool waylandSession)
 {
     for (const int i : order) {
         if (list[i].apis.contains(QStringLiteral("opengl")))
@@ -90,11 +90,12 @@ void probeOpenGlOver(QVector<GpuEntry> &list, const QVector<int> &order, std::ch
         const std::optional<protocol::GlEvent> gl = prober(list[i], left);
         if (!gl)
             break;  // no answer in time: no entry, and no more probing (D22)
-        list[i].apis.insert(QStringLiteral("opengl"), verifyGl(*gl, list[i], list, false, windowsArm));
+        list[i].apis.insert(QStringLiteral("opengl"), verifyGl(*gl, list[i], list, false, windowsArm, waylandSession));
     }
 }
 
-ApiAvailability verifyGl(const protocol::GlEvent &gl, const GpuEntry &chosen, const QVector<GpuEntry> &all, bool linuxArm, bool windowsArm)
+ApiAvailability verifyGl(const protocol::GlEvent &gl, const GpuEntry &chosen, const QVector<GpuEntry> &all, bool linuxArm, bool windowsArm,
+                         bool waylandSession)
 {
     ApiAvailability a;
     if (linuxArm) {
@@ -147,6 +148,11 @@ ApiAvailability verifyGl(const protocol::GlEvent &gl, const GpuEntry &chosen, co
             sameVendor += (g.kind != GpuKind::Software && g.vendorId == *pci) ? 1 : 0;
         if (sameVendor > 1) {
             a.reason = QStringLiteral("Can't tell which GPU OpenGL uses (%1)").arg(gl.vendor);
+            return a;
+        }
+        // Dave's Wayland rule: KWin can't show EGL buffers a GPU that drives no display rendered.
+        if (waylandSession && chosen.drivesDisplay.has_value() && !*chosen.drivesDisplay) {
+            a.reason = QStringLiteral("OpenGL's test window can't be shown from this GPU on this Wayland session (it doesn't drive a display)");
             return a;
         }
     }

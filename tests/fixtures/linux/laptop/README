@@ -1,0 +1,1 @@
+A laptop: an Intel iGPU (card0) drives the panel (eDP-1); the NVIDIA dGPU (card1) has no connected output. Hand-written for the Wayland OpenGL rule (Phase 4a), not captured.

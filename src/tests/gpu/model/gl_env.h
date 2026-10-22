@@ -37,7 +37,7 @@ QProcessEnvironment glEnvironmentFor(const GpuEntry &gpu, bool windows, const st
 // starts. Linux ARM stores the fixed reason without probing.
 using GlProber = std::function<std::optional<protocol::GlEvent>(const GpuEntry &gpu, std::chrono::milliseconds left)>;
 void probeOpenGlOver(QVector<GpuEntry> &list, const QVector<int> &order, std::chrono::steady_clock::time_point deadline, bool linuxArm,
-                     bool windowsArm, const GlProber &prober);
+                     bool windowsArm, const GlProber &prober, bool waylandSession = false);
 
 // "0000:79:00.0" -> "pci-0000_79_00_0".
 QString driPrimeValue(const QString &pciSlot);
@@ -46,6 +46,10 @@ QString driPrimeValue(const QString &pciSlot);
 // the version, driver (the renderer) and a note, or the exact reason (§4.2). linuxArm: "OpenGL isn't
 // tested on Linux ARM" without looking at the answer. windowsArm: a GDI Generic renderer is the
 // missing compatibility pack (reason + hint URL).
-ApiAvailability verifyGl(const protocol::GlEvent &gl, const GpuEntry &chosen, const QVector<GpuEntry> &all, bool linuxArm, bool windowsArm = false);
+// waylandSession (Linux): on a Wayland session a hardware GPU that drives no enabled display output is N/A
+// ("OpenGL's test window can't be shown from this GPU on this Wayland session (it doesn't drive a display)"):
+// the compositor can't show the EGL buffers another GPU renders. Unknown (no DRM card) is not N/A.
+ApiAvailability verifyGl(const protocol::GlEvent &gl, const GpuEntry &chosen, const QVector<GpuEntry> &all, bool linuxArm, bool windowsArm = false,
+                         bool waylandSession = false);
 
 } // namespace sb::gpu
