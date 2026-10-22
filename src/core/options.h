@@ -3,6 +3,7 @@
 
 #include "core/enums.h"
 
+#include <QMap>
 #include <QString>
 #include <QVariant>
 #include <QVariantMap>
@@ -58,6 +59,10 @@ struct OptionDef {
     // Info
     QString infoValue;
     Tone infoTone = Tone::Neutral;
+    // An Info row that follows another option (DEF-3): the text for each value of the option `infoFollows`
+    // (e.g. the GPU select: that GPU's APIs); infoValue is the fallback for a value not in the map.
+    QString infoFollows;
+    QMap<QString, QString> infoByValue;
 
     const OptionItem *item(const QString &value) const;
     bool operator==(const OptionDef &) const = default;

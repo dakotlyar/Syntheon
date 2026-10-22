@@ -124,6 +124,7 @@ TestCase {
         verify(!card.visible)
         verify(RunController.start())
         tryVerify(function() { return RunController.running && RunController.queue.rowCount() === 1 }, 5000)
+        tryVerify(function() { return findChild(screen, "queue-ai").runState === "running" }, 5000)
         Fixtures.holdInterface(true)
         verify(RunController.interfaceHeld)
         verify(card.visible)
@@ -133,6 +134,16 @@ TestCase {
         verify(!findChild(screen, "heldPart").visible)  // no part yet
         Fixtures.heldProgress("Geometry · DirectX 12")
         compare(findChild(screen, "heldPart").text, "Now: Geometry · DirectX 12")
+        // DEF-4: the row's percentage moves with the part (once per part), and only then: a repeat of the
+        // same part, with a new fraction, changes nothing on the card.
+        const row = findChild(screen, "queue-ai")
+        compare(findChild(row, "state").text, "10%")
+        Fixtures.heldProgress("Geometry · DirectX 12", 0.4)
+        compare(findChild(row, "state").text, "10%")
+        Fixtures.heldProgress("Shading · DirectX 12", 0.6)
+        compare(findChild(row, "state").text, "60%")
+        compare(findChild(screen, "heldPart").text, "Now: Shading · DirectX 12")
+        verify(findChild(row, "stage").text.indexOf("Running in its own window") === 0)
         // The card sits under the queue row, not above it.
         waitForRendering(screen)
         tryVerify(function() { return card.y > findChild(screen, "queueBox").y }, 3000)

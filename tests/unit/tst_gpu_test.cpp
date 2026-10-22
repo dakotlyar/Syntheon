@@ -155,6 +155,9 @@ private slots:
         QCOMPARE(gpu->items[0].detail, QStringLiteral("discrete · 16 GB · Vulkan, OpenGL"));
         QCOMPARE(gpu->defaultValue.toString(), QStringLiteral("10de:2c05@0000:01:00.0"));
         QVERIFY(o.find(QStringLiteral("apis")));
+        // DEF-3: the APIs row follows the GPU select (its text for every listed GPU).
+        QCOMPARE(o.find(QStringLiteral("apis"))->infoFollows, QStringLiteral("gpu"));
+        QVERIFY(o.find(QStringLiteral("apis"))->infoByValue.value(QStringLiteral("10de:2c05@0000:01:00.0")).contains(QLatin1StringView("Vulkan 1.4.351")));
         QVERIFY(o.find(QStringLiteral("window"))->infoValue.contains(QLatin1StringView("vsync off")));
         QVERIFY(o.find(QStringLiteral("runs"))->infoValue.startsWith(QLatin1StringView("Every API and part runs (about ")));
     }

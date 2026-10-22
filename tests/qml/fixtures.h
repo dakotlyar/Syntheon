@@ -43,12 +43,12 @@ public:
     // sent through the orchestrator's own signals.
     inline static sb::RunController *run = nullptr;
     Q_INVOKABLE void holdInterface(bool hold) { emit run->orchestrator().interfaceHold(0, hold); }
-    Q_INVOKABLE void heldProgress(const QString &part)
+    Q_INVOKABLE void heldProgress(const QString &part, double fraction = 0.1)
     {
         sb::ProgressUpdate u;
         u.index = 0;
         u.testId = QStringLiteral("ai");
-        u.fraction = 0.1;
+        u.fraction = fraction;
         u.stage = QStringLiteral("stage");
         u.part = part;
         emit run->orchestrator().progress(u);

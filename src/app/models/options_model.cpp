@@ -78,7 +78,14 @@ QVariant OptionsModel::data(const QModelIndex &index, int role) const
     case MaximumRole: return d.maximum;
     case StepRole: return d.step;
     case UnitRole: return d.unit;
-    case InfoValueRole: return d.infoValue;
+    case InfoValueRole: {
+        if (!d.infoFollows.isEmpty()) {
+            const auto it = d.infoByValue.constFind(m_values->value(d.infoFollows).toString());
+            if (it != d.infoByValue.cend())
+                return *it;
+        }
+        return d.infoValue;
+    }
     case InfoToneRole: return toKey(d.infoTone);
     default: return {};
     }
@@ -173,6 +180,11 @@ void OptionsModel::setValue(const QString &key, const QVariant &value)
             break;
         }
     }
+    // The Info rows that follow this option show the new selection's text.
+    for (int i = 0; i < m_schema.options.size(); ++i) {
+        if (m_schema.options[i].infoFollows == key)
+            emit dataChanged(index(i), index(i), {InfoValueRole});
+    }
     emit valueEdited(key);
 }
 
@@ -185,7 +197,7 @@ QVariant OptionsModel::value(const QString &key) const
 void OptionsModel::valuesChanged()
 {
     if (!m_schema.options.isEmpty())
-        emit dataChanged(index(0), index(int(m_schema.options.size()) - 1), {ValueRole});
+        emit dataChanged(index(0), index(int(m_schema.options.size()) - 1), {ValueRole, InfoValueRole});
 }
 
 } // namespace sb

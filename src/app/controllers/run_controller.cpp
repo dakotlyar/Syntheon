@@ -184,6 +184,12 @@ void RunController::connectOrchestrator()
             m_heldProgress = u;
             if (u.part != m_heldPart) {
                 m_heldPart = u.part;
+                // DEF-4: once per part, with the "Now:" line: the queue row's fraction and elapsed
+                // time and the ETA move to now. Nothing ticks or animates between parts.
+                if (m_heldIndex >= 0 && m_heldIndex < m_queue->rowCount())
+                    m_queue->progress({m_heldIndex, u.testId, u.fraction, QStringLiteral("Running in its own window"), {}});
+                m_queue->tick();
+                refreshEta();
                 emit heldPartChanged();
             }
             return;

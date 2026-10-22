@@ -684,19 +684,34 @@ OptionSchema GpuTest::options(const ProbeContext &ctx, const Availability &) con
         d.infoTone = tone;
         o.options.append(d);
     };
-    // The APIs of the default GPU.
-    QStringList ok, na;
-    if (const auto def = chooseDefault(list)) {
+    // The APIs of a GPU: versions and N/A reasons. The row follows the GPU select (DEF-3): its text for
+    // every GPU is in infoByValue, and the default GPU's is the fallback.
+    const auto apisText = [](const GpuEntry &g) {
+        QStringList ok, na;
         for (const char *key : kApiKeys) {
-            const ApiAvailability av = list[*def].apis.value(QString::fromLatin1(key));
+            const ApiAvailability av = g.apis.value(QString::fromLatin1(key));
             const QString name = apiName(*apiFromKey(QString::fromLatin1(key)));
             if (av.ok)
                 ok << (av.version.isEmpty() ? name : av.version);
             else if (!av.reason.isEmpty())
                 na << (av.hint.isEmpty() ? QStringLiteral("%1: %2").arg(name, av.reason) : QStringLiteral("%1: %2 (%3)").arg(name, av.reason, av.hint));
         }
+        return (ok.isEmpty() ? QStringLiteral("none found") : ok.join(QStringLiteral(", "))) + (na.isEmpty() ? QString() : QStringLiteral(" · N/A: ") + na.join(QStringLiteral("; ")));
+    };
+    {
+        OptionDef d;
+        d.key = QStringLiteral("apis");
+        d.label = QStringLiteral("APIs");
+        d.kind = OptionKind::Info;
+        const auto def = chooseDefault(list);
+        d.infoValue = def ? apisText(list[*def]) : QStringLiteral("none found");
+        if (!list.isEmpty()) {
+            d.infoFollows = QStringLiteral("gpu");
+            for (const GpuEntry &g : list)
+                d.infoByValue.insert(g.id, apisText(g));
+        }
+        o.options.append(d);
     }
-    info("apis", "APIs", ok.isEmpty() ? QStringLiteral("none found") : ok.join(QStringLiteral(", ")) + (na.isEmpty() ? QString() : QStringLiteral(" · N/A: ") + na.join(QStringLiteral("; "))));
     // M6: what the window will be on this screen (the snapshot's primary screen).
     const DisplayInfo display = displayFromSnapshotData(ctx.system().data);
     if (!display.known()) {

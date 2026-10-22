@@ -115,6 +115,37 @@ private slots:
         QCOMPARE(values.value(QStringLiteral("runtimes")).toStringList(), (QStringList{QStringLiteral("a")}));
     }
 
+    // DEF-3: an Info row that follows a select shows the selected value's text, and updates when the
+    // selection changes (the GPU test's APIs row: the picked GPU's versions, not the default's).
+    void infoRowFollowsItsSelect()
+    {
+        OptionDef gpu;
+        gpu.key = QStringLiteral("gpu");
+        gpu.kind = OptionKind::DynamicSelect;
+        gpu.items = {{QStringLiteral("nv"), QStringLiteral("NVIDIA")}, {QStringLiteral("amd"), QStringLiteral("610M")}};
+        gpu.defaultValue = QStringLiteral("nv");
+        OptionDef apis;
+        apis.key = QStringLiteral("apis");
+        apis.kind = OptionKind::Info;
+        apis.infoValue = QStringLiteral("Vulkan 1.4.351");
+        apis.infoFollows = QStringLiteral("gpu");
+        apis.infoByValue = {{QStringLiteral("nv"), QStringLiteral("Vulkan 1.4.351")}, {QStringLiteral("amd"), QStringLiteral("Vulkan 1.4.318 · N/A: DirectX is Windows only")}};
+        OptionSchema schema;
+        schema.options = {gpu, apis};
+        OptionValues values;
+        OptionsModel model(schema, &values);
+        model.setSchema(schema);
+        const QModelIndex row = model.index(1);
+        QCOMPARE(model.data(row, OptionsModel::InfoValueRole).toString(), QStringLiteral("Vulkan 1.4.351"));
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        model.setValue(QStringLiteral("gpu"), QStringLiteral("amd"));
+        QCOMPARE(model.data(row, OptionsModel::InfoValueRole).toString(), QStringLiteral("Vulkan 1.4.318 · N/A: DirectX is Windows only"));
+        bool infoRowSignalled = false;
+        for (const QList<QVariant> &args : changed)
+            infoRowSignalled = infoRowSignalled || (args.at(0).value<QModelIndex>().row() == 1 && args.at(2).value<QList<int>>().contains(OptionsModel::InfoValueRole));
+        QVERIFY(infoRowSignalled);
+    }
+
     // AP-5 #5: a refused Start says why (and the reason clears on the next edit).
     void refusedStartExposesItsReason()
     {
