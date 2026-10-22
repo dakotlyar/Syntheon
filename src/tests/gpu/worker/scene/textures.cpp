@@ -193,11 +193,12 @@ Texture fillTexture(std::uint32_t seed)
 
 Texture blitImage(std::uint32_t seed)
 {
-    Texture t = blank(512, 512);
-    for (std::uint32_t y = 0; y < 512; ++y) {
-        for (std::uint32_t x = 0; x < 512; ++x) {
-            const float n = noise2(x, y, 512, 10.f, seed, 4) * 0.5f + 0.5f;
-            put(t, x, y, float(x) / 511.f, float(y) / 511.f, n);
+    // 256 x 256 (§7.1: "one 256x256 RGBA procedural image"; task 8 had 512 by mistake, corrected in task 25).
+    Texture t = blank(256, 256);
+    for (std::uint32_t y = 0; y < 256; ++y) {
+        for (std::uint32_t x = 0; x < 256; ++x) {
+            const float n = noise2(x, y, 256, 10.f, seed, 4) * 0.5f + 0.5f;
+            put(t, x, y, float(x) / 255.f, float(y) / 255.f, n);
         }
     }
     return t;

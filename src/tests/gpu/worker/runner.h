@@ -5,6 +5,7 @@
 // verification frame, unload (Phase 4a design §5.8, P6, P7, P14). Qt-free.
 
 #include "tests/gpu/worker/backend.h"
+#include "tests/gpu/worker/native2d.h"
 #include "tests/gpu/worker/scene/scenes.h"
 
 #include <chrono>
@@ -59,10 +60,15 @@ public:
     Runner(IBackend &backend, Hooks hooks);
     Runner(IBackend &backend, Hooks hooks, Settings settings);
     WorkloadResult run(const WorkloadPlan &plan, const SceneData &scene);
+    // The same phases for a native 2D path (task 25): load the ops, warm-up, measure, the verification
+    // frame, unload. `native` is the path (usually the same object as the backend, see native2d.h).
+    WorkloadResult runNative(const WorkloadPlan &plan, const NativeOps &ops, INative2D &native);
     // The readback's size after the window moved to a screen with another scale (D1).
     void setRenderSize(std::uint32_t w, std::uint32_t h) { m_settings.renderWidth = w, m_settings.renderHeight = h; }
 
 private:
+    struct Driver;  // what the shared loop drives: a backend or a native path
+    WorkloadResult loop(const WorkloadPlan &plan, const Driver &driver);
     IBackend &m_backend;
     Hooks m_hooks;
     Settings m_settings;

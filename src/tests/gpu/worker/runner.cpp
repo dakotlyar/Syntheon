@@ -86,6 +86,10 @@ const char *workloadName(Workload w)
     case Workload::Particles: return "Particles";
     case Workload::Quads: return "Quads";
     case Workload::Sprites: return "Sprites";
+    case Workload::Shapes: return "Shapes";
+    case Workload::Text: return "Text";
+    case Workload::Blits: return "Image blits";
+    case Workload::Gradients: return "Gradients";
     }
     return "";
 }
@@ -98,6 +102,8 @@ const char *apiOverlayName(Api a)
     case Api::Dx11: return "DX11";
     case Api::OpenGl: return "OpenGL";
     case Api::Null: return "Null";
+    case Api::QtRaster: return "Qt raster";
+    case Api::Direct2D: return "Direct2D";
     }
     return "";
 }
@@ -110,6 +116,8 @@ const char *apiId(Api a)
     case Api::Dx11: return "dx11";
     case Api::OpenGl: return "opengl";
     case Api::Null: return "null";
+    case Api::QtRaster: return "qt";
+    case Api::Direct2D: return "d2d";
     }
     return "";
 }
@@ -121,26 +129,62 @@ Runner::Runner(IBackend &backend, Hooks hooks, Settings settings)
 {
 }
 
+struct Runner::Driver {
+    std::string apiName;
+    std::function<std::string()> load;
+    std::function<std::string(double, std::vector<double> *)> frame;
+    std::function<std::string(std::vector<double> *)> drain;
+    std::function<std::string(double, std::vector<std::uint8_t> *)> readback;
+    std::function<void()> unload;
+    std::function<void(const std::string &)> setOverlay;
+};
+
 WorkloadResult Runner::run(const WorkloadPlan &plan, const SceneData &scene)
+{
+    Driver d;
+    d.apiName = apiOverlayName(m_backend.api());
+    d.load = [&] { return m_backend.load(scene); };
+    d.frame = [&](double t, std::vector<double> *gpu) { return m_backend.frame(t, gpu); };
+    d.drain = [&](std::vector<double> *gpu) { return m_backend.drain(gpu); };
+    d.readback = [&](double t, std::vector<std::uint8_t> *px) { return m_backend.readback(t, px); };
+    d.unload = [&] { m_backend.unload(); };
+    d.setOverlay = [&](const std::string &text) { m_backend.setOverlay(text); };
+    return loop(plan, d);
+}
+
+WorkloadResult Runner::runNative(const WorkloadPlan &plan, const NativeOps &ops, INative2D &native)
+{
+    Driver d;
+    d.apiName = native.overlayName();
+    d.load = [&] { return native.load(ops); };
+    d.frame = [&](double t, std::vector<double> *) { return native.frame(t); };  // no GPU timestamps: a CPU path or a CPU-timed one
+    d.drain = [](std::vector<double> *) { return std::string(); };
+    d.readback = [&](double t, std::vector<std::uint8_t> *px) { return native.readback(t, px); };
+    d.unload = [&] { native.unload(); };
+    d.setOverlay = [&](const std::string &text) { native.setOverlay(text); };
+    return loop(plan, d);
+}
+
+WorkloadResult Runner::loop(const WorkloadPlan &plan, const Driver &driver)
 {
     WorkloadResult r;
     r.workload = plan.workload;
     const auto fail = [&](std::string reason) {
-        m_backend.unload();
+        driver.unload();
         r.error = std::move(reason);
         return r;
     };
     const auto stopped = [&] { return m_hooks.stopRequested && m_hooks.stopRequested(); };
 
     Phase(m_hooks, plan.workload, "load", Clock::now());
-    if (std::string e = m_backend.load(scene); !e.empty())
+    if (std::string e = driver.load(); !e.empty())
         return fail(std::move(e));
     if (stopped())
         return fail(kStopped);
 
-    const std::string sceneName = workloadName(plan.workload), apiName = apiOverlayName(m_backend.api());
+    const std::string sceneName = workloadName(plan.workload), apiName = driver.apiName;
     const auto overlay = [&](std::optional<int> fps) {
-        m_backend.setOverlay(m_settings.overlay ? overlayText(sceneName, apiName, fps) : std::string());
+        driver.setOverlay(m_settings.overlay ? overlayText(sceneName, apiName, fps) : std::string());
     };
     overlay(std::nullopt);  // "warming up"
 
@@ -158,7 +202,7 @@ WorkloadResult Runner::run(const WorkloadPlan &plan, const SceneData &scene)
         if (stopped())
             return kStopped;
         const Clock::time_point before = Clock::now();
-        std::string e = m_backend.frame(std::chrono::duration<double>(before - warmStart).count(), &gpu);
+        std::string e = driver.frame(std::chrono::duration<double>(before - warmStart).count(), &gpu);
         *ret = Clock::now();
         *cpuMs = millis(*ret - before);
         ++submitted;
@@ -218,7 +262,7 @@ WorkloadResult Runner::run(const WorkloadPlan &plan, const SceneData &scene)
         measure.tick(ret);
     } while (ret < measureEnd);
 
-    if (std::string e = m_backend.drain(&gpu); !e.empty())
+    if (std::string e = driver.drain(&gpu); !e.empty())
         return fail(std::move(e));
     // The measured frames' GPU times: frames warmFrames.. in submission order
     // (a backend that drops a frame's timestamps shifts the tail by one; the
@@ -232,14 +276,14 @@ WorkloadResult Runner::run(const WorkloadPlan &plan, const SceneData &scene)
     // The verification frame (§5.7), at a fixed time; not timed.
     Phase(m_hooks, plan.workload, "verify", Clock::now());
     std::vector<std::uint8_t> pixels;
-    if (std::string e = m_backend.readback(plan.warmupMs / 1000.0 + 10.0, &pixels); !e.empty())
+    if (std::string e = driver.readback(plan.warmupMs / 1000.0 + 10.0, &pixels); !e.empty())
         return fail(std::move(e));
     const std::size_t want = std::size_t(m_settings.renderWidth) * m_settings.renderHeight * 4;
     if (pixels.size() != want)
         return fail("the readback returned " + std::to_string(pixels.size()) + " bytes, not "
                     + std::to_string(m_settings.renderWidth) + "x" + std::to_string(m_settings.renderHeight) + " RGBA8");
     r.signature = blockSignature(pixels.data(), m_settings.renderWidth, m_settings.renderHeight);
-    m_backend.unload();
+    driver.unload();
     return r;
 }
 

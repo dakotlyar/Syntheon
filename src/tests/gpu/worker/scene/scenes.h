@@ -15,10 +15,14 @@
 
 namespace sb::gpu {
 
-enum class Workload : std::uint8_t { Geometry, DrawCalls, Shading, Particles, Quads, Sprites };
+// The six 3D / fill workloads, then the four native 2D workloads (§7.1: shapes, text, blits, gradients; their
+// content is native_ops.h's, never a SceneData). kAllWorkloads is the six: the golden content hashes and the
+// serve-mode scenes cover those; kNativePlanWorkloads are the plan items of the native paths (`--api qt|d2d`).
+enum class Workload : std::uint8_t { Geometry, DrawCalls, Shading, Particles, Quads, Sprites, Shapes, Text, Blits, Gradients };
 inline constexpr std::array<Workload, 6> kAllWorkloads = {Workload::Geometry, Workload::DrawCalls, Workload::Shading,
                                                          Workload::Particles, Workload::Quads, Workload::Sprites};
-const char *workloadId(Workload w);  // "geometry","drawcalls","shading","particles","quads","sprites"
+inline constexpr std::array<Workload, 4> kNativePlanWorkloads = {Workload::Shapes, Workload::Text, Workload::Blits, Workload::Gradients};
+const char *workloadId(Workload w);  // "geometry","drawcalls","shading","particles","quads","sprites"; "shapes","text","blits","gradients"
 std::optional<Workload> workloadFromId(std::string_view id);
 
 struct Vertex {

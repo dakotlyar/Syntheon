@@ -369,6 +369,10 @@ std::string VulkanBackend::load(const SceneData &scene)
     case Workload::Shading: e = loadShading(scene); break;
     case Workload::Particles: e = loadParticles(scene); break;
     case Workload::Quads:
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients:
     case Workload::Sprites: break;
     }
     if (!e.empty())
@@ -559,6 +563,10 @@ void VulkanBackend::recordWorkload(VkCommandBuffer cmd, Slot &slot, double t)
     case Workload::Shading: recordShading(cmd, slot, t); return;
     case Workload::Particles: recordParticles(cmd, slot, t); return;
     case Workload::Quads:
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients:
     case Workload::Sprites: break;
     }
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass

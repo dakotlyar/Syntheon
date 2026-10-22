@@ -132,6 +132,10 @@ void writeFrame(const SceneData &scene, double t, std::uint32_t width, std::uint
         return;
     }
     case Workload::Quads:
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients:
     case Workload::Sprites: return;  // task 29
     }
 }

@@ -228,6 +228,10 @@ std::string D3D12Backend::load(const SceneData &scene)
     case Workload::Shading: e = loadShading(scene); break;
     case Workload::Particles: e = loadParticles(scene); break;
     case Workload::Quads:
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients:
     case Workload::Sprites: break;
     }
     if (!e.empty())
@@ -394,6 +398,10 @@ void D3D12Backend::recordWorkload(ID3D12GraphicsCommandList *list, Slot &slot, d
     case Workload::Shading: recordShading(list, slot, t); return;
     case Workload::Particles: recordParticles(list, slot, t); return;
     case Workload::Quads:
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients:
     case Workload::Sprites: break;
     }
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass

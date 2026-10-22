@@ -19,4 +19,12 @@ inline constexpr std::array<std::uint64_t, 6> kGoldenHash = {
     0x77a7fa465482f45aull,  // sprites
 };
 
+// nativeHash(buildNativeOps(k)) at content scale 1, for k in kNativeKinds order (§7.1, task 25).
+inline constexpr std::array<std::uint64_t, 4> kGoldenNativeHash = {
+    0xd8636039cfbf77a0ull,  // shapes
+    0x57ab48762b7962f7ull,  // text
+    0xeabf29cdeade2180ull,  // blits
+    0x1080950a58755c13ull,  // gradients
+};
+
 } // namespace sb::gpu

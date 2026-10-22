@@ -29,7 +29,7 @@
 #include <vector>
 
 namespace sb::gpu {
-enum class Api : std::uint8_t { Vulkan, Dx12, Dx11, OpenGl, Null };
+enum class Api : std::uint8_t { Vulkan, Dx12, Dx11, OpenGl, Null, QtRaster, Direct2D };  // the last two: the native 2D paths (task 26, 27)
 
 // What the Qt glue gives a backend (P2). Exactly one of the members is used.
 struct PresentTarget {

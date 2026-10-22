@@ -37,6 +37,7 @@
 #include "tests/gpu/worker/qt_glue.h"
 #include "tests/gpu/worker/runner.h"
 #include "tests/gpu/worker/scene/golden_hashes.inc"
+#include "tests/gpu/worker/scene/native_ops.h"
 #include "tests/gpu/worker/scene/scenes.h"
 #include "tests/gpu/worker/vulkan/vk_probe.h"
 #if defined(_WIN32)
@@ -417,6 +418,14 @@ int selfTest()
             return kExitError;
         }
     }
+    for (std::size_t i = 0; i < kNativeKinds.size(); ++i) {
+        const std::uint64_t h = nativeHash(buildNativeOps(kNativeKinds[i]));
+        if (h != kGoldenNativeHash[i]) {
+            std::fprintf(stderr, "synbench-gpu: self-test: native %s hash 0x%016llx is not the golden 0x%016llx\n", nativeId(kNativeKinds[i]),
+                         (unsigned long long)h, (unsigned long long)kGoldenNativeHash[i]);
+            return kExitError;
+        }
+    }
     return kExitOk;
 }
 
@@ -434,6 +443,11 @@ int printHashes()
                 int(kAllWorkloads.size()));
     for (const Workload w : kAllWorkloads)
         std::printf("    0x%016llxull,  // %s\n", (unsigned long long)contentHash(buildScene(w)), workloadId(w));
+    std::printf("};\n\n// nativeHash(buildNativeOps(k)) at content scale 1, for k in kNativeKinds order (§7.1, task 25).\n"
+                "inline constexpr std::array<std::uint64_t, %d> kGoldenNativeHash = {\n",
+                int(kNativeKinds.size()));
+    for (const NativeKind k : kNativeKinds)
+        std::printf("    0x%016llxull,  // %s\n", (unsigned long long)nativeHash(buildNativeOps(k)), nativeId(k));
     std::printf("};\n\n} // namespace sb::gpu\n");
     return kExitOk;
 }

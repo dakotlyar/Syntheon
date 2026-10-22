@@ -437,6 +437,10 @@ std::string GlBackend::load(const SceneData &scene)
     case Workload::Shading: e = loadShading(scene); break;
     case Workload::Particles: e = loadParticles(scene); break;
     case Workload::Quads:
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients:
     case Workload::Sprites: break;  // still the clear workload (task 29)
     }
     if (!e.empty())
@@ -590,6 +594,10 @@ void GlBackend::recordWorkload(Slot &slot, double t)
     case Workload::Shading: recordShading(slot, t); return;
     case Workload::Particles: recordParticles(slot, t); return;
     case Workload::Quads:
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients:
     case Workload::Sprites: break;
     }
     uploadConstants(slot);

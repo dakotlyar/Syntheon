@@ -253,6 +253,10 @@ const char *workloadId(Workload w)
     case Workload::Particles: return "particles";
     case Workload::Quads: return "quads";
     case Workload::Sprites: return "sprites";
+    case Workload::Shapes: return "shapes";
+    case Workload::Text: return "text";
+    case Workload::Blits: return "blits";
+    case Workload::Gradients: return "gradients";
     }
     return "geometry";
 }
@@ -260,6 +264,10 @@ const char *workloadId(Workload w)
 std::optional<Workload> workloadFromId(std::string_view id)
 {
     for (const Workload w : kAllWorkloads) {
+        if (id == workloadId(w))
+            return w;
+    }
+    for (const Workload w : kNativePlanWorkloads) {
         if (id == workloadId(w))
             return w;
     }
@@ -275,6 +283,10 @@ SceneData buildScene(Workload w, double contentScale)
     case Workload::Particles: return particles(contentScale);
     case Workload::Quads: return quads(contentScale);
     case Workload::Sprites: return sprites(contentScale);
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients: break;  // native 2D: native_ops.h
     }
     return {};
 }
@@ -289,7 +301,11 @@ Camera cameraAt(Workload w, double t, double aspect)
     case Workload::Shading: radius = 15; height = 7; target = {0, 2, 0}; break;
     case Workload::Particles: radius = 18; height = 5; target = {0, 4, 0}; break;
     case Workload::Quads:
-    case Workload::Sprites: break;
+    case Workload::Sprites:
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients: break;
     }
     Camera c;
     const bool orbits = radius > 0;

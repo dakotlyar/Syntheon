@@ -7,6 +7,7 @@ add_library(synbench_gpu_scene STATIC
     mesh_gen.h mesh_gen.cpp
     textures.h textures.cpp
     scenes.h scenes.cpp
+    native_ops.h native_ops.cpp
     bitmap_font.h bitmap_font.cpp bitmap_font.inc
     overlay.h overlay.cpp
     golden_hashes.inc

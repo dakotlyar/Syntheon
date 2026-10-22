@@ -397,6 +397,10 @@ std::string D3D11Backend::load(const SceneData &scene)
     case Workload::Shading: e = loadShading(scene); break;
     case Workload::Particles: e = loadParticles(scene); break;
     case Workload::Quads:
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients:
     case Workload::Sprites: break;  // still the clear workload (task 30)
     }
     if (!e.empty())
@@ -639,6 +643,10 @@ std::string D3D11Backend::recordWorkload(double t)
     case Workload::Shading: return recordShading(t);
     case Workload::Particles: return recordParticles(t);
     case Workload::Quads:
+    case Workload::Shapes:
+    case Workload::Text:
+    case Workload::Blits:
+    case Workload::Gradients:
     case Workload::Sprites: break;
     }
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass

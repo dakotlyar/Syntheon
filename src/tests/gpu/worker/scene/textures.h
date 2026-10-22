@@ -17,7 +17,7 @@ Texture checker(std::uint32_t seed, std::uint32_t size);      // checker or stri
 Texture softDisc(std::uint32_t size);                         // white, alpha = a soft falloff
 Texture spriteAtlas(std::uint32_t seed);                      // 256 x 256: 4 x 4 cells of 64 x 64 shapes
 Texture fillTexture(std::uint32_t seed);                      // 256 x 256 (the quads workload)
-Texture blitImage(std::uint32_t seed);                        // 512 x 512 (native 2D image blits)
+Texture blitImage(std::uint32_t seed);                        // 256 x 256 (native 2D image blits, §7.1)
 // Box filter, level 0 first, down to 1 x 1 (floor(log2(max side)) + 1 levels).
 std::vector<Texture> mipChain(const Texture &level0);
 
