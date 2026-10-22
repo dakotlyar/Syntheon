@@ -29,6 +29,7 @@ if(WIN32)
     # the import libraries of the in-box DLLs (§13: no Agility SDK).
     target_sources(synbench_gpu_backends PRIVATE
         dxgi/dxgi_swapchain.h dxgi/dxgi_swapchain.cpp
+        dxgi/dxgi_probe.h dxgi/dxgi_probe.cpp
         d3d12/d12_context.h d3d12/d12_context.cpp
         d3d12/d12_resources.h d3d12/d12_resources.cpp
         d3d12/d12_backend.h d3d12/d12_backend.cpp

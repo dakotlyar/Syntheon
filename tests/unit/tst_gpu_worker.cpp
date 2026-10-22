@@ -3,6 +3,7 @@
 // backend, through QProcess: the --plan and --serve protocols, exit codes,
 // stop and the stdin lifeline; plus the block signature. No GPU.
 #include "gpu_worker_process.h"
+#include "tests/gpu/model/gl_env.h"
 #include "tests/gpu/model/protocol.h"
 #include "tests/gpu/worker/null/null_backend.h"
 #include "tests/gpu/worker/runner.h"
@@ -12,6 +13,7 @@
 
 #include <QElapsedTimer>
 #include <QProcess>
+#include <QStandardPaths>
 #include <QTest>
 
 #include <functional>
@@ -342,6 +344,91 @@ private slots:
             QVERIFY(lvp->apis.value(QStringLiteral("vulkan")).ok);
             QCOMPARE(lvp->apis.value(QStringLiteral("dx12")).reason, QStringLiteral("DirectX is Windows only"));
         }
+    }
+
+    // Task 23: --probe-gl makes the run's own context (3.3 core) and describes it: one gl event, then
+    // done. On llvmpipe under the worker's own xvfb-run (never the session's display), the Mesa GLX only.
+    void probeGlOnLlvmpipe()
+    {
+#if defined(Q_OS_LINUX)
+        const QString xvfb = QStandardPaths::findExecutable(QStringLiteral("xvfb-run"));
+        if (xvfb.isEmpty())
+            SB_SKIP_OR_FAIL("xvfb-run isn't installed");
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.remove(QStringLiteral("WAYLAND_DISPLAY"));
+        env.insert(QStringLiteral("LIBGL_ALWAYS_SOFTWARE"), QStringLiteral("1"));
+        env.insert(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME"), QStringLiteral("mesa"));
+        QProcess p;
+        p.setProcessEnvironment(env);
+        p.start(xvfb, {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker, QStringLiteral("--probe-gl"),
+                       QStringLiteral("--gpu"), sb::gpu::testing::kLavapipeId});
+        QVERIFY(p.waitForStarted(10000));
+        QVERIFY(p.waitForFinished(30000));
+        QCOMPARE(p.exitCode(), 0);
+        std::optional<pr::GlEvent> gl;
+        bool done = false;
+        for (const QByteArray &line : p.readAllStandardOutput().split('\n')) {
+            if (line.trimmed().isEmpty())
+                continue;
+            QString err;
+            const auto e = pr::parseLine(line.trimmed(), &err);
+            QVERIFY2(e, qPrintable(err));
+            if (const auto *g = std::get_if<pr::GlEvent>(&*e))
+                gl = *g;
+            done = std::holds_alternative<pr::DoneEvent>(*e);
+        }
+        QVERIFY(done);
+        QVERIFY(gl);
+        QVERIFY2(gl->ok, qPrintable(gl->reason));
+        QVERIFY2(gl->renderer.contains(QLatin1StringView("llvmpipe")), qPrintable(gl->renderer));
+        // The GUI side's verdict: software GL only suits a software GPU.
+        sb::gpu::GpuEntry soft, hardware;
+        soft.kind = sb::gpu::GpuKind::Software;
+        const sb::gpu::ApiAvailability ok = sb::gpu::verifyGl(*gl, soft, {soft}, false);
+        QVERIFY2(ok.ok, qPrintable(ok.reason));
+        QVERIFY(ok.version.startsWith(QLatin1StringView("OpenGL 3.")) || ok.version.startsWith(QLatin1StringView("OpenGL 4.")));
+        hardware.kind = sb::gpu::GpuKind::Discrete;
+        QVERIFY(!sb::gpu::verifyGl(*gl, hardware, {hardware}, false).ok);
+#else
+        QSKIP("the GL probe's llvmpipe case is a Linux test");
+#endif
+    }
+
+    // Task 23 (Windows CI): --probe --allow-software lists the DXGI adapters, WARP as 1414:008c#0,
+    // with a Direct3D answer (ok, or the exact reason) for each API.
+    void probeFindsWarp()
+    {
+#if !defined(Q_OS_WIN)
+        QSKIP("the DXGI probe is Windows only");
+#else
+        QProcess p;
+        p.start(kWorker, {QStringLiteral("--probe"), QStringLiteral("--allow-software")});
+        QVERIFY(p.waitForStarted(10000));
+        QVERIFY(p.waitForFinished(30000));
+        QCOMPARE(p.exitCode(), 0);
+        const sb::gpu::GpuEntry *warp = nullptr;
+        QList<pr::GpuEvent> gpus;
+        for (const QByteArray &line : p.readAllStandardOutput().split('\n')) {
+            if (line.trimmed().isEmpty())
+                continue;
+            QString err;
+            const auto e = pr::parseLine(line.trimmed(), &err);
+            QVERIFY2(e, qPrintable(err));
+            if (const auto *g = std::get_if<pr::GpuEvent>(&*e))
+                gpus.append(*g);
+        }
+        for (const pr::GpuEvent &g : std::as_const(gpus)) {
+            if (g.gpu.id == QLatin1StringView("1414:008c#0"))
+                warp = &g.gpu;
+        }
+        if (!warp)
+            QSKIP("no WARP adapter here");
+        QCOMPARE(warp->kind, sb::gpu::GpuKind::Software);
+        for (const char *api : {"dx12", "dx11", "d2d"}) {
+            const sb::gpu::ApiAvailability av = warp->apis.value(QLatin1StringView(api));
+            QVERIFY2(av.ok || !av.reason.isEmpty(), api);
+        }
+#endif
     }
 
     void planRun()

@@ -43,6 +43,8 @@ QJsonObject encodeGpu(const GpuEntry &g)
             a.insert(S("note"), it->note);
         } else {
             a.insert(S("reason"), it->reason);
+            if (!it->hint.isEmpty())
+                a.insert(S("hint"), it->hint);
         }
         apis.insert(it.key(), a);
     }
@@ -181,6 +183,7 @@ std::optional<Event> parseGpu(const QJsonObject &o, QString *error)
         av.driver = a.value(S("driver")).toString();
         av.note = a.value(S("note")).toString();
         av.reason = a.value(S("reason")).toString();
+        av.hint = a.value(S("hint")).toString();
         g.apis.insert(it.key(), av);
     }
     return Event{GpuEvent{g}};

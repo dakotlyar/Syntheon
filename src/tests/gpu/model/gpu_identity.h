@@ -17,6 +17,7 @@ enum class GpuKind { Discrete, Integrated, Software, Other };
 struct ApiAvailability {
     bool ok = false;
     QString version, driver, note, reason;
+    QString hint;  // with a reason: where to get what is missing (a URL), else empty
     bool operator==(const ApiAvailability &) const = default;
 };
 

@@ -75,8 +75,10 @@ std::vector<VkDeviceRecordStd> probeVulkanDevices(std::string *error)
             });
             VkPhysicalDeviceDriverProperties driver{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
             VkPhysicalDevicePCIBusInfoPropertiesEXT pci{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PCI_BUS_INFO_PROPERTIES_EXT};
+            VkPhysicalDeviceIDProperties ids{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
             VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
-            void **tail = &p2.pNext;
+            p2.pNext = &ids;  // core in 1.1: the LUID
+            void **tail = &ids.pNext;
             if (p.apiVersion >= VK_API_VERSION_1_2) {
                 *tail = &driver;
                 tail = &driver.pNext;
@@ -85,6 +87,9 @@ std::vector<VkDeviceRecordStd> probeVulkanDevices(std::string *error)
                 *tail = &pci;
             if (instanceVersion >= VK_API_VERSION_1_1 && p.apiVersion >= VK_API_VERSION_1_1) {
                 vkGetPhysicalDeviceProperties2(pd, &p2);
+                d.luidValid = ids.deviceLUIDValid == VK_TRUE;
+                if (d.luidValid)
+                    std::memcpy(d.luid, ids.deviceLUID, sizeof d.luid);
                 if (p.apiVersion >= VK_API_VERSION_1_2) {
                     d.driverName = driver.driverName;
                     d.driverInfo = driver.driverInfo;

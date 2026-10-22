@@ -9,11 +9,13 @@
 #include "tests/gpu/formula_v1.h"
 #include "tests/gpu/model/best_of.h"
 #include "tests/gpu/model/frame_stats.h"
+#include "tests/gpu/model/gl_env.h"
 #include "tests/gpu/model/ids.h"
 #include "sysinfo/system_info.h"
 #include "tests/gpu/model/render_size.h"
 
 #include <QMutexLocker>
+#include <QSysInfo>
 
 #include <algorithm>
 #include <cmath>
@@ -117,6 +119,41 @@ std::optional<int> chooseDefault(const QVector<GpuEntry> &gpus)
     }
     const auto def = defaultGpuIndex(usable, true);
     return def ? std::optional<int>(where[*def]) : std::nullopt;
+}
+
+// §4.2: OpenGL's availability per GPU, from one `--probe-gl` each (the GPU test's own environment:
+// the offload variables of D17) verified against the machine's list; the default GPU first, within
+// the time left until `deadline` (D22). A GPU whose entry already has an opengl answer is left as it
+// is; one the time didn't reach has none, and its OpenGL worker checks it when the test starts.
+void probeOpenGl(QVector<GpuEntry> &list, std::chrono::steady_clock::time_point deadline)
+{
+#if defined(Q_OS_LINUX)
+    const bool linuxArm = QSysInfo::currentCpuArchitecture() == QLatin1StringView("arm64"), windowsArm = false;
+#elif defined(Q_OS_WIN)
+    const bool linuxArm = false, windowsArm = QSysInfo::currentCpuArchitecture() == QLatin1StringView("arm64");
+#else
+    const bool linuxArm = false, windowsArm = false;
+#endif
+    QVector<int> order;
+    if (const auto def = chooseDefault(list))
+        order.append(*def);
+    for (int i = 0; i < list.size(); ++i) {
+        if (!order.contains(i))
+            order.append(i);
+    }
+    for (const int i : order) {
+        if (list[i].apis.contains(QStringLiteral("opengl")))
+            continue;
+        if (linuxArm) {
+            list[i].apis.insert(QStringLiteral("opengl"), verifyGl({}, list[i], list, true));  // no probe on Linux ARM
+            continue;
+        }
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        if (left.count() <= 0)
+            break;
+        const pr::GlEvent gl = GpuClient::probeGl(list[i], glEnvironment(list[i]), left);
+        list[i].apis.insert(QStringLiteral("opengl"), verifyGl(gl, list[i], list, false, windowsArm));
+    }
 }
 
 struct ApiRun;
@@ -292,7 +329,8 @@ TestResult GpuRun::run()
             continue;
         a.session = std::make_unique<GpuSession>();
         QString err;
-        if (!a.session->start(apiKey(a.id), m_gpu.id, {}, &err))
+        // D17: OpenGL runs in the environment that puts it on the chosen GPU (the offload variables).
+        if (!a.session->start(apiKey(a.id), m_gpu.id, a.id == ApiId::OpenGl ? glEnvironment(m_gpu) : QProcessEnvironment(), &err))
             fail(a, QStringLiteral("starting"), err);
     }
     bool stopped = cancelled();
@@ -599,7 +637,8 @@ Availability GpuTest::probe(const ProbeContext &) const
         return Availability::unavailable(QStringLiteral("The GPU worker is missing from this installation"));
     QString error;
     bool timedOut = false;
-    const QVector<GpuEntry> found = GpuClient::probe(3s, &error, &timedOut);  // D22: 3 s at most
+    const auto deadline = std::chrono::steady_clock::now() + 3s;  // D22: 3 s in all
+    QVector<GpuEntry> found = GpuClient::probe(3s, &error, &timedOut);
     Availability a;
     if (found.isEmpty() && !error.isEmpty()) {
         if (timedOut) {
@@ -609,6 +648,8 @@ Availability GpuTest::probe(const ProbeContext &) const
         }
         return Availability::unavailable(error);
     }
+    if (!found.isEmpty())
+        probeOpenGl(found, deadline);
     {
         QMutexLocker lock(&m_mutex);
         m_gpus = found;
@@ -733,9 +774,11 @@ TestResult GpuTest::run(RunContext &ctx, const OptionValues &options)
     QVector<GpuEntry> list = gpus();
     if (list.isEmpty()) {
         QString error;
+        const auto deadline = std::chrono::steady_clock::now() + 10s;
         list = GpuClient::probe(10s, &error);  // the start-up probe ran out of time (D22)
         if (list.isEmpty())
             return TestResult::notAvailable(error.isEmpty() ? QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found") : error);
+        probeOpenGl(list, deadline);
         QMutexLocker lock(&m_mutex);
         m_gpus = list;
     }

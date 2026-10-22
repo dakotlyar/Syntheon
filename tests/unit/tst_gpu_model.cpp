@@ -3,11 +3,13 @@
 // statistics, best-of and the signature comparison.
 #include "tests/gpu/model/best_of.h"
 #include "tests/gpu/model/frame_stats.h"
+#include "tests/gpu/model/gl_env.h"
 #include "tests/gpu/model/gpu_identity.h"
 #include "tests/gpu/model/linux_gpus.h"
 #include "tests/gpu/model/ids.h"
 #include "tests/gpu/model/protocol.h"
 #include "tests/gpu/model/render_size.h"
+#include "tests/gpu/model/windows_gpus.h"
 
 #include <QTest>
 
@@ -476,6 +478,146 @@ private slots:
         QVERIFY(!pr::parseLine("{\"ev\":\"ready\",\"api\":\"vulkan\",\"device\":\"d\",\"renderW\":1920,\"renderH\":1080,\"windowW\":1920}", &err));
         QCOMPARE(err, QStringLiteral("ready: missing windowH"));
         QVERIFY(!pr::parseLine(QByteArray(pr::kMaxLine + 1, ' '), &err));
+    }
+
+    // ---- task 23: the OpenGL environment, its verification and the Windows list ----
+
+    void driPrime()
+    {
+        QCOMPARE(driPrimeValue(QStringLiteral("0000:79:00.0")), QStringLiteral("pci-0000_79_00_0"));
+    }
+
+    void glEnvironments()
+    {
+        const QVector<GpuEntry> gpus = mergeLinuxGpus(tiamatVulkan(), readDrmCards(fixtureRoot("/linux/tiamat")));
+        const auto exists = [](const QString &) { return true; };
+        const QProcessEnvironment amd = glEnvironmentFor(gpus[0], false, exists);  // the 610M, amdgpu
+        QCOMPARE(amd.value(QStringLiteral("DRI_PRIME")), QStringLiteral("pci-0000_79_00_0"));
+        QCOMPARE(amd.value(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME")), QStringLiteral("mesa"));
+        QCOMPARE(amd.value(QStringLiteral("__EGL_VENDOR_LIBRARY_FILENAMES")), QStringLiteral("/usr/share/glvnd/egl_vendor.d/50_mesa.json"));
+        const QProcessEnvironment nv = glEnvironmentFor(gpus[1], false, exists);  // the 5070 Ti, nvidia
+        QCOMPARE(nv.value(QStringLiteral("__NV_PRIME_RENDER_OFFLOAD")), QStringLiteral("1"));
+        QCOMPARE(nv.value(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME")), QStringLiteral("nvidia"));
+        QCOMPARE(nv.value(QStringLiteral("__EGL_VENDOR_LIBRARY_FILENAMES")), QStringLiteral("/usr/share/glvnd/egl_vendor.d/10_nvidia.json"));
+        QVERIFY(!nv.contains(QStringLiteral("DRI_PRIME")));
+        // The JSON only when it exists.
+        const QProcessEnvironment noJson = glEnvironmentFor(gpus[0], false, [](const QString &) { return false; });
+        QVERIFY(!noJson.contains(QStringLiteral("__EGL_VENDOR_LIBRARY_FILENAMES")));
+        QVERIFY(noJson.contains(QStringLiteral("DRI_PRIME")));
+        // A Mesa software device (no PCI slot): the GLX vendor only.
+        GpuEntry lvp;
+        lvp.apis.insert(QStringLiteral("vulkan"), ApiAvailability{true, QStringLiteral("Vulkan 1.4"), QStringLiteral("llvmpipe Mesa 26.2.4"), {}, {}, {}});
+        const QProcessEnvironment soft = glEnvironmentFor(lvp, false, exists);
+        QVERIFY(!soft.contains(QStringLiteral("DRI_PRIME")));
+        QCOMPARE(soft.value(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME")), QStringLiteral("mesa"));
+        // Windows: nothing (SynBench never writes the GPU preference).
+        QVERIFY(glEnvironmentFor(gpus[1], true, exists).isEmpty());
+    }
+
+    void verifyGlCases()
+    {
+        namespace pr = sb::gpu::protocol;
+        const QVector<GpuEntry> gpus = mergeLinuxGpus(tiamatVulkan(), readDrmCards(fixtureRoot("/linux/tiamat")));
+        const GpuEntry &nv = gpus[1];
+        const auto glEvent = [](const char *version, const char *renderer, const char *vendor, bool ok = true) {
+            pr::GlEvent g;
+            g.ok = ok;
+            g.version = QLatin1StringView(version);
+            g.renderer = QLatin1StringView(renderer);
+            g.vendor = QLatin1StringView(vendor);
+            return g;
+        };
+        const QString rtx = QStringLiteral("NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2");
+        // The wrong GPU.
+        ApiAvailability a = verifyGl(glEvent("OpenGL 4.6", "AMD Radeon Graphics (radeonsi)", "AMD"), nv, gpus, false);
+        QVERIFY(!a.ok);
+        QCOMPARE(a.reason, QStringLiteral("OpenGL runs on AMD Radeon Graphics (radeonsi) here, not on this GPU"));
+        // The right one.
+        a = verifyGl(glEvent("OpenGL 4.6", "NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2", "NVIDIA Corporation"), nv, gpus, false);
+        QVERIFY(a.ok);
+        QCOMPARE(a.version, QStringLiteral("OpenGL 4.6"));
+        QCOMPARE(a.driver, rtx);
+        // Two Intel GPUs: can't tell which.
+        GpuEntry intelA, intelB;
+        intelA.vendorId = intelB.vendorId = 0x8086;
+        intelA.kind = intelB.kind = GpuKind::Integrated;
+        a = verifyGl(glEvent("OpenGL 4.6", "Mesa Intel(R) Graphics", "Intel"), intelA, {intelA, intelB}, false);
+        QVERIFY(!a.ok);
+        QCOMPARE(a.reason, QStringLiteral("Can't tell which GPU OpenGL uses (Intel)"));
+        // An unknown vendor.
+        a = verifyGl(glEvent("OpenGL 4.6", "Something", "Acme"), nv, gpus, false);
+        QCOMPARE(a.reason, QStringLiteral("Can't tell which GPU OpenGL uses (Acme)"));
+        // GLon12 whose device is the chosen DXGI adapter.
+        GpuEntry dx;
+        dx.name = QStringLiteral("NVIDIA GeForce RTX 5070 Ti");
+        dx.vendorId = 0x10de;
+        a = verifyGl(glEvent("OpenGL 4.6", "D3D12 (NVIDIA GeForce RTX 5070 Ti)", "Microsoft Corporation"), dx, {dx}, false);
+        QVERIFY(a.ok);
+        QCOMPARE(a.note, QStringLiteral("via D3D12 compatibility layer"));
+        a = verifyGl(glEvent("OpenGL 4.6", "D3D12 (Intel(R) UHD Graphics)", "Microsoft Corporation"), dx, {dx}, false);
+        QVERIFY(!a.ok);
+        // Too old (the context says 1.1.0).
+        a = verifyGl(glEvent("1.1.0", "GDI Generic", "Microsoft Corporation", false), dx, {dx}, false);
+        QCOMPARE(a.reason, QStringLiteral("Needs OpenGL 3.3 (the driver has 1.1)"));
+        // Linux ARM: not tested, whatever the answer.
+        a = verifyGl(glEvent("OpenGL 4.6", "NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2", "NVIDIA Corporation"), nv, gpus, true);
+        QCOMPARE(a.reason, QStringLiteral("OpenGL isn't tested on Linux ARM"));
+        // Windows on ARM: GDI Generic is the missing compatibility pack.
+        a = verifyGl(glEvent("1.1.0", "GDI Generic", "Microsoft Corporation", false), dx, {dx}, false, true);
+        QCOMPARE(a.reason, QStringLiteral("OpenGL needs Microsoft's OpenCL, OpenGL and Vulkan Compatibility Pack"));
+        QCOMPARE(a.hint, QStringLiteral("https://apps.microsoft.com/detail/9nqpsl29bfff"));
+        // A software renderer is only for a software GPU.
+        a = verifyGl(glEvent("OpenGL 4.5", "llvmpipe (LLVM 21.1.0, 256 bits)", "Mesa"), nv, gpus, false);
+        QVERIFY(!a.ok);
+        GpuEntry soft;
+        soft.kind = GpuKind::Software;
+        QVERIFY(verifyGl(glEvent("OpenGL 4.5", "llvmpipe (LLVM 21.1.0, 256 bits)", "Mesa"), soft, {soft}, false).ok);
+    }
+
+    // The Windows list: ids numbered per vendor:device, kinds, Vulkan by LUID.
+    void windowsList()
+    {
+        DxgiAdapterRecord nv, intel, warp, nv2;
+        nv.name = QStringLiteral("NVIDIA GeForce RTX 5070 Ti");
+        nv.vendorId = 0x10de;
+        nv.deviceId = 0x2c05;
+        nv.dedicatedBytes = qint64(16) << 30;
+        nv.luid[0] = 1;
+        nv.dx12.ok = nv.dx11.ok = nv.d2d.ok = true;
+        nv.dx12.version = QStringLiteral("DirectX 12 (feature level 12_2)");
+        nv2 = nv;
+        nv2.luid[0] = 2;
+        intel.name = QStringLiteral("Intel(R) UHD Graphics");
+        intel.vendorId = 0x8086;
+        intel.deviceId = 0x4680;
+        intel.dedicatedBytes = qint64(128) << 20;
+        intel.luid[0] = 3;
+        intel.dx12.reason = QStringLiteral("Needs shader model 6.0");
+        warp.name = QStringLiteral("Microsoft Basic Render Driver");
+        warp.vendorId = 0x1414;
+        warp.deviceId = 0x008c;
+        warp.software = true;
+        warp.luid[0] = 9;
+        VkDeviceRecord vk;
+        vk.name = QStringLiteral("NVIDIA GeForce RTX 5070 Ti");
+        vk.apiVersion = QStringLiteral("1.4.351");
+        vk.luidValid = true;
+        vk.luid[0] = 2;  // the second adapter of the two identical cards
+        const QVector<GpuEntry> gpus = mergeWindowsGpus({nv, nv2, intel, warp}, {vk});
+        QCOMPARE(gpus.size(), 4);
+        QCOMPARE(gpus[0].id, QStringLiteral("10de:2c05#0"));
+        QCOMPARE(gpus[1].id, QStringLiteral("10de:2c05#1"));
+        QCOMPARE(gpus[2].id, QStringLiteral("8086:4680#0"));
+        QCOMPARE(gpus[3].id, QStringLiteral("1414:008c#0"));
+        QCOMPARE(gpus[0].kind, GpuKind::Discrete);
+        QCOMPARE(gpus[2].kind, GpuKind::Integrated);
+        QCOMPARE(gpus[3].kind, GpuKind::Software);
+        QVERIFY(!gpus[0].apis.value(QStringLiteral("vulkan")).ok);
+        QCOMPARE(gpus[0].apis.value(QStringLiteral("vulkan")).reason, QStringLiteral("This GPU has no Vulkan driver"));
+        QVERIFY(gpus[1].apis.value(QStringLiteral("vulkan")).ok);  // matched by LUID, not by name
+        QVERIFY(gpus[0].apis.value(QStringLiteral("dx12")).ok);
+        QCOMPARE(gpus[2].apis.value(QStringLiteral("dx12")).reason, QStringLiteral("Needs shader model 6.0"));
+        QCOMPARE(defaultGpuIndex(gpus), std::optional<int>(0));
     }
 
     void planText()

@@ -46,6 +46,11 @@ std::vector<std::string> vulkanSurfaceExtensions();
 // for init(), between workloads and at the end, and on the test window from
 // resume() to suspend() (GL-2: the main thread only). Linux/Windows: GLX, EGL
 // or WGL through Qt; the backend loads it with glad and never sees Qt.
+// What a context says about itself (the GL probe, task 23).
+struct GlInfo {
+    std::string version, renderer, vendor;  // glGetString; version as the driver gives it ("4.6.0 NVIDIA 550.1")
+};
+
 class GlContext
 {
 public:
@@ -63,6 +68,11 @@ public:
     // framebuffer and the swap interval Qt reports.
     PresentTarget windowTarget(WorkerWindow &window);
     void makeOffscreenCurrent();
+    // The made context's strings (create() succeeded), or a default context's (what the driver gives when
+    // no 3.3 core context exists: the version for "Needs OpenGL 3.3 (the driver has 1.1)", the renderer
+    // for a GDI Generic check); empty strings when there is no context at all.
+    GlInfo info();
+    static GlInfo defaultInfo();
 
 private:
     std::unique_ptr<QOpenGLContext> m_context;

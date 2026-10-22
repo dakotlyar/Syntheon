@@ -153,6 +153,40 @@ PresentTarget GlContext::windowTarget(WorkerWindow &window)
     return t;
 }
 
+GlInfo GlContext::info()
+{
+    GlInfo i;
+    if (!m_context || !m_surface || !m_context->makeCurrent(m_surface.get()))
+        return i;
+    const auto text = [&](GLenum name) {
+        const auto *s = reinterpret_cast<const char *>(m_context->functions()->glGetString(name));
+        return std::string(s ? s : "");
+    };
+    i.version = text(GL_VERSION);
+    i.renderer = text(GL_RENDERER);
+    i.vendor = text(GL_VENDOR);
+    return i;
+}
+
+GlInfo GlContext::defaultInfo()
+{
+    GlInfo i;
+    QOpenGLContext context;
+    QOffscreenSurface surface;
+    surface.create();
+    if (!context.create() || !context.makeCurrent(&surface))
+        return i;
+    const auto text = [&](GLenum name) {
+        const auto *s = reinterpret_cast<const char *>(context.functions()->glGetString(name));
+        return std::string(s ? s : "");
+    };
+    i.version = text(GL_VERSION);
+    i.renderer = text(GL_RENDERER);
+    i.vendor = text(GL_VENDOR);
+    context.doneCurrent();
+    return i;
+}
+
 void GlContext::makeOffscreenCurrent()
 {
     if (m_context && m_surface)

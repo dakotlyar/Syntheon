@@ -29,6 +29,7 @@
 #include "tests/gpu/model/frame_stats.h"
 #include "tests/gpu/model/ids.h"
 #include "tests/gpu/model/linux_gpus.h"
+#include "tests/gpu/model/windows_gpus.h"
 #include "tests/gpu/model/protocol.h"
 #include "tests/gpu/model/render_size.h"
 #include "tests/gpu/worker/backend.h"
@@ -38,6 +39,9 @@
 #include "tests/gpu/worker/scene/golden_hashes.inc"
 #include "tests/gpu/worker/scene/scenes.h"
 #include "tests/gpu/worker/vulkan/vk_probe.h"
+#if defined(_WIN32)
+#include "tests/gpu/worker/dxgi/dxgi_probe.h"
+#endif
 #include "tests/gpu/worker/worker_window.h"
 #if defined(SYNBENCH_DEV_HOOKS)
 #include "tests/gpu/worker/null/null_backend.h"
@@ -869,8 +873,9 @@ int main(int argc, char **argv)
         startStdinThread(control);
 
     if (a.mode == Mode::Probe) {
-#if defined(Q_OS_LINUX)
-        // Task 13: the Vulkan devices merged with the DRM cards. (Windows: task 23, DXGI.)
+#if defined(Q_OS_LINUX) || defined(Q_OS_WIN)
+        // Task 13 (Linux): the Vulkan devices merged with the DRM cards. Task 23 (Windows): the DXGI
+        // adapters with their Direct3D availability, the Vulkan devices matched to them by LUID.
         std::string error;
         const std::vector<VkDeviceRecordStd> found = probeVulkanDevices(&error);
         QVector<VkDeviceRecord> records;
@@ -885,9 +890,42 @@ int main(int argc, char **argv)
             r.driverInfo = QString::fromStdString(d.driverInfo);
             r.deviceLocalBytes = d.deviceLocalBytes;
             r.pciSlot = QString::fromStdString(d.pciSlot);
+            r.luidValid = d.luidValid;
+            std::memcpy(r.luid, d.luid, sizeof r.luid);
             records.append(r);
         }
+#if defined(Q_OS_LINUX)
         QVector<GpuEntry> gpus = mergeLinuxGpus(records, readDrmCards());
+#else
+        std::string dxgiError;
+        const std::vector<dxgi::AdapterProbe> adapters = dxgi::probeAdapters(a.allowSoftware, &dxgiError);
+        if (adapters.empty()) {
+            emitLine(pr::ErrorEvent{{}, QString::fromStdString(dxgiError.empty() ? "no graphics adapter found" : dxgiError), false});
+            return kExitError;
+        }
+        QVector<DxgiAdapterRecord> list;
+        const auto api = [](const dxgi::ApiProbe &p) {
+            ApiAvailability av;
+            av.ok = p.ok;
+            av.version = QString::fromStdString(p.version);
+            av.reason = QString::fromStdString(p.reason);
+            return av;
+        };
+        for (const dxgi::AdapterProbe &p : adapters) {
+            DxgiAdapterRecord r;
+            r.name = QString::fromStdString(p.name);
+            r.vendorId = p.vendorId;
+            r.deviceId = p.deviceId;
+            r.software = p.software;
+            r.dedicatedBytes = p.dedicatedBytes;
+            std::memcpy(r.luid, p.luid.data(), sizeof r.luid);
+            r.dx12 = api(p.dx12);
+            r.dx11 = api(p.dx11);
+            r.d2d = api(p.d2d);
+            list.append(r);
+        }
+        QVector<GpuEntry> gpus = mergeWindowsGpus(list, records);
+#endif
         for (GpuEntry &g : gpus) {
             // No loader at all: every card says so, not "this GPU has no Vulkan driver".
             if (error.rfind("N/A: ", 0) == 0 && !g.apis.value(QStringLiteral("vulkan")).ok)
@@ -903,9 +941,32 @@ int main(int argc, char **argv)
         return kExitError;
 #endif
     }
+    if (a.mode == Mode::ProbeGl) {
+        // Task 23: a context made exactly as the run's (GlContext::create, 3.3 core), described; the
+        // GUI side verifies it against the chosen GPU (gl_env.h's verifyGl). The environment (the
+        // offload variables) comes from the client.
+        glue::GlContext context;
+        const std::string made = context.create(false);
+        pr::GlEvent gl;
+        const glue::GlInfo info = made.empty() ? context.info() : glue::GlContext::defaultInfo();
+        gl.ok = made.empty();
+        gl.renderer = QString::fromStdString(info.renderer);
+        gl.vendor = QString::fromStdString(info.vendor);
+        const QString version = QString::fromStdString(info.version);  // "4.6.0 NVIDIA 550.1", "4.5 (Core Profile) Mesa 26.2"
+        const QRegularExpressionMatch number = QRegularExpression(QStringLiteral("\\d+\\.\\d+")).match(version);
+        if (made.empty()) {
+            gl.version = QStringLiteral("OpenGL ") + (number.hasMatch() ? number.captured(0) : QStringLiteral("3.3"));
+        } else {
+            gl.version = version;  // "1.1.0": what a context without 3.3 core is
+            gl.reason = QString::fromStdString(made.rfind("N/A: ", 0) == 0 ? made.substr(5) : made);
+        }
+        gl.vendorId = glVendorToPci(gl.vendor).value_or(0);
+        emitLine(gl);
+        emitLine(pr::DoneEvent{});
+        return kExitOk;
+    }
     if (a.mode != Mode::Run) {
-        // Task 23: --probe-gl.
-        emitLine(pr::ErrorEvent{{}, QStringLiteral("the GPU probe isn't in this build"), false});
+        emitLine(pr::ErrorEvent{{}, QStringLiteral("unknown mode"), false});
         return kExitError;
     }
 

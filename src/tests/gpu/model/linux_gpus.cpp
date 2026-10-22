@@ -29,6 +29,19 @@ std::pair<int, int> majorMinor(const QString &v)
     return {p.value(0).toInt(), p.value(1).toInt()};
 }
 
+void addWindowsOnly(GpuEntry &g)
+{
+    ApiAvailability dx;
+    dx.reason = QStringLiteral("DirectX is Windows only");
+    g.apis.insert(QStringLiteral("dx12"), dx);
+    g.apis.insert(QStringLiteral("dx11"), dx);
+    ApiAvailability d2d;
+    d2d.reason = QStringLiteral("Direct2D is Windows only");
+    g.apis.insert(QStringLiteral("d2d"), d2d);
+}
+
+} // namespace
+
 ApiAvailability vulkanAvailability(const VkDeviceRecord &d)
 {
     ApiAvailability a;
@@ -42,19 +55,6 @@ ApiAvailability vulkanAvailability(const VkDeviceRecord &d)
     }
     return a;
 }
-
-void addWindowsOnly(GpuEntry &g)
-{
-    ApiAvailability dx;
-    dx.reason = QStringLiteral("DirectX is Windows only");
-    g.apis.insert(QStringLiteral("dx12"), dx);
-    g.apis.insert(QStringLiteral("dx11"), dx);
-    ApiAvailability d2d;
-    d2d.reason = QStringLiteral("Direct2D is Windows only");
-    g.apis.insert(QStringLiteral("d2d"), d2d);
-}
-
-} // namespace
 
 QVector<DrmCard> readDrmCards(const QString &root)
 {

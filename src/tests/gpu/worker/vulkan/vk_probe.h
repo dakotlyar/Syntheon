@@ -18,6 +18,8 @@ struct VkDeviceRecordStd {
     std::string apiVersion, driverName, driverInfo;  // "1.4.351"
     std::int64_t deviceLocalBytes = 0;
     std::string pciSlot;  // "0000:01:00.0" when VK_EXT_pci_bus_info is there, else ""
+    std::uint8_t luid[8] = {};  // VkPhysicalDeviceIDProperties::deviceLUID (Windows matches the DXGI adapter by it)
+    bool luidValid = false;
 };
 
 // Loads the loader (Windows: System32's only), makes a 1.3 instance (or the

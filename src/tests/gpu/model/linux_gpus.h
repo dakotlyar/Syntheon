@@ -19,6 +19,8 @@ struct VkDeviceRecord {
     QString apiVersion, driverName, driverInfo;
     qint64 deviceLocalBytes = 0;
     QString pciSlot;
+    quint8 luid[8] = {};  // Windows: VkPhysicalDeviceIDProperties::deviceLUID, when luidValid
+    bool luidValid = false;
 };
 struct DrmCard {
     QString pciSlot;
@@ -26,6 +28,9 @@ struct DrmCard {
     QString driver;
     bool operator==(const DrmCard &) const = default;
 };
+
+// apis["vulkan"] of a device: ok = apiVersion >= 1.3, else "Needs Vulkan 1.3 (the driver has 1.2.x)".
+ApiAvailability vulkanAvailability(const VkDeviceRecord &d);
 
 // <root>/sys/class/drm/card[0-9]+/device/uevent (DRIVER, PCI_ID, PCI_SLOT_NAME), in card order.
 QVector<DrmCard> readDrmCards(const QString &root = QStringLiteral("/"));
