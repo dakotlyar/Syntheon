@@ -4,7 +4,7 @@
 #
 # synbench_gpu_backends: Qt-free (P2): the backend interface, the runner, the
 # signature and the backends themselves (null; Vulkan from task 10; D3D12,
-# D3D11 and OpenGL from tasks 18, 20 and 21).
+# D3D11 and OpenGL from tasks 18, 20 and 21; Direct2D from task 27).
 add_library(synbench_gpu_backends STATIC
     backend.h present_constants.h scene_constants.h scene_constants.cpp
     runner.h runner.cpp
@@ -40,6 +40,9 @@ if(WIN32)
         d3d11/d11_backend.h d3d11/d11_backend.cpp
         d3d11/d11_workload_state.h d3d11/d11_workloads.cpp)
     target_link_libraries(synbench_gpu_backends PRIVATE d3d11)
+    # Task 27: the Direct2D native 2D path (a D3D11 device with BGRA support, the same DXGI swapchain, DirectWrite).
+    target_sources(synbench_gpu_backends PRIVATE d2d/d2d_native.h d2d/d2d_native.cpp)
+    target_link_libraries(synbench_gpu_backends PRIVATE d2d1 dwrite)
 endif()
 target_link_libraries(synbench_gpu_backends PUBLIC synbench_gpu_scene synbench::volk)
 # Task 21: glad's GL 3.3 core loader (the context is the glue's; nothing links libGL).

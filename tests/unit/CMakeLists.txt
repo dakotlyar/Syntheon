@@ -89,6 +89,10 @@ endforeach()
 synbench_add_unit_test(tst_gpu_native SOURCES tst_gpu_native.cpp "${PROJECT_SOURCE_DIR}/src/tests/gpu/worker/worker.qrc"
                        LIBS synbench_gpu_qtraster synbench_gpu_scene Qt6::Gui)
 set_target_properties(tst_gpu_native PROPERTIES AUTORCC ON)
+if(WIN32)
+    # Task 27: the Direct2D path (in the backends library) on WARP, in process.
+    target_link_libraries(tst_gpu_native PRIVATE synbench_gpu_backends)
+endif()
 synbench_add_unit_test(tst_stubs SOURCES tst_stubs.cpp fake_test.h LIBS synbench_builtin_tests synbench_storage)
 synbench_add_unit_test(tst_controllers SOURCES tst_controllers.cpp LIBS synbench_appcore)
 synbench_add_unit_test(tst_run_controller SOURCES tst_run_controller.cpp LIBS synbench_appcore)

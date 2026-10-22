@@ -51,6 +51,7 @@
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QGuiApplication>
 #include <QRegularExpression>
 #include <QScreen>
@@ -263,8 +264,20 @@ std::unique_ptr<IBackend> makeBackend(const std::string &api)
         return makeD3D12Backend();
     if (api == "dx11")
         return makeD3D11Backend();
+    if (api == "d2d") {
+        // Task 27: Direct2D draws text with the bundled IBM Plex Sans (worker.qrc), handed over as bytes
+        // (the backends are Qt-free). It takes its window through resume(), so unlike Qt raster it is
+        // made here, before the window. A missing font is the backend's warning, not an error.
+        QFile font(QStringLiteral(":/synbench-gpu/fonts/IBMPlexSans-Variable.ttf"));
+        std::vector<std::uint8_t> bytes;
+        if (font.open(QIODevice::ReadOnly)) {
+            const QByteArray data = font.readAll();
+            bytes.assign(data.cbegin(), data.cend());
+        }
+        return makeDirect2DBackend(std::move(bytes));
+    }
 #endif
-    // Tasks 26/27 run the native paths (qt, d2d). Elsewhere "the <api>
+    // Qt raster (task 26) is made once the window exists (makeQtRasterBackend). Elsewhere "the <api>
     // backend isn't in this build".
     return nullptr;
 }
@@ -652,7 +665,8 @@ public:
                 if (const auto outcome = replanFromWindow(w))
                     return *outcome;
                 target = m_backend->api() == Api::Vulkan                                     ? glue::vulkanTarget(*m_window)
-                         : m_backend->api() == Api::Dx12 || m_backend->api() == Api::Dx11 ? glue::nativeWindowTarget(*m_window)
+                         : m_backend->api() == Api::Dx12 || m_backend->api() == Api::Dx11
+                                 || m_backend->api() == Api::Direct2D                      ? glue::nativeWindowTarget(*m_window)
                          : m_backend->api() == Api::OpenGl                                  ? m_gl->windowTarget(*m_window)
                                                                                           : glue::rasterTarget(*m_window);
             }

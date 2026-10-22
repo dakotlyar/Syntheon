@@ -113,5 +113,7 @@ std::unique_ptr<IBackend> makeOpenGlBackend();
 #if defined(_WIN32)
 std::unique_ptr<IBackend> makeD3D12Backend();
 std::unique_ptr<IBackend> makeD3D11Backend();
+// Task 27: the Direct2D native 2D path; fontBytes = the bundled IBM Plex Sans (the worker's resource).
+std::unique_ptr<IBackend> makeDirect2DBackend(std::vector<std::uint8_t> fontBytes);
 #endif
 }

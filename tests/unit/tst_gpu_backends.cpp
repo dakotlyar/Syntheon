@@ -1022,6 +1022,51 @@ private slots:
         QVERIFY2(std::fabs(mops - ops * r.fps / 1e6) <= 1e-9 * std::max(1.0, mops), qPrintable(QStringLiteral("%1 vs %2").arg(mops).arg(ops * r.fps / 1e6)));
     }
 
+    // Task 27 (Windows CI, WARP): the Direct2D native 2D path through the worker, headless, with the D3D11
+    // debug layer where Windows has it: each workload at content / 64 runs at least 3 frames in 300 ms,
+    // reads back something that isn't flat, and gives MOps/s from the result's fields as Qt raster does.
+    // The text is the bundled IBM Plex Sans (no fallback warning).
+    void direct2DNative_data() { qtRasterNative_data(); }
+
+    void direct2DNative()
+    {
+#if !defined(Q_OS_WIN)
+        QSKIP("Direct2D is Windows only");
+#else
+        QFETCH(QString, workload);
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+        WorkerProcess w(kWorker,
+                        {QStringLiteral("--run"), QStringLiteral("--api"), QStringLiteral("d2d"), QStringLiteral("--gpu"), kWarpId,
+                         QStringLiteral("--allow-software"), QStringLiteral("--validation"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
+                         QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--headless"), QStringLiteral("--plan"),
+                         workload + QStringLiteral(":100:300")},
+                        env);
+        QVERIFY(w.started());
+        const int code = w.finish(60000);
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
+        const auto ready = std::get<pr::ReadyEvent>(w.events().first());
+        QCOMPARE(ready.api, QStringLiteral("d2d"));
+        QVERIFY2(ready.version.startsWith(QLatin1StringView("Direct2D 1.1")), qPrintable(ready.version));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 1);
+        const pr::ResultEvent &r = rs[0];
+        QCOMPARE(r.workload, workload);
+        QVERIFY2(r.frames >= 3, qPrintable(QString::number(r.frames)));
+        QVERIFY(r.seconds > 0);
+        QCOMPARE(r.signature.size(), 432);
+        QVERIFY2(deviation(std::vector<std::uint8_t>(r.signature.begin(), r.signature.end())) > 2.0, "a flat image");
+        const NativeKind kind = *nativeKindOf(*workloadFromId(workload.toStdString()));
+        const double ops = double(buildNativeOps(kind, 64).opsPerFrame);
+        const double mops = ops * double(r.frames) / r.seconds / 1e6;
+        QVERIFY(mops > 0);
+        QVERIFY2(std::fabs(mops - ops * r.fps / 1e6) <= 1e-9 * std::max(1.0, mops), qPrintable(QStringLiteral("%1 vs %2").arg(mops).arg(ops * r.fps / 1e6)));
+        const QString log = w.stderrText();
+        QVERIFY2(!log.contains(QLatin1StringView("d2d: ")) || log.contains(QLatin1StringView("debug layer isn't installed")), qPrintable(log));
+        QVERIFY2(!log.contains(QLatin1StringView("uses Segoe UI")), qPrintable(log));
+#endif
+    }
+
     // D20 (task 19): every API draws the four scenes like the pinned Vulkan
     // reference (gpu_reference_signatures.h), within §5.7's tolerance. Vulkan
     // on lavapipe here (any Mesa version), DX12 and DX11 (task 20) on WARP on Windows.

@@ -107,7 +107,8 @@ private slots:
         const QLatin1StringView current(QTest::currentTestFunction());
         const bool needsNoVulkan = current == QLatin1StringView("d3d12Present") || current == QLatin1StringView("d3d11Present")
                                    || current == QLatin1StringView("d3d12SuspendResume") || current == QLatin1StringView("d3d11SuspendResume")
-                                   || current == QLatin1StringView("openglPresent") || current == QLatin1StringView("qtRasterPresent");
+                                   || current == QLatin1StringView("openglPresent") || current == QLatin1StringView("qtRasterPresent")
+                                   || current == QLatin1StringView("direct2DPresent");
         if (needsNoVulkan || m_vulkanSkip.isEmpty())
             return;
 #if defined(Q_OS_LINUX)
@@ -124,6 +125,10 @@ private slots:
 
     // Task 20 (Windows, WARP): the same on DX11 (the shared DXGI swapchain, created on the device).
     void d3d11Present() { warpPresent(QStringLiteral("dx11"), QStringLiteral("d3d11: ")); }
+
+    // Task 27 (Windows, WARP): Direct2D through the same DXGI swapchain, two native workloads, so the
+    // swapchain is released and made again on the same HWND between them (H1's order).
+    void direct2DPresent() { warpPresent(QStringLiteral("d2d"), QStringLiteral("d2d: "), QStringLiteral("shapes:200:1000,text:100:500")); }
 
     // Checkpoint 3 (H1, Windows CI): serve mode with a window, three workloads, so the swapchain is
     // released (suspend, hide) and made again on the same HWND twice. A flip-model swapchain whose
@@ -391,12 +396,13 @@ private:
     }
 
     // A 1 s windowed run of a DirectX API on WARP (Windows only): flip-model swapchain, no debug-layer
-    // error of `layerPrefix` ("d3d12: " / "d3d11: "), unless the layer isn't installed.
-    void warpPresent(const QString &api, const QString &layerPrefix)
+    // error of `layerPrefix` ("d3d12: " / "d3d11: " / "d2d: "), unless the layer isn't installed.
+    void warpPresent(const QString &api, const QString &layerPrefix, const QString &plan = QStringLiteral("geometry:200:1000"))
     {
 #if !defined(Q_OS_WIN)
         Q_UNUSED(api)
         Q_UNUSED(layerPrefix)
+        Q_UNUSED(plan)
         QSKIP("DirectX is Windows only");
 #else
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
@@ -404,8 +410,7 @@ private:
         WorkerProcess w(kWorker,
                         {QStringLiteral("--run"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), kWarpId,
                          QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
-                         QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation"), QStringLiteral("--plan"),
-                         QStringLiteral("geometry:200:1000")},
+                         QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation"), QStringLiteral("--plan"), plan},
                         env);
         QVERIFY(w.started());
         const int code = w.finish();
@@ -414,11 +419,12 @@ private:
             QSKIP(qPrintable(QStringLiteral("no window or swapchain on this desktop (R9): %1").arg(why)));
         QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(why, w.stderrText())));
         const QList<pr::ResultEvent> rs = results(w.events());
-        QCOMPARE(rs.size(), 1);
-        QVERIFY2(rs[0].present == QLatin1StringView("flip, tearing") || rs[0].present == QLatin1StringView("flip, no tearing"),
-                 qPrintable(rs[0].present));
-        QVERIFY(rs[0].frames >= 3);
-        QCOMPARE(rs[0].renderW, 320);
+        QCOMPARE(rs.size(), int(plan.count(QLatin1Char(','))) + 1);
+        for (const pr::ResultEvent &r : rs) {
+            QVERIFY2(r.present == QLatin1StringView("flip, tearing") || r.present == QLatin1StringView("flip, no tearing"), qPrintable(r.present));
+            QVERIFY(r.frames >= 3);
+            QCOMPARE(r.renderW, 320);
+        }
         QVERIFY2(!w.stderrText().contains(layerPrefix) || w.stderrText().contains(QLatin1StringView("debug layer isn't installed")),
                  qPrintable(w.stderrText()));
 #endif
