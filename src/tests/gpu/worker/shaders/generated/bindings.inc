@@ -34,6 +34,8 @@ static const GlBinding kGlBindings[] = {
     {"present", "SPIRV_Cross_CombinedglyphAtlasSPIRV_Cross_DummySampler", 5, false},
     {"present", "SPIRV_Cross_CombinedsourceImagelinearClamp", 0, false},
     {"present", "type_Present", 2, true},
+    {"quads", "SPIRV_Cross_CombinedfillTexturelinearWrap", 0, false},
+    {"quads", "type_Frame", 0, true},
     {"shading", "SPIRV_Cross_CombinedalbedoMaplinearWrap", 0, false},
     {"shading", "SPIRV_Cross_CombinedaoMaplinearWrap", 3, false},
     {"shading", "SPIRV_Cross_CombinednormalMaplinearWrap", 1, false},
@@ -43,4 +45,5 @@ static const GlBinding kGlBindings[] = {
     {"shading", "type_Lights", 2, true},
     {"shading", "type_Object", 1, true},
     {"sky", "type_Frame", 0, true},
+    {"sprites", "SPIRV_Cross_CombinedatlaslinearClamp", 0, false},
 };

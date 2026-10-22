@@ -102,6 +102,9 @@ private:
     std::string loadParticles(const SceneData &scene);
     void recordShading(VkCommandBuffer cmd, Slot &slot, double t);
     void recordParticles(VkCommandBuffer cmd, Slot &slot, double t);
+    // Task 29: Quads and Sprites into ldrA (§6.5, §6.6).
+    std::string loadFill(const SceneData &scene);
+    void recordFill(VkCommandBuffer cmd, Slot &slot, double t);
     // One full-screen post pass into `target` (§6.4); `accumulate` keeps its
     // contents and blends (the upsamples), `toShaderRead` leaves it sampled.
     void postPass(VkCommandBuffer cmd, Slot &slot, Image &target, bool accumulate, bool toShaderRead, VkPipeline pipeline,

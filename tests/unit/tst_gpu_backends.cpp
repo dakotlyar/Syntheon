@@ -9,6 +9,7 @@
 #include "tests/gpu/model/best_of.h"
 
 #include "tests/gpu/worker/scene/native_ops.h"
+#include "tests/gpu/worker/scene_constants.h"
 #include "tests/gpu/worker/scene/overlay.h"
 #include "tests/gpu/worker/scene/scenes.h"
 #include "tests/gpu/worker/signature.h"
@@ -47,6 +48,14 @@ const QString kWorker = QStringLiteral(SB_GPU_WORKER);
         QVERIFY2(sbReason.empty(), sbReason.c_str());                                                                               \
     } while (false)
 constexpr std::uint8_t kClear[4] = {64, 128, 192, 255};
+// The clear-only content of tasks 10, 18 and 21: Quads with no layers draws nothing, so ldrA is the clear colour
+// (the fill workloads clear to it too). Since task 29 Quads and Sprites really draw.
+SceneData clearScene()
+{
+    SceneData s = buildScene(Workload::Quads, 64);
+    s.quadLayers = 0;
+    return s;
+}
 
 BackendInit lavapipeInit(std::uint32_t w, std::uint32_t h)
 {
@@ -306,7 +315,7 @@ private slots:
     void vulkanClear()
     {
         QString why;
-        const SceneData scene = buildScene(Workload::Quads, 64);
+        const SceneData scene = clearScene();
         auto b = headlessVulkan(320, 180, scene, &why);
         if (!b && why.startsWith(QLatin1StringView("no software")))
             SB_SKIP_OR_FAIL(qPrintable(why));
@@ -373,8 +382,8 @@ private slots:
         QVERIFY(rs[0].frames >= 3);
         QVERIFY(rs[0].present.isEmpty());  // headless: nothing presented
         QCOMPARE(rs[0].signature.size(), 432);
-        for (qsizetype i = 0; i < rs[0].signature.size(); ++i)
-            QCOMPARE(std::uint8_t(rs[0].signature[i]), kClear[i % 3]);
+        // Quads draws since task 29: the verification frame isn't the flat clear colour.
+        QVERIFY2(deviation(std::vector<std::uint8_t>(rs[0].signature.begin(), rs[0].signature.end())) > 2.0, "a flat image");
         QVERIFY(is<pr::DoneEvent>(w.events().last()));
         QVERIFY2(!w.stderrText().contains(QLatin1StringView("vulkan:")), qPrintable(w.stderrText()));
     }
@@ -405,6 +414,8 @@ private slots:
         // Task 12 (synchronisation validation on: any hazard is an error).
         QTest::newRow("shading") << int(Workload::Shading) << 6u;
         QTest::newRow("particles") << int(Workload::Particles) << 17u;
+        QTest::newRow("quads") << int(Workload::Quads) << 1u;  // task 29: the fill workloads
+        QTest::newRow("sprites") << int(Workload::Sprites) << 1u;
     }
 
     void vulkanScenes()
@@ -491,7 +502,7 @@ private slots:
     {
         QString why;
         constexpr std::uint32_t W = 640, H = 360;
-        auto b = headlessVulkan(W, H, buildScene(Workload::Quads, 64), &why);
+        auto b = headlessVulkan(W, H, clearScene(), &why);
         if (!b && why.startsWith(QLatin1StringView("no software")))
             SB_SKIP_OR_FAIL(qPrintable(why));
         QVERIFY2(b, qPrintable(why));
@@ -566,7 +577,7 @@ private slots:
         QSKIP("DirectX 12 is Windows only");
 #else
         QString why;
-        auto b = headlessD3D12(320, 180, buildScene(Workload::Quads, 64), &why);
+        auto b = headlessD3D12(320, 180, clearScene(), &why);
         if (!b && why.startsWith(QLatin1StringView("no D3D12")))
             QSKIP(qPrintable(why));
         QVERIFY2(b, qPrintable(why));
@@ -612,7 +623,7 @@ private slots:
 #else
         QString why;
         constexpr std::uint32_t W = 640, H = 360;
-        auto b = headlessD3D12(W, H, buildScene(Workload::Quads, 64), &why);
+        auto b = headlessD3D12(W, H, clearScene(), &why);
         if (!b && why.startsWith(QLatin1StringView("no D3D12")))
             QSKIP(qPrintable(why));
         QVERIFY2(b, qPrintable(why));
@@ -662,6 +673,7 @@ private slots:
         QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 601u;
         QTest::newRow("shading") << int(Workload::Shading) << 6u;
         QTest::newRow("particles") << int(Workload::Particles) << 17u;
+
     }
 
     void d3d12Scenes()
@@ -713,7 +725,7 @@ private slots:
         QSKIP("DirectX 11 is Windows only");
 #else
         QString why;
-        auto b = headlessD3D11(320, 180, buildScene(Workload::Quads, 64), &why);
+        auto b = headlessD3D11(320, 180, clearScene(), &why);
         if (!b && why.startsWith(QLatin1StringView("no D3D11")))
             QSKIP(qPrintable(why));
         QVERIFY2(b, qPrintable(why));
@@ -759,7 +771,7 @@ private slots:
 #else
         QString why;
         constexpr std::uint32_t W = 640, H = 360;
-        auto b = headlessD3D11(W, H, buildScene(Workload::Quads, 64), &why);
+        auto b = headlessD3D11(W, H, clearScene(), &why);
         if (!b && why.startsWith(QLatin1StringView("no D3D11")))
             QSKIP(qPrintable(why));
         QVERIFY2(b, qPrintable(why));
@@ -809,6 +821,7 @@ private slots:
         QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 601u;
         QTest::newRow("shading") << int(Workload::Shading) << 6u;
         QTest::newRow("particles") << int(Workload::Particles) << 17u;
+
     }
 
     void d3d11Scenes()
@@ -867,7 +880,7 @@ private slots:
         SB_OK(b.init(lavapipeInit(320, 180), egl.target(), &info));
         QVERIFY2(QString::fromStdString(info.deviceName).contains(QLatin1StringView("llvmpipe")), info.deviceName.c_str());
         SB_OK(b.resume(PresentTarget{true}));
-        SB_OK(b.load(buildScene(Workload::Quads, 64)));
+        SB_OK(b.load(clearScene()));
         std::vector<double> gpu;
         for (int i = 0; i < 30; ++i)
             SB_OK(b.frame(i / 60.0, &gpu));
@@ -907,7 +920,7 @@ private slots:
         BackendInfo info;
         SB_OK(b.init(lavapipeInit(W, H), egl.target(), &info));
         SB_OK(b.resume(PresentTarget{true}));
-        SB_OK(b.load(buildScene(Workload::Quads, 64)));
+        SB_OK(b.load(clearScene()));
         const std::string text = "Geometry | OpenGL | 412 fps";
         b.setOverlay(text);
         std::vector<double> gpu;
@@ -936,6 +949,7 @@ private slots:
         QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 601u;
         QTest::newRow("shading") << int(Workload::Shading) << 6u;
         QTest::newRow("particles") << int(Workload::Particles) << 17u;
+
     }
 
     void openglScenes()
@@ -979,6 +993,44 @@ private slots:
         QVERIFY2(b.validationErrors() == 0, b.firstValidationError().c_str());
     }
 #endif
+
+    // Task 29 (§6.6): 100,000 sprites go out in batches of 4,096: 25 draws, the last of 1,696; and the closed-form motion.
+    void spriteBatching()
+    {
+        const auto b = sc::spriteBatches(100000, 4096);
+        QCOMPARE(b.size(), std::size_t(25));
+        QCOMPARE(b.front().first, 0u);
+        QCOMPARE(b[1].first, 4096u);
+        QCOMPARE(b.back().first, 24u * 4096u);
+        QCOMPARE(b.back().count, 1696u);
+        std::uint32_t total = 0;
+        for (const auto &x : b)
+            total += x.count;
+        QCOMPARE(total, 100000u);
+        QCOMPARE(sc::spriteBatches(1563).size(), std::size_t(1));  // content / 64
+        QCOMPARE(sc::spriteBatches(4096).size(), std::size_t(1));
+        QCOMPARE(sc::spriteBatches(4097).size(), std::size_t(2));
+        QVERIFY(sc::spriteBatches(0).empty());
+        // x = mod(x0 + vx t, 1920), y = mod(y0 + vy t, 1080), also for a negative velocity; the rest is packed as specified.
+        SceneData s;
+        Sprite sp{};
+        sp.x0 = 100.f; sp.y0 = 50.f; sp.vx = -300.f; sp.vy = 500.f;
+        sp.atlasIndex = 5; sp.rotation16 = 0x1234; sp.colourRgba8 = 0xFF8040A0u;
+        s.sprites = {sp};
+        std::uint8_t out[16];
+        sc::writeSprites(s, 2.0, out);  // x = 100 - 600 = -500 -> 1420; y = 50 + 1000 = 1050
+        float pos[2];
+        std::uint32_t packed, colour;
+        std::memcpy(pos, out, 8);
+        std::memcpy(&packed, out + 8, 4);
+        std::memcpy(&colour, out + 12, 4);
+        QVERIFY(std::fabs(pos[0] - 1420.f) < 1e-3f && std::fabs(pos[1] - 1050.f) < 1e-3f);
+        QCOMPARE(packed, 0x00051234u);  // rotation16 | atlasIndex << 16
+        QCOMPARE(colour, 0xFF8040A0u);
+        sc::writeSprites(s, 4.0, out);  // y = 50 + 2000 = 2050 -> 970
+        std::memcpy(pos, out, 8);
+        QVERIFY(std::fabs(pos[1] - 970.f) < 1e-3f);
+    }
 
     // Task 26: the Qt raster native 2D path through the worker, headless on Qt's offscreen platform (no
     // display needed): each workload at content / 64 runs at least 3 frames in 300 ms, reads back something

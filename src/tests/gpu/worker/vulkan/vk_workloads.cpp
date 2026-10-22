@@ -33,6 +33,11 @@ namespace {
 #include "tests/gpu/worker/shaders/generated/post_tonemap_ps.spv.inc"
 #include "tests/gpu/worker/shaders/generated/post_up_ps.spv.inc"
 #include "tests/gpu/worker/shaders/generated/present_vs.spv.inc"
+// Tasks 29 (the fill workloads).
+#include "tests/gpu/worker/shaders/generated/quads_ps.spv.inc"
+#include "tests/gpu/worker/shaders/generated/quads_vs.spv.inc"
+#include "tests/gpu/worker/shaders/generated/sprites_ps.spv.inc"
+#include "tests/gpu/worker/shaders/generated/sprites_vs.spv.inc"
 #include "tests/gpu/worker/shaders/generated/shading_ps.spv.inc"
 #include "tests/gpu/worker/shaders/generated/shading_vs.spv.inc"
 #include "tests/gpu/worker/shaders/generated/sky_ps.spv.inc"
@@ -275,8 +280,10 @@ void VulkanBackend::unloadScene()
         *p = VK_NULL_HANDLE;
     }
     destroy(m_ctx, w.particles);
-    for (Slot &s : m_slots)
+    for (Slot &s : m_slots) {
         destroy(m_ctx, s.objectConstants);  // VK-2: made in load(), freed here
+        destroy(m_ctx, s.spriteRing);       // task 29: the sprites' instance ring, made in load()
+    }
 }
 
 void VulkanBackend::recordScene(VkCommandBuffer cmd, Slot &slot, double t)
@@ -376,11 +383,12 @@ struct PipelineDesc {
     std::size_t vsBytes = 0;
     const std::uint32_t *ps = nullptr;  // null: no fragment shader (depth only)
     std::size_t psBytes = 0;
-    enum class Input { None, Position, Mesh, Particle } input = Input::None;
+    enum class Input { None, Position, Mesh, Particle, Sprite } input = Input::None;
     VkFormat colour = VK_FORMAT_UNDEFINED, depth = VK_FORMAT_UNDEFINED;
     bool depthTest = false, depthWrite = false;
     VkCompareOp compare = VK_COMPARE_OP_LESS;
     bool additive = false;   // blend ONE, ONE
+    bool alphaBlend = false; // blend SRC_ALPHA, ONE_MINUS_SRC_ALPHA (colour), ONE, ONE_MINUS_SRC_ALPHA (alpha): the fill workloads
     bool depthBias = false;  // VK-7: depthBiasEnable + the dynamic state
 };
 
@@ -409,6 +417,13 @@ std::string makePipeline(VkDevice d, VkPipelineLayout layout, const PipelineDesc
             binding = {0, sizeof(Particle), VK_VERTEX_INPUT_RATE_INSTANCE};
             attrs[0] = {0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0};
             attrs[1] = {1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 16};
+        }
+        if (p.input == PipelineDesc::Input::Sprite) {
+            // §6.6: 16 bytes per sprite, one instance each: {float x, y; uint packed; uint rgba8}.
+            binding = {0, 16, VK_VERTEX_INPUT_RATE_INSTANCE};
+            attrs[0] = {0, 0, VK_FORMAT_R32G32_SFLOAT, 0};
+            attrs[1] = {1, 0, VK_FORMAT_R32_UINT, 8};
+            attrs[2] = {2, 0, VK_FORMAT_R32_UINT, 12};
         }
         if (p.input != PipelineDesc::Input::None) {
             vin.vertexBindingDescriptionCount = 1;
@@ -441,6 +456,13 @@ std::string makePipeline(VkDevice d, VkPipelineLayout layout, const PipelineDesc
             att.blendEnable = VK_TRUE;
             att.srcColorBlendFactor = att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
             att.srcAlphaBlendFactor = att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            att.colorBlendOp = att.alphaBlendOp = VK_BLEND_OP_ADD;
+        } else if (p.alphaBlend) {
+            att.blendEnable = VK_TRUE;
+            att.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
             att.colorBlendOp = att.alphaBlendOp = VK_BLEND_OP_ADD;
         }
         VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
@@ -1015,6 +1037,99 @@ void VulkanBackend::recordParticles(VkCommandBuffer cmd, Slot &slot, double t)
     // 14: FXAA into ldrB, left a colour attachment: frame() / readback() transition it (outputImage()).
     postPass(cmd, slot, m_ldrB, false, false, w.fxaaPipeline, w.postSets[n], n), ++n;
     m_lastDraws = 3 + n;
+}
+
+// ---- Task 29: the fill workloads, Quads and Sprites (§6.5, §6.6) ----
+
+std::string VulkanBackend::loadFill(const SceneData &scene)
+{
+    VkDevice d = m_ctx.device;
+    WorkloadState &w = *m_work;
+    w.tonemap = false;  // display-encoded colour into ldrA, presented in Copy mode
+    w.scene.workload = scene.workload;
+    w.scene.sprites = scene.sprites;
+    const bool quads = scene.workload == Workload::Quads;
+    w.fillCount = quads ? scene.quadLayers : std::uint32_t(scene.sprites.size());
+    if (scene.textures.size() != 1)
+        return "a fill workload needs its one texture";
+    Image tex;
+    if (std::string e = uploadTexture(m_ctx, scene.textures[0], &tex); !e.empty())
+        return e;
+    w.materials.push_back(tex);
+    w.materialSets.resize(1);
+    if (std::string e = allocSet(d, m_loadPool, m_setLayouts[2], &w.materialSets[0]); !e.empty())
+        return e;
+    writeImages(d, w.materialSets[0], {tex.view});
+    PipelineDesc p;
+    p.vs = quads ? kQuadsVsSpv : kSpritesVsSpv;
+    p.vsBytes = quads ? sizeof kQuadsVsSpv : sizeof kSpritesVsSpv;
+    p.ps = quads ? kQuadsPsSpv : kSpritesPsSpv;
+    p.psBytes = quads ? sizeof kQuadsPsSpv : sizeof kSpritesPsSpv;
+    p.input = quads ? PipelineDesc::Input::None : PipelineDesc::Input::Sprite;
+    p.colour = VK_FORMAT_R8G8B8A8_UNORM;
+    p.alphaBlend = true;
+    if (std::string e = makePipeline(d, m_presentLayout, p, &w.pipeline); !e.empty())
+        return e;
+    if (!quads && w.fillCount > 0) {
+        // §6.6, VK-2: one persistently mapped, coherent ring slice per slot, rewritten every frame after its fence.
+        for (Slot &s : m_slots) {
+            if (std::string e = makeBuffer(m_ctx, VkDeviceSize(w.fillCount) * sc::kSpriteBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true, &s.spriteRing);
+                !e.empty())
+                return e;
+        }
+    }
+    w.draws = quads ? 1 : std::uint32_t(sc::spriteBatches(w.fillCount).size());
+    return {};
+}
+
+void VulkanBackend::recordFill(VkCommandBuffer cmd, Slot &slot, double t)
+{
+    WorkloadState &w = *m_work;
+    const bool quads = w.workload == Workload::Quads;
+    const std::uint32_t width = m_ldrA.width, height = m_ldrA.height;
+    // The CPU side after the slot's fence: Frame (the animation time, the render size) and the sprites' instances.
+    sc::writeFrame(w.scene, t, width, height, static_cast<std::uint8_t *>(slot.frameConstants.mapped));
+    if (!quads && slot.spriteRing.mapped)
+        sc::writeSprites(w.scene, t, static_cast<std::uint8_t *>(slot.spriteRing.mapped));
+
+    // The previous frame's present pass sampled ldrA and a readback copied it (WAR); its contents are discarded.
+    m_ldrA.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    transition(cmd, m_ldrA, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COPY_BIT,
+               VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+               VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);  // blending reads
+    VkRenderingAttachmentInfo colour{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    colour.imageView = m_ldrA.view;
+    colour.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colour.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colour.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    std::memcpy(colour.clearValue.color.float32, sc::kFillClear, sizeof sc::kFillClear);
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, {width, height}};
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &colour;
+    vkCmdBeginRendering(cmd, &ri);
+    setViewport(cmd, width, height);
+    std::uint32_t draws = 0;
+    if (w.fillCount > 0) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, w.pipeline);
+        const std::uint32_t passOffset = std::uint32_t(kPassBase);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_presentLayout, 0, 1, &slot.set0, 1, &passOffset);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_presentLayout, 2, 1, &w.materialSets[0], 0, nullptr);
+        if (quads) {
+            vkCmdDraw(cmd, 6, w.fillCount, 0, 0);  // one instanced draw: a layer per instance
+            draws = 1;
+        } else {
+            const VkDeviceSize zero = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &slot.spriteRing.buffer, &zero);
+            for (const sc::SpriteBatch &b : sc::spriteBatches(w.fillCount)) {
+                vkCmdDraw(cmd, 6, b.count, 0, b.first);  // firstInstance = the batch's first sprite
+                ++draws;
+            }
+        }
+    }
+    vkCmdEndRendering(cmd);
+    m_lastDraws = draws;
 }
 
 } // namespace sb::gpu::vk

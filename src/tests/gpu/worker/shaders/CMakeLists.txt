@@ -112,5 +112,7 @@ synbench_gpu_shader(NAME post_up)
 synbench_gpu_shader(NAME post_composite)
 synbench_gpu_shader(NAME post_tonemap)
 synbench_gpu_shader(NAME post_fxaa)
+synbench_gpu_shader(NAME quads)
+synbench_gpu_shader(NAME sprites)
 
 add_custom_target(synbench_gpu_shaders ALL DEPENDS ${_sb_shader_incs})

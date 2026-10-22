@@ -12,6 +12,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace sb::gpu::sc {
 
@@ -29,6 +30,8 @@ inline constexpr std::size_t kObjectSlot = 256;
 inline constexpr std::uint32_t kShadowSize = 2048;                 // §6.3: the shadow map, D32F
 inline constexpr float kBackground[4] = {0.02f, 0.02f, 0.03f, 1.0f};  // sceneColor's clear (task 11)
 inline constexpr std::uint32_t kBloomLevels = 6;
+// The fill workloads (Quads, Sprites) clear ldrA to this each frame (the colour the clear-only workload of tasks 10, 18 and 21 used: (64, 128, 192, 255)).
+inline constexpr float kFillClear[4] = {64.0f / 255.0f, 128.0f / 255.0f, 192.0f / 255.0f, 1.0f};
 
 // common.hlsli's cbuffer Frame (b0).
 struct FrameConstants {
@@ -70,6 +73,15 @@ std::uint32_t bloomSize(std::uint32_t size, std::uint32_t level);
 void writeFrame(const SceneData &scene, double t, std::uint32_t width, std::uint32_t height, std::uint8_t *constants,
                 std::uint32_t flipV = 0);
 void writeObjects(const SceneData &scene, double t, std::uint8_t *objects);
+
+// §6.5, §6.6 (tasks 29-31): the fill workloads. A sprite instance is 16 bytes: {float x, y; uint32 rotation16 | atlasIndex << 16;
+// uint32 rgba8}; writeSprites writes every sprite's position at time t, x = mod(x0 + vx t, 1920), y = mod(y0 + vy t, 1080)
+// (logical px), into `out` (sprites x 16 bytes). The sprites are drawn in batches of up to kSpriteBatch instances.
+inline constexpr std::size_t kSpriteBytes = 16;
+void writeSprites(const SceneData &scene, double t, std::uint8_t *out);
+struct SpriteBatch { std::uint32_t first, count; };
+// 100,000 sprites in batches of 4,096 -> 25 batches, the last of 1,696.
+std::vector<SpriteBatch> spriteBatches(std::uint32_t sprites, std::uint32_t batch = kSpriteBatch);
 
 // §6.3: the sun's shadow matrix (also written into Frame::lightViewProj for Shading).
 Mat4 sunViewProj(Vec3 sunTravel);

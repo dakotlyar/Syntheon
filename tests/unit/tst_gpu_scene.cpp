@@ -13,6 +13,7 @@
 #include <QTest>
 
 #include <cmath>
+#include <cstring>
 
 using namespace sb::gpu;
 

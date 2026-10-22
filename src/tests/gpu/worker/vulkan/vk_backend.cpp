@@ -369,11 +369,11 @@ std::string VulkanBackend::load(const SceneData &scene)
     case Workload::Shading: e = loadShading(scene); break;
     case Workload::Particles: e = loadParticles(scene); break;
     case Workload::Quads:
+    case Workload::Sprites: e = loadFill(scene); break;
     case Workload::Shapes:
     case Workload::Text:
     case Workload::Blits:
-    case Workload::Gradients:
-    case Workload::Sprites: break;
+    case Workload::Gradients: break;
     }
     if (!e.empty())
         return e;
@@ -563,11 +563,11 @@ void VulkanBackend::recordWorkload(VkCommandBuffer cmd, Slot &slot, double t)
     case Workload::Shading: recordShading(cmd, slot, t); return;
     case Workload::Particles: recordParticles(cmd, slot, t); return;
     case Workload::Quads:
+    case Workload::Sprites: recordFill(cmd, slot, t); return;
     case Workload::Shapes:
     case Workload::Text:
     case Workload::Blits:
-    case Workload::Gradients:
-    case Workload::Sprites: break;
+    case Workload::Gradients: break;
     }
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     // The previous frame's present pass sampled ldrA and a readback copied it:

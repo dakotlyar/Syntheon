@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "tests/gpu/worker/scene_constants.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace sb::gpu::sc {
@@ -60,6 +62,33 @@ Mat4 sunViewProj(Vec3 sunTravel)
     const Vec3 centre{0.f, 4.f, 0.f};
     const Mat4 view = lookAt(centre - d * 40.f, centre, {0.f, 0.f, 1.f});
     return orthographic(-22.f, 22.f, -22.f, 22.f, 1.f, 80.f) * view;
+}
+
+void writeSprites(const SceneData &scene, double t, std::uint8_t *out)
+{
+    for (std::size_t i = 0; i < scene.sprites.size(); ++i) {
+        const Sprite &s = scene.sprites[i];
+        // mod as the closed form: positive wrap of x0 + v t on the 1920 x 1080 logical canvas (double: the CPU does it once per sprite).
+        double x = std::fmod(double(s.x0) + double(s.vx) * t, 1920.0), y = std::fmod(double(s.y0) + double(s.vy) * t, 1080.0);
+        if (x < 0)
+            x += 1920.0;
+        if (y < 0)
+            y += 1080.0;
+        const float pos[2] = {float(x), float(y)};
+        const std::uint32_t packed = (s.rotation16 & 0xFFFFu) | (s.atlasIndex << 16), colour = s.colourRgba8;
+        std::uint8_t *dst = out + i * kSpriteBytes;
+        std::memcpy(dst, pos, 8);
+        std::memcpy(dst + 8, &packed, 4);
+        std::memcpy(dst + 12, &colour, 4);
+    }
+}
+
+std::vector<SpriteBatch> spriteBatches(std::uint32_t sprites, std::uint32_t batch)
+{
+    std::vector<SpriteBatch> out;
+    for (std::uint32_t first = 0; first < sprites; first += batch)
+        out.push_back({first, std::min(batch, sprites - first)});
+    return out;
 }
 
 void writeObjects(const SceneData &scene, double t, std::uint8_t *objects)
@@ -132,11 +161,16 @@ void writeFrame(const SceneData &scene, double t, std::uint32_t width, std::uint
         return;
     }
     case Workload::Quads:
+    case Workload::Sprites: {
+        // §6.5, §6.6: only the animation time (cameraPos.w) and the render size are read (quads.hlsl, sprites.hlsl).
+        const FrameConstants fc = frameConstants(cam, t, {-0.4f, -1.f, -0.3f}, Vec3{1.f, 1.f, 1.f}, width, height);
+        std::memcpy(constants, &fc, sizeof fc);
+        return;
+    }
     case Workload::Shapes:
     case Workload::Text:
     case Workload::Blits:
-    case Workload::Gradients:
-    case Workload::Sprites: return;  // task 29
+    case Workload::Gradients: return;  // native 2D: no Frame constants
     }
 }
 

@@ -37,6 +37,9 @@ struct VulkanBackend::WorkloadState {
     // map is the backend's m_shadow (set 0 b2). `pipeline` is the EQUAL shading pass.
     VkPipeline shadowPipeline = VK_NULL_HANDLE, prepassPipeline = VK_NULL_HANDLE;
 
+    // Quads and Sprites (task 29): layers or sprites; w.scene.sprites is the CPU copy writeSprites() reads; pipeline + materialSets[0].
+    std::uint32_t fillCount = 0;
+
     // Particles + post (task 12): the ground uses geometry.hlsl (pipeline), the
     // sky and the particles their own; materials[0] is the soft disc (materialSets[0]).
     Buffer particles;  // one Particle (32 bytes) per instance
