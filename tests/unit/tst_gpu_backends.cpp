@@ -3,7 +3,10 @@
 // headless, with the Khronos validation layer and synchronisation
 // validation; any validation error fails). The Vulkan cases are skipped where
 // lavapipe isn't installed (Windows; task 16 makes it a CI requirement).
+#include "gpu_reference_signatures.h"
 #include "gpu_worker_process.h"
+
+#include "tests/gpu/model/best_of.h"
 
 #include "tests/gpu/worker/scene/overlay.h"
 #include "tests/gpu/worker/scene/scenes.h"
@@ -495,6 +498,107 @@ private slots:
         b->shutdown();
         QCOMPARE(b->validationErrors(), 0);
 #endif
+    }
+
+    // Task 19 (Windows CI, WARP): the four scenes on D3D12, as vulkanScenes:
+    // the draw counts of tasks 11-12, a readback that isn't flat, no debug-layer error.
+    void d3d12Scenes_data()
+    {
+        QTest::addColumn<int>("workload");
+        QTest::addColumn<unsigned>("draws");
+        QTest::newRow("geometry") << int(Workload::Geometry) << 1u;
+        QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 601u;
+        QTest::newRow("shading") << int(Workload::Shading) << 6u;
+        QTest::newRow("particles") << int(Workload::Particles) << 17u;
+    }
+
+    void d3d12Scenes()
+    {
+#if !defined(Q_OS_WIN)
+        QSKIP("DirectX 12 is Windows only");
+#else
+        QFETCH(int, workload);
+        QFETCH(unsigned, draws);
+        const SceneData scene = buildScene(Workload(workload), 64);
+        QCOMPARE(scene.drawsPerFrame, draws);
+        QString why;
+        auto b = headlessD3D12(320, 180, scene, &why);
+        if (!b && why.startsWith(QLatin1StringView("no D3D12")))
+            QSKIP(qPrintable(why));
+        QVERIFY2(b, qPrintable(why));
+        std::vector<double> gpu;
+        for (int i = 0; i < 8; ++i)
+            SB_OK(b->frame(i / 60.0, &gpu));
+        QCOMPARE(b->lastFrameDraws(), draws);
+        SB_OK(b->drain(&gpu));
+        std::vector<std::uint8_t> pixels;
+        SB_OK(b->readback(2.0, &pixels));
+        QCOMPARE(pixels.size(), std::size_t(320 * 180 * 4));
+        QCOMPARE(b->lastFrameDraws(), draws);
+        const std::vector<std::uint8_t> sig = blockSignature(pixels.data(), 320, 180);
+        QVERIFY2(deviation(sig) > 2.0, qPrintable(QStringLiteral("a flat image (deviation %1)").arg(deviation(sig))));
+        // Again after unload .. resume .. load (serve mode), with the overlay on.
+        b->setOverlay("Geometry | DX12 | 1 fps");
+        SB_OK(b->frame(0.5, &gpu));
+        SB_OK(b->drain(&gpu));
+        b->unload();
+        SB_OK(b->suspend());
+        SB_OK(b->resume(PresentTarget{true}));
+        SB_OK(b->load(scene));
+        SB_OK(b->frame(0.0, &gpu));
+        SB_OK(b->drain(&gpu));
+        b->unload();
+        SB_OK(b->suspend());
+        b->shutdown();
+        QCOMPARE(b->validationErrors(), 0);
+#endif
+    }
+
+    // D20 (task 19): every API draws the four scenes like the pinned Vulkan
+    // reference (gpu_reference_signatures.h), within §5.7's tolerance. Vulkan
+    // on lavapipe here (any Mesa version), DX12 on WARP on Windows.
+    void signaturesMatchVulkanReference()
+    {
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+#if defined(Q_OS_WIN)
+        const QString api = QStringLiteral("dx12"), gpu = kWarpId;
+#else
+        if (lavapipeIcd().isEmpty())
+            SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
+        addSoftwareVulkan(env);
+        const QString api = QStringLiteral("vulkan"), gpu = kLavapipeId;
+#endif
+        WorkerProcess w(kWorker,
+                        {QStringLiteral("--run"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), gpu, QStringLiteral("--allow-software"),
+                         QStringLiteral("--render-size"), QStringLiteral("320x180"), QStringLiteral("--content-scale"), QStringLiteral("64"),
+                         QStringLiteral("--headless"), QStringLiteral("--plan"),
+                         QStringLiteral("geometry:200:300,drawcalls:200:300,shading:200:300,particles:200:300")},
+                        env);
+        QVERIFY(w.started());
+        const int code = w.finish(120000);
+#if defined(Q_OS_WIN)
+        if (code == 5)
+            QSKIP(qPrintable(QStringLiteral("no D3D12 on WARP here: %1").arg(errors(w.events()))));
+#endif
+        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 4);
+        QStringList report;
+        bool allMatch = true;
+        for (const ReferenceSignature &ref : kVulkanReference) {
+            const pr::ResultEvent *r = nullptr;
+            for (const pr::ResultEvent &e : rs) {
+                if (e.workload == QLatin1StringView(ref.workload))
+                    r = &e;
+            }
+            QVERIFY2(r, ref.workload);
+            const auto diff = compareSignatures(r->signature, QByteArray::fromHex(ref.hex));
+            QVERIFY2(diff, ref.workload);
+            report << QStringLiteral("%1: mean %2/255, max %3/255").arg(QLatin1StringView(ref.workload)).arg(diff->mean, 0, 'f', 2).arg(diff->max);
+            allMatch = allMatch && signaturesMatch(*diff);
+        }
+        qInfo("%s vs the Vulkan reference: %s", qPrintable(api), qPrintable(report.join(QStringLiteral("; "))));
+        QVERIFY2(allMatch, qPrintable(report.join(QStringLiteral("; "))));
     }
 };
 

@@ -6,7 +6,7 @@
 # signature and the backends themselves (null; Vulkan from task 10; D3D12,
 # D3D11 and OpenGL from tasks 18, 20 and 21).
 add_library(synbench_gpu_backends STATIC
-    backend.h present_constants.h
+    backend.h present_constants.h scene_constants.h scene_constants.cpp
     runner.h runner.cpp
     signature.h signature.cpp
     null/null_backend.h null/null_backend.cpp
@@ -29,7 +29,8 @@ if(WIN32)
         dxgi/dxgi_swapchain.h dxgi/dxgi_swapchain.cpp
         d3d12/d12_context.h d3d12/d12_context.cpp
         d3d12/d12_resources.h d3d12/d12_resources.cpp
-        d3d12/d12_backend.h d3d12/d12_backend.cpp)
+        d3d12/d12_backend.h d3d12/d12_backend.cpp
+        d3d12/d12_workload_state.h d3d12/d12_workloads.cpp)
     target_link_libraries(synbench_gpu_backends PRIVATE d3d12 dxgi dxguid)
 endif()
 target_link_libraries(synbench_gpu_backends PUBLIC synbench_gpu_scene synbench::volk)

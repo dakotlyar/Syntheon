@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "tests/gpu/worker/d3d12/d12_backend.h"
 
+#include "tests/gpu/worker/d3d12/d12_workload_state.h"
+
 #include "tests/gpu/worker/present_constants.h"
+#include "tests/gpu/worker/scene_constants.h"
 #include "tests/gpu/worker/scene/bitmap_font.h"
 
 #include <cfloat>
@@ -18,6 +21,9 @@ namespace {
 
 namespace sb::gpu::d3d12 {
 
+static_assert(kPassBase == sc::kPresentOffset && kFrameConstantsBytes == sc::kFrameConstantsBytes && kFrameBlock == sc::kBlock,
+              "D3D12's frame-constants layout is scene_constants.h's (and Vulkan's)");
+
 namespace {
 
 // The clear-only workload of task 18 (task 10's, §5.3 Copy mode): ldrA = (64, 128, 192, 255).
@@ -25,8 +31,9 @@ constexpr float kClearColour[4] = {64.0f / 255.0f, 128.0f / 255.0f, 192.0f / 255
 
 // Fixed RTV heap slots: the swapchain's back buffers, the headless target, ldrA.
 constexpr UINT kRtvBackBuffer = 0, kRtvHeadless = dxgi::Swapchain::kBuffers, kRtvLdrA = kRtvHeadless + 1;
-// The SRV tables are 6 descriptors (t0-t5); the present pass's is at 0.
-constexpr UINT kTableSize = 6, kPresentTableIndex = 0;
+// The SRV tables are 6 descriptors (t0-t5); the present pass's is at 0. The
+// load() .. unload() regions follow the fixed slots (task 19's targets and tables).
+constexpr UINT kTableSize = 6, kPresentTableIndex = 0, kRtvLoadBase = kRtvLdrA + 1, kSrvLoadBase = kTableSize, kDsvLoadBase = 0;
 
 D3D12_STATIC_SAMPLER_DESC staticSampler(UINT reg, D3D12_FILTER filter, D3D12_TEXTURE_ADDRESS_MODE address)
 {
@@ -68,6 +75,7 @@ void D3D12Backend::shutdown()
     m_queryReadback.Reset();
     m_timestamps = nullptr;
     m_presentPipeline.Reset();
+    m_readPipeline.Reset();
     m_root.Reset();
     m_atlas = Image{};
     m_ctx.destroy();
@@ -162,6 +170,9 @@ std::string D3D12Backend::init(const BackendInit &init, const PresentTarget &tar
     if (std::string e = makePresentPipeline(m_headless ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM, &m_presentPipeline); !e.empty())
         return e;
     m_presentFormat = m_headless ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM;
+    // The present pass into the RGBA8 readback target of the tone mapped scenes (§5.7, task 19).
+    if (std::string e = makePresentPipeline(DXGI_FORMAT_R8G8B8A8_UNORM, &m_readPipeline); !e.empty())
+        return e;
     return m_ctx.validationProblem();
 }
 
@@ -191,8 +202,13 @@ std::string D3D12Backend::load(const SceneData &scene)
 {
     if (m_loaded)
         unload();
-    // The render targets (§5.3, D12: load() .. unload()). Task 18's clear
-    // workload uses ldrA only, for every workload; task 19 adds the scenes'.
+    m_rtvNext = kRtvLoadBase;
+    m_dsvNext = kDsvLoadBase;
+    m_srvNext = kSrvLoadBase;
+    m_work = std::make_unique<WorkloadState>();
+    m_work->workload = scene.workload;
+    // The render targets (§5.3, D12: load() .. unload()): ldrA always (the clear
+    // workload's target, Particles' tone map output); the scenes add theirs.
     D3D12_CLEAR_VALUE clear{};
     clear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     std::memcpy(clear.Color, kClearColour, sizeof kClearColour);
@@ -201,15 +217,39 @@ std::string D3D12Backend::load(const SceneData &scene)
         !e.empty())
         return e;
     m_ctx.device->CreateRenderTargetView(m_ldrA.resource.Get(), nullptr, m_ctx.rtv(kRtvLdrA));
+    m_ldrA.rtv = kRtvLdrA;
+    m_loaded = true;
+    m_lastDraws = 0;
+    // Task 19: the scenes (Quads and Sprites still clear ldrA, task 30).
+    std::string e;
+    switch (scene.workload) {
+    case Workload::Geometry:
+    case Workload::DrawCalls: e = loadScene(scene); break;
+    case Workload::Shading: e = loadShading(scene); break;
+    case Workload::Particles: e = loadParticles(scene); break;
+    case Workload::Quads:
+    case Workload::Sprites: break;
+    }
+    if (!e.empty())
+        return e;
+    // The scenes' per-slot object constants: one 256-byte slot per instance, an
+    // UPLOAD buffer persistently mapped (DX-4), a root CBV per draw (task 19).
+    if (!m_work->scene.instances.empty()) {
+        for (Slot &s : m_slots) {
+            Buffer objects;
+            if (std::string oe = makeBuffer(m_ctx, UINT64(m_work->scene.instances.size()) * sc::kObjectSlot, D3D12_HEAP_TYPE_UPLOAD, &objects);
+                !oe.empty())
+                return oe;
+            s.objectConstants = objects.resource;
+            s.mapped[1] = objects.mapped;
+        }
+    }
     // The present pass's table: t0 = the workload's output, t1-t4 null, t5 = the atlas.
     m_presentTable = kPresentTableIndex;
-    writeSrv(m_ctx, m_presentTable + 0, &m_ldrA);
+    writeSrv(m_ctx, m_presentTable + 0, &outputImage());
     for (UINT i = 1; i < 5; ++i)
         writeSrv(m_ctx, m_presentTable + i, nullptr);
     writeSrv(m_ctx, m_presentTable + 5, &m_atlas);
-    (void)scene;  // task 19: the scene's content
-    m_loaded = true;
-    m_lastDraws = 0;
     return m_ctx.validationProblem();
 }
 
@@ -218,9 +258,17 @@ void D3D12Backend::unload()
     if (!m_ctx.device)
         return;
     waitAll();
-    for (Slot &s : m_slots)
+    for (Slot &s : m_slots) {
         s.submitted = false;  // after the wait: their timestamps belong to the old workload
-    m_ldrA = Image{};
+        s.objectConstants.Reset();  // made in load() (DX-2: after the wait)
+        s.mapped[1] = nullptr;
+    }
+    unloadScene();
+    m_work.reset();
+    for (Image *img : {&m_ldrA, &m_sceneColor, &m_sceneDepth, &m_hdrB, &m_ldrB, &m_shadow})
+        *img = Image{};
+    for (Image &img : m_bloom)
+        img = Image{};
     m_loaded = false;
     m_lastDraws = 0;
 }
@@ -330,8 +378,17 @@ std::string D3D12Backend::waitAll()
     return {};
 }
 
-void D3D12Backend::recordWorkload(ID3D12GraphicsCommandList *list, double)
+void D3D12Backend::recordWorkload(ID3D12GraphicsCommandList *list, Slot &slot, double t)
 {
+    switch (m_work ? m_work->workload : Workload::Quads) {
+    case Workload::Geometry:
+    case Workload::DrawCalls: recordScene(list, slot, t); return;
+    case Workload::Shading: recordShading(list, slot, t); return;
+    case Workload::Particles: recordParticles(list, slot, t); return;
+    case Workload::Quads:
+    case Workload::Sprites: break;
+    }
+    m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     // DX-1: the previous frame's present pass sampled ldrA, a readback copied it.
     transition(list, m_ldrA, D3D12_RESOURCE_STATE_RENDER_TARGET);
     list->ClearRenderTargetView(m_ctx.rtv(kRtvLdrA), kClearColour, 0, nullptr);
@@ -369,7 +426,7 @@ std::string D3D12Backend::frame(double t, std::vector<double> *gpuMs)
         return e;
     const std::uint32_t outW = m_headless ? m_headlessTarget.width : m_swap.width;
     const std::uint32_t outH = m_headless ? m_headlessTarget.height : m_swap.height;
-    const PresentConstants pc = presentConstants(kPresentCopy, m_overlay, m_windowScale, outW, outH);
+    const PresentConstants pc = presentConstants(tonemapped() ? kPresentTonemap : kPresentCopy, m_overlay, m_windowScale, outW, outH);
     std::memcpy(static_cast<std::uint8_t *>(s.mapped[0]) + kPassBase, &pc, sizeof pc);
     if (!m_headless) {
         if (std::string e = m_swap.waitForFrame(); !e.empty())
@@ -386,8 +443,9 @@ std::string D3D12Backend::frame(double t, std::vector<double> *gpuMs)
     if (m_queries)
         list->EndQuery(m_queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 2 * si);
 
-    recordWorkload(list, t);
-    transition(list, m_ldrA, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    recordWorkload(list, s, t);
+    // The workload's output -> the present pass's pixel-shader reads (Vulkan: COLOR_ATTACHMENT -> SHADER_READ_ONLY).
+    transition(list, outputImage(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
     // The present pass (P3) into the back buffer (DX-3: PRESENT -> RENDER_TARGET -> PRESENT) or the headless target.
     if (m_headless) {
@@ -411,7 +469,6 @@ std::string D3D12Backend::frame(double t, std::vector<double> *gpuMs)
         return e;
     s.submitted = true;
     ++m_frame;
-    m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     if (!m_headless) {
         if (std::string e = m_swap.present(); !e.empty())
             return e;
@@ -431,7 +488,7 @@ std::string D3D12Backend::drain(std::vector<double> *gpuMs)
     return m_ctx.validationProblem();
 }
 
-std::string D3D12Backend::readImage(Image &img, bool renderWorkload, double t, std::vector<std::uint8_t> *rgba8)
+std::string D3D12Backend::readImage(Image &img, const std::function<void(ID3D12GraphicsCommandList *)> &pre, std::vector<std::uint8_t> *rgba8)
 {
     if (std::string e = waitAll(); !e.empty())
         return e;
@@ -441,8 +498,11 @@ std::string D3D12Backend::readImage(Image &img, bool renderWorkload, double t, s
     if (std::string e = makeBuffer(m_ctx, bytes, D3D12_HEAP_TYPE_READBACK, &host); !e.empty())
         return e;
     std::string e = m_ctx.oneTimeSubmit([&](ID3D12GraphicsCommandList *list) {
-        if (renderWorkload)
-            recordWorkload(list, t);
+        if (pre) {
+            ID3D12DescriptorHeap *heaps[] = {m_ctx.srvHeap.Get()};
+            list->SetDescriptorHeaps(1, heaps);
+            pre(list);
+        }
         recordReadback(list, img, host, footprint);
     });
     if (!e.empty())
@@ -456,7 +516,26 @@ std::string D3D12Backend::readback(double t, std::vector<std::uint8_t> *rgba8)
     if (!m_loaded)
         return "readback() before load()";
     // §5.7: the workload's output before the present pass, exactly render size.
-    return readImage(m_ldrA, true, t, rgba8);
+    // Slot 0 supplies the constants (readImage waits for every slot first).
+    Slot &s = m_slots[0];
+    if (!tonemapped())
+        return readImage(outputImage(), [&](ID3D12GraphicsCommandList *list) { recordWorkload(list, s, t); }, rgba8);
+    // A tone mapped scene (sceneColor is RGBA16F, linear): the present pass in
+    // mode 0, no overlay, into an RGBA8 target at render size (task 11's rule).
+    if (std::string e = waitAll(); !e.empty())
+        return e;
+    Image &target = m_work->readTarget;
+    const PresentConstants pc = presentConstants(kPresentTonemap, std::string(), 1.0, target.width, target.height);
+    std::memcpy(static_cast<std::uint8_t *>(s.mapped[0]) + kPassBase, &pc, sizeof pc);
+    return readImage(
+        target,
+        [&](ID3D12GraphicsCommandList *list) {
+            recordWorkload(list, s, t);
+            transition(list, m_sceneColor, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            transition(list, target, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            recordPresentPass(list, s, m_ctx.rtv(target.rtv), target.width, target.height, m_readPipeline.Get());
+        },
+        rgba8);
 }
 
 #if defined(SYNBENCH_DEV_HOOKS)
@@ -464,7 +543,7 @@ std::string D3D12Backend::readbackPresented(std::vector<std::uint8_t> *rgba8)
 {
     if (!m_headless || !m_resumed || m_frame == 0)
         return "readbackPresented() needs a headless frame";
-    return readImage(m_headlessTarget, false, 0.0, rgba8);
+    return readImage(m_headlessTarget, nullptr, rgba8);
 }
 #endif
 

@@ -165,6 +165,8 @@ void writeSrv(Context &ctx, UINT index, const Image *img)
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC sd{};
     sd.Format = img ? img->format : DXGI_FORMAT_R8G8B8A8_UNORM;
+    if (sd.Format == DXGI_FORMAT_R32_TYPELESS)
+        sd.Format = DXGI_FORMAT_R32_FLOAT;
     sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     sd.Texture2D.MipLevels = img ? img->mips : 1;

@@ -9,6 +9,8 @@
 
 #include "tests/gpu/worker/vulkan/vk_workload_state.h"
 
+#include "tests/gpu/worker/scene_constants.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
@@ -41,27 +43,12 @@ namespace sb::gpu::vk {
 
 namespace {
 
-// common.hlsli's cbuffer Frame (b0): 256 bytes, kFrameBlock.
-struct FrameConstants {
-    float viewProj[16], lightViewProj[16];
-    float cameraPos[4], cameraRight[4], cameraUp[4];
-    float sunDir[4], sunColour[4], skyAmbient[4], groundAmbient[4];
-    float renderSize[4];
-};
-static_assert(sizeof(FrameConstants) == kFrameBlock, "the Frame cbuffer is 256 bytes");
-
-// geometry.hlsl / drawcalls.hlsl's cbuffer Object (b1), at the start of each 256-byte slot.
-struct ObjectConstants {
-    float model[16];
-    float colour[4];
-};
-constexpr VkDeviceSize kObjectSlot = 256;
-static_assert(sizeof(ObjectConstants) <= kObjectSlot, "an object's constants fit its slot");
-
-// §6.1: the sun, normalise(-0.4, -1, -0.3), colour (1, 0.96, 0.90) x 3; the
-// hemisphere ambient, sky (0.25, 0.30, 0.40) and ground (0.08, 0.07, 0.06).
-// The Draw calls scene uses the same.
-constexpr float kBackground[4] = {0.02f, 0.02f, 0.03f, 1.0f};
+// The constant layouts and values are scene_constants.h's (shared with D3D12, task 19).
+constexpr VkDeviceSize kObjectSlot = sc::kObjectSlot;
+constexpr const float *kBackground = sc::kBackground;
+static_assert(sc::kBlock == kFrameBlock && sc::kPresentOffset == kPassBase && sc::kLightsBytes == kPassRange
+                  && sc::kFrameConstantsBytes == kFrameConstantsBytes,
+              "Vulkan's frame-constants layout is scene_constants.h's");
 
 std::string makeShader(VkDevice device, const std::uint32_t *code, std::size_t bytes, VkShaderModule *out)
 {
@@ -298,40 +285,10 @@ void VulkanBackend::recordScene(VkCommandBuffer cmd, Slot &slot, double t)
     const std::uint32_t slotIndex = std::uint32_t(&slot - m_slots.data());
     const std::uint32_t width = m_sceneColor.width, height = m_sceneColor.height;
 
-    // The CPU side: this slot's Frame constants and every object slot (its fence has passed, VK-2).
-    const Camera cam = cameraAt(w.scene.workload, t, double(width) / double(height));
-    FrameConstants fc{};
-    const Mat4 viewProj = cam.proj * cam.view;
-    std::memcpy(fc.viewProj, viewProj.m, sizeof fc.viewProj);
-    const Mat4 identity = Mat4::identity();
-    std::memcpy(fc.lightViewProj, identity.m, sizeof fc.lightViewProj);
-    const float eye[4] = {cam.eye.x, cam.eye.y, cam.eye.z, float(t)};  // w = the animation time
-    std::memcpy(fc.cameraPos, eye, sizeof eye);
-    const float right[4] = {cam.view.m[0], cam.view.m[4], cam.view.m[8], 0.f};  // the view matrix's rows
-    const float up[4] = {cam.view.m[1], cam.view.m[5], cam.view.m[9], 0.f};
-    std::memcpy(fc.cameraRight, right, sizeof right);
-    std::memcpy(fc.cameraUp, up, sizeof up);
-    const Vec3 sun = normalize({-0.4f, -1.f, -0.3f});
-    const float sunDir[4] = {sun.x, sun.y, sun.z, 0.f}, sunColour[4] = {3.f, 3.f * 0.96f, 3.f * 0.90f, 0.f};
-    const float sky[4] = {0.25f, 0.30f, 0.40f, 0.f}, ground[4] = {0.08f, 0.07f, 0.06f, 0.f};
-    std::memcpy(fc.sunDir, sunDir, sizeof sunDir);
-    std::memcpy(fc.sunColour, sunColour, sizeof sunColour);
-    std::memcpy(fc.skyAmbient, sky, sizeof sky);
-    std::memcpy(fc.groundAmbient, ground, sizeof ground);
-    const float size[4] = {float(width), float(height), 1.f / float(width), 1.f / float(height)};
-    std::memcpy(fc.renderSize, size, sizeof size);
-    std::memcpy(slot.frameConstants.mapped, &fc, sizeof fc);
-
-    auto *objects = static_cast<std::uint8_t *>(slot.objectConstants.mapped);
-    for (std::size_t i = 0; i < w.scene.instances.size(); ++i) {
-        ObjectConstants oc{};
-        const Mat4 model = instanceModelAt(w.scene, i, t);
-        std::memcpy(oc.model, model.m, sizeof oc.model);
-        const Vec4 &c = w.scene.instances[i].colour;
-        const float colour[4] = {c.x, c.y, c.z, c.w};
-        std::memcpy(oc.colour, colour, sizeof colour);
-        std::memcpy(objects + i * kObjectSlot, &oc, sizeof oc);
-    }
+    // The CPU side: this slot's Frame constants and every object slot (its fence
+    // has passed, VK-2), the same bytes on every API (scene_constants.h).
+    sc::writeFrame(w.scene, t, width, height, static_cast<std::uint8_t *>(slot.frameConstants.mapped));
+    sc::writeObjects(w.scene, t, static_cast<std::uint8_t *>(slot.objectConstants.mapped));
 
     // The previous frame's present pass sampled sceneColor and a readback may
     // have copied it (WAR), and the depth buffer's last writes (WAW): both are
@@ -351,7 +308,7 @@ void VulkanBackend::recordScene(VkCommandBuffer cmd, Slot &slot, double t)
     colour.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     colour.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colour.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    std::memcpy(colour.clearValue.color.float32, kBackground, sizeof kBackground);
+    std::memcpy(colour.clearValue.color.float32, kBackground, sizeof sc::kBackground);
     VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depth.imageView = m_sceneDepth.view;
     depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
@@ -403,68 +360,14 @@ void VulkanBackend::recordScene(VkCommandBuffer cmd, Slot &slot, double t)
 
 namespace {
 
-// Where the pass blocks of task 12 sit in a slot's frameConstants (vk_backend.h:
-// Frame at 0, Present at kPassBase = 256): Lights at 512 (4 KiB, read with
-// kPassRange), then 256-byte blocks from 4608 (DepthPass x 2, or Post x 14).
-constexpr VkDeviceSize kLightsOffset = 512, kBlockBase = kLightsOffset + kPassRange;
-constexpr std::uint32_t kShadowBlock = 0, kPrepassBlock = 1;
-static_assert(kBlockBase + 14 * kFrameBlock + kPassRange <= kFrameConstantsBytes, "the pass blocks fit the slot's buffer");
+// The pass blocks of task 12 (scene_constants.h): Lights at 512, then 256-byte
+// blocks from 4608 (DepthPass x 2, or Post x 14).
+constexpr VkDeviceSize kLightsOffset = sc::kLightsOffset;
+constexpr std::uint32_t kShadowBlock = sc::kShadowBlock, kPrepassBlock = sc::kPrepassBlock, kShadowSize = sc::kShadowSize;
 
 std::uint32_t blockOffset(std::uint32_t block)
 {
-    return std::uint32_t(kBlockBase + block * kFrameBlock);
-}
-
-constexpr std::uint32_t kShadowSize = 2048;
-
-// shading.hlsl's cbuffer Lights (b2): 128 lights x 32 bytes.
-struct LightsConstants {
-    float posRadius[kPointLights][4];
-    float colourIntensity[kPointLights][4];
-};
-static_assert(sizeof(LightsConstants) == kPassRange, "the Lights cbuffer is 4 KiB");
-
-// post.hlsli's cbuffer Post (b2).
-struct PostConstants {
-    float sourceSize[4];  // 1/w, 1/h, w, h of t0
-    float params[4];
-    std::uint32_t flags[4];  // x = flipV (0 on Vulkan)
-};
-
-// The scenes' Frame constants (common.hlsli): the camera at t, a sun, the hemisphere ambient.
-FrameConstants frameConstants(const Camera &cam, double t, Vec3 sunTravel, Vec3 sunColour, std::uint32_t width, std::uint32_t height)
-{
-    FrameConstants fc{};
-    const Mat4 viewProj = cam.proj * cam.view;
-    std::memcpy(fc.viewProj, viewProj.m, sizeof fc.viewProj);
-    const Mat4 identity = Mat4::identity();
-    std::memcpy(fc.lightViewProj, identity.m, sizeof fc.lightViewProj);
-    const float eye[4] = {cam.eye.x, cam.eye.y, cam.eye.z, float(t)};
-    std::memcpy(fc.cameraPos, eye, sizeof eye);
-    const float right[4] = {cam.view.m[0], cam.view.m[4], cam.view.m[8], 0.f};
-    const float up[4] = {cam.view.m[1], cam.view.m[5], cam.view.m[9], 0.f};
-    std::memcpy(fc.cameraRight, right, sizeof right);
-    std::memcpy(fc.cameraUp, up, sizeof up);
-    const Vec3 sun = normalize(sunTravel);
-    const float sunDir[4] = {sun.x, sun.y, sun.z, 0.f}, colour[4] = {sunColour.x, sunColour.y, sunColour.z, 0.f};
-    const float sky[4] = {0.25f, 0.30f, 0.40f, 0.f}, ground[4] = {0.08f, 0.07f, 0.06f, 0.f};
-    std::memcpy(fc.sunDir, sunDir, sizeof sunDir);
-    std::memcpy(fc.sunColour, colour, sizeof colour);
-    std::memcpy(fc.skyAmbient, sky, sizeof sky);
-    std::memcpy(fc.groundAmbient, ground, sizeof ground);
-    const float size[4] = {float(width), float(height), 1.f / float(width), 1.f / float(height)};
-    std::memcpy(fc.renderSize, size, sizeof size);
-    return fc;
-}
-
-// §6.3: the sun's shadow map, an orthographic projection over x, z in [-22, 22]
-// (light space), looking along the sun from 40 units back.
-Mat4 sunViewProj(Vec3 sunTravel)
-{
-    const Vec3 d = normalize(sunTravel);
-    const Vec3 centre{0.f, 4.f, 0.f};
-    const Mat4 view = lookAt(centre - d * 40.f, centre, {0.f, 0.f, 1.f});
-    return orthographic(-22.f, 22.f, -22.f, 22.f, 1.f, 80.f) * view;
+    return std::uint32_t(sc::blockOffset(block));
 }
 
 // A graphics pipeline on the shared layout (task 12's passes).
@@ -668,22 +571,6 @@ static std::string loadMeshesAndObjects(Context &ctx, VkDescriptorPool pool, VkD
     return {};
 }
 
-// Every object slot of this frame (its fence has passed, VK-2).
-template <class State>
-static void writeObjects(const State &w, Buffer &objects, double t)
-{
-    auto *dst = static_cast<std::uint8_t *>(objects.mapped);
-    for (std::size_t i = 0; i < w.scene.instances.size(); ++i) {
-        ObjectConstants oc{};
-        const Mat4 model = instanceModelAt(w.scene, i, t);
-        std::memcpy(oc.model, model.m, sizeof oc.model);
-        const Vec4 &c = w.scene.instances[i].colour;
-        const float colour[4] = {c.x, c.y, c.z, c.w};
-        std::memcpy(oc.colour, colour, sizeof colour);
-        std::memcpy(dst + i * kObjectSlot, &oc, sizeof oc);
-    }
-}
-
 std::string VulkanBackend::loadShading(const SceneData &scene)
 {
     VkDevice d = m_ctx.device;
@@ -785,29 +672,10 @@ void VulkanBackend::recordShading(VkCommandBuffer cmd, Slot &slot, double t)
     const std::uint32_t width = m_sceneColor.width, height = m_sceneColor.height;
 
     // The CPU side, after this slot's fence (VK-2): Frame (the Shading sun, its
-    // shadow matrix, the light count in sunDir.w), every object, the 128-light block.
-    const Vec3 sunTravel{-0.3f, -1.f, -0.5f};
-    FrameConstants fc = frameConstants(cameraAt(Workload::Shading, t, double(width) / double(height)), t, sunTravel,
-                                       Vec3{1.f, 0.95f, 0.9f} * 4.f, width, height);
-    const Mat4 lvp = sunViewProj(sunTravel);
-    std::memcpy(fc.lightViewProj, lvp.m, sizeof fc.lightViewProj);
-    fc.sunDir[3] = float(w.scene.lights.size());
-    auto *constants = static_cast<std::uint8_t *>(slot.frameConstants.mapped);
-    std::memcpy(constants, &fc, sizeof fc);
-    writeObjects(w, slot.objectConstants, t);
-    LightsConstants lights{};
-    const std::vector<PointLight> now = lightsAt(w.scene, t);
-    for (std::size_t k = 0; k < now.size(); ++k) {
-        const PointLight &l = now[k];
-        const float pr[4] = {l.position.x, l.position.y, l.position.z, l.radius};
-        const float ci[4] = {l.colour.x, l.colour.y, l.colour.z, l.intensity};
-        std::memcpy(lights.posRadius[k], pr, sizeof pr);
-        std::memcpy(lights.colourIntensity[k], ci, sizeof ci);
-    }
-    std::memcpy(constants + kLightsOffset, &lights, sizeof lights);
-    const std::uint32_t shadowFlag[4] = {1, 0, 0, 0}, prepassFlag[4] = {0, 0, 0, 0};
-    std::memcpy(constants + blockOffset(kShadowBlock), shadowFlag, sizeof shadowFlag);
-    std::memcpy(constants + blockOffset(kPrepassBlock), prepassFlag, sizeof prepassFlag);
+    // shadow matrix, the light count in sunDir.w), the Lights and DepthPass
+    // blocks, every object (scene_constants.h, the same bytes on every API).
+    sc::writeFrame(w.scene, t, width, height, static_cast<std::uint8_t *>(slot.frameConstants.mapped));
+    sc::writeObjects(w.scene, t, static_cast<std::uint8_t *>(slot.objectConstants.mapped));
 
     // The same draw loop in all three passes (§6.2's rule: buffers when the mesh changes).
     std::uint32_t draws = 0;
@@ -885,7 +753,7 @@ void VulkanBackend::recordShading(VkCommandBuffer cmd, Slot &slot, double t)
     colour.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     colour.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colour.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    std::memcpy(colour.clearValue.color.float32, kBackground, sizeof kBackground);
+    std::memcpy(colour.clearValue.color.float32, kBackground, sizeof sc::kBackground);
     VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depth.imageView = m_sceneDepth.view;
     depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
@@ -1082,33 +950,10 @@ void VulkanBackend::recordParticles(VkCommandBuffer cmd, Slot &slot, double t)
     const std::uint32_t width = m_sceneColor.width, height = m_sceneColor.height;
 
     // The CPU side, after this slot's fence (VK-2): Frame (the Geometry sun lights
-    // the ground), the ground's object slot, and the 14 Post blocks.
-    FrameConstants fc = frameConstants(cameraAt(Workload::Particles, t, double(width) / double(height)), t, {-0.4f, -1.f, -0.3f},
-                                       Vec3{1.f, 0.96f, 0.90f} * 3.f, width, height);
-    // fog.hlsli's height fog (D2: the sky, the ground and the particles apply it themselves):
-    // density 0.02 in skyAmbient.w, height falloff 0.15 in groundAmbient.w.
-    fc.skyAmbient[3] = 0.02f;
-    fc.groundAmbient[3] = 0.15f;
-    auto *constants = static_cast<std::uint8_t *>(slot.frameConstants.mapped);
-    std::memcpy(constants, &fc, sizeof fc);
-    writeObjects(w, slot.objectConstants, t);
-    const auto block = [&](std::uint32_t index, const Image &source, float p0, float p1, float p2) {
-        PostConstants pc{};
-        const float size[4] = {1.f / float(source.width), 1.f / float(source.height), float(source.width), float(source.height)};
-        const float params[4] = {p0, p1, p2, 0.f};
-        std::memcpy(pc.sourceSize, size, sizeof size);
-        std::memcpy(pc.params, params, sizeof params);
-        std::memcpy(constants + blockOffset(index), &pc, sizeof pc);
-    };
-    std::uint32_t b = 0;
-    block(b++, m_sceneColor, 1.0f, 0.5f, 0.f);  // bright: threshold 1.0, soft knee 0.5
-    for (std::size_t k = 1; k < m_bloom.size(); ++k)
-        block(b++, m_bloom[k - 1], 0.f, 0.f, 0.f);
-    for (std::size_t k = m_bloom.size() - 1; k >= 1; --k)
-        block(b++, m_bloom[k], 1.0f, 0.f, 0.f);  // tent radius 1 source texel
-    block(b++, m_sceneColor, 0.04f, 0.f, 0.f);  // bloom 0.04 (the fog is the surfaces' own, D2)
-    block(b++, m_hdrB, 0.04f, 0.f, 0.f);            // grain amplitude
-    block(b++, m_ldrA, 0.f, 0.f, 0.f);              // FXAA
+    // the ground, the fog), the ground's object slot and the 14 Post blocks
+    // (scene_constants.h, the same bytes on every API).
+    sc::writeFrame(w.scene, t, width, height, static_cast<std::uint8_t *>(slot.frameConstants.mapped));
+    sc::writeObjects(w.scene, t, static_cast<std::uint8_t *>(slot.objectConstants.mapped));
 
     // The scene pass: sky, ground, particles into sceneColor + sceneDepth. Last
     // frame's composite sampled both (WAR); their contents are discarded.
@@ -1125,7 +970,7 @@ void VulkanBackend::recordParticles(VkCommandBuffer cmd, Slot &slot, double t)
     colour.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     colour.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colour.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    std::memcpy(colour.clearValue.color.float32, kBackground, sizeof kBackground);
+    std::memcpy(colour.clearValue.color.float32, kBackground, sizeof sc::kBackground);
     VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depth.imageView = m_sceneDepth.view;
     depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;

@@ -6,7 +6,9 @@
 // allocator per slot, the flip-model swapchain with its frame-latency
 // waitable object, timestamps, the present pass with the overlay. Task 18
 // draws the clear-only workload (ldrA cleared to (64, 128, 192, 255)); task 19
-// adds the four scenes (d12_workloads.cpp). Windows only (P-WIN).
+// adds the four scenes (d12_workloads.cpp, task 19: the Vulkan path's passes,
+// constants (scene_constants.h) and shaders; the state transitions mirror
+// task 12's barrier table, see the design Log). Windows only (P-WIN).
 //
 // The one root signature (common.hlsli's table; every pipeline uses it):
 //   0  root CBV b0  Frame (the slot's frameConstants at 0)
@@ -19,6 +21,8 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
+#include <initializer_list>
 #include <memory>
 #include <string>
 #include <vector>
@@ -68,20 +72,45 @@ private:
     ComPtr<ID3D12RootSignature> m_root;   // the one root signature: b0 CBV, b1 CBV (root descriptor, per-draw address), b2 CBV, t0-t5 table, s0-s2 static samplers
     // The targets of §5.3 with their tracked states (d12_resources.h's Image).
     Image m_ldrA, m_headlessTarget, m_atlas;
+    Image m_sceneColor, m_sceneDepth, m_hdrB, m_ldrB, m_shadow; std::array<Image, 6> m_bloom;  // task 19, made in load()
+    struct WorkloadState; std::unique_ptr<WorkloadState> m_work;   // per-workload pipelines/buffers/tables (d12_workloads.cpp)
 
     // Beyond the declaration in task 18.
     std::string makePresentPipeline(DXGI_FORMAT format, ComPtr<ID3D12PipelineState> *out);
     std::string waitSlot(std::uint32_t slot, std::vector<double> *gpuMs);  // gpuMs null: drop its timestamps
     std::string waitAll();
-    void recordWorkload(ID3D12GraphicsCommandList *list, double t);  // leaves the output (ldrA) a render target
+    // Records the workload at t (the slot supplies its constants) and leaves its
+    // output (outputImage()) a render target; sets m_lastDraws.
+    void recordWorkload(ID3D12GraphicsCommandList *list, Slot &slot, double t);
     void recordPresentPass(ID3D12GraphicsCommandList *list, Slot &slot, D3D12_CPU_DESCRIPTOR_HANDLE rtv, std::uint32_t w, std::uint32_t h,
                            ID3D12PipelineState *pipeline);
-    std::string readImage(Image &img, bool renderWorkload, double t, std::vector<std::uint8_t> *rgba8);
+    // `pre` records first (the workload, and for tone mapped ones the present pass into the read target); then img is copied out.
+    std::string readImage(Image &img, const std::function<void(ID3D12GraphicsCommandList *)> &pre, std::vector<std::uint8_t> *rgba8);
+
+    // d12_workloads.cpp (task 19): the four scenes and the post chain.
+    bool tonemapped() const;   // the output is sceneColor (Present mode 0)
+    Image &outputImage();      // sceneColor, ldrA, or ldrB (Particles)
+    std::string loadScene(const SceneData &scene);      // Geometry, Draw calls
+    std::string loadShading(const SceneData &scene);
+    std::string loadParticles(const SceneData &scene);
+    void unloadScene();
+    void recordScene(ID3D12GraphicsCommandList *list, Slot &slot, double t);
+    void recordShading(ID3D12GraphicsCommandList *list, Slot &slot, double t);
+    void recordParticles(ID3D12GraphicsCommandList *list, Slot &slot, double t);
+    void postPass(ID3D12GraphicsCommandList *list, Slot &slot, Image &target, bool accumulate, bool toShaderRead, ID3D12PipelineState *pipeline,
+                  UINT table, std::uint32_t block);
+    // A render target (rtv) or depth buffer (dsv) of the load region; depth formats: R32_TYPELESS (sampled) or D32_FLOAT.
+    std::string makeTarget(Image &img, std::uint32_t w, std::uint32_t h, DXGI_FORMAT format, bool depth, const float *clearColour);
+    // A 6-descriptor SRV table (t0-t5) of the load region: the images in order, null SRVs after them.
+    UINT makeTable(std::initializer_list<const Image *> images);
     void releaseWindow();
 
     BackendInit m_init;
     bool m_headless = false;
     ComPtr<ID3D12PipelineState> m_presentPipeline;
+    ComPtr<ID3D12PipelineState> m_readPipeline;   // the present pass into an RGBA8 target (the tone mapped readback)
+    // The load() .. unload() regions of the descriptor heaps (after the fixed slots).
+    UINT m_rtvNext = 0, m_dsvNext = 0, m_srvNext = 0;
     DXGI_FORMAT m_presentFormat = DXGI_FORMAT_UNKNOWN;
     std::array<ComPtr<ID3D12Resource>, dxgi::Swapchain::kBuffers> m_backBuffers;
     UINT m_presentTable = 0;  // the present pass's SRV table (t0 = ldrA ... t5 = the atlas), from load()

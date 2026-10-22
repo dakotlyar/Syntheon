@@ -7,6 +7,7 @@
 
 #include "tests/gpu/worker/d3d12/d12_context.h"
 
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -20,6 +21,7 @@ struct Image {
     DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
     std::uint32_t width = 0, height = 0, mips = 1;
     D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
+    UINT rtv = UINT_MAX, dsv = UINT_MAX;  // its RTV / DSV heap index (task 19), if it has one
 };
 // A buffer: UPLOAD (mapped, GENERIC_READ), READBACK (mapped, COPY_DEST) or DEFAULT.
 struct Buffer {
@@ -39,6 +41,7 @@ std::string uploadTexture(Context &, const Texture &level0, Image *out);        
 void transition(ID3D12GraphicsCommandList *, Image &, D3D12_RESOURCE_STATES to);
 void transition(ID3D12GraphicsCommandList *, ID3D12Resource *, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to);
 // An SRV of the whole texture at heap index `index`; a null SRV (a Texture2D) for img == null.
+// An R32_TYPELESS image (the shadow map, D32F through its DSV) is read as R32_FLOAT.
 void writeSrv(Context &, UINT index, const Image *img);
 // Copies mip 0 of img (in COPY_SOURCE) into `readback` (a READBACK buffer of
 // readbackBytes()), recorded into list; then unpack() gives W x H x 4, top row first.
