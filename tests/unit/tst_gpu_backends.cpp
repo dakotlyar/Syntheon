@@ -13,6 +13,7 @@
 #include "tests/gpu/worker/signature.h"
 #include "tests/gpu/worker/vulkan/vk_backend.h"
 #include "tests/gpu/worker/vulkan/vk_swapchain.h"
+#include "tests/gpu/worker/gl/gl_backend.h"
 #if defined(Q_OS_WIN)
 #include "tests/gpu/worker/d3d11/d11_backend.h"
 #include "tests/gpu/worker/d3d12/d12_backend.h"
@@ -20,9 +21,16 @@
 
 #include <QTest>
 
+#include <QStandardPaths>
+
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
+
+#if defined(Q_OS_LINUX)
+#include <dlfcn.h>
+#endif
 
 using namespace sb::gpu;
 using namespace sb::gpu::testing;
@@ -112,6 +120,118 @@ std::unique_ptr<d3d11::D3D11Backend> headlessD3D11(std::uint32_t w, std::uint32_
 
 } // namespace
 
+#if defined(Q_OS_LINUX)
+// Task 21: an OpenGL 3.3 core debug context on Mesa's surfaceless EGL platform,
+// software only (LIBGL_ALWAYS_SOFTWARE=1, set in initTestCase: llvmpipe), for
+// the in-process GL cases. No window, no X or Wayland display, no GPU: the
+// test process has no QGuiApplication. EGL is opened at run time (no headers).
+class SurfacelessGl
+{
+public:
+    ~SurfacelessGl()
+    {
+        if (m_display && m_makeCurrent)
+            m_makeCurrent(m_display, nullptr, nullptr, nullptr);
+        if (m_display && m_context && m_destroyContext)
+            m_destroyContext(m_display, m_context);
+        if (m_display && m_terminate)
+            m_terminate(m_display);
+        if (m_lib)
+            dlclose(m_lib);
+    }
+    // "" when current, else why not (a skip, unless the CI requires software GPUs).
+    QString open()
+    {
+        m_lib = dlopen("libEGL.so.1", RTLD_NOW | RTLD_LOCAL);
+        if (!m_lib)
+            return QStringLiteral("no libEGL.so.1");
+        m_getProc = reinterpret_cast<GetProc>(dlsym(m_lib, "eglGetProcAddress"));
+        if (!m_getProc)
+            return QStringLiteral("no eglGetProcAddress");
+        const auto fn = [this](const char *name) { return m_getProc(name); };
+        const auto getPlatformDisplay = reinterpret_cast<void *(*)(unsigned, void *, const std::int32_t *)>(fn("eglGetPlatformDisplayEXT"));
+        const auto initialize = reinterpret_cast<unsigned (*)(void *, std::int32_t *, std::int32_t *)>(fn("eglInitialize"));
+        const auto bindApi = reinterpret_cast<unsigned (*)(unsigned)>(fn("eglBindAPI"));
+        const auto chooseConfig = reinterpret_cast<unsigned (*)(void *, const std::int32_t *, void **, std::int32_t, std::int32_t *)>(fn("eglChooseConfig"));
+        const auto createContext = reinterpret_cast<void *(*)(void *, void *, void *, const std::int32_t *)>(fn("eglCreateContext"));
+        m_makeCurrent = reinterpret_cast<MakeCurrent>(fn("eglMakeCurrent"));
+        m_destroyContext = reinterpret_cast<unsigned (*)(void *, void *)>(fn("eglDestroyContext"));
+        m_terminate = reinterpret_cast<unsigned (*)(void *)>(fn("eglTerminate"));
+        if (!getPlatformDisplay || !initialize || !bindApi || !chooseConfig || !createContext || !m_makeCurrent)
+            return QStringLiteral("EGL lacks the surfaceless platform functions");
+        constexpr unsigned kPlatformSurfaceless = 0x31DD, kOpenGlApi = 0x30A2;
+        constexpr std::int32_t kNone = 0x3038, kRenderableType = 0x3040, kOpenGlBit = 0x0008, kMajor = 0x3098, kMinor = 0x30FB,
+                               kProfileMask = 0x30FD, kCoreBit = 0x1, kDebug = 0x31B0;
+        m_display = getPlatformDisplay(kPlatformSurfaceless, nullptr, nullptr);
+        std::int32_t major = 0, minor = 0;
+        if (!m_display || !initialize(m_display, &major, &minor))
+            return QStringLiteral("no surfaceless EGL display");
+        if (!bindApi(kOpenGlApi))
+            return QStringLiteral("EGL can't bind OpenGL");
+        // The default surface type is EGL_WINDOW_BIT, which the surfaceless platform has none of.
+        constexpr std::int32_t kSurfaceType = 0x3033, kPbufferBit = 0x0001;
+        const std::int32_t configAttribs[] = {kRenderableType, kOpenGlBit, kSurfaceType, kPbufferBit, kNone};
+        void *config = nullptr;
+        std::int32_t count = 0;
+        if (!chooseConfig(m_display, configAttribs, &config, 1, &count) || count < 1)
+            return QStringLiteral("no OpenGL EGL config");
+        const std::int32_t contextAttribs[] = {kMajor, 3, kMinor, 3, kProfileMask, kCoreBit, kDebug, 1, kNone};
+        m_context = createContext(m_display, config, nullptr, contextAttribs);
+        if (!m_context || !m_makeCurrent(m_display, nullptr, nullptr, m_context))
+            return QStringLiteral("no OpenGL 3.3 core context");
+        // Never a real GPU here: only llvmpipe.
+        const auto getString = reinterpret_cast<const unsigned char *(*)(unsigned)>(fn("glGetString"));
+        const char *renderer = getString ? reinterpret_cast<const char *>(getString(0x1F01)) : nullptr;
+        if (!renderer || !std::strstr(renderer, "llvmpipe"))
+            return QStringLiteral("the surfaceless GL context isn't llvmpipe (%1)").arg(QString::fromLatin1(renderer ? renderer : "?"));
+        return {};
+    }
+    PresentTarget target() const
+    {
+        PresentTarget t;
+        t.headless = true;
+        const GetProc get = m_getProc;
+        t.glGetProcAddress = [get](const char *name) { return get(name); };
+        return t;
+    }
+
+private:
+    using GetProc = void *(*)(const char *);
+    using MakeCurrent = unsigned (*)(void *, void *, void *, void *);
+    void *m_lib = nullptr, *m_display = nullptr, *m_context = nullptr;
+    GetProc m_getProc = nullptr;
+    MakeCurrent m_makeCurrent = nullptr;
+    unsigned (*m_destroyContext)(void *, void *) = nullptr;
+    unsigned (*m_terminate)(void *) = nullptr;
+};
+#endif
+
+// The overlay box of every API's present pass (§5.9): rasterOverlay() over the
+// clear colour within 1/255, everything else the clear colour. "" or the first difference.
+QString overlayDifference(const std::vector<std::uint8_t> &out, std::uint32_t W, std::uint32_t H, const std::string &text, int *ink, int *background)
+{
+    OverlayLayout l;
+    const std::vector<std::uint8_t> box = rasterOverlay(text, 1.0, &l);
+    for (std::uint32_t y = 0; y < H; ++y) {
+        for (std::uint32_t x = 0; x < W; ++x) {
+            const std::uint8_t *p = &out[(std::size_t(y) * W + x) * 4];
+            const bool inBox = int(x) >= l.x && int(x) < l.x + l.w && int(y) >= l.y && int(y) < l.y + l.h;
+            for (int c = 0; c < 3; ++c) {
+                int want = kClear[c];
+                if (inBox) {
+                    const std::uint8_t *s = &box[(std::size_t(int(y) - l.y) * std::size_t(l.w) + std::size_t(int(x) - l.x)) * 4];
+                    want = int(std::lround(s[c] + kClear[c] * (1.0 - s[3] / 255.0)));
+                    if (c == 0)
+                        (s[3] == 255 ? *ink : *background)++;
+                }
+                if (std::abs(int(p[c]) - want) > 1)
+                    return QStringLiteral("pixel (%1, %2) channel %3 is %4, not %5").arg(x).arg(y).arg(c).arg(p[c]).arg(want);
+            }
+        }
+    }
+    return {};
+}
+
 class TestGpuBackends : public QObject
 {
     Q_OBJECT
@@ -152,6 +272,17 @@ private slots:
             qputenv("VK_DRIVER_FILES", lavapipeIcd().toLocal8Bit());
             qputenv("VK_ICD_FILENAMES", lavapipeIcd().toLocal8Bit());
             qputenv("VK_LOADER_LAYERS_DISABLE", "~implicit~");
+        }
+        // The in-process GL cases (task 21): Mesa's software rasteriser only. GLVND
+        // would otherwise hand EGL to another vendor (NVIDIA's on Tiamat): Mesa's
+        // manifest only, as gl_env does for a Mesa GPU (§4.3).
+        qputenv("LIBGL_ALWAYS_SOFTWARE", "1");
+        for (const char *dir : {"/usr/share/glvnd/egl_vendor.d", "/etc/glvnd/egl_vendor.d"}) {
+            const QString mesa = QDir(QString::fromLatin1(dir)).filePath(QStringLiteral("50_mesa.json"));
+            if (QFileInfo::exists(mesa)) {
+                qputenv("__EGL_VENDOR_LIBRARY_FILENAMES", mesa.toLocal8Bit());
+                break;
+            }
         }
     }
 
@@ -723,6 +854,80 @@ private slots:
 #endif
     }
 
+#if defined(Q_OS_LINUX)
+    // Task 21: the GL backend on llvmpipe (surfaceless EGL), headless, as
+    // vulkanClear: 30 frames, every pixel the clear colour (glReadPixels' rows
+    // flipped to top-first), timestamps, unload .. resume .. load, no KHR_debug error.
+    void openglClear()
+    {
+        SurfacelessGl egl;
+        if (const QString why = egl.open(); !why.isEmpty())
+            SB_SKIP_OR_FAIL(qPrintable(QStringLiteral("no software OpenGL here: %1").arg(why)));
+        gl::GlBackend b;
+        BackendInfo info;
+        SB_OK(b.init(lavapipeInit(320, 180), egl.target(), &info));
+        QVERIFY2(QString::fromStdString(info.deviceName).contains(QLatin1StringView("llvmpipe")), info.deviceName.c_str());
+        SB_OK(b.resume(PresentTarget{true}));
+        SB_OK(b.load(buildScene(Workload::Quads, 64)));
+        std::vector<double> gpu;
+        for (int i = 0; i < 30; ++i)
+            SB_OK(b.frame(i / 60.0, &gpu));
+        QCOMPARE(b.lastFrameDraws(), 0u);
+        SB_OK(b.drain(&gpu));
+        if (info.gpuTimestamps)
+            QCOMPARE(gpu.size(), std::size_t(30));
+        std::vector<std::uint8_t> pixels;
+        SB_OK(b.readback(10.0, &pixels));
+        QCOMPARE(pixels.size(), std::size_t(320 * 180 * 4));
+        for (std::size_t i = 0; i < pixels.size(); i += 4) {
+            if (pixels[i] != kClear[0] || pixels[i + 1] != kClear[1] || pixels[i + 2] != kClear[2] || pixels[i + 3] != kClear[3])
+                QFAIL(qPrintable(QStringLiteral("pixel %1 is (%2, %3, %4, %5)").arg(i / 4).arg(pixels[i]).arg(pixels[i + 1]).arg(pixels[i + 2]).arg(pixels[i + 3])));
+        }
+        b.unload();
+        SB_OK(b.suspend());
+        SB_OK(b.resume(PresentTarget{true}));
+        SB_OK(b.load(buildScene(Workload::Sprites, 64)));
+        for (int i = 0; i < 3; ++i)
+            SB_OK(b.frame(i / 60.0, &gpu));
+        SB_OK(b.drain(&gpu));
+        b.unload();
+        SB_OK(b.suspend());
+        b.shutdown();
+        QVERIFY2(b.validationErrors() == 0, b.firstValidationError().c_str());
+    }
+
+    // Task 21: task 10's overlay check through the GL present pass (flipV = 1,
+    // the box from the bottom): the top-first readback equals rasterOverlay over the clear colour.
+    void openglOverlay()
+    {
+        SurfacelessGl egl;
+        if (const QString why = egl.open(); !why.isEmpty())
+            SB_SKIP_OR_FAIL(qPrintable(QStringLiteral("no software OpenGL here: %1").arg(why)));
+        constexpr std::uint32_t W = 640, H = 360;
+        gl::GlBackend b;
+        BackendInfo info;
+        SB_OK(b.init(lavapipeInit(W, H), egl.target(), &info));
+        SB_OK(b.resume(PresentTarget{true}));
+        SB_OK(b.load(buildScene(Workload::Quads, 64)));
+        const std::string text = "Geometry | OpenGL | 412 fps";
+        b.setOverlay(text);
+        std::vector<double> gpu;
+        SB_OK(b.frame(0.0, &gpu));
+        SB_OK(b.drain(&gpu));
+        std::vector<std::uint8_t> out;
+        SB_OK(b.readbackPresented(&out));
+        QCOMPARE(out.size(), std::size_t(W * H * 4));
+        int ink = 0, background = 0;
+        const QString diff = overlayDifference(out, W, H, text, &ink, &background);
+        QVERIFY2(diff.isEmpty(), qPrintable(diff));
+        QVERIFY(ink > 100 && background > 1000);
+        b.unload();
+        SB_OK(b.suspend());
+        b.shutdown();
+        QVERIFY2(b.validationErrors() == 0, b.firstValidationError().c_str());
+    }
+#endif
+
     // D20 (task 19): every API draws the four scenes like the pinned Vulkan
     // reference (gpu_reference_signatures.h), within §5.7's tolerance. Vulkan
     // on lavapipe here (any Mesa version), DX12 and DX11 (task 20) on WARP on Windows.
@@ -734,6 +939,7 @@ private slots:
         QTest::newRow("dx11") << QStringLiteral("dx11");  // task 20
 #else
         QTest::newRow("vulkan") << QStringLiteral("vulkan");
+        QTest::newRow("opengl") << QStringLiteral("opengl");  // task 21: llvmpipe; the scenes are task 22's
 #endif
     }
 
@@ -743,14 +949,31 @@ private slots:
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
 #if defined(Q_OS_WIN)
         const QString gpu = kWarpId;
+        const QString program = kWorker;
+        QStringList args;
 #else
-        if (lavapipeIcd().isEmpty())
-            SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
-        addSoftwareVulkan(env);
+        QString program = kWorker;
+        QStringList args;
+        if (api == QLatin1StringView("opengl")) {
+            // Task 22 draws the GL scenes; until then GL clears ldrA for every workload.
+            QSKIP("the OpenGL scenes are task 22's (the GL backend draws the clear workload)");
+            // Headless GL needs an X display for Qt's offscreen GLX surface: the worker's own
+            // xvfb-run, never the session's display (task 10's rule), and llvmpipe.
+            program = QStandardPaths::findExecutable(QStringLiteral("xvfb-run"));
+            if (program.isEmpty())
+                SB_SKIP_OR_FAIL("xvfb-run isn't installed");
+            args = {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker};
+            env.remove(QStringLiteral("WAYLAND_DISPLAY"));
+            env.insert(QStringLiteral("LIBGL_ALWAYS_SOFTWARE"), QStringLiteral("1"));
+        } else {
+            if (lavapipeIcd().isEmpty())
+                SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
+            addSoftwareVulkan(env);
+        }
         const QString gpu = kLavapipeId;
 #endif
-        WorkerProcess w(kWorker,
-                        {QStringLiteral("--run"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), gpu, QStringLiteral("--allow-software"),
+        WorkerProcess w(program,
+                        args + QStringList{QStringLiteral("--run"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), gpu, QStringLiteral("--allow-software"),
                          QStringLiteral("--render-size"), QStringLiteral("320x180"), QStringLiteral("--content-scale"), QStringLiteral("64"),
                          QStringLiteral("--headless"), QStringLiteral("--plan"),
                          QStringLiteral("geometry:200:300,drawcalls:200:300,shading:200:300,particles:200:300")},

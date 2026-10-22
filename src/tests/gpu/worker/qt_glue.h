@@ -7,6 +7,12 @@
 
 #include "tests/gpu/worker/backend.h"
 
+#include <QSurfaceFormat>
+
+#include <memory>
+
+class QOffscreenSurface;
+class QOpenGLContext;
 class WorkerWindow;
 
 namespace sb::gpu::glue {
@@ -34,5 +40,33 @@ PresentTarget nativeWindowTarget(WorkerWindow &window);
 // "VK_KHR_wayland_surface" by QGuiApplication::platformName(); none otherwise
 // (offscreen).
 std::vector<std::string> vulkanSurfaceExtensions();
+
+// The worker's one OpenGL context (task 21, §4.3): 3.3 core, swap interval 0,
+// a debug context under --validation. It is current on an offscreen surface
+// for init(), between workloads and at the end, and on the test window from
+// resume() to suspend() (GL-2: the main thread only). Linux/Windows: GLX, EGL
+// or WGL through Qt; the backend loads it with glad and never sees Qt.
+class GlContext
+{
+public:
+    GlContext();
+    ~GlContext();
+    // The format of the context, the offscreen surface and the test window
+    // (set on the window before it is first shown).
+    static QSurfaceFormat format(bool debug);
+    // Creates the context and makes it current offscreen. "" or the reason:
+    // "N/A: Needs OpenGL 3.3 (the driver has X.Y)" when no 3.3 core context exists.
+    std::string create(bool debug);
+    // Current offscreen: glGetProcAddress only (init(), or the headless runs).
+    PresentTarget offscreenTarget(bool headless);
+    // Current on the shown window: its size and scale, swap, default
+    // framebuffer and the swap interval Qt reports.
+    PresentTarget windowTarget(WorkerWindow &window);
+    void makeOffscreenCurrent();
+
+private:
+    std::unique_ptr<QOpenGLContext> m_context;
+    std::unique_ptr<QOffscreenSurface> m_surface;
+};
 
 } // namespace sb::gpu::glue

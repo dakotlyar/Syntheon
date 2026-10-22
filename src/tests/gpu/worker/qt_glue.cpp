@@ -4,6 +4,9 @@
 #include "tests/gpu/worker/worker_window.h"
 
 #include <QGuiApplication>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
+#include <QOpenGLFunctions>
 #include <QVulkanInstance>
 
 #include <cstring>
@@ -76,6 +79,84 @@ PresentTarget vulkanTarget(WorkerWindow &window)
         return out;
     };
     return t;
+}
+
+GlContext::GlContext() = default;
+
+GlContext::~GlContext()
+{
+    if (m_context)
+        m_context->doneCurrent();
+}
+
+QSurfaceFormat GlContext::format(bool debug)
+{
+    QSurfaceFormat f;
+    f.setRenderableType(QSurfaceFormat::OpenGL);
+    f.setProfile(QSurfaceFormat::CoreProfile);
+    f.setVersion(3, 3);  // D10: 3.3 core; drivers give at least that
+    f.setSwapInterval(0);  // §5.5: vsync off; Qt applies it when the context is made current on the window
+    f.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+    f.setDepthBufferSize(0);
+    f.setStencilBufferSize(0);
+    if (debug)
+        f.setOption(QSurfaceFormat::DebugContext);
+    return f;
+}
+
+std::string GlContext::create(bool debug)
+{
+    m_context = std::make_unique<QOpenGLContext>();
+    m_context->setFormat(format(debug));
+    m_surface = std::make_unique<QOffscreenSurface>();
+    m_surface->setFormat(format(debug));
+    m_surface->create();
+    const bool made = m_context->create();
+    const QSurfaceFormat got = m_context->format();
+    if (made && got.profile() == QSurfaceFormat::CoreProfile && (got.majorVersion() > 3 || (got.majorVersion() == 3 && got.minorVersion() >= 3))
+        && m_context->makeCurrent(m_surface.get()))
+        return {};
+    // Which version is there, for the reason (§4.2: "Needs OpenGL 3.3 (the driver has 1.1)").
+    std::string have = "less";
+    QOpenGLContext probe;
+    QOffscreenSurface probeSurface;
+    probeSurface.create();
+    if (probe.create() && probe.makeCurrent(&probeSurface)) {
+        if (const auto *v = reinterpret_cast<const char *>(probe.functions()->glGetString(GL_VERSION)))
+            have = std::string(v).substr(0, std::string(v).find(' '));
+        probe.doneCurrent();
+    }
+    m_context.reset();
+    return "N/A: Needs OpenGL 3.3 (the driver has " + have + ")";
+}
+
+PresentTarget GlContext::offscreenTarget(bool headless)
+{
+    PresentTarget t;
+    t.headless = headless;
+    makeOffscreenCurrent();
+    QOpenGLContext *ctx = m_context.get();
+    t.glGetProcAddress = [ctx](const char *name) -> void * { return reinterpret_cast<void *>(ctx->getProcAddress(name)); };
+    return t;
+}
+
+PresentTarget GlContext::windowTarget(WorkerWindow &window)
+{
+    PresentTarget t = rasterTarget(window);
+    QOpenGLContext *ctx = m_context.get();
+    if (!ctx || !ctx->makeCurrent(&window))
+        return t;  // no swap: the backend says "the test window has no OpenGL surface"
+    t.glGetProcAddress = [ctx](const char *name) -> void * { return reinterpret_cast<void *>(ctx->getProcAddress(name)); };
+    t.glSwapBuffers = [ctx, &window] { ctx->swapBuffers(&window); };
+    t.glDefaultFramebuffer = ctx->defaultFramebufferObject();
+    t.glSwapInterval = ctx->format().swapInterval();
+    return t;
+}
+
+void GlContext::makeOffscreenCurrent()
+{
+    if (m_context && m_surface)
+        m_context->makeCurrent(m_surface.get());
 }
 
 } // namespace sb::gpu::glue

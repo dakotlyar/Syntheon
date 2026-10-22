@@ -43,6 +43,7 @@ struct PresentTarget {
     std::function<void *(const char *)> glGetProcAddress;
     std::function<void()> glSwapBuffers;
     std::uint32_t glDefaultFramebuffer = 0;
+    int glSwapInterval = -1;  // task 21: the interval Qt reports for the window's context (§5.5; the result's "present")
     std::uint32_t windowWidth = 0, windowHeight = 0;   // physical px (0 if headless)
     // Task 10: the window's devicePixelRatio, for the overlay's size (§5.9); 1 when headless.
     double scale = 1.0;

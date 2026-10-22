@@ -59,12 +59,54 @@ private slots:
         addSoftwareVulkan(m_env);
     }
 
+    // Task 21: a 1 s OpenGL window run on llvmpipe (LIBGL_ALWAYS_SOFTWARE=1) under
+    // the worker's own xvfb-run: the context made current on the window, swap
+    // interval 0 ("present" = "swap interval 0"), no KHR_debug error; then a
+    // second workload in serve mode (suspend, hide, show, resume on the same context).
+    void openglPresent()
+    {
+#if !defined(Q_OS_LINUX)
+        QSKIP("the windowed OpenGL case runs on Linux (llvmpipe under xvfb)");
+#else
+        if (m_xvfbRun.isEmpty())
+            SB_SKIP_OR_FAIL("xvfb-run isn't installed (the windowed cases never use the real display)");
+        QProcessEnvironment env = m_env;
+        env.insert(QStringLiteral("LIBGL_ALWAYS_SOFTWARE"), QStringLiteral("1"));
+        WorkerProcess w(m_xvfbRun,
+                        {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker, QStringLiteral("--run"),
+                         QStringLiteral("--serve"), QStringLiteral("--api"), QStringLiteral("opengl"), QStringLiteral("--gpu"), kLavapipeId,
+                         QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),
+                         QStringLiteral("--content-scale"), QStringLiteral("64"), QStringLiteral("--validation")},
+                        env);
+        QVERIFY(w.started());
+        QVERIFY2(w.waitFor([](const pr::Event &e) { return is<pr::ReadyEvent>(e); }), qPrintable(w.problem()));
+        const auto ready = std::get<pr::ReadyEvent>(w.events().first());
+        QVERIFY2(ready.device.contains(QLatin1StringView("llvmpipe")), qPrintable(ready.device));
+        for (const char *cmd : {"run geometry:200:1000", "run quads:100:300"}) {
+            w.send(cmd);
+            QVERIFY2(w.waitForIdle(), qPrintable(w.problem()));
+        }
+        w.send("quit");
+        QCOMPARE(w.finish(), 0);
+        QVERIFY2(errors(w.events()).isEmpty(), qPrintable(errors(w.events())));
+        const QList<pr::ResultEvent> rs = results(w.events());
+        QCOMPARE(rs.size(), 2);
+        for (const pr::ResultEvent &r : rs) {
+            QCOMPARE(r.present, QStringLiteral("swap interval 0"));
+            QVERIFY(r.frames >= 3);
+            QCOMPARE(r.renderW, 320);
+        }
+        QVERIFY2(!w.stderrText().contains(QLatin1StringView("opengl:")), qPrintable(w.stderrText()));
+#endif
+    }
+
     // Before each case: the Vulkan cases need xvfb and lavapipe (a CI failure
     // on Linux when SYNBENCH_REQUIRE_SOFTWARE_GPU is set, task 16).
     void init()
     {
         const QLatin1StringView current(QTest::currentTestFunction());
-        if (current == QLatin1StringView("d3d12Present") || current == QLatin1StringView("d3d11Present") || m_vulkanSkip.isEmpty())
+        if (current == QLatin1StringView("d3d12Present") || current == QLatin1StringView("d3d11Present")
+            || current == QLatin1StringView("openglPresent") || m_vulkanSkip.isEmpty())
             return;
 #if defined(Q_OS_LINUX)
         SB_SKIP_OR_FAIL(qPrintable(m_vulkanSkip));

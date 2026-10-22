@@ -244,14 +244,16 @@ std::unique_ptr<IBackend> makeBackend(const std::string &api)
 #endif
     if (api == "vulkan")
         return makeVulkanBackend();
+    if (api == "opengl")
+        return makeOpenGlBackend();
 #if defined(_WIN32)
     if (api == "dx12")
         return makeD3D12Backend();
     if (api == "dx11")
         return makeD3D11Backend();
 #endif
-    // Task 21 (opengl) adds its own here; 26/27 run the native
-    // paths (qt, d2d). Elsewhere "the <api> backend isn't in this build".
+    // Tasks 26/27 run the native paths (qt, d2d). Elsewhere "the <api>
+    // backend isn't in this build".
     return nullptr;
 }
 
@@ -489,7 +491,20 @@ public:
         init.renderHeight = std::uint32_t(m_plan.render.height);
         init.allowSoftware = m_args.allowSoftware;
         init.validation = m_args.validation;
-        const PresentTarget target = m_args.headless ? glue::headlessTarget() : glue::windowlessTarget(m_backend->api());
+        PresentTarget target = m_args.headless ? glue::headlessTarget() : glue::windowlessTarget(m_backend->api());
+        if (m_backend->api() == Api::OpenGl) {
+            // Task 21: the one GL context, current offscreen for init(); the window gets its
+            // format (3.3 core, swap interval 0) before it is first shown.
+            if (m_window)
+                m_window->setFormat(glue::GlContext::format(m_args.validation));
+            m_gl = std::make_unique<glue::GlContext>();
+            if (const std::string e = m_gl->create(m_args.validation); !e.empty()) {
+                const pr::ErrorEvent ev = errorEvent(nullptr, e);
+                emitLine(ev);
+                return ev.na ? kExitNa : kExitError;
+            }
+            target = m_gl->offscreenTarget(m_args.headless);
+        }
         if (const std::string e = m_backend->init(init, target, &m_info); !e.empty()) {
             const pr::ErrorEvent ev = errorEvent(nullptr, e);
             emitLine(ev);
@@ -592,9 +607,12 @@ public:
                     return *outcome;
                 target = m_backend->api() == Api::Vulkan                                     ? glue::vulkanTarget(*m_window)
                          : m_backend->api() == Api::Dx12 || m_backend->api() == Api::Dx11 ? glue::nativeWindowTarget(*m_window)
+                         : m_backend->api() == Api::OpenGl                                  ? m_gl->windowTarget(*m_window)
                                                                                           : glue::rasterTarget(*m_window);
             }
             if (const std::string e = m_backend->resume(target); !e.empty()) {
+                if (m_gl)
+                    m_gl->makeOffscreenCurrent();
                 if (m_window)
                     m_window->hide();
                 return failed(w, e);
@@ -602,6 +620,10 @@ public:
             m_present = m_backend->presentMode();
             r = m_runner->run(p, m_scenes.at(w));
             suspended = m_backend->suspend();
+            // GL: the context leaves the window before it is hidden (a hidden Wayland
+            // window has no surface); the backend's objects stay (Revised, task 21).
+            if (m_gl)
+                m_gl->makeOffscreenCurrent();
             if (r.error != kReplan)
                 break;
             if (stopRequested())
@@ -762,9 +784,12 @@ public:
         // goes before the backend's device and instance; then the backend,
         // then the window object.
         m_runner.reset();
+        if (m_gl)
+            m_gl->makeOffscreenCurrent();  // the GL backend frees its objects with the context current
         if (m_window)
             m_window->destroy();
         m_backend.reset();
+        m_gl.reset();
     }
 
 private:
@@ -778,6 +803,7 @@ private:
     std::unique_ptr<WorkerWindow> m_window;
     std::unique_ptr<IBackend> m_backend;
     std::unique_ptr<Runner> m_runner;
+    std::unique_ptr<glue::GlContext> m_gl;  // OpenGL only (task 21)
     double m_scale = 1.0;
     std::size_t m_fakeIndex = 0;  // dev hook: how many re-plans have looked at SYNBENCH_GPU_FAKE_SCREEN
     QString m_screenName;

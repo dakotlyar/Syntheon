@@ -27,20 +27,22 @@ inline constexpr std::uint32_t kPresentTonemap = 0, kPresentCopy = 1;
 
 // The constants for one present pass into a window of windowW x windowH at
 // `scale`; an overlay that doesn't fit the window is left out entirely (never a
-// partial box). Top-left origin (D3D, Vulkan).
+// partial box). Top-left origin (D3D, Vulkan); with flipV (OpenGL, task 21) the
+// shader samples v flipped and the box's y is its bottom edge counted from the
+// bottom, windowH - top - h (task 7's GL rule).
 inline PresentConstants presentConstants(std::uint32_t mode, const std::string &overlay, double scale, std::uint32_t windowW,
-                                         std::uint32_t windowH)
+                                         std::uint32_t windowH, bool flipV = false)
 {
     PresentConstants c{};
     c.mode = mode;
-    c.flipV = 0;
+    c.flipV = flipV ? 1 : 0;
     if (!overlay.empty()) {
         const OverlayLayout l = overlayLayout(overlay.size(), scale);
         if (std::uint32_t(l.x + l.w) <= windowW && std::uint32_t(l.y + l.h) <= windowH) {
             c.overlayScale = l.k;
             c.overlayChars = std::int32_t(overlay.size());
             c.overlayBox[0] = l.x;
-            c.overlayBox[1] = l.y;
+            c.overlayBox[1] = flipV ? std::int32_t(windowH) - l.y - l.h : l.y;
             c.overlayBox[2] = l.w;
             c.overlayBox[3] = l.h;
             const std::array<std::uint32_t, 12> packed = packOverlay(overlay);

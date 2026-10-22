@@ -17,6 +17,7 @@ add_library(synbench_gpu_backends STATIC
     vulkan/vk_swapchain.h vulkan/vk_swapchain.cpp
     vulkan/vk_backend.h vulkan/vk_backend.cpp
     vulkan/vk_workload_state.h vulkan/vk_workloads.cpp
+    gl/gl_backend.h gl/gl_backend.cpp
 )
 if(WIN32)
     # Layer detection: EnumProcessModules (psapi) and the ImplicitLayers registry values (advapi32).
@@ -39,6 +40,8 @@ if(WIN32)
     target_link_libraries(synbench_gpu_backends PRIVATE d3d11)
 endif()
 target_link_libraries(synbench_gpu_backends PUBLIC synbench_gpu_scene synbench::volk)
+# Task 21: glad's GL 3.3 core loader (the context is the glue's; nothing links libGL).
+target_link_libraries(synbench_gpu_backends PRIVATE synbench::glad)
 set_target_properties(synbench_gpu_backends PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 # The Windows build's DXIL/DXBC includes (worker/shaders/CMakeLists.txt): the
 # target, not the generated files, so they are never listed as sources here.
