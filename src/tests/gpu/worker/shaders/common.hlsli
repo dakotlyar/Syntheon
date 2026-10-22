@@ -55,7 +55,7 @@ SB_BIND_FRAME cbuffer Frame : register(b0)
     float4x4 lightViewProj;  // world -> the shadow map's clip space (Shading)
     float4 cameraPos;        // xyz; w = animation time t, in seconds
     float4 cameraRight;      // xyz (billboards); w unused
-    float4 cameraUp;         // xyz (billboards); w unused
+    float4 cameraUp;         // xyz (billboards); w = 1 on OpenGL only (shading.hlsl)
     float4 sunDir;           // xyz = the direction the light travels (normalised); w = Shading's point-light count
     float4 sunColour;        // rgb, intensity included; w unused
     float4 skyAmbient;       // rgb; w = the Particles height fog's density (fog.hlsli), else 0

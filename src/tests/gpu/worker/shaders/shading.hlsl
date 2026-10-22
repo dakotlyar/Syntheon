@@ -92,12 +92,19 @@ float3 brdf(float3 n, float3 v, float3 l, float3 albedo, float roughness, float 
     return (diffuse + spec) * ndotl;
 }
 
+// OpenGL only (cameraUp.w = 1, scene_constants.cpp): window y is up, so the render-target shadow
+// map is stored bottom-up, and ddy has the opposite sign. +1 on Vulkan and Direct3D (exactly).
+float glFlip()
+{
+    return cameraUp.w != 0.0 ? -1.0 : 1.0;
+}
+
 // The sun's visibility: 3x3 taps of the comparison sampler (each a 2x2 PCF in hardware).
 float sunShadow(float3 worldPos)
 {
     float4 p = mul(lightViewProj, float4(worldPos, 1.0));
     float3 c = p.xyz / p.w;
-    float2 uv = float2(c.x * 0.5 + 0.5, 0.5 - c.y * 0.5);
+    float2 uv = float2(c.x * 0.5 + 0.5, 0.5 - glFlip() * c.y * 0.5);
     float texel = 1.0 / 2048.0;
     float lit = 0.0;
     [unroll] for (int y = -1; y <= 1; ++y) {
@@ -121,6 +128,8 @@ float4 PSMain(VSOut i) : SV_Target0
     float2 dux = ddx(i.uv), duy = ddy(i.uv);
     float3 t = dpx * duy.y - dpy * dux.y;
     float3 b = dpy * dux.x - dpx * duy.x;
+    t *= glFlip();  // OpenGL: ddy's sign
+    b *= glFlip();
     float invMax = rsqrt(max(max(dot(t, t), dot(b, b)), 1e-20));
     float3 tn = normalMap.Sample(linearWrap, i.uv).xyz * 2.0 - 1.0;
     float3 n = normalize(t * invMax * tn.x + b * invMax * tn.y + n0 * tn.z);

@@ -18,6 +18,7 @@ add_library(synbench_gpu_backends STATIC
     vulkan/vk_backend.h vulkan/vk_backend.cpp
     vulkan/vk_workload_state.h vulkan/vk_workloads.cpp
     gl/gl_backend.h gl/gl_backend.cpp
+    gl/gl_workload_state.h gl/gl_workloads.cpp
 )
 if(WIN32)
     # Layer detection: EnumProcessModules (psapi) and the ImplicitLayers registry values (advapi32).

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "tests/gpu/worker/gl/gl_backend.h"
 
+#include "tests/gpu/worker/gl/gl_workload_state.h"
+
 #include <glad/gl.h>
 
 #include "tests/gpu/worker/present_constants.h"
@@ -143,6 +145,8 @@ void GlBackend::shutdown()
             glDeleteQueries(2, s.queries.data());
         if (s.frameConstants)
             glDeleteBuffers(1, &s.frameConstants);
+        if (s.objects)
+            glDeleteBuffers(1, &s.objects);
         s = Slot{};
     }
     glDeleteSamplers(3, m_samplers.data());
@@ -213,14 +217,15 @@ void GlBackend::useProgram(const Program &p)
     }
 }
 
-std::string GlBackend::makeTarget(Target &t, std::uint32_t w, std::uint32_t h)
+std::string GlBackend::makeTarget(Target &t, std::uint32_t w, std::uint32_t h, std::uint32_t internalFormat)
 {
     destroyTarget(t);
     t.width = w;
     t.height = h;
     glGenTextures(1, &t.texture);
     glBindTexture(GL_TEXTURE_2D, t.texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, GLsizei(w), GLsizei(h), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, GLint(internalFormat), GLsizei(w), GLsizei(h), 0, GL_RGBA, internalFormat == GL_RGBA16F ? GL_FLOAT : GL_UNSIGNED_BYTE,
+                 nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
     glGenFramebuffers(1, &t.fbo);
@@ -228,6 +233,42 @@ std::string GlBackend::makeTarget(Target &t, std::uint32_t w, std::uint32_t h)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t.texture, 0);
     const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE)
+        return "an OpenGL render target is incomplete";
+    return {};
+}
+
+std::string GlBackend::makeDepthTarget(Target &t, std::uint32_t w, std::uint32_t h)
+{
+    destroyTarget(t);
+    t.width = w;
+    t.height = h;
+    glGenTextures(1, &t.texture);
+    glBindTexture(GL_TEXTURE_2D, t.texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, GLsizei(w), GLsizei(h), 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return {};
+}
+
+std::string GlBackend::makeFbo(std::uint32_t colourTexture, std::uint32_t depthTexture, std::uint32_t *fbo)
+{
+    GLuint f = 0;
+    glGenFramebuffers(1, &f);
+    glBindFramebuffer(GL_FRAMEBUFFER, f);
+    if (colourTexture)
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colourTexture, 0);
+    else {
+        glDrawBuffer(GL_NONE);  // depth only
+        glReadBuffer(GL_NONE);
+    }
+    if (depthTexture)
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
+    const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (m_work)
+        m_work->fbos.push_back(f);
+    *fbo = f;
     if (status != GL_FRAMEBUFFER_COMPLETE)
         return "an OpenGL render target is incomplete";
     return {};
@@ -285,19 +326,20 @@ std::string GlBackend::init(const BackendInit &init, const PresentTarget &target
     if (alignment > GLint(sc::kBlock))
         return "uniform alignment > 256";
 
-    // The samplers (§13.1): s0 trilinear wrap with 8x anisotropy where the
-    // extension is (D10; task 22 notes its absence), s1 linear clamp, s2 the
+    // Revised (Dave, 2026-10-21): anisotropic filtering is required, so that the images match the other APIs (D20).
+    if (!GLAD_GL_ARB_texture_filter_anisotropic && !GLAD_GL_EXT_texture_filter_anisotropic)
+        return "N/A: OpenGL needs anisotropic filtering (GL_ARB/EXT_texture_filter_anisotropic)";
+
+    // The samplers (§13.1): s0 trilinear wrap with 8x anisotropy, s1 linear clamp, s2 the
     // comparison sampler (LEQUAL, border white).
     glGenSamplers(3, m_samplers.data());
     glSamplerParameteri(m_samplers[0], GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glSamplerParameteri(m_samplers[0], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glSamplerParameteri(m_samplers[0], GL_TEXTURE_WRAP_S, GL_REPEAT);
     glSamplerParameteri(m_samplers[0], GL_TEXTURE_WRAP_T, GL_REPEAT);
-    if (GLAD_GL_ARB_texture_filter_anisotropic || GLAD_GL_EXT_texture_filter_anisotropic) {
-        GLfloat maxAniso = 1.0f;
-        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAniso);
-        glSamplerParameterf(m_samplers[0], GL_TEXTURE_MAX_ANISOTROPY, std::min(8.0f, maxAniso));
-    }
+    GLfloat maxAniso = 1.0f;
+    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAniso);
+    glSamplerParameterf(m_samplers[0], GL_TEXTURE_MAX_ANISOTROPY, std::min(8.0f, maxAniso));
     glSamplerParameteri(m_samplers[1], GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glSamplerParameteri(m_samplers[1], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glSamplerParameteri(m_samplers[1], GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -358,12 +400,36 @@ std::string GlBackend::load(const SceneData &scene)
 {
     if (m_loaded)
         unload();
-    // The render targets (§5.3, D12: load() .. unload()): task 21's clear workload uses ldrA only.
+    m_work = std::make_unique<WorkloadState>();
+    m_work->workload = scene.workload;
+    // The render targets (§5.3, D12: load() .. unload()): ldrA always (the clear
+    // workload's target, Particles' tone map output); the scenes add theirs.
     if (std::string e = makeTarget(m_ldrA, m_init.renderWidth, m_init.renderHeight); !e.empty())
         return e;
-    (void)scene;  // task 22: the scenes
     m_loaded = true;
     m_lastDraws = 0;
+    std::string e;
+    switch (scene.workload) {
+    case Workload::Geometry:
+    case Workload::DrawCalls: e = loadScene(scene); break;
+    case Workload::Shading: e = loadShading(scene); break;
+    case Workload::Particles: e = loadParticles(scene); break;
+    case Workload::Quads:
+    case Workload::Sprites: break;  // still the clear workload (task 29)
+    }
+    if (!e.empty())
+        return e;
+    // The scenes' object constants: one 256-byte slot per instance, a uniform buffer per frame slot,
+    // written with glMapBufferRange(INVALIDATE_BUFFER) after the slot's fence and bound per draw
+    // with glBindBufferRange (256 i).
+    if (!m_work->scene.instances.empty()) {
+        for (Slot &s : m_slots) {
+            glGenBuffers(1, &s.objects);
+            glBindBuffer(GL_UNIFORM_BUFFER, s.objects);
+            glBufferData(GL_UNIFORM_BUFFER, GLsizeiptr(m_work->scene.instances.size() * sc::kObjectSlot), nullptr, GL_DYNAMIC_DRAW);
+        }
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    }
     return validationProblem();
 }
 
@@ -372,8 +438,13 @@ void GlBackend::unload()
     if (!m_inited)
         return;
     waitAll();
-    for (Slot &s : m_slots)
+    for (Slot &s : m_slots) {
         s.submitted = false;
+        if (s.objects)
+            glDeleteBuffers(1, &s.objects);
+        s.objects = 0;
+    }
+    releaseWorkload();
     destroyTarget(m_ldrA);
     m_loaded = false;
     m_lastDraws = 0;
@@ -471,8 +542,35 @@ std::string GlBackend::waitAll()
     return {};
 }
 
-void GlBackend::recordWorkload(Slot &, double)
+void GlBackend::uploadConstants(Slot &slot)
 {
+    // The CPU copy (Frame, Present, Lights, the pass blocks) after the slot's fence: the first 8 KiB.
+    glBindBuffer(GL_UNIFORM_BUFFER, slot.frameConstants);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, GLsizeiptr(sc::blockOffset(sc::kPostPasses)), m_constants.data());
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+void GlBackend::bindFrameConstants(Slot &slot)
+{
+    glBindBufferRange(GL_UNIFORM_BUFFER, 0, slot.frameConstants, 0, GLsizeiptr(sc::kBlock));
+}
+
+void GlBackend::bindPassConstants(Slot &slot, std::size_t offset, std::size_t bytes)
+{
+    glBindBufferRange(GL_UNIFORM_BUFFER, 2, slot.frameConstants, GLintptr(offset), GLsizeiptr(bytes));
+}
+
+void GlBackend::recordWorkload(Slot &slot, double t)
+{
+    switch (m_work ? m_work->workload : Workload::Quads) {
+    case Workload::Geometry:
+    case Workload::DrawCalls: recordScene(slot, t); return;
+    case Workload::Shading: recordShading(slot, t); return;
+    case Workload::Particles: recordParticles(slot, t); return;
+    case Workload::Quads:
+    case Workload::Sprites: break;
+    }
+    uploadConstants(slot);
     glBindFramebuffer(GL_FRAMEBUFFER, m_ldrA.fbo);
     glViewport(0, 0, GLsizei(m_ldrA.width), GLsizei(m_ldrA.height));
     glDisable(GL_SCISSOR_TEST);
@@ -489,11 +587,14 @@ void GlBackend::presentPass(Slot &slot, std::uint32_t fbo, std::uint32_t w, std:
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
     glDisable(GL_CULL_FACE);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     useProgram(m_present);
-    glBindBufferRange(GL_UNIFORM_BUFFER, 0, slot.frameConstants, 0, GLsizeiptr(sc::kBlock));
-    glBindBufferRange(GL_UNIFORM_BUFFER, 2, slot.frameConstants, GLintptr(sc::kPresentOffset), GLsizeiptr(sc::kBlock));
+    bindFrameConstants(slot);
+    bindPassConstants(slot, sc::kPresentOffset, sc::kBlock);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_ldrA.texture);
+    glBindTexture(GL_TEXTURE_2D, outputTexture());
     glActiveTexture(GL_TEXTURE5);
     glBindTexture(GL_TEXTURE_2D, m_atlas);
     glActiveTexture(GL_TEXTURE0);
@@ -511,12 +612,10 @@ std::string GlBackend::frame(double t, std::vector<double> *gpuMs)
     // §5.4: frame n waits for frame n-2's fence before it reuses the slot (its constants, its queries).
     if (std::string e = waitSlot(si, gpuMs); !e.empty())
         return e;
-    // GL-1: flipV = 1; the overlay box from the bottom (task 7).
-    const PresentConstants pc = presentConstants(kPresentCopy, m_overlay, m_windowScale, m_windowW, m_windowH, true);
+    // GL-1: flipV = 1; the overlay box from the bottom (task 7). The workload writes the rest and uploads the lot.
+    const PresentConstants pc =
+        presentConstants(tonemapped() ? kPresentTonemap : kPresentCopy, m_overlay, m_windowScale, m_windowW, m_windowH, true);
     std::memcpy(m_constants.data() + sc::kPresentOffset, &pc, sizeof pc);
-    glBindBuffer(GL_UNIFORM_BUFFER, s.frameConstants);
-    glBufferSubData(GL_UNIFORM_BUFFER, 0, GLsizeiptr(sc::blockOffset(sc::kPostPasses)), m_constants.data());
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
     if (m_timestamps)
         glQueryCounter(s.queries[0], GL_TIMESTAMP);
     recordWorkload(s, t);
@@ -566,8 +665,19 @@ std::string GlBackend::readback(double t, std::vector<std::uint8_t> *rgba8)
     if (std::string e = waitAll(); !e.empty())
         return e;
     // §5.7: the workload's output before the present pass, exactly render size.
-    recordWorkload(m_slots[0], t);
-    return readTarget(m_ldrA, rgba8);
+    Slot &s = m_slots[0];
+    if (!tonemapped()) {
+        recordWorkload(s, t);
+        return readTarget(outputTarget(), rgba8);
+    }
+    // A tone mapped scene (sceneColor is RGBA16F, linear): the present pass in mode 0,
+    // no overlay, into an RGBA8 target at render size (task 11's rule), flipV as ever.
+    const Target &target = m_work->readTarget;
+    const PresentConstants pc = presentConstants(kPresentTonemap, std::string(), 1.0, target.width, target.height, true);
+    std::memcpy(m_constants.data() + sc::kPresentOffset, &pc, sizeof pc);
+    recordWorkload(s, t);
+    presentPass(s, target.fbo, target.width, target.height);
+    return readTarget(target, rgba8);
 }
 
 #if defined(SYNBENCH_DEV_HOOKS)

@@ -926,6 +926,59 @@ private slots:
         b.shutdown();
         QVERIFY2(b.validationErrors() == 0, b.firstValidationError().c_str());
     }
+
+    // Task 22: the four scenes on GL (llvmpipe, surfaceless EGL), as vulkanScenes: the draw
+    // counts of tasks 11-12, a readback that isn't flat, no KHR_debug error.
+    void openglScenes_data()
+    {
+        QTest::addColumn<int>("workload");
+        QTest::addColumn<unsigned>("draws");
+        QTest::newRow("geometry") << int(Workload::Geometry) << 1u;
+        QTest::newRow("drawcalls") << int(Workload::DrawCalls) << 601u;
+        QTest::newRow("shading") << int(Workload::Shading) << 6u;
+        QTest::newRow("particles") << int(Workload::Particles) << 17u;
+    }
+
+    void openglScenes()
+    {
+        SurfacelessGl egl;
+        if (const QString why = egl.open(); !why.isEmpty())
+            SB_SKIP_OR_FAIL(qPrintable(QStringLiteral("no software OpenGL here: %1").arg(why)));
+        QFETCH(int, workload);
+        QFETCH(unsigned, draws);
+        const SceneData scene = buildScene(Workload(workload), 64);
+        QCOMPARE(scene.drawsPerFrame, draws);
+        gl::GlBackend b;
+        BackendInfo info;
+        SB_OK(b.init(lavapipeInit(320, 180), egl.target(), &info));
+        SB_OK(b.resume(PresentTarget{true}));
+        SB_OK(b.load(scene));
+        std::vector<double> gpu;
+        for (int i = 0; i < 8; ++i)
+            SB_OK(b.frame(i / 60.0, &gpu));
+        QCOMPARE(b.lastFrameDraws(), draws);
+        SB_OK(b.drain(&gpu));
+        std::vector<std::uint8_t> pixels;
+        SB_OK(b.readback(2.0, &pixels));
+        QCOMPARE(pixels.size(), std::size_t(320 * 180 * 4));
+        QCOMPARE(b.lastFrameDraws(), draws);
+        const std::vector<std::uint8_t> sig = blockSignature(pixels.data(), 320, 180);
+        QVERIFY2(deviation(sig) > 2.0, qPrintable(QStringLiteral("a flat image (deviation %1)").arg(deviation(sig))));
+        // Again after unload .. resume .. load (serve mode), with the overlay on.
+        b.setOverlay("Geometry | OpenGL | 1 fps");
+        SB_OK(b.frame(0.5, &gpu));
+        SB_OK(b.drain(&gpu));
+        b.unload();
+        SB_OK(b.suspend());
+        SB_OK(b.resume(PresentTarget{true}));
+        SB_OK(b.load(scene));
+        SB_OK(b.frame(0.0, &gpu));
+        SB_OK(b.drain(&gpu));
+        b.unload();
+        SB_OK(b.suspend());
+        b.shutdown();
+        QVERIFY2(b.validationErrors() == 0, b.firstValidationError().c_str());
+    }
 #endif
 
     // D20 (task 19): every API draws the four scenes like the pinned Vulkan
@@ -939,7 +992,7 @@ private slots:
         QTest::newRow("dx11") << QStringLiteral("dx11");  // task 20
 #else
         QTest::newRow("vulkan") << QStringLiteral("vulkan");
-        QTest::newRow("opengl") << QStringLiteral("opengl");  // task 21: llvmpipe; the scenes are task 22's
+        QTest::newRow("opengl") << QStringLiteral("opengl");  // tasks 21 and 22: llvmpipe GL against the lavapipe pins
 #endif
     }
 
@@ -955,8 +1008,6 @@ private slots:
         QString program = kWorker;
         QStringList args;
         if (api == QLatin1StringView("opengl")) {
-            // Task 22 draws the GL scenes; until then GL clears ldrA for every workload.
-            QSKIP("the OpenGL scenes are task 22's (the GL backend draws the clear workload)");
             // Headless GL needs an X display for Qt's offscreen GLX surface: the worker's own
             // xvfb-run, never the session's display (task 10's rule), and llvmpipe.
             program = QStandardPaths::findExecutable(QStringLiteral("xvfb-run"));
@@ -965,6 +1016,7 @@ private slots:
             args = {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker};
             env.remove(QStringLiteral("WAYLAND_DISPLAY"));
             env.insert(QStringLiteral("LIBGL_ALWAYS_SOFTWARE"), QStringLiteral("1"));
+            env.insert(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME"), QStringLiteral("mesa"));  // never the NVIDIA GLX
         } else {
             if (lavapipeIcd().isEmpty())
                 SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");

@@ -95,6 +95,7 @@ void writeFrame(const SceneData &scene, double t, std::uint32_t width, std::uint
         const Mat4 lvp = sunViewProj(sunTravel);
         std::memcpy(fc.lightViewProj, lvp.m, sizeof fc.lightViewProj);
         fc.sunDir[3] = float(scene.lights.size());
+        fc.cameraUp[3] = flipV ? 1.f : 0.f;  // OpenGL: shading.hlsl's shadow lookup and tangent frame (task 22)
         std::memcpy(constants, &fc, sizeof fc);
         LightsConstants lights{};
         const std::vector<PointLight> now = lightsAt(scene, t);
