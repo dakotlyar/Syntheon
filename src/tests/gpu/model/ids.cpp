@@ -76,6 +76,14 @@ QString nativePathName(NativePath p) { return L(row(kPathText, p).name); }
 QString nativeKey(NativeWorkload w) { return L(row(kNativeText, w).key); }
 QString nativeName(NativeWorkload w) { return L(row(kNativeText, w).name); }
 
+QString sessionLabel(const QString &xdgSessionType, const QString &qtPlatform)
+{
+    QString t = xdgSessionType;
+    if (t.isEmpty())
+        t = qtPlatform.startsWith(QLatin1StringView("wayland")) ? QStringLiteral("wayland") : qtPlatform == QLatin1StringView("xcb") ? QStringLiteral("x11") : qtPlatform;
+    return t == QLatin1StringView("wayland") ? QStringLiteral("Wayland") : t == QLatin1StringView("x11") ? QStringLiteral("X11") : t;
+}
+
 std::uint32_t nativeOpsPerFrame(NativeWorkload w)
 {
     switch (w) {

@@ -282,13 +282,31 @@ Item {
         text: root.yUnit === "%" ? "" : root.yUnit
         kind: "data"; font.pixelSize: 11; color: Theme.muted
     }
-    // X ticks.
+    // X ticks: each centred on its tick, but inside the chart and clear of the focus ring ("150 GB/s", "262 s": Zeb D1).
+    // A label that would touch the next one shown is hidden, from the right: the last tick (the run's end, clamped to the
+    // edge) always shows, and "240 s" gives way to "262 s" on a narrow chart (Zeb D2).
+    readonly property real xTickGap: 8
+    readonly property var xTickPlaced: {
+        const out = []
+        for (let i = 0; i < xTicks.length; ++i) {
+            const w = Math.ceil(noteMetrics.advanceWidth(xTicks[i].label))
+            out.push({ label: xTicks[i].label, w: w, x: Math.max(4, Math.min(width - 4 - w, fx(xTicks[i].x) - w / 2)), shown: true })
+        }
+        let left = Infinity  // the left edge of the nearest label shown to the right
+        for (let i = out.length - 1; i >= 0; --i) {
+            out[i].shown = out[i].x + out[i].w + xTickGap <= left
+            if (out[i].shown)
+                left = out[i].x
+        }
+        return out
+    }
     Repeater {
-        model: root.xTicks
+        model: root.xTickPlaced
         delegate: SbText {
             required property var modelData
-            // Centred on its tick, but inside the chart and clear of the focus ring ("150 GB/s", "262 s": Zeb D1).
-            x: Math.max(4, Math.min(root.width - 4 - width, root.fx(modelData.x) - width / 2))
+            objectName: "xTick"
+            x: modelData.x
+            visible: modelData.shown
             y: root.height - root.padBottom + 14
             text: modelData.label
             kind: "data"; font.pixelSize: 11; color: Theme.muted

@@ -265,6 +265,11 @@ void RunController::setHeld(bool held, bool replayProgress)
             const double fraction = m_queue->data(m_queue->index(m_heldIndex), RunQueueModel::FractionRole).toDouble();
             m_queue->progress({m_heldIndex, m_plannedIds.value(m_heldIndex), fraction, QStringLiteral("Running in its own window"), {}});
         }
+        // The log's pill reads the test's name alone while held (the mockup: "GPU"); the queue row and the card say the rest.
+        if (!m_heldTestName.isEmpty() && m_stage != m_heldTestName) {
+            m_stage = m_heldTestName;
+            emit currentChanged();
+        }
     } else {
         // In arrival order: the log, then the last progress (it can't step back).
         const QVector<LogLine> lines = std::exchange(m_heldLog, {});

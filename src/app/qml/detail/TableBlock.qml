@@ -5,12 +5,15 @@ import QtQuick.Layouts
 import QtQuick.Controls.Basic
 import SynBench
 
-// A table of already-formatted cells; the first column left, the rest right in
-// the data font. Columns are sized to their content (the widest header or
-// cell line, a cell may hold several lines): the value columns get what they
-// need, the first column the rest. When even that doesn't fit (a narrow
-// window), the headers wrap at their spaces first, then the first column gives
-// way (down to 30%), then every column shrinks in proportion and the cells wrap.
+// A table of already-formatted cells; the first column (and any leftColumns)
+// left in the body font, the rest right in the data font. Columns are sized to
+// their content (the widest header or cell line, a cell may hold several
+// lines): the value columns get what they need, the first column the rest.
+// When even that doesn't fit (a narrow window), the headers wrap at their
+// spaces first, then the first column gives way (down to 30%), then every
+// column shrinks in proportion and the cells wrap. A table with wrapColumns
+// gives them the spare room instead, and on a narrow window only they wrap
+// while every other column keeps one line, as long as that fits.
 Box {
     id: root
 
@@ -30,6 +33,11 @@ Box {
     function isBold(row, c) {
         return boldRows.indexOf(row) >= 0 || boldCells.some(p => p[0] === c && p[1] === row)
     }
+    // Text columns: left-aligned in the body font, as the first one (Zeb D4: the GPU page's APIs table).
+    readonly property var leftColumns: block && block.leftColumns ? block.leftColumns : []
+    function isText(c) { return c === 0 || leftColumns.indexOf(c) >= 0 }
+    // The columns that wrap first on a narrow table and take the spare room on a wide one (empty: the first column).
+    readonly property var wrapColumns: block && block.wrapColumns ? block.wrapColumns : []
 
     // Whether the table's rows exist: a collapsed table builds, measures and wraps nothing (AP-5 L2).
     readonly property bool open: !collapsible || expanded
@@ -161,7 +169,7 @@ Box {
     // in a bold row (AP-5 round 4 M2: sized as drawn).
     function cellMetrics(row, c) {
         const bold = isBold(row, c)
-        return c === 0 ? (bold ? bodyBoldMetrics : bodyMetrics) : (bold ? dataBoldMetrics : dataMetrics)
+        return isText(c) ? (bold ? bodyBoldMetrics : bodyMetrics) : (bold ? dataBoldMetrics : dataMetrics)
     }
     // What each column needs when its headers wrap: their widest word, and
     // the widest cell line.
@@ -210,10 +218,31 @@ Box {
         if (n === 0)
             return []
         let total = need.reduce((a, b) => a + b, 0)
+        const wrap = wrapColumns.filter(c => c >= 0 && c < n)
         if (total <= available) {
             const w = need.slice()
-            w[0] += available - total  // the first column takes the spare room
+            w[wrap.length > 0 ? wrap[wrap.length - 1] : 0] += available - total  // the first (or last wrap) column takes the spare room
             return w
+        }
+        // Wrap columns (Zeb D4): the other columns keep one line for every cell (their headers may wrap at a space), and
+        // the wrap columns share what is left, each at least its widest word, in proportion to what each still wants.
+        if (wrap.length > 0) {
+            for (const fixedNeeds of [need, compactNeeds]) {
+                let fixed = 0, words = 0, want = 0
+                for (let c = 0; c < n; ++c) {
+                    if (wrap.indexOf(c) >= 0) {
+                        words += wordNeeds[c]
+                        want += Math.max(0, need[c] - wordNeeds[c])
+                    } else {
+                        fixed += fixedNeeds[c]
+                    }
+                }
+                if (fixed + words <= available) {
+                    const spare = available - fixed - words
+                    return fixedNeeds.map((x, c) => wrap.indexOf(c) < 0 ? x
+                        : wordNeeds[c] + (want > 0 ? Math.max(0, need[c] - wordNeeds[c]) * spare / want : spare / wrap.length))
+                }
+            }
         }
         // Too narrow for one-line headers: they wrap (at a space) before any
         // cell does.
@@ -350,7 +379,7 @@ Box {
                         required property string modelData
                         required property int index
                         width: root.columnWidth(index)
-                        horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
+                        horizontalAlignment: root.isText(index) ? Text.AlignLeft : Text.AlignRight
                         // Capitals by hand: automatic capitalisation would turn
                         // "µs" into a Greek capital Mu and "GB/s" into "GB/S".
                         // Whole tokens per line; a token wider than the column
@@ -393,13 +422,13 @@ Box {
                                 required property string modelData
                                 required property int index
                                 width: root.columnWidth(index)
-                                horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
+                                horizontalAlignment: root.isText(index) ? Text.AlignLeft : Text.AlignRight
                                 readonly property bool bold: root.isBold(tableRow.index, index)
                                 // Whole tokens per line; a token wider than the
                                 // column is split by characters (root.wrapped).
                                 text: root.wrapped(modelData, width, root.cellMetrics(tableRow.index, index), 0)
                                 Accessible.name: modelData  // unwrapped (AP-5 round 4 L7)
-                                kind: index === 0 ? "body" : "data"
+                                kind: root.isText(index) ? "body" : "data"
                                 font.pixelSize: 13
                                 font.weight: bold ? Font.DemiBold : Font.Normal
                                 wrapMode: Text.NoWrap

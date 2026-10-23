@@ -18,6 +18,7 @@
 #include <QGuiApplication>
 #include <QJsonObject>
 #include <QMutexLocker>
+#include <QRegularExpression>
 #include <QSysInfo>
 
 #include <algorithm>
@@ -94,6 +95,22 @@ QString shadersText()
     return t;
 }
 
+// "about 5 min 10 s" (§15's start line): minutes and seconds, the seconds left out when 0.
+QString aboutText(int secs)
+{
+    if (secs < 60)
+        return QStringLiteral("%1 s").arg(secs);
+    return secs % 60 ? QStringLiteral("%1 min %2 s").arg(secs / 60).arg(secs % 60) : QStringLiteral("%1 min").arg(secs / 60);
+}
+
+// §10's `screen`: "eDP-1 · 2560×1600 at 125%" when the worker sent the screen's size, else the name alone.
+QString screenText(const QString &name, int w, int h, double scale)
+{
+    if (name.isEmpty() || w <= 0 || h <= 0)
+        return name;
+    return QStringLiteral("%1 \u00b7 %2 at %3%").arg(name, sizeText({w, h})).arg(scalePercent(scale));
+}
+
 QString kindName(GpuKind k)
 {
     return kindText(k);
@@ -104,8 +121,7 @@ QString sessionName()
 #if defined(Q_OS_WIN)
     return QStringLiteral("Windows");
 #else
-    const QString t = qEnvironmentVariable("XDG_SESSION_TYPE");
-    return t == QLatin1StringView("wayland") ? QStringLiteral("Wayland") : t == QLatin1StringView("x11") ? QStringLiteral("X11") : t;
+    return sessionLabel(qEnvironmentVariable("XDG_SESSION_TYPE"), QGuiApplication::platformName());
 #endif
 }
 
@@ -311,6 +327,18 @@ private:
             a.session->kill();  // its remaining workloads are skipped
     }
     void compareSignatures(int item, const QVector<pr::PlanItem> &plan);
+    // §15: log Warning "OpenGL failed during Shading: the GPU driver reset; continuing with the next API".
+    void logFailure(const ApiRun &a, const QString &workload, const QString &reason)
+    {
+        const bool others = std::any_of(m_apis.begin(), m_apis.end(), [&](const ApiRun &o) { return o.active && o.id != a.id; });
+        m_ctx.log(LogLevel::Warning, QStringLiteral("%1 failed during %2: %3%4")
+                                         .arg(apiName(a.id), workload, reason, others ? QStringLiteral("; continuing with the next API") : QString()));
+    }
+    // §15's line after each workload, every API that measured it: "Geometry: Vulkan 412 fps, OpenGL 344",
+    // "Quads: Vulkan 79.6 Gpx/s, DX12 80.1".
+    void logWorkload(const WorkloadRef &work);
+    // A fill workload's rate (§6.5, §6.6): Gpx/s for Quads, MOps/s for Sprites.
+    double fillRate(const ApiRun &a, FillId f, const pr::ResultEvent &res) const;
     // §8: after the 3D workers, Direct2D (Windows) then Qt raster, one worker per path. `done` is the planned seconds so far.
     void runNatives(double *done, bool *stopped);
     TestResult finish(bool stopped);
@@ -359,6 +387,48 @@ void GpuRun::compareSignatures(int item, const QVector<pr::PlanItem> &plan)
             m_fillMismatch[{a.id, *w.fill}] = why;
         m_ctx.log(LogLevel::Error, QStringLiteral("%1: %2").arg(apiName(a.id), why));
         fail(a, workloadName, why, w.sub());  // an Error (D20): the score is withheld through D6
+    }
+}
+
+double GpuRun::fillRate(const ApiRun &a, FillId f, const pr::ResultEvent &res) const
+{
+    if (res.seconds <= 0)
+        return 0.0;
+    if (f == FillId::Sprites)
+        return fillCount(FillId::Sprites) * double(res.frames) / res.seconds / 1e6;
+    const int w = res.renderW > 0 ? res.renderW : (a.ready ? a.ready->renderW : 0);
+    const int h = res.renderH > 0 ? res.renderH : (a.ready ? a.ready->renderH : 0);
+    return fillCount(FillId::Quads) * double(w) * double(h) * double(res.frames) / res.seconds / 1e9;
+}
+
+void GpuRun::logWorkload(const WorkloadRef &work)
+{
+    QStringList parts;
+    QString unit;
+    for (const ApiRun &a : m_apis) {
+        double v = 0;
+        if (work.scene) {
+            const auto it = a.results.find(*work.scene);
+            if (it == a.results.end())
+                continue;
+            v = it->second.fps;
+            unit = QStringLiteral("fps");
+        } else {
+            const auto it = a.fills.find(*work.fill);
+            if (it == a.fills.end())
+                continue;
+            v = fillRate(a, *work.fill, it->second);
+            unit = *work.fill == FillId::Quads ? QStringLiteral("Gpx/s") : QStringLiteral("MOps/s");
+        }
+        const QString number = Units::format(v, unit, false);
+        parts << (parts.isEmpty() ? QStringLiteral("%1 %2 %3").arg(apiShort(a.id), number, unit) : QStringLiteral("%1 %2").arg(apiShort(a.id), number));
+    }
+    if (!parts.isEmpty()) {
+        // The mockup's names: "Particles" (not "Particles + post") and "Quads".
+        const QString name = work.fill && *work.fill == FillId::Quads   ? QStringLiteral("Quads")
+                             : work.scene && *work.scene == SceneId::Particles ? QStringLiteral("Particles")
+                                                                               : work.name();
+        m_ctx.log(LogLevel::Info, QStringLiteral("%1: %2").arg(name, parts.join(QStringLiteral(", "))));
     }
 }
 
@@ -432,12 +502,29 @@ TestResult GpuRun::run()
 
     // M8 / the mockup: the row says where the test is before the interface is held.
     m_ctx.progress(0, QStringLiteral("Running in its own window"));
-    m_ctx.log(LogLevel::Info, QStringLiteral("Starting GPU: %1 (%2), %3 3D API(s), about %4")
-                                  .arg(m_gpu.name, kindName(m_gpu.kind))
-                                  .arg(activeCount)
-                                  .arg(GpuTest::estimateSeconds(activeCount, kNativePaths) / 60 > 0
-                                           ? QStringLiteral("%1 min").arg(GpuTest::estimateSeconds(activeCount, kNativePaths) / 60)
-                                           : QStringLiteral("%1 s").arg(GpuTest::estimateSeconds(activeCount, kNativePaths))));
+    // §15 / the progress-done mockup: "Starting GPU: <GPU> (discrete), Vulkan + OpenGL + Qt raster, about 5 min 10 s"
+    // ("4 APIs + Direct2D + Qt raster" when all four run).
+    {
+        QStringList parts;
+        if (activeCount == int(kApis.size())) {
+            parts << QStringLiteral("%1 APIs").arg(activeCount);
+        } else {
+            for (const ApiRun &a : m_apis) {
+                if (a.active)
+                    parts << apiName(a.id);
+            }
+        }
+        int natives = 0;
+        for (const NativeRun &n : m_natives) {
+            if (n.available) {
+                parts << nativePathName(n.path);
+                ++natives;
+            }
+        }
+        m_ctx.log(LogLevel::Info, QStringLiteral("Starting GPU: %1 (%2), %3, about %4")
+                                      .arg(m_gpu.name, kindName(m_gpu.kind), parts.join(QStringLiteral(" + ")),
+                                           aboutText(GpuTest::estimateSeconds(activeCount, natives))));
+    }
     m_ctx.holdInterface(true);
     if (const auto load = cpu::sampleBackgroundLoadPercent(cpu::scaledWindow(1000ms), [this] { return cancelled(); }))
         m_r.metrics.append(number(QStringLiteral("background.load"), {}, QStringLiteral("Background load"), *load, QStringLiteral("%")));
@@ -473,7 +560,7 @@ TestResult GpuRun::run()
         if (!a.session->start(apiKey(a.id), m_gpu.id, a.id == ApiId::OpenGl ? glEnvironment(m_gpu) : QProcessEnvironment(), &err, m_gpu.luid))
             fail(a, kStartUp, err);
     }
-    bool stopped = cancelled();
+    bool stopped = cancelled(), renderLogged = false;
     for (ApiRun &a : m_apis) {
         if (!a.active || stopped)
             continue;
@@ -482,6 +569,17 @@ TestResult GpuRun::run()
         case ClientOutcome::Status::Ok:
             a.ready = ready.ready;
             m_ctx.log(LogLevel::Info, QStringLiteral("%1 ready on %2").arg(apiName(a.id), ready.ready ? ready.ready->device : QString()));
+            // §15: "Render 1920×1080 at 100% in a 1920×1080 window on DP-3", once, from the first worker that is ready.
+            if (!renderLogged && ready.ready) {
+                renderLogged = true;
+                const pr::ReadyEvent &e = *ready.ready;
+                QString where = e.windowW > 0 ? QStringLiteral(" in a %1 window").arg(sizeText({e.windowW, e.windowH})) : QStringLiteral(", headless");
+                if (e.fit)
+                    where += QStringLiteral(" (scaled to fit)");
+                if (!e.screen.isEmpty())
+                    where += QStringLiteral(" on ") + e.screen;
+                m_ctx.log(LogLevel::Info, QStringLiteral("Render %1 at %2%%3").arg(sizeText({e.renderW, e.renderH})).arg(scalePercent(e.scale)).arg(where));
+            }
             break;
         case ClientOutcome::Status::NotAvailable:
             a.active = false;
@@ -535,8 +633,7 @@ TestResult GpuRun::run()
                 const Plausibility check = plausibility(res.frames, res.fps, res.ftMin, res.ftP50, res.gpuMs, minFrames());
                 if (!check.error.isEmpty()) {
                     fail(a, workName, check.error, work.sub());
-                    m_ctx.log(LogLevel::Error, QStringLiteral("%1 failed in %2: %3 (%4 frames, %5 fps)")
-                                                   .arg(apiName(a.id), workName, check.error).arg(res.frames).arg(res.fps, 0, 'f', 1));
+                    logFailure(a, workName, QStringLiteral("%1 (%2 frames, %3 fps)").arg(check.error).arg(res.frames).arg(res.fps, 0, 'f', 1));
                     break;
                 }
                 if (check.dropGpu) {
@@ -552,7 +649,6 @@ TestResult GpuRun::run()
                     a.fills[*work.fill] = res;
                 if (a.present.isEmpty())
                     a.present = res.present;
-                m_ctx.log(LogLevel::Info, QStringLiteral("%1 on %2: %3 fps").arg(workName, apiName(a.id)).arg(res.fps, 0, 'f', 1));
                 break;
             }
             case ClientOutcome::Status::Cancelled:
@@ -566,7 +662,7 @@ TestResult GpuRun::run()
                 break;
             case ClientOutcome::Status::Failed:
                 fail(a, workName, o.reason, work.sub());
-                m_ctx.log(LogLevel::Error, QStringLiteral("%1 failed in %2: %3").arg(apiName(a.id), workName, o.reason));
+                logFailure(a, workName, o.reason);
                 break;
             }
             // Only a window that ran counts: an API that dropped out skips its windows, so the progress
@@ -574,8 +670,10 @@ TestResult GpuRun::run()
             if (o.status == ClientOutcome::Status::Ok)
                 done += windows;
         }
-        if (!stopped)
+        if (!stopped) {
             compareSignatures(item, plan);
+            logWorkload(work);
+        }
     }
     for (ApiRun &a : m_apis) {
         if (!a.session || !a.session->alive())
@@ -649,11 +747,23 @@ void GpuRun::runNatives(double *done, bool *stopped)
                 n.results[*w] = r;
                 if (n.present.isEmpty())
                     n.present = r.present;
-                if (r.seconds > 0)
-                    m_ctx.log(LogLevel::Info, QStringLiteral("%1 on %2: %3 MOps/s")
-                                                  .arg(nativeName(*w), pathName)
-                                                  .arg(double(nativeOpsPerFrame(*w)) * double(r.frames) / r.seconds / 1e6, 0, 'f', 1));
             }
+        }
+        // The mockup's line per path: "Native 2D, Qt raster: shapes 0.41, text 3.25, blits 0.22, gradients 0.35 MOps/s"
+        // ("Native 2D, Direct2D (not scored): …").
+        {
+            QStringList parts;
+            for (const NativeWorkload w : kNativeWorkloads) {
+                const auto it = n.results.find(w);
+                if (it != n.results.end() && it->second.seconds > 0)
+                    parts << QStringLiteral("%1 %2").arg(w == NativeWorkload::Blits ? QStringLiteral("blits") : nativeName(w).toLower(),
+                                                         Units::format(double(nativeOpsPerFrame(w)) * double(it->second.frames) / it->second.seconds / 1e6,
+                                                                       QStringLiteral("MOps/s"), false));
+            }
+            if (!parts.isEmpty())
+                m_ctx.log(LogLevel::Info, QStringLiteral("Native 2D, %1%2: %3 MOps/s")
+                                              .arg(pathName, n.path == NativePath::Direct2D ? QStringLiteral(" (not scored)") : QString(),
+                                                   parts.join(QStringLiteral(", "))));
         }
         double windows = 2.0;
         for (const pr::PlanItem &p : plan)
@@ -777,6 +887,7 @@ TestResult GpuRun::finish(bool stopped)
             e.windowH = res.windowH;
             e.scale = res.scale;
             e.fit = res.fit;
+            e.screen = screenText(res.screen, res.screenW, res.screenH, res.scale);
         }
         r.metrics.append(text(QStringLiteral("render.size"), {}, QStringLiteral("Render size"), sizeText({e.renderW, e.renderH})));
         r.metrics.append(number(QStringLiteral("render.scale"), {}, QStringLiteral("Display scale"), double(scalePercent(e.scale)), QStringLiteral("%")));
@@ -862,16 +973,6 @@ TestResult GpuRun::finish(bool stopped)
     // render size the worker reported.
     const QString fill = kFill2dId;
     bool everyFill = true;
-    const double quadLayers = fillCount(FillId::Quads), sprites = fillCount(FillId::Sprites);
-    const auto fillRate = [&](const ApiRun &a, FillId f, const pr::ResultEvent &res) {
-        if (res.seconds <= 0)
-            return 0.0;
-        if (f == FillId::Sprites)
-            return sprites * double(res.frames) / res.seconds / 1e6;
-        const int w = res.renderW > 0 ? res.renderW : (a.ready ? a.ready->renderW : 0);
-        const int h = res.renderH > 0 ? res.renderH : (a.ready ? a.ready->renderH : 0);
-        return quadLayers * double(w) * double(h) * double(res.frames) / res.seconds / 1e9;
-    };
     const auto fillUnit = [](FillId f) { return f == FillId::Quads ? QStringLiteral("Gpx/s") : QStringLiteral("MOps/s"); };
     const auto fillBad = [&](const ApiRun &a, FillId f) {
         return m_fillMismatch.count({a.id, f}) || (a.errored && a.errorSub == kFill2dId && a.errorScene == fillName(f));
@@ -1026,8 +1127,26 @@ TestResult GpuRun::finish(bool stopped)
     if (const auto it = b.subScores.constFind(kScenes3dId); it != b.subScores.cend())
         r.metrics.append(number(QStringLiteral("score.3d"), {}, QStringLiteral("3D score"), *it, QStringLiteral("points"), Direction::HigherIsBetter));
     // score.2d (M4, P21): round(1000 x sqrt(G_native x G_fill)), when both groups are complete and Ok.
-    if (const auto s2d = gpu::formula_v1::score2d(probe))
+    const auto s2d = gpu::formula_v1::score2d(probe);
+    if (s2d)
         r.metrics.append(number(QStringLiteral("score.2d"), {}, QStringLiteral("2D score"), *s2d, QStringLiteral("points"), Direction::HigherIsBetter));
+    // §15's last line: "GPU score 1,271 (3D 1,255 · 2D 1,335)", or "No GPU score: OpenGL failed during Shading: …".
+    const auto points = [](double v) { return Units::format(v, QStringLiteral("points"), false); };
+    if (r.status == Status::Ok && b.total) {
+        QStringList parts;
+        if (const auto it = b.subScores.constFind(kScenes3dId); it != b.subScores.cend())
+            parts << QStringLiteral("3D ") + points(*it);
+        if (s2d)
+            parts << QStringLiteral("2D ") + points(*s2d);
+        m_ctx.log(LogLevel::Info, QStringLiteral("GPU score %1%2").arg(points(*b.total), parts.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(parts.join(QStringLiteral(" \u00b7 ")))));
+    } else if (r.status == Status::Partial || r.status == Status::Error) {
+        QString why = r.statusReason;
+        if (why.startsWith(QLatin1StringView("No GPU score: ")))
+            why.remove(0, 14);
+        static const QRegularExpression failedIn(QStringLiteral("^(.+?) failed in "));
+        why.replace(failedIn, QStringLiteral("\\1 failed during "));
+        m_ctx.log(LogLevel::Warning, QStringLiteral("No GPU score: ") + why);
+    }
     return r;
 }
 

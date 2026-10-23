@@ -14,7 +14,8 @@ namespace sb {
 //
 // One entry per block, each a QVariantMap with "type" and "title":
 //   kpis      items [{label, value, unit}]
-//   table     columns [text], rows [[text]]
+//   table     columns [text], rows [[text]], boldRows [row], boldCells [[column, row]], summary, leftColumns [column],
+//             wrapColumns [column]
 //   grid      columns [text], rows [{label, small, cells:[{main, sub}]}]
 //   linechart points [{x,y}], logX, xTicks [{x,label}], yUnit, annotations
 //             [{x,label}], colorToken, logY, yTicks [{y,label}] (log y

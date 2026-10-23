@@ -512,6 +512,7 @@ public:
             }
             screenName = screen->name();
             m_screenName = screenName;
+            m_screenPx = physicalSize(screen, scale);
             m_window = std::make_unique<WorkerWindow>(surfaceType(m_args.api), m_plan, screen);
         } else {
             m_plan.render = kLogical;
@@ -721,6 +722,13 @@ public:
     }
 
 private:
+    // A screen's size in physical px: its logical geometry times the scale the window uses.
+    static QSize physicalSize(const QScreen *screen, double scale)
+    {
+        const QSize logical = screen->geometry().size();
+        return {qRound(logical.width() * scale), qRound(logical.height() * scale)};
+    }
+
     // The window's steps of SYNBENCH_GPU_FAKE_SCREEN ("WxH@scale;WxH@scale"): dev hook, see replanFromWindow().
     struct FakeStep {
         int w, h;
@@ -763,6 +771,7 @@ private:
             return Outcome::ErrorNa;
         }
         m_screenName = actual->name();
+        m_screenPx = steps.empty() ? physicalSize(actual, scale) : QSize(qRound(avail.width() * scale), qRound(avail.height() * scale));
         if (replan(next, scale)) {
             m_window->applyPlan(m_plan);
             QElapsedTimer settle;
@@ -851,6 +860,8 @@ private:
             e.scale = m_scale;
             e.fit = m_plan.fit;
             e.displayGpu = m_displayGpu;
+            e.screenW = m_screenPx.width();
+            e.screenH = m_screenPx.height();
         }
         return e;
     }
@@ -887,6 +898,7 @@ private:
     double m_scale = 1.0;
     std::size_t m_fakeIndex = 0;  // dev hook: how many re-plans have looked at SYNBENCH_GPU_FAKE_SCREEN
     QString m_screenName;
+    QSize m_screenPx;  // that screen's size in physical px (§10's `screen`)
     std::optional<std::array<quint8, 8>> m_renderLuid;  // --luid: the adapter the frames are drawn on (Windows)
     QString m_displayGpu;  // Windows: the GPU whose output holds the window, when it isn't that adapter (M2)
     std::string m_present;  // the last resume()'s present mode (the result's "present")

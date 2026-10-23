@@ -37,6 +37,9 @@ QString nativePathKey(NativePath);   // "d2d" "qt"
 QString nativePathName(NativePath);  // "Direct2D" "Qt raster"
 QString nativeKey(NativeWorkload);   // "shapes" "text" "blits" "gradients"
 QString nativeName(NativeWorkload);  // "Shapes" "Text" "Image blits" "Gradients"
+// §10's `session` on Linux: "Wayland" / "X11" from XDG_SESSION_TYPE, or when that isn't set (a startx session) from the
+// platform Qt runs on ("xcb" -> "X11", "wayland…" -> "Wayland"); anything else as it is (Zeb D5).
+QString sessionLabel(const QString &xdgSessionType, const QString &qtPlatform);
 // §7.1: the ops one frame draws at content scale 1 (2,000 shapes, 8,000 glyphs = 200 strings x 40, 1,000 blits, 1,000 gradients);
 // MOps/s = this x frames / seconds / 1e6. (native_ops.h's opsPerFrame is the same, a test checks it.)
 std::uint32_t nativeOpsPerFrame(NativeWorkload);

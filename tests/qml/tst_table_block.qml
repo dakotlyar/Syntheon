@@ -191,6 +191,44 @@ TestCase {
         compare(bold, 1)
     }
 
+    // Zeb D4: the GPU page's APIs table. Its text columns are left-aligned, and on a narrow window Driver and Note wrap
+    // while API, Version and Present keep one line; on a wide one the last wrap column (Note) takes the spare room.
+    readonly property var apisBlock: ({
+        type: "table", title: "APIs", columns: ["API", "Status", "Version", "Driver", "Present", "Note"],
+        rows: [["DirectX 12", "OK", "FL 12_1 · SM 6.8", "32.0.21025.10", "flip, tearing", "—"],
+               ["Vulkan", "OK", "Vulkan 1.4.354", "amdgpu · Mesa 26.2.4-arch3.1 (LLVM 21.1.0, 256 bits)", "IMMEDIATE", "—"],
+               ["Qt raster", "OK", "Qt 6.12.0", "—", "backing store", "CPU path, scored · the bundled font isn't in the worker; Segoe UI instead"]],
+        leftColumns: [1, 2, 3, 4, 5], wrapColumns: [3, 5] })
+    function test_textAndWrapColumns() {
+        for (const w of [640, 760, 1100]) {
+            const t = createTemporaryObject(tableComponent, test, { block: apisBlock, width: w })
+            waitForRendering(t)
+            verify(Math.abs(sum(t.widths) - t.available) < 1, "the columns fill the table at " + w)
+            for (const c of [0, 2, 4])
+                verify(t.widths[c] >= t.needs[c] - 0.5, "column " + c + " keeps one line at " + w + " (" + t.widths[c] + " < " + t.needs[c] + ")")
+            if (w >= 1000) {
+                for (const c of [0, 1, 2, 4])
+                    compare(t.widths[c], t.needs[c])  // exactly one line each; Driver and Note share the rest
+            }
+            const cells = boldCellItems(t)
+            for (const c of cells) {
+                if (c.text === "Vulkan 1.4.354" || c.text === "IMMEDIATE")
+                    compare(c.horizontalAlignment, Text.AlignLeft)
+            }
+        }
+        // Wide enough for every line: the spare room goes to the last wrap column (Note), not to API.
+        const roomy = createTemporaryObject(tableComponent, test, {
+            block: Object.assign({}, apisBlock, { rows: apisBlock.rows.map(r => r.slice(0, 5).concat(["—"])) }), width: 1100 })
+        waitForRendering(roomy)
+        for (const c of [0, 1, 2, 3, 4])
+            compare(roomy.widths[c], roomy.needs[c])
+        verify(roomy.widths[5] > roomy.needs[5])
+        // Without the new fields the table is sized and aligned as before.
+        const plain = createTemporaryObject(tableComponent, test, { block: Object.assign({}, apisBlock, { leftColumns: [], wrapColumns: [] }), width: 760 })
+        waitForRendering(plain)
+        verify(!plain.isText(2))
+    }
+
     // A table without boldCells (or with an empty list) is sized exactly as before.
     function test_noBoldCellsSameWidths() {
         const rows = [["Geometry", "410 fps", "412 fps"], ["Shading", "205 fps", "199 fps"]]

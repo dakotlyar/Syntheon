@@ -474,6 +474,15 @@ private slots:
         QCOMPARE(gg.gpu, g);
         const auto rr = std::get<pr::ReadyEvent>(*pr::parseLine(pr::encode(ready), nullptr));
         QVERIFY(std::abs(rr.scale - 1.25) < 1e-9 && rr.gpuTimestamps && !rr.fit && rr.screen == QStringLiteral("DP-3"));
+        // The screen's physical size is optional too (§10's `screen` text).
+        QVERIFY(r.screenW == 0 && !pr::encode(res).contains("screenW"));
+        {
+            pr::ResultEvent sized = res;
+            sized.screenW = 2560;
+            sized.screenH = 1600;
+            const auto z = std::get<pr::ResultEvent>(*pr::parseLine(pr::encode(sized), nullptr));
+            QVERIFY(z.screenW == 2560 && z.screenH == 1600);
+        }
         // M2: the GPU holding the window's output is optional and round-trips when sent.
         QVERIFY(r.displayGpu.isEmpty() && !pr::encode(res).contains("displayGpu"));
         {
@@ -744,6 +753,17 @@ private slots:
 #if !defined(_WIN32)
         QVERIFY(!readHwSchMode().has_value());
 #endif
+    }
+
+    // Zeb D5: the session from XDG_SESSION_TYPE, else (a startx session) from Qt's platform.
+    void sessionFallsBackToTheQtPlatform()
+    {
+        QCOMPARE(sessionLabel(QStringLiteral("wayland"), QStringLiteral("xcb")), QStringLiteral("Wayland"));
+        QCOMPARE(sessionLabel(QStringLiteral("x11"), QString()), QStringLiteral("X11"));
+        QCOMPARE(sessionLabel(QString(), QStringLiteral("xcb")), QStringLiteral("X11"));
+        QCOMPARE(sessionLabel(QString(), QStringLiteral("wayland-egl")), QStringLiteral("Wayland"));
+        QCOMPARE(sessionLabel(QString(), QStringLiteral("eglfs")), QStringLiteral("eglfs"));
+        QCOMPARE(sessionLabel(QStringLiteral("tty"), QStringLiteral("xcb")), QStringLiteral("tty"));
     }
 
     // §10 gpu.driver: Linux composes the kernel driver with the Vulkan driver's version; Windows carries the UMD version.

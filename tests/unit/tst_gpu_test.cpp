@@ -14,6 +14,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -84,6 +85,15 @@ double number(const TestResult &r, const QString &key)
 {
     const Metric *m = r.metric(key);
     return m && m->isNumeric() ? std::get<double>(m->value) : -1.0;
+}
+
+QString line0(const QStringList &logs, const QString &start)
+{
+    for (const QString &l : logs) {
+        if (l.startsWith(start))
+            return l;
+    }
+    return {};
 }
 
 QString textOf(const TestResult &r, const QString &key)
@@ -690,6 +700,9 @@ private slots:
         QCOMPARE(r.status, Status::Partial);
         QCOMPARE(r.statusReason, QStringLiteral("No GPU score: OpenGL failed in Shading: too few frames to measure (19)"));
         QCOMPARE(textOf(r, QStringLiteral("api.opengl.status")), QStringLiteral("Error: failed during Shading: too few frames to measure (19)"));
+        // Zeb nit: no nested parentheses in the note.
+        const DetailLayout d = t.detail(scored(t, r));
+        QVERIFY(noteContaining(d, QStringLiteral("No GPU score: OpenGL failed during Shading: too few frames to measure (19). Its other results")));
         QCOMPARE(r.subResults[0].status, Status::Error);
         QVERIFY(r.metric(QStringLiteral("scenes3d.opengl.drawcalls.fps")));
         QVERIFY(!r.metric(QStringLiteral("scenes3d.opengl.shading.fps")));
@@ -846,6 +859,70 @@ private slots:
         Ctx ctx;
         const TestResult r = t.run(ctx, {});
         QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: Qt raster failed during start-up: ")), qPrintable(r.statusReason));
+    }
+
+    // Zeb D3: the log follows §15 and the progress-done mockup: the start line, "Render …", one line per workload over the
+    // APIs, one per native path, and the score at the end.
+    void logLinesFollowTheMockup()
+    {
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::Ok);
+        const QStringList logs = ctx.logs();
+        const auto line = [&](const QString &start) {
+            for (const QString &l : logs) {
+                if (l.startsWith(start))
+                    return l;
+            }
+            return QString();
+        };
+        QVERIFY2(QRegularExpression(QStringLiteral("^Starting GPU: .+ \\(.+\\), Vulkan \\+ OpenGL \\+ Qt raster, about \\d+ min( \\d+ s)?$"))
+                     .match(line(QStringLiteral("Starting GPU: "))).hasMatch(),
+                 qPrintable(logs.join(QLatin1Char('\n'))));
+        QCOMPARE(line(QStringLiteral("Render ")), QStringLiteral("Render 320×180 at 100%, headless"));
+        QCOMPARE(line(QStringLiteral("Geometry: ")), QStringLiteral("Geometry: Vulkan 100 fps, OpenGL 100"));
+        QCOMPARE(line(QStringLiteral("Particles: ")), QStringLiteral("Particles: Vulkan 100 fps, OpenGL 100"));
+        QVERIFY2(QRegularExpression(QStringLiteral("^Quads: Vulkan [0-9.,]+ Gpx/s, OpenGL [0-9.,]+$")).match(line(QStringLiteral("Quads: "))).hasMatch(),
+                 qPrintable(line(QStringLiteral("Quads: "))));
+        QVERIFY2(QRegularExpression(QStringLiteral("^Sprites: Vulkan [0-9.,]+ MOps/s, OpenGL [0-9.,]+$")).match(line(QStringLiteral("Sprites: "))).hasMatch(),
+                 qPrintable(line(QStringLiteral("Sprites: "))));
+        QVERIFY2(QRegularExpression(QStringLiteral("^Native 2D, Qt raster: shapes [0-9.,]+, text [0-9.,]+, blits [0-9.,]+, gradients [0-9.,]+ MOps/s$"))
+                     .match(line(QStringLiteral("Native 2D, Qt raster"))).hasMatch(),
+                 qPrintable(line(QStringLiteral("Native 2D, Qt raster"))));
+        QVERIFY2(QRegularExpression(QStringLiteral("^GPU score [0-9,]+ \\(3D [0-9,]+ \u00b7 2D [0-9,]+\\)$")).match(logs.last()).hasMatch(), qPrintable(logs.last()));
+        // The per-API, per-workload lines are gone.
+        QVERIFY(line(QStringLiteral("Geometry on ")).isEmpty());
+    }
+
+    // §15: a failed API is a Warning "… failed during Shading: …; continuing with the next API", and the end says no score.
+    void failureLogLines()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-at-shading")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        t.run(ctx, {});
+        const QStringList logs = ctx.logs();
+        QVERIFY2(std::any_of(logs.begin(), logs.end(), [](const QString &l) {
+                     return l.startsWith(QLatin1StringView("OpenGL failed during Shading: ")) && l.endsWith(QLatin1StringView("; continuing with the next API"));
+                 }),
+                 qPrintable(logs.join(QLatin1Char('\n'))));
+        QCOMPARE(line0(logs, QStringLiteral("Shading: ")), QStringLiteral("Shading: Vulkan 100 fps"));
+        QVERIFY2(logs.last().startsWith(QLatin1StringView("No GPU score: OpenGL failed during Shading: ")), qPrintable(logs.last()));
+    }
+
+    // §10's `screen`: "eDP-1 · 2560×1600 at 125%" when the worker sends the screen's size.
+    void screenTextHasTheSizeAndScale()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("on-screen")});
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(textOf(r, QStringLiteral("screen")), QStringLiteral("eDP-1 \u00b7 2560×1600 at 125%"));
     }
 
     // AP-5 L3: a 3D API whose worker dies before "ready" failed "during start-up", never "in starting".
@@ -1060,6 +1137,11 @@ private slots:
         QCOMPARE(tableOf(d, QStringLiteral("2D fill-rate")).summary, QStringLiteral("Quads 82.6 Gpx/s (OpenGL) · Sprites 31.4 MOps/s (Vulkan)"));
         QCOMPARE(tableOf(d, QStringLiteral("Native 2D (MOps/s)")).summary, QStringLiteral("Qt raster (scored) · sub-score 1,293"));
         QCOMPARE(tableOf(d, QStringLiteral("APIs")).summary, QStringLiteral("6 OK"));
+        // Zeb D4: the APIs table's text columns are left-aligned; Driver and Note give way first.
+        QCOMPARE(tableOf(d, QStringLiteral("APIs")).leftColumns, (QVector<int>{1, 2, 3, 4, 5}));
+        QCOMPARE(tableOf(d, QStringLiteral("APIs")).wrapColumns, (QVector<int>{3, 5}));
+        QCOMPARE(tableOf(d, QStringLiteral("Render setup")).leftColumns, QVector<int>{1});
+        QCOMPARE(cell(tableOf(d, QStringLiteral("Render setup")), 0, 1), QStringLiteral("AMD Radeon RX 7800 XT (discrete, 16 GB)"));
         QCOMPARE(tableOf(d, QStringLiteral("Render setup")).summary, QStringLiteral("1920×1080 at 100% · fits"));
         // The tables' cells.
         QCOMPARE(cell(scenesTable, 1, 3), QStringLiteral("92.4"));
@@ -1162,6 +1244,14 @@ private slots:
         d = t.detail(r);
         QCOMPARE(setupValue(d, QStringLiteral("Driver")), QStringLiteral("amdgpu \u00b7 Mesa 25.2.4"));
         QVERIFY(!setupValue(d, QStringLiteral("GPU")).contains(QLatin1StringView("chosen")));
+        // Zeb nit: a name with its driver's tag gets one set of parentheses.
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("gpu.name"))
+                m.value = QStringLiteral("AMD Radeon 8060S Graphics (RADV STRIX_HALO)");
+        }
+        QVERIFY2(setupValue(t.detail(r), QStringLiteral("GPU")).startsWith(QLatin1StringView("AMD Radeon 8060S Graphics (RADV STRIX_HALO, ")),
+                 qPrintable(setupValue(t.detail(r), QStringLiteral("GPU"))));
+        QCOMPARE(setupValue(t.detail(r), QStringLiteral("GPU")).count(QLatin1Char('(')), 1);
         QVERIFY(setupValue(d, QStringLiteral("Session")).endsWith(QLatin1StringView("hardware-accelerated GPU scheduling on")));
         const NoteBlock *note = noteContaining(d, QStringLiteral("cross-GPU copy"));
         QVERIFY(note);
@@ -1187,6 +1277,9 @@ private slots:
         QVERIFY(n->text.endsWith(QLatin1StringView("). Its other results and every other API are shown.")));
         const TableBlock &scenes = tableOf(d, QStringLiteral("3D scenes: average FPS by API"));
         QCOMPARE(cell(scenes, 2, 2), QStringLiteral("Error"));  // Shading, OpenGL
+        QCOMPARE(cell(scenes, 3, 2), QStringLiteral("—"));      // Particles, never run after the crash (Zeb nit)
+        QCOMPARE(cell(tableOf(d, QStringLiteral("Particles by API")), 1, 1), QStringLiteral("—"));
+        QCOMPARE(cell(tableOf(d, QStringLiteral("Shading by API")), 1, 1), QStringLiteral("Error"));
         const TableBlock &apis = tableOf(d, QStringLiteral("APIs"));
         QCOMPARE(cell(apis, 3, 1), QStringLiteral("Error"));
         QVERIFY2(cell(apis, 3, 5).startsWith(QLatin1StringView("failed during Shading: ")), qPrintable(cell(apis, 3, 5)));

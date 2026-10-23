@@ -57,6 +57,12 @@ struct TableBlock {
     // "Vulkan 412 fps · 1% low 354". Empty by default: the header shows only
     // the title.
     QString summary;
+    // Text columns drawn left-aligned in the body font, as the first column is (the GPU page's APIs and Render setup tables,
+    // as the mockup draws them; Zeb D4). Empty by default: every other column is a right-aligned number.
+    QVector<int> leftColumns;
+    // The columns that give way first on a narrow table (the APIs table's Driver and Note): the others keep their one-line
+    // width while these wrap, and they take the spare room on a wide one. Empty by default: the first column does, as before.
+    QVector<int> wrapColumns;
     bool operator==(const TableBlock &) const = default;
 };
 

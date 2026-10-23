@@ -87,8 +87,12 @@ void result(const std::string &workload)
     const std::string sig(864, other ? 'f' : '0');
     // "hybrid" (M2): the window landed on an output of another GPU than the one rendering.
     const std::string shownBy = g_mode == "hybrid" ? ",\"displayGpu\":\"Fake iGPU\"" : "";
+    // "on-screen": where the window really was (§10's `screen`, with the screen's physical size).
+    const std::string screen = g_mode == "on-screen" ? ",\"screen\":\"eDP-1\",\"renderW\":2400,\"renderH\":1350,\"windowW\":1294,\"windowH\":728,"
+                                                       "\"scale\":1.25,\"fit\":true,\"screenW\":2560,\"screenH\":1600"
+                                                     : "";
     out("{\"ev\":\"result\",\"workload\":\"" + workload + "\",\"frames\":" + std::to_string(frames) + ",\"seconds\":" + seconds + ",\"fps\":" + fps + ","
-        "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11,\"min\":" + min + "},\"cpuMs\":1" + gpu + ",\"series\":[[0.05,10.0],[0.15,10.0]],\"sig\":\"" + sig + "\"" + shownBy + "}");
+        "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11,\"min\":" + min + "},\"cpuMs\":1" + gpu + ",\"series\":[[0.05,10.0],[0.15,10.0]],\"sig\":\"" + sig + "\"" + shownBy + screen + "}");
 }
 
 // Sleeps ms in small steps; false when "stop" arrived (the caller exits 4).

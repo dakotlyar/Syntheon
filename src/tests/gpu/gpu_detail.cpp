@@ -237,6 +237,39 @@ QString errorNote(const TestResult &r, const QString &name, const QString &statu
     return reason.isEmpty() ? QStringLiteral("failed") : QStringLiteral("failed: ") + reason;
 }
 
+// The workload an errored API failed in ("Shading", "Textured quads", "start-up"), from its status since checkpoint 6
+// ("Error: failed during Shading: …"), else from the sub-test reason that names it; empty when neither says.
+QString failedWorkload(const TestResult &r, ApiId a)
+{
+    const QString reason = statusReason(apiStatus(r, apiKey(a)));
+    static const QRegularExpression during(QStringLiteral("^failed during (.+?): "));
+    if (const QRegularExpressionMatch m = during.match(reason); m.hasMatch())
+        return m.captured(1);
+    const QString prefix = apiName(a) + QStringLiteral(" failed in ");
+    for (const SubResult &s : r.subResults) {
+        if (s.status == Status::Error && s.reason.startsWith(prefix))
+            return s.reason.mid(prefix.size()).section(QStringLiteral(": "), 0, 0);
+    }
+    return {};
+}
+
+// A cell with no number for an API that errored: "Error" in the workload it failed in, "—" in the ones it never ran
+// (Zeb nit: as a failed Direct2D's cells). An older run that doesn't say where keeps "Error" everywhere.
+QString missingCell(const TestResult &r, ApiId a, const QString &workload)
+{
+    if (!errored(r, apiKey(a)))
+        return kDash;
+    const QString where = failedWorkload(r, a);
+    return where.isEmpty() || where == workload ? QStringLiteral("Error") : kDash;
+}
+
+// " (why)" after a sentence, or ": why" when the reason has parentheses of its own (Zeb nit: no
+// "(too few frames to measure (19))").
+QString becauseOf(const QString &why)
+{
+    return why.contains(QLatin1Char('(')) ? QStringLiteral(": ") + why : QStringLiteral(" (%1)").arg(why);
+}
+
 TableBlock table(const QStringList &columns)
 {
     TableBlock t;
@@ -379,8 +412,8 @@ DetailLayout GpuTest::detail(const TestResult &r) const
             QVector<DetailCell> cells{DetailCell::literal(sceneLabel(s))};
             for (const ApiId a : apis) {
                 QString cell = valueOrDash(r, sceneApiKey(a, s, u"fps"));
-                if (cell == kDash && errored(r, apiKey(a)))
-                    cell = QStringLiteral("Error");
+                if (cell == kDash)
+                    cell = missingCell(r, a, sceneName(s));
                 cells << DetailCell::literal(cell);
             }
             if (const auto best = bestApi(s); best && apis.contains(*best)) {
@@ -425,11 +458,11 @@ DetailLayout GpuTest::detail(const TestResult &r) const
             continue;
         TableBlock t = table({QStringLiteral("API"), QStringLiteral("Avg fps"), QStringLiteral("1% low"), QStringLiteral("GPU ms"), QStringLiteral("CPU ms")});
         for (const ApiId a : apis) {
-            const bool failed = !r.metric(sceneApiKey(a, scene, u"fps")) && errored(r, apiKey(a));
+            const bool missing = !r.metric(sceneApiKey(a, scene, u"fps"));
             if (best && a == *best)
                 t.boldCells.append(QPoint(1, int(t.rows.size())));
             t.rows.append({DetailCell::literal(apiShort(a)),
-                           DetailCell::literal(failed ? QStringLiteral("Error") : valueOrDash(r, sceneApiKey(a, scene, u"fps"))),
+                           DetailCell::literal(missing ? missingCell(r, a, sceneName(scene)) : valueOrDash(r, sceneApiKey(a, scene, u"fps"))),
                            DetailCell::literal(valueOrDash(r, sceneApiKey(a, scene, u"low"))), DetailCell::literal(ms(r, sceneApiKey(a, scene, u"gpu"))),
                            DetailCell::literal(ms(r, sceneApiKey(a, scene, u"cpu")))});
         }
@@ -474,7 +507,7 @@ DetailLayout GpuTest::detail(const TestResult &r) const
         for (const ApiId a : apis) {
             const auto cell = [&](FillId f) {
                 const QString v = valueOrDash(r, fillApiKey(a, f));
-                return DetailCell::literal(v == kDash && errored(r, apiKey(a)) ? QStringLiteral("Error") : v);
+                return DetailCell::literal(v == kDash ? missingCell(r, a, fillName(f)) : v);
             };
             if (apiName(a) == bestQuads)
                 t.boldCells.append(QPoint(1, int(t.rows.size())));
@@ -539,6 +572,9 @@ DetailLayout GpuTest::detail(const TestResult &r) const
         rows.append({nativePathKey(NativePath::QtRaster), nativePathName(NativePath::QtRaster), QStringLiteral("CPU path, scored")});
         TableBlock t = table({QStringLiteral("API"), QStringLiteral("Status"), QStringLiteral("Version"), QStringLiteral("Driver"),
                               QStringLiteral("Present"), QStringLiteral("Note")});
+        // Text, left-aligned as the mockup draws it; Driver and Note wrap before API, Version and Present (Zeb D4).
+        t.leftColumns = {1, 2, 3, 4, 5};
+        t.wrapColumns = {3, 5};
         int ok = 0, error = 0, na = 0, stoppedRows = 0;
         for (const Row &row : std::as_const(rows)) {
             const QString status = apiStatus(r, row.key);
@@ -583,6 +619,8 @@ DetailLayout GpuTest::detail(const TestResult &r) const
     // 8. "Render setup": Item | Value.
     {
         TableBlock t = table({QStringLiteral("Item"), QStringLiteral("Value")});
+        t.leftColumns = {1};  // the mockup's left-aligned values
+        t.wrapColumns = {1};
         const auto add = [&](const QString &item, const QString &v) {
             if (!v.isEmpty())
                 t.rows.append({DetailCell::literal(item), DetailCell::literal(v)});
@@ -593,7 +631,15 @@ DetailLayout GpuTest::detail(const TestResult &r) const
                 if (const QString v = text(r, QLatin1StringView(k)); !v.isEmpty())
                     detail << v;
             }
-            add(QStringLiteral("GPU"), detail.isEmpty() ? gpuName : QStringLiteral("%1 (%2)").arg(gpuName, detail.join(QStringLiteral(", "))));
+            // One set of parentheses (Zeb nit): a name that ends in its driver's tag ("… (RADV STRIX_HALO)") takes the details inside it.
+            QString row = gpuName;
+            if (!detail.isEmpty()) {
+                if (row.endsWith(QLatin1Char(')')) && row.contains(QStringLiteral(" (")))
+                    row = row.chopped(1) + QStringLiteral(", ") + detail.join(QStringLiteral(", ")) + QLatin1Char(')');
+                else
+                    row = QStringLiteral("%1 (%2)").arg(row, detail.join(QStringLiteral(", ")));
+            }
+            add(QStringLiteral("GPU"), row);
         }
         QString driver = text(r, QStringLiteral("gpu.driver"));  // the OS-reported one; the APIs' own strings are in the APIs table
         for (const ApiId a : kApis) {
@@ -645,8 +691,8 @@ DetailLayout GpuTest::detail(const TestResult &r) const
         if (failure.matched && failure.drew())
             note = QStringLiteral("No GPU score: %1 %2.").arg(failure.api, failure.why);
         else if (failure.matched)
-            note = QStringLiteral("No GPU score: %1 failed during %2 (%3). Its other results and every other API are shown.")
-                       .arg(failure.api, failure.workload, failure.why);
+            note = QStringLiteral("No GPU score: %1 failed during %2%3. Its other results and every other API are shown.")
+                       .arg(failure.api, failure.workload, becauseOf(failure.why));
         else
             note = r.statusReason.startsWith(QStringLiteral("No GPU score")) ? r.statusReason : QStringLiteral("No GPU score: %1").arg(r.statusReason);
         d.blocks.append({{}, NoteBlock{note, Tone::Warn}});
@@ -656,7 +702,7 @@ DetailLayout GpuTest::detail(const TestResult &r) const
         if (failure.matched && failure.drew())
             note = QStringLiteral("No GPU score: %1 %2.").arg(failure.api, failure.why);
         else if (failure.matched)
-            note = QStringLiteral("No GPU score: %1 failed during %2 (%3).").arg(failure.api, failure.workload, failure.why);
+            note = QStringLiteral("No GPU score: %1 failed during %2%3.").arg(failure.api, failure.workload, becauseOf(failure.why));
         else
             note = QStringLiteral("No GPU score: %1.").arg(r.statusReason.isEmpty() ? QStringLiteral("the test failed") : r.statusReason);
         d.blocks.append({{}, NoteBlock{note, Tone::Warn}});

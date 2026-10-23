@@ -63,6 +63,8 @@ struct ResultEvent {
     int renderW = 0, renderH = 0, windowW = 0, windowH = 0;  // render physical, window logical
     double scale = 0;
     bool fit = false;
+    // Optional (checkpoint 6, Zeb): that screen's size in physical px, for §10's `screen` "eDP-1 · 2560×1600 at 125%"; 0 = not sent.
+    int screenW = 0, screenH = 0;
     // Optional (checkpoint 6, M2; Windows): the GPU whose display output holds the window, when it isn't the GPU
     // rendering (a hybrid laptop); "" = the same GPU, or not known.
     QString displayGpu;

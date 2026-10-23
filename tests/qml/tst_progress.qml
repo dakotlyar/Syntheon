@@ -129,6 +129,7 @@ TestCase {
         verify(RunController.interfaceHeld)
         verify(card.visible)
         compare(findChild(screen, "heldTitle").text, "AI inference test running")
+        compare(findChild(screen, "currentStage").text, "AI inference")  // the log's pill: the test alone while held (the mockup's "GPU")
         const stop = findChild(screen, "stopRun")
         verify(stop.visible && stop.enabled)
         verify(!findChild(screen, "heldPart").visible)  // no part yet

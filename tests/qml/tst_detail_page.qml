@@ -384,6 +384,44 @@ TestCase {
         fuzzyCompare(m[0].x + m[0].width / 2, mid.fx(75), 0.5)
     }
 
+    // Zeb D2: a clamped last tick never touches the one before it: on a narrow chart the previous label gives way, on a
+    // wide one every label shows. The CPU clock axis (30 s steps, the run's end at 262 s), RAM's and the GPU's.
+    function sizedChart(extra, w) {
+        const block = createTemporaryObject(chartComponent, test, { block: chartBlock(extra), width: w })
+        waitForRendering(block)
+        const chart = findChild(block, "chart")
+        verify(Math.abs(chart.width - w) < w * 0.2, "chart width " + chart.width + " for a block of " + w)
+        return chart
+    }
+    function test_lastTickNeverTouchesThePreviousOne() {
+        const cpu = [0, 30, 60, 90, 120, 150, 180, 210, 240].map(v => ({ x: v, label: v + " s" })).concat([{ x: 262, label: "262 s" }])
+        const ram = [0, 25, 50, 75, 100, 125, 150].map(v => ({ x: v, label: v + " GB/s" }))
+        const gpu = [0, 5, 10, 15, 20].map(v => ({ x: v, label: v + " s" }))
+        for (const ticks of [cpu, ram, gpu]) {
+            for (const w of [300, 420, 560, 900]) {
+                const chart = sizedChart({ logX: false, xTicks: ticks, points: [{ x: 0, y: 1 }, { x: ticks[ticks.length - 1].x, y: 2 }] }, w)
+                const placed = chart.xTickPlaced
+                compare(placed.length, ticks.length)
+                verify(placed[placed.length - 1].shown, "the last tick shows at " + w)
+                let prev = null
+                for (const p of placed) {
+                    if (!p.shown)
+                        continue
+                    verify(p.x >= 4 && p.x + p.w <= chart.width - 4, p.label + " inside at " + w)
+                    if (prev)
+                        verify(prev.x + prev.w + chart.xTickGap <= p.x, prev.label + " touches " + p.label + " at " + w)
+                    prev = p
+                }
+            }
+        }
+        // Wide enough: nothing is hidden.
+        const wide = sizedChart({ logX: false, xTicks: gpu, points: [{ x: 0, y: 1 }, { x: 20, y: 2 }] }, 900)
+        verify(wide.xTickPlaced.every(p => p.shown))
+        // CPU at a narrow width: "240 s" gives way to "262 s".
+        const narrow = sizedChart({ logX: false, xTicks: cpu, points: [{ x: 0, y: 1 }, { x: 262, y: 2 }] }, 420)
+        verify(!narrow.xTickPlaced[8].shown && narrow.xTickPlaced[9].shown)
+    }
+
     // A custom block the build can't draw becomes a warning note at the top (AP-5 L6).
     function test_customBlockFallback() {
         const page = createTemporaryObject(pageComponent, test, { blocks: [{ type: "custom", title: "", qmlType: "Nope", data: {} }, kpis()] })
