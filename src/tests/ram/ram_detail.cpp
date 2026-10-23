@@ -585,7 +585,7 @@ DetailLayout RamTest::detail(const TestResult &r) const
     } else if (const QString source = text(r, QStringLiteral("config.source")); source.startsWith(QLatin1StringView("not available: "))) {
         d.blocks.append({{}, NoteBlock{QStringLiteral("Memory details not available: %1. The test still ran%2.")
                                            .arg(source.mid(15), r.score ? QStringLiteral(" and is scored") : QString()),
-                                       Tone::Neutral}});
+                                       Tone::Warn}});  // about the run, not the table before it (Phase 4a D24)
     }
 
     // 7. Notes: the run's status, the page mode, the conditions.

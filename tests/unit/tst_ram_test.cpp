@@ -977,6 +977,14 @@ private slots:
                                           "read + written.")));
         QVERIFY(n.contains(QStringLiteral("Memory details not available: the SMBIOS helper wasn't authorised and udev has no memory "
                                           "data. The test still ran and is scored.")));
+        // Phase 4a D24: this note is about the run, so it is Warn (drawn at the top).
+        bool sawUnavailableNote = false;
+        for (const DetailBlock &blk : d.blocks)
+            if (const auto *nb = std::get_if<NoteBlock>(&blk.content); nb && nb->text.startsWith(QLatin1StringView("Memory details not available"))) {
+                sawUnavailableNote = true;
+                QCOMPARE(nb->tone, Tone::Warn);
+            }
+        QVERIFY(sawUnavailableNote);
         QVERIFY(n.contains(QStringLiteral("This run used 4 KiB pages: DRAM and loaded latency include TLB misses, so they read higher "
                                           "than on a huge-page run. The score is not adjusted.")));
         QVERIFY(n.contains(QStringLiteral("This x64 build ran under emulation (Prism): latency is only roughly right. Run the ARM64 "

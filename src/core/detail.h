@@ -46,7 +46,7 @@ struct KpisBlock {
 struct TableBlock {
     QStringList columns;
     QVector<QVector<DetailCell>> rows;
-    // Never paired with a neighbouring table: always the page's full width.
+    // Not used by the renderer since Phase 4a D24 (every table is its own full-width row); kept so layouts compile unchanged.
     bool fullWidth = false;
     // Rows drawn in bold (totals: "CPU score", "Single-thread mark").
     QVector<int> boldRows;
@@ -131,6 +131,7 @@ struct LineChartBlock {
     bool operator==(const LineChartBlock &) const = default;
 };
 
+// Phase 4a D24: Tone::Neutral explains the chart or table right before it and is drawn with it; any other tone is about the run and is drawn at the top of the page.
 struct NoteBlock {
     QString text;
     Tone tone = Tone::Neutral;
