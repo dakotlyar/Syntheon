@@ -20,13 +20,36 @@ QString formatMetric(const TestResult &result, const QString &key, bool withUnit
     return Units::format(std::get<double>(m->value), m->unit, withUnit);
 }
 
+namespace {
+
+// The decimals hoverNumber prints v with: 4 significant figures, at most 3 decimals; but a value that would round to "0"
+// at 3 decimals (|v| < 0.0005) keeps its 4 significant figures (AP-5 nit), up to 15 decimals.
+int hoverDecimals(double v)
+{
+    const int sig = 3 - int(std::floor(std::log10(std::abs(v))));
+    return std::abs(v) < 0.0005 ? std::min(sig, 15) : std::clamp(sig, 0, 3);
+}
+
+// v rounded the way hoverNumber prints it.
+double hoverRounded(double v)
+{
+    if (!std::isfinite(v) || v == 0)
+        return v;
+    const double scale = std::pow(10.0, hoverDecimals(v));
+    return std::round(v * scale) / scale;
+}
+
+} // namespace
+
 QString hoverNumber(double v)
 {
     if (!std::isfinite(v))
         return QStringLiteral("—");
     if (v == 0)
         return QStringLiteral("0");
-    const int decimals = std::clamp(3 - int(std::floor(std::log10(std::abs(v)))), 0, 3);
+    if (std::abs(v) < 1e-12)  // beyond 15 decimals: 4 significant figures in scientific form ("1.235e-20")
+        return QLocale(QLocale::English).toString(v, 'g', 4);
+    const int decimals = hoverDecimals(v);
     QString s = QLocale(QLocale::English).toString(v, 'f', decimals);
     if (decimals > 0) {
         while (s.endsWith(QLatin1Char('0')))
@@ -39,26 +62,13 @@ QString hoverNumber(double v)
     return s;
 }
 
-namespace {
-
-// v rounded the way hoverNumber prints it.
-double hoverRounded(double v)
-{
-    if (!std::isfinite(v) || v == 0)
-        return v;
-    const int decimals = std::clamp(3 - int(std::floor(std::log10(std::abs(v)))), 0, 3);
-    const double scale = std::pow(10.0, decimals);
-    return std::round(v * scale) / scale;
-}
-
-} // namespace
-
 QString hoverValue(double v, const QString &unit)
 {
     if (unit == QLatin1String("KiB")) {
         // The unit follows the rounded value, so 1023.9996 KiB reads "1 MiB", not "1,024 KiB" (AP-5 nit).
+        // GiB on the MiB value as it would print (AP-5 L2): 1048064 KiB is 1023.5 MiB, which prints "1,024", so "1 GiB".
         const double rounded = hoverRounded(v);
-        if (rounded >= 1048576)
+        if (hoverRounded(v / 1024) >= 1024)
             return hoverNumber(v / 1048576) + QStringLiteral(" GiB");
         if (rounded >= 1024)
             return hoverNumber(v / 1024) + QStringLiteral(" MiB");

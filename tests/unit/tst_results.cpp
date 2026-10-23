@@ -324,6 +324,11 @@ private slots:
         QCOMPARE(n(-2.5), QStringLiteral("-2.5"));
         QCOMPARE(n(9.9996), QStringLiteral("10"));
         QCOMPARE(n(NAN), QStringLiteral("—"));
+        // AP-5 nit: a value below 0.0005 keeps 4 significant figures instead of reading "0".
+        QCOMPARE(n(0.0004), QStringLiteral("0.0004"));
+        QCOMPARE(n(0.0001236), QStringLiteral("0.0001236"));
+        QCOMPARE(n(-0.0003), QStringLiteral("-0.0003"));
+        QCOMPARE(n(0.0006), QStringLiteral("0.001"));  // at or above 0.0005: the 3-decimal rule as specified
         QCOMPARE(hoverValue(5836.8, QStringLiteral("KiB")), QStringLiteral("5.7 MiB"));
         QCOMPARE(hoverValue(24, QStringLiteral("KiB")), QStringLiteral("24 KiB"));
         QCOMPARE(hoverValue(1048576, QStringLiteral("KiB")), QStringLiteral("1 GiB"));
@@ -331,6 +336,10 @@ private slots:
         QCOMPARE(hoverValue(1023.9996, QStringLiteral("KiB")), QStringLiteral("1 MiB"));
         QCOMPARE(hoverValue(1023.4, QStringLiteral("KiB")), QStringLiteral("1,023 KiB"));
         QCOMPARE(hoverValue(1048575.9, QStringLiteral("KiB")), QStringLiteral("1 GiB"));
+        // AP-5 L2: GiB once the MiB value prints as 1,024 (1048064 KiB = 1023.5 MiB).
+        QCOMPARE(hoverValue(1048064, QStringLiteral("KiB")), QStringLiteral("1 GiB"));
+        QCOMPARE(hoverValue(1048575, QStringLiteral("KiB")), QStringLiteral("1 GiB"));
+        QCOMPARE(hoverValue(1047552, QStringLiteral("KiB")), QStringLiteral("1,023 MiB"));
         QCOMPARE(hoverValue(98.25, QStringLiteral("%")), QStringLiteral("98.25%"));
         QCOMPARE(hoverValue(61.5, QStringLiteral("°C")), QStringLiteral("61.5 °C"));
         QCOMPARE(hoverValue(3, QString()), QStringLiteral("3"));

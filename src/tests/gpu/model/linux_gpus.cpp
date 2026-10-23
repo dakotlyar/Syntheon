@@ -164,6 +164,7 @@ QVector<GpuEntry> mergeLinuxGpus(const QVector<VkDeviceRecord> &vk, const QVecto
         g.name = d.name;
         g.kind = kindOf(d.type);
         g.vramBytes = d.deviceLocalBytes;
+        g.driverVersion = linuxDriverText({}, d.driverInfo);  // no kernel driver to name: the Vulkan driver's version alone (AP-5 L1)
         g.id = makeLinuxGpuId(d.vendorId, d.deviceId, d.pciSlot);
         if (d.pciSlot.isEmpty()) {
             const QString key = QStringLiteral("%1:%2").arg(d.vendorId).arg(d.deviceId);

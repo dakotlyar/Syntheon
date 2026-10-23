@@ -48,18 +48,20 @@ if(NOT SYNBENCH_SDK_DXC OR NOT SYNBENCH_SDK_FXC)
     message(FATAL_ERROR "dxc.exe/fxc.exe not found in the Windows SDK (looked in: ${_sdk_bins})")
 endif()
 
-# The compilers' versions, for the GPU test's `shaders` metric (§10): the first "major.minor[.patch...]" in
-# `dxc.exe -version` / the banner of `fxc.exe /?`; "unknown" when the tool doesn't say.
-function(_synbench_tool_version out exe)
+# The compilers' versions, for the GPU test's `shaders` metric (§10): the first version in `dxc.exe -version` /
+# the banner of `fxc.exe /?`, matched by `regex`; "unknown" when the tool doesn't say. dxc: the first x.y.z
+# ("dxcompiler.dll: 1.8 - 1.8.2505.1" -> 1.8.2505, AP-5 nit); fxc: the first x.y ("Shader Compiler 10.1", before the
+# banner's D3DCompiler path, whose SDK folder "10.0.22621.0" must not match).
+function(_synbench_tool_version out regex exe)
     execute_process(COMMAND "${exe}" ${ARGN} OUTPUT_VARIABLE _o ERROR_VARIABLE _e RESULT_VARIABLE _rc TIMEOUT 30)
-    string(REGEX MATCH "[0-9]+\\.[0-9]+(\\.[0-9]+)*" _v "${_o}\n${_e}")
+    string(REGEX MATCH "${regex}" _v "${_o}\n${_e}")
     if(NOT _v)
         set(_v "unknown")
     endif()
     set(${out} "${_v}" CACHE INTERNAL "")
 endfunction()
-_synbench_tool_version(SYNBENCH_GPU_DXC_VERSION "${SYNBENCH_SDK_DXC}" -version)
-_synbench_tool_version(SYNBENCH_GPU_FXC_VERSION "${SYNBENCH_SDK_FXC}" /?)
+_synbench_tool_version(SYNBENCH_GPU_DXC_VERSION "[0-9]+\\.[0-9]+\\.[0-9]+" "${SYNBENCH_SDK_DXC}" -version)
+_synbench_tool_version(SYNBENCH_GPU_FXC_VERSION "[0-9]+\\.[0-9]+" "${SYNBENCH_SDK_FXC}" /?)
 
 set(_sb_shader_incs "")
 

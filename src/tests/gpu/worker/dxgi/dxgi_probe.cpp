@@ -88,6 +88,17 @@ void probeDx11AndD2d(IDXGIAdapter1 *adapter, ApiProbe *dx11, ApiProbe *d2d)
     dx11->version = std::string("DirectX 11 (feature level ") + (level == D3D_FEATURE_LEVEL_11_1 ? "11_1" : "11_0") + ")";
 }
 
+// Little-endian, as VkPhysicalDeviceIDProperties::deviceLUID.
+std::array<std::uint8_t, 8> luidBytes(const LUID &luid)
+{
+    std::array<std::uint8_t, 8> out{};
+    for (int i = 0; i < 4; ++i) {
+        out[std::size_t(i)] = std::uint8_t(luid.LowPart >> (8 * i));
+        out[std::size_t(4 + i)] = std::uint8_t(DWORD(luid.HighPart) >> (8 * i));
+    }
+    return out;
+}
+
 AdapterProbe describe(IDXGIAdapter1 *adapter, const DXGI_ADAPTER_DESC1 &desc)
 {
     AdapterProbe a;
@@ -96,12 +107,7 @@ AdapterProbe describe(IDXGIAdapter1 *adapter, const DXGI_ADAPTER_DESC1 &desc)
     a.deviceId = desc.DeviceId;
     a.software = (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
     a.dedicatedBytes = std::int64_t(desc.DedicatedVideoMemory);
-    const DWORD low = desc.AdapterLuid.LowPart;
-    const LONG high = desc.AdapterLuid.HighPart;
-    for (int i = 0; i < 4; ++i) {
-        a.luid[std::size_t(i)] = std::uint8_t(low >> (8 * i));  // little-endian, as VkPhysicalDeviceIDProperties::deviceLUID
-        a.luid[std::size_t(4 + i)] = std::uint8_t(DWORD(high) >> (8 * i));
-    }
+    a.luid = luidBytes(desc.AdapterLuid);
     a.sharedBytes = std::int64_t(desc.SharedSystemMemory);
     {
         LARGE_INTEGER umd{};
@@ -109,10 +115,6 @@ AdapterProbe describe(IDXGIAdapter1 *adapter, const DXGI_ADAPTER_DESC1 &desc)
             a.driverVersion = std::to_string(HIWORD(umd.HighPart)) + "." + std::to_string(LOWORD(umd.HighPart)) + "."
                               + std::to_string(HIWORD(umd.LowPart)) + "." + std::to_string(LOWORD(umd.LowPart));
         }
-    }
-    {
-        ComPtr<IDXGIOutput> output;
-        a.drivesOutput = SUCCEEDED(adapter->EnumOutputs(0, &output));  // DXGI_ERROR_NOT_FOUND: none
     }
     a.dx12 = probeDx12(adapter, &a.umaKnown, &a.uma);
     probeDx11AndD2d(adapter, &a.dx11, &a.d2d);
@@ -156,6 +158,44 @@ std::vector<AdapterProbe> probeAdapters(bool allowSoftware, std::string *error)
         }
     }
     return out;
+}
+
+std::string otherDisplayAdapter(HMONITOR monitor, const std::array<std::uint8_t, 8> &renderLuid)
+{
+    if (!monitor)
+        return {};
+    ComPtr<IDXGIFactory1> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+        return {};
+    bool renderFound = false, renderSoftware = false, holderFound = false, holderRenders = false;
+    std::string holder;
+    for (UINT i = 0;; ++i) {
+        ComPtr<IDXGIAdapter1> adapter;
+        if (FAILED(factory->EnumAdapters1(i, &adapter)))
+            break;  // DXGI_ERROR_NOT_FOUND: the end of the list
+        DXGI_ADAPTER_DESC1 desc{};
+        if (FAILED(adapter->GetDesc1(&desc)))
+            continue;
+        const bool renders = luidBytes(desc.AdapterLuid) == renderLuid;
+        if (renders) {
+            renderFound = true;
+            renderSoftware = (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+        }
+        for (UINT o = 0; !holderFound; ++o) {
+            ComPtr<IDXGIOutput> output;
+            if (FAILED(adapter->EnumOutputs(o, &output)))
+                break;
+            DXGI_OUTPUT_DESC od{};
+            if (SUCCEEDED(output->GetDesc(&od)) && od.Monitor == monitor) {
+                holderFound = true;
+                holderRenders = renders;
+                holder = utf8(desc.Description);
+            }
+        }
+    }
+    if (!renderFound || renderSoftware || !holderFound || holderRenders)
+        return {};
+    return holder;
 }
 
 } // namespace sb::gpu::dxgi

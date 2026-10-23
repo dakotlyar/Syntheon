@@ -94,23 +94,6 @@ QString shadersText()
     return t;
 }
 
-// §15's hybrid note, Windows only (Linux: not detected): the chosen GPU drives no output while another real GPU does.
-QString displayGpuName(const QVector<GpuEntry> &list, int chosen)
-{
-#if defined(Q_OS_WIN)
-    if (chosen < 0 || chosen >= list.size() || !list[chosen].drivesDisplay.has_value() || *list[chosen].drivesDisplay)
-        return {};
-    for (const GpuEntry &g : list) {
-        if (g.id != list[chosen].id && g.kind != GpuKind::Software && g.drivesDisplay.value_or(false))
-            return g.name;
-    }
-#else
-    Q_UNUSED(list)
-    Q_UNUSED(chosen)
-#endif
-    return {};
-}
-
 QString kindName(GpuKind k)
 {
     return kindText(k);
@@ -288,11 +271,18 @@ QString naReason(const std::vector<ApiRun> &apis)
     return reasons.isEmpty() ? QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found") : reasons.join(QStringLiteral("; "));
 }
 
+// Where an API failed, for the reasons: "during start-up" (its worker never got ready, AP-5 L3) or "in <workload>".
+const QString kStartUp = QStringLiteral("start-up");
+QString failedWhere(const QString &workload)
+{
+    return workload == kStartUp ? QStringLiteral("during start-up") : QStringLiteral("in ") + workload;
+}
+
 // One GPU test run (§8): the sessions, the scene-by-scene loop, the metrics and the status.
 class GpuRun
 {
 public:
-    GpuRun(RunContext &ctx, const GpuEntry &gpu, const QString &displayGpu = {}) : m_ctx(ctx), m_gpu(gpu), m_displayGpu(displayGpu) {}
+    GpuRun(RunContext &ctx, const GpuEntry &gpu) : m_ctx(ctx), m_gpu(gpu) {}
 
     TestResult run();
 
@@ -307,7 +297,11 @@ private:
     {
         a.errored = true;
         a.active = false;
-        a.status = QStringLiteral("Error: ") + reason;
+        // The workload stays with the API (AP-5 nit: the APIs table's note for every errored API, not only the first one,
+        // which the sub-test's reason names): "Error: failed during Shading: <reason>"; a signature outlier's reason
+        // already names it ("drew Particles differently from Vulkan …").
+        a.status = reason.startsWith(QLatin1StringView("drew ")) ? QStringLiteral("Error: ") + reason
+                                                                 : QStringLiteral("Error: failed during %1: %2").arg(workloadName, reason);
         if (a.errorScene.isEmpty()) {
             a.errorScene = workloadName;
             a.errorReason = reason;
@@ -323,7 +317,6 @@ private:
 
     RunContext &m_ctx;
     const GpuEntry m_gpu;
-    const QString m_displayGpu;  // hybrid: the name of the GPU that drives the display, else empty
     std::vector<ApiRun> m_apis;
     std::vector<NativeRun> m_natives;  // Direct2D, Qt raster
     TestResult m_r;
@@ -467,7 +460,7 @@ TestResult GpuRun::run()
                 names << apiShort(a.id);
         }
         m_ctx.setPart(QStringLiteral("Starting"));
-        m_ctx.progress(0, QStringLiteral("Starting %1 on %2").arg(names.join(QStringLiteral(", ")), m_gpu.name));
+        report(0, QStringLiteral("Starting %1 on %2").arg(names.join(QStringLiteral(", ")), m_gpu.name));
     }
 
     // Start every worker at once, then wait for each (§2.5).
@@ -478,7 +471,7 @@ TestResult GpuRun::run()
         QString err;
         // D17: OpenGL runs in the environment that puts it on the chosen GPU (the offload variables).
         if (!a.session->start(apiKey(a.id), m_gpu.id, a.id == ApiId::OpenGl ? glEnvironment(m_gpu) : QProcessEnvironment(), &err, m_gpu.luid))
-            fail(a, QStringLiteral("starting"), err);
+            fail(a, kStartUp, err);
     }
     bool stopped = cancelled();
     for (ApiRun &a : m_apis) {
@@ -500,7 +493,7 @@ TestResult GpuRun::run()
             stopped = true;
             break;
         case ClientOutcome::Status::Failed:
-            fail(a, QStringLiteral("starting"), ready.reason);
+            fail(a, kStartUp, ready.reason);
             m_ctx.log(LogLevel::Error, QStringLiteral("%1: %2").arg(apiName(a.id), ready.reason));
             break;
         }
@@ -735,9 +728,18 @@ TestResult GpuRun::finish(bool stopped)
         r.metrics.append(text(QStringLiteral("gpu.hags"), {}, QStringLiteral("GPU scheduling (HAGS)"), QString::fromStdString(hags)));
     // §10's shader stamp: what the shaders this build uses were generated and compiled from.
     r.metrics.append(text(QStringLiteral("shaders"), {}, QStringLiteral("Shaders"), shadersText()));
-    // §15's hybrid note: the chosen GPU draws the frames but another one drives the monitors (Windows only).
-    if (!m_displayGpu.isEmpty())
-        r.metrics.append(text(QStringLiteral("gpu.display"), {}, QStringLiteral("Window shown by"), m_displayGpu));
+    // §15's hybrid note (M2): the worker found its window on an output of another GPU than the one drawing the frames
+    // (Windows: the window's monitor matched against each adapter's DXGI outputs). The first result that says so.
+    [&] {
+        for (const ApiRun &a : m_apis) {
+            for (const auto &[scene, res] : a.results) {
+                if (!res.displayGpu.isEmpty()) {
+                    r.metrics.append(text(QStringLiteral("gpu.display"), {}, QStringLiteral("Window shown by"), res.displayGpu));
+                    return;
+                }
+            }
+        }
+    }();
     for (const ApiRun &a : m_apis) {
         const QString key = apiKey(a.id);
         const QString name = apiName(a.id);
@@ -949,7 +951,7 @@ TestResult GpuRun::finish(bool stopped)
     for (const ApiRun &a : m_apis) {
         if (!a.errored)
             continue;
-        const QString why = QStringLiteral("%1 failed in %2: %3").arg(apiName(a.id), a.errorScene, a.errorReason);
+        const QString why = QStringLiteral("%1 failed %2: %3").arg(apiName(a.id), failedWhere(a.errorScene), a.errorReason);
         QString &slot = a.errorSub == kFill2dId ? firstFillReason : firstReason;
         if (slot.isEmpty())
             slot = why;
@@ -1253,7 +1255,7 @@ TestResult GpuTest::run(RunContext &ctx, const OptionValues &options)
             return TestResult::notAvailable(QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found"));
         at = *def;  // an unknown id falls back to the default (P11)
     }
-    GpuRun run(ctx, list[at], displayGpuName(list, at));
+    GpuRun run(ctx, list[at]);
     return run.run();
 }
 

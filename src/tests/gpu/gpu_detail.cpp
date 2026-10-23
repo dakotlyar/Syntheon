@@ -222,10 +222,12 @@ Failure failureOf(const QString &statusReason)
 }
 
 // The Note column of an API that errored: "failed during <workload>: <reason>", or "drew …" for a signature outlier.
+// The status says where since checkpoint 6 ("Error: failed during Shading: …", every errored API); an older run's
+// status has only the reason, and its workload is found for the API the sub-test's reason names.
 QString errorNote(const TestResult &r, const QString &name, const QString &status)
 {
     const QString reason = statusReason(status);
-    if (reason.startsWith(QStringLiteral("drew ")))
+    if (reason.startsWith(QStringLiteral("drew ")) || reason.startsWith(QStringLiteral("failed during ")))
         return reason;
     const QString prefix = name + QStringLiteral(" failed in ");
     for (const SubResult &s : r.subResults) {
@@ -246,6 +248,10 @@ TableBlock table(const QStringList &columns)
 
 DetailLayout GpuTest::detail(const TestResult &r) const
 {
+    // §12, AP-5 L8: an old v0 stub run has none of the real keys (no api.<api>.status), so it renders through its stored
+    // labels, as before task 34.
+    if (std::none_of(kApis.begin(), kApis.end(), [&](ApiId a) { return r.metric(apiStatusKey(apiKey(a), u"status")); }))
+        return genericDetailLayout(r);
     DetailLayout d;
     d.headlineMetrics = {QStringLiteral("score.3d"), QStringLiteral("score.2d")};
     d.headlineLabels.insert(QStringLiteral("score.3d"), QStringLiteral("3D"));
@@ -267,7 +273,9 @@ DetailLayout GpuTest::detail(const TestResult &r) const
     } else if (r.status == Status::Partial) {
         QString why = QStringLiteral("No GPU score");
         if (failure.matched) {
-            const QString what = failure.drew() ? failure.why.section(QStringLiteral(" ("), 0, 0) : QStringLiteral("failed in ") + failure.workload;
+            const QString what = failure.drew()                              ? failure.why.section(QStringLiteral(" ("), 0, 0)
+                                 : failure.workload == QLatin1StringView("start-up") ? QStringLiteral("failed during start-up")
+                                                                                     : QStringLiteral("failed in ") + failure.workload;
             why += QStringLiteral(" · %1 %2").arg(failure.api, what);
         }
         parts << why;
@@ -531,7 +539,7 @@ DetailLayout GpuTest::detail(const TestResult &r) const
         rows.append({nativePathKey(NativePath::QtRaster), nativePathName(NativePath::QtRaster), QStringLiteral("CPU path, scored")});
         TableBlock t = table({QStringLiteral("API"), QStringLiteral("Status"), QStringLiteral("Version"), QStringLiteral("Driver"),
                               QStringLiteral("Present"), QStringLiteral("Note")});
-        int ok = 0, error = 0, na = 0;
+        int ok = 0, error = 0, na = 0, stoppedRows = 0;
         for (const Row &row : std::as_const(rows)) {
             const QString status = apiStatus(r, row.key);
             if (status.isEmpty())
@@ -540,6 +548,7 @@ DetailLayout GpuTest::detail(const TestResult &r) const
             ok += word == QLatin1StringView("OK");
             error += word == QLatin1StringView("Error");
             na += word == QLatin1StringView("N/A");
+            stoppedRows += word == QLatin1StringView("Stopped");
             const auto field = [&](QStringView f) {
                 const QString v = text(r, apiStatusKey(row.key, f));
                 return DetailCell::literal(v.isEmpty() ? kDash : v);
@@ -564,6 +573,8 @@ DetailLayout GpuTest::detail(const TestResult &r) const
                 counts << QStringLiteral("%1 Error").arg(error);
             if (na)
                 counts << QStringLiteral("%1 N/A").arg(na);
+            if (stoppedRows)
+                counts << QStringLiteral("%1 Stopped").arg(stoppedRows);  // the counts add up to the rows (AP-5 L4)
             t.summary = counts.join(QStringLiteral(" · "));
             d.blocks.append({QStringLiteral("APIs"), t});
         }
@@ -626,11 +637,9 @@ DetailLayout GpuTest::detail(const TestResult &r) const
                                                  .arg(at, renderSize)
                                            : QStringLiteral("Rendered at %1 (%2 per frame), so FPS isn't comparable with 100%.").arg(at, renderSize),
                                        Tone::Warn}});
-    } else if (fit && !renderSize.isEmpty()) {
-        d.blocks.append({{}, NoteBlock{QStringLiteral("Scaled to fit this screen: %1 rendered per frame, so FPS isn't comparable with the full size.")
-                                           .arg(renderSize),
-                                       Tone::Warn}});
     }
+    // Scaled to fit at 100% (Dave, AP-5 M1): no note. The render size is unchanged (only the present pass scales down), so
+    // the FPS is comparable; the Render KPI already says "scaled to fit".
     if (r.status == Status::Partial) {
         QString note;
         if (failure.matched && failure.drew())
@@ -641,14 +650,27 @@ DetailLayout GpuTest::detail(const TestResult &r) const
         else
             note = r.statusReason.startsWith(QStringLiteral("No GPU score")) ? r.statusReason : QStringLiteral("No GPU score: %1").arg(r.statusReason);
         d.blocks.append({{}, NoteBlock{note, Tone::Warn}});
+    } else if (r.status == Status::Error) {
+        // AP-5 L5: an Error run says why at the top (nothing else on the page does).
+        QString note;
+        if (failure.matched && failure.drew())
+            note = QStringLiteral("No GPU score: %1 %2.").arg(failure.api, failure.why);
+        else if (failure.matched)
+            note = QStringLiteral("No GPU score: %1 failed during %2 (%3).").arg(failure.api, failure.workload, failure.why);
+        else
+            note = QStringLiteral("No GPU score: %1.").arg(r.statusReason.isEmpty() ? QStringLiteral("the test failed") : r.statusReason);
+        d.blocks.append({{}, NoteBlock{note, Tone::Warn}});
     } else if (r.status == Status::Cancelled) {
         d.blocks.append({{}, NoteBlock{QStringLiteral("Stopped before the end: the parts that finished are shown, without scores."), Tone::Warn}});
     } else if (r.status == Status::TimedOut || r.status == Status::Interrupted) {
         d.blocks.append({{}, NoteBlock{QStringLiteral("The test didn't finish: the parts that finished are shown, without scores."), Tone::Warn}});
     }
     if (errored(r, nativePathKey(NativePath::Direct2D))) {
-        if (const QString n = text(r, apiStatusKey(nativePathKey(NativePath::Direct2D), u"note")); !n.isEmpty())
-            d.blocks.append({{}, NoteBlock{n, Tone::Warn}});
+        // §15's sentence only (AP-5 L6): the stored note also holds the ready note and the worker's warnings, joined by " · ".
+        const QString n = text(r, apiStatusKey(nativePathKey(NativePath::Direct2D), u"note"));
+        const qsizetype at = n.indexOf(QStringLiteral("Direct2D failed during "));
+        if (at >= 0)
+            d.blocks.append({{}, NoteBlock{n.mid(at).section(QStringLiteral(" \u00b7 "), 0, 0), Tone::Warn}});
     }
     for (const ApiId a : apis) {
         if (const QString layers = text(r, apiStatusKey(apiKey(a), u"layers")); !layers.isEmpty())

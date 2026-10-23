@@ -28,12 +28,17 @@ struct AdapterProbe {
     std::int64_t dedicatedBytes = 0, sharedBytes = 0;
     bool umaKnown = false, uma = false;  // D3D12_FEATURE_DATA_ARCHITECTURE::UMA, when a D3D12 device could be made
     std::array<std::uint8_t, 8> luid{};
-    std::string driverVersion;  // IDXGIAdapter::CheckInterfaceSupport(IDXGIDevice) "a.b.c.d"; empty when it fails (software adapters)
-    bool drivesOutput = false;  // IDXGIAdapter::EnumOutputs(0) finds an output (a monitor is attached to this GPU)
+    std::string driverVersion;  // IDXGIAdapter::CheckInterfaceSupport(IDXGIDevice) "a.b.c.d" (the UMD version); empty when the call fails
     ApiProbe dx12, dx11, d2d;
 };
 
 // Empty on failure with *error ("CreateDXGIFactory1 failed (0x...)").
 std::vector<AdapterProbe> probeAdapters(bool allowSoftware, std::string *error);
+
+// §15's hybrid note (checkpoint 6, M2): the name of the adapter whose DXGI output shows `monitor` (the test window's,
+// MonitorFromWindow), when that adapter isn't the rendering one (`renderLuid`, in VkPhysicalDeviceIDProperties byte
+// order). Empty when it is the same adapter, when either isn't found (WARP isn't always listed), or when the rendering
+// adapter is a software one.
+std::string otherDisplayAdapter(HMONITOR monitor, const std::array<std::uint8_t, 8> &renderLuid);
 
 } // namespace sb::gpu::dxgi

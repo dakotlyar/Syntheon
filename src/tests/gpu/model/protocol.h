@@ -63,6 +63,9 @@ struct ResultEvent {
     int renderW = 0, renderH = 0, windowW = 0, windowH = 0;  // render physical, window logical
     double scale = 0;
     bool fit = false;
+    // Optional (checkpoint 6, M2; Windows): the GPU whose display output holds the window, when it isn't the GPU
+    // rendering (a hybrid laptop); "" = the same GPU, or not known.
+    QString displayGpu;
 };
 struct ErrorEvent {
     QString workload, reason;

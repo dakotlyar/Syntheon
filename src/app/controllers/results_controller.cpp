@@ -134,8 +134,7 @@ void ResultsController::setRun(RunRecord run, bool live)
     if (sameRun && !previousDetail.isEmpty()) {
         const QVariantList blocks = m_detailBlocks;
         const QString title = m_detailTitle, subtitle = m_detailSubtitle, note = m_detailNote, color = m_detailColor;
-        m_detailId = previousDetail;
-        buildDetail();
+        buildDetail();  // the same run keeps m_detailId (only a new run closes the page)
         if (m_detailBlocks != blocks || m_detailTitle != title || m_detailSubtitle != subtitle || m_detailNote != note || m_detailColor != color)
             emit detailChanged();
     } else {

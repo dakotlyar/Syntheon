@@ -111,6 +111,8 @@ QJsonObject encodeEvent(const Event &event)
                     o.insert(S("scale"), e.scale);
                     o.insert(S("fit"), e.fit);
                 }
+                if (!e.displayGpu.isEmpty())
+                    o.insert(S("displayGpu"), e.displayGpu);
                 return o;
             },
             [](const ErrorEvent &e) {
@@ -274,7 +276,7 @@ std::optional<Event> parseResult(const QJsonObject &o, QString *error)
         || !optional(o, "result", "present", Type::String, error) || !optional(o, "result", "screen", Type::String, error)
         || !optional(o, "result", "renderW", Type::Int, error) || !optional(o, "result", "renderH", Type::Int, error)
         || !optional(o, "result", "windowW", Type::Int, error) || !optional(o, "result", "windowH", Type::Int, error)
-        || !optional(o, "result", "scale", Type::Number, error))
+        || !optional(o, "result", "scale", Type::Number, error) || !optional(o, "result", "displayGpu", Type::String, error))
         return std::nullopt;
     const QJsonObject ft = o.value(S("ftMs")).toObject();
     for (const char *k : {"p1", "p50", "p99"}) {
@@ -310,6 +312,7 @@ std::optional<Event> parseResult(const QJsonObject &o, QString *error)
     e.windowH = o.value(S("windowH")).toInt();
     e.scale = o.value(S("scale")).toDouble();
     e.fit = o.value(S("fit")).toBool();
+    e.displayGpu = o.value(S("displayGpu")).toString();
     for (const QJsonValue &v : o.value(S("series")).toArray()) {
         const QJsonArray p = v.toArray();
         if (p.size() != 2) {

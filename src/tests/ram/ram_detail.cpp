@@ -605,6 +605,10 @@ DetailLayout RamTest::detail(const TestResult &r) const
         if (!problems.isEmpty())
             note += QLatin1Char(' ') + problems.join(QStringLiteral("; ")) + QLatin1Char('.');
         d.blocks.append({{}, NoteBlock{note, Tone::Warn}});
+    } else if (r.status == Status::Error) {
+        // AP-5 L5 (the GPU page's gap, shared here): an Error run says why at the top; nothing else on the page does.
+        d.blocks.append({{}, NoteBlock{QStringLiteral("No RAM score: %1.").arg(r.statusReason.isEmpty() ? QStringLiteral("the test failed") : r.statusReason),
+                                       Tone::Warn}});
     } else if (r.status == Status::Cancelled) {
         d.blocks.append({{}, NoteBlock{QStringLiteral("Stopped before the end: the parts that finished are shown, without scores."),
                                        Tone::Warn}});

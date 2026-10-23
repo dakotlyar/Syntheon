@@ -474,6 +474,14 @@ private slots:
         QCOMPARE(gg.gpu, g);
         const auto rr = std::get<pr::ReadyEvent>(*pr::parseLine(pr::encode(ready), nullptr));
         QVERIFY(std::abs(rr.scale - 1.25) < 1e-9 && rr.gpuTimestamps && !rr.fit && rr.screen == QStringLiteral("DP-3"));
+        // M2: the GPU holding the window's output is optional and round-trips when sent.
+        QVERIFY(r.displayGpu.isEmpty() && !pr::encode(res).contains("displayGpu"));
+        {
+            pr::ResultEvent hybrid = res;
+            hybrid.displayGpu = QStringLiteral("AMD Radeon(TM) Graphics");
+            const auto h = std::get<pr::ResultEvent>(*pr::parseLine(pr::encode(hybrid), nullptr));
+            QCOMPARE(h.displayGpu, QStringLiteral("AMD Radeon(TM) Graphics"));
+        }
         // The fastest frame (checkpoint 5, H1): optional, round-tripped when sent.
         QVERIFY(!r.ftMin);
         res.ftMin = 1.75;
@@ -745,6 +753,14 @@ private slots:
         QCOMPARE(linuxDriverText(QStringLiteral("nvidia"), QStringLiteral("615.78.08")), QStringLiteral("nvidia \u00b7 615.78.08"));
         QCOMPARE(linuxDriverText(QStringLiteral("i915"), {}), QStringLiteral("i915"));
         QCOMPARE(linuxDriverText({}, QStringLiteral("Mesa 25.2.4")), QStringLiteral("Mesa 25.2.4"));
+        // AP-5 L1: a Vulkan device without a DRM card (lavapipe) still gets its Vulkan driver's version.
+        VkDeviceRecord lvp;
+        lvp.name = QStringLiteral("llvmpipe (LLVM 21.1.0, 256 bits)");
+        lvp.vendorId = 0x10005;
+        lvp.type = QStringLiteral("cpu");
+        lvp.apiVersion = QStringLiteral("1.4.318");
+        lvp.driverInfo = QStringLiteral("Mesa 26.2.4-arch3.1 (LLVM 21.1.0)");
+        QCOMPARE(mergeLinuxGpus({lvp}, {}).value(0).driverVersion, QStringLiteral("Mesa 26.2.4-arch3.1"));
         DxgiAdapterRecord a;
         a.name = QStringLiteral("A");
         a.vendorId = 0x10de;
@@ -756,24 +772,6 @@ private slots:
         const auto e = pr::parseLine(pr::encode(pr::GpuEvent{gpus[0]}), nullptr);
         QVERIFY(e);
         QCOMPARE(std::get<pr::GpuEvent>(*e).gpu.driverVersion, QStringLiteral("32.0.21025.10"));
-    }
-
-    // §15's hybrid note (Windows): the adapter's DXGI output answer becomes GpuEntry::drivesDisplay.
-    void windowsDrivesOutput()
-    {
-        DxgiAdapterRecord a, b;
-        a.name = QStringLiteral("A");
-        a.vendorId = 0x10de;
-        a.deviceId = 1;
-        a.dedicatedBytes = qint64(8) << 30;
-        a.drivesOutput = false;
-        b = a;
-        b.name = QStringLiteral("B");
-        b.deviceId = 2;
-        b.drivesOutput = true;
-        const QVector<GpuEntry> gpus = mergeWindowsGpus({a, b}, {});
-        QCOMPARE(gpus[0].drivesDisplay, std::optional<bool>(false));
-        QCOMPARE(gpus[1].drivesDisplay, std::optional<bool>(true));
     }
 
     // M2: the LUID is carried (probe list -> protocol -> the worker's arguments) so every API selects the same adapter.

@@ -534,6 +534,7 @@ public:
             for (std::size_t i = 0; i < 8; ++i)
                 init.luid[i] = bytes[i];
             init.hasLuid = true;
+            m_renderLuid = bytes;
         }
         init.renderWidth = std::uint32_t(m_plan.render.width);
         init.renderHeight = std::uint32_t(m_plan.render.height);
@@ -774,6 +775,13 @@ private:
                 return stopped(w);
         }
         m_window->rebase();  // the baseline is the placement as it is now, resized or not
+#if defined(_WIN32)
+        // §15's hybrid note (M2): which GPU's output holds the window where it is now. Only with a LUID: the run's
+        // GPU is known by it; a probe-less run (no LUID) can't tell.
+        if (m_renderLuid)
+            m_displayGpu = QString::fromStdString(dxgi::otherDisplayAdapter(
+                MonitorFromWindow(reinterpret_cast<HWND>(m_window->winId()), MONITOR_DEFAULTTONEAREST), *m_renderLuid));
+#endif
         return std::nullopt;
     }
 
@@ -842,6 +850,7 @@ private:
             e.windowH = m_plan.windowLogical.height;
             e.scale = m_scale;
             e.fit = m_plan.fit;
+            e.displayGpu = m_displayGpu;
         }
         return e;
     }
@@ -878,6 +887,8 @@ private:
     double m_scale = 1.0;
     std::size_t m_fakeIndex = 0;  // dev hook: how many re-plans have looked at SYNBENCH_GPU_FAKE_SCREEN
     QString m_screenName;
+    std::optional<std::array<quint8, 8>> m_renderLuid;  // --luid: the adapter the frames are drawn on (Windows)
+    QString m_displayGpu;  // Windows: the GPU whose output holds the window, when it isn't that adapter (M2)
     std::string m_present;  // the last resume()'s present mode (the result's "present")
 };
 
@@ -988,7 +999,6 @@ int main(int argc, char **argv)
             r.software = p.software;
             r.dedicatedBytes = p.dedicatedBytes;
             r.sharedBytes = p.sharedBytes;
-            r.drivesOutput = p.drivesOutput;
             r.driverVersion = QString::fromStdString(p.driverVersion);
             r.umaKnown = p.umaKnown;
             r.uma = p.uma;

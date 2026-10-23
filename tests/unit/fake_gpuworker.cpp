@@ -85,8 +85,10 @@ void result(const std::string &workload)
         gpu = gl ? ",\"gpuMs\":9" : ",\"gpuMs\":16";
     }
     const std::string sig(864, other ? 'f' : '0');
+    // "hybrid" (M2): the window landed on an output of another GPU than the one rendering.
+    const std::string shownBy = g_mode == "hybrid" ? ",\"displayGpu\":\"Fake iGPU\"" : "";
     out("{\"ev\":\"result\",\"workload\":\"" + workload + "\",\"frames\":" + std::to_string(frames) + ",\"seconds\":" + seconds + ",\"fps\":" + fps + ","
-        "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11,\"min\":" + min + "},\"cpuMs\":1" + gpu + ",\"series\":[[0.05,10.0],[0.15,10.0]],\"sig\":\"" + sig + "\"}");
+        "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11,\"min\":" + min + "},\"cpuMs\":1" + gpu + ",\"series\":[[0.05,10.0],[0.15,10.0]],\"sig\":\"" + sig + "\"" + shownBy + "}");
 }
 
 // Sleeps ms in small steps; false when "stop" arrived (the caller exits 4).
@@ -172,6 +174,8 @@ int fakeMain(int argc, char **argv)
         sleepMs(60000, true);
         return g_stop ? 4 : 0;
     }
+    if (mode == "crash-start-gl" && api == "opengl")
+        crash();  // before "ready": the API fails during start-up (AP-5 L3)
     ready();
     if ((mode == "crash-d2d" && api == "d2d") || (mode == "crash-qt" && api == "qt"))
         crash();

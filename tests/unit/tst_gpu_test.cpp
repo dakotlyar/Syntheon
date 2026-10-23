@@ -559,7 +559,8 @@ private slots:
         QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: OpenGL failed in Shading: the GPU worker exited with code")),
                  qPrintable(r.statusReason));
         QCOMPARE(r.subResults[0].status, Status::Error);
-        QVERIFY(textOf(r, QStringLiteral("api.opengl.status")).startsWith(QLatin1StringView("Error: ")));
+        QVERIFY2(textOf(r, QStringLiteral("api.opengl.status")).startsWith(QLatin1StringView("Error: failed during Shading: ")),
+                 qPrintable(textOf(r, QStringLiteral("api.opengl.status"))));
         for (const char *scene : {"geometry", "drawcalls", "shading", "particles"})
             QVERIFY(r.metric(QStringLiteral("scenes3d.vulkan.%1.fps").arg(QLatin1String(scene))));
         QVERIFY(r.metric(QStringLiteral("scenes3d.opengl.drawcalls.fps")));      // what it measured before the crash
@@ -688,7 +689,7 @@ private slots:
         const TestResult r = t.run(ctx, {});
         QCOMPARE(r.status, Status::Partial);
         QCOMPARE(r.statusReason, QStringLiteral("No GPU score: OpenGL failed in Shading: too few frames to measure (19)"));
-        QCOMPARE(textOf(r, QStringLiteral("api.opengl.status")), QStringLiteral("Error: too few frames to measure (19)"));
+        QCOMPARE(textOf(r, QStringLiteral("api.opengl.status")), QStringLiteral("Error: failed during Shading: too few frames to measure (19)"));
         QCOMPARE(r.subResults[0].status, Status::Error);
         QVERIFY(r.metric(QStringLiteral("scenes3d.opengl.drawcalls.fps")));
         QVERIFY(!r.metric(QStringLiteral("scenes3d.opengl.shading.fps")));
@@ -730,7 +731,7 @@ private slots:
         const TestResult r = t.run(ctx, {});
         QCOMPARE(r.status, Status::Partial);
         QCOMPARE(r.statusReason, QStringLiteral("No GPU score: OpenGL failed in %1: implausible frame rate").arg(workload));
-        QCOMPARE(textOf(r, QStringLiteral("api.opengl.status")), QStringLiteral("Error: implausible frame rate"));
+        QCOMPARE(textOf(r, QStringLiteral("api.opengl.status")), QStringLiteral("Error: failed during %1: implausible frame rate").arg(workload));
         QVERIFY(!r.metric(key));
         QCOMPARE(r.subResults[errorSub].status, Status::Error);
         QCOMPARE(r.subResults[2 - errorSub].status, Status::Ok);
@@ -845,6 +846,57 @@ private slots:
         Ctx ctx;
         const TestResult r = t.run(ctx, {});
         QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: Qt raster failed during start-up: ")), qPrintable(r.statusReason));
+    }
+
+    // AP-5 L3: a 3D API whose worker dies before "ready" failed "during start-up", never "in starting".
+    void apiStartupFailureSaysSo()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-start-gl")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = scored(t, t.run(ctx, {}));
+        QCOMPARE(r.status, Status::Partial);
+        QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: OpenGL failed during start-up: ")), qPrintable(r.statusReason));
+        QVERIFY2(textOf(r, QStringLiteral("api.opengl.status")).startsWith(QLatin1StringView("Error: failed during start-up: ")),
+                 qPrintable(textOf(r, QStringLiteral("api.opengl.status"))));
+        const DetailLayout d = t.detail(r);
+        QVERIFY2(d.subtitle.startsWith(QStringLiteral("No GPU score · OpenGL failed during start-up · ")), qPrintable(d.subtitle));
+        QVERIFY(noteContaining(d, QStringLiteral("No GPU score: OpenGL failed during start-up (")));
+        QVERIFY(!noteContaining(d, QStringLiteral("starting")));
+        QVERIFY2(cell(tableOf(d, QStringLiteral("APIs")), 3, 5).startsWith(QLatin1StringView("failed during start-up: ")),
+                 qPrintable(cell(tableOf(d, QStringLiteral("APIs")), 3, 5)));
+    }
+
+    // AP-5 nit: every errored API keeps its workload in the APIs table, not only the one the sub-test's reason names.
+    void everyErroredApiKeepsItsWorkload()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-all-at-shading")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = scored(t, t.run(ctx, {}));
+        const DetailLayout d = t.detail(r);
+        const TableBlock &apis = tableOf(d, QStringLiteral("APIs"));
+        for (const int row : {0, 3}) {  // Vulkan, OpenGL
+            QCOMPARE(cell(apis, row, 1), QStringLiteral("Error"));
+            QVERIFY2(cell(apis, row, 5).startsWith(QLatin1StringView("failed during Shading: ")), qPrintable(cell(apis, row, 5)));
+        }
+    }
+
+    // M2: the worker reports the GPU whose output holds its window; the result stores it as gpu.display and the page warns.
+    void hybridWindowIsStoredFromTheWorker()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("hybrid")});
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = scored(t, t.run(ctx, {}));
+        QCOMPARE(textOf(r, QStringLiteral("gpu.display")), QStringLiteral("Fake iGPU"));
+        const NoteBlock *n = noteContaining(t.detail(r), QStringLiteral("the window is shown by another GPU"));
+        QVERIFY(n && n->tone == Tone::Warn);
     }
 
     // §9 on native 2D (Dave): an implausible frame rate is that path's Error in that workload. Qt raster's is the native2d
@@ -1204,6 +1256,20 @@ private slots:
         }
         const NoteBlock *rendered = noteContaining(t.detail(r), QStringLiteral("Rendered at 150%"));
         QVERIFY(rendered && rendered->tone == Tone::Warn);
+        // Scaled to fit at 100% (Dave, AP-5 M1): the render size is the full one, so the FPS is comparable: no note at all;
+        // the Render KPI still says "scaled to fit".
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("render.size"))
+                m.value = QStringLiteral("1920×1080");
+            else if (m.key == QLatin1StringView("render.scale"))
+                m.value = 100.0;
+            else if (m.key == QLatin1StringView("window.size"))
+                m.value = QStringLiteral("1664×936 (scaled to fit the screen)");
+        }
+        const DetailLayout at100 = t.detail(r);
+        QVERIFY(!noteContaining(at100, QStringLiteral("comparable")));
+        QVERIFY(!noteContaining(at100, QStringLiteral("Scaled to fit")));
+        QCOMPARE(blocksOf<KpisBlock>(at100)[0]->items[3].unitOverride, QStringLiteral("at 100% · scaled to fit"));
     }
 
     // A Stopped run builds from what is there; nothing is invented.
@@ -1221,12 +1287,75 @@ private slots:
         const NoteBlock *n = noteContaining(d, QStringLiteral("Stopped before the end"));
         QVERIFY(n && n->tone == Tone::Warn);
         QCOMPARE(cell(tableOf(d, QStringLiteral("Sub-tests")), 0, 2), QStringLiteral("Stopped"));
+        // AP-5 L4: the APIs summary counts the Stopped rows, so the counts add up to the rows.
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("api.dx11.status") || m.key == QLatin1StringView("api.opengl.status") || m.key == QLatin1StringView("api.qt.status"))
+                m.value = QStringLiteral("Stopped");
+        }
+        QCOMPARE(tableOf(t.detail(r), QStringLiteral("APIs")).summary, QStringLiteral("3 OK · 3 Stopped"));
         // A result with nothing in it: no crash, no blocks that need data.
         TestResult empty;
         empty.status = Status::Error;
         const DetailLayout e = t.detail(empty);
         QVERIFY(blocksOf<LineChartBlock>(e).isEmpty());
         QCOMPARE(indexOfTable(e, QStringLiteral("APIs")), -1);
+    }
+
+    // AP-5 L5: an Error run (no part Ok) says why at the top, as a Warn note.
+    void detailErrorRunSaysWhy()
+    {
+        GpuTest t;
+        TestResult r = windowsRun(t);
+        r.status = Status::Error;
+        r.statusReason = QStringLiteral("Vulkan failed in Geometry: the GPU driver reset");
+        r.score.reset();
+        const DetailLayout d = t.detail(r);
+        const NoteBlock *n = noteContaining(d, QStringLiteral("No GPU score"));
+        QVERIFY(n);
+        QCOMPARE(n->text, QStringLiteral("No GPU score: Vulkan failed during Geometry (the GPU driver reset)."));
+        QVERIFY(n->tone == Tone::Warn);
+        r.statusReason = QStringLiteral("no 3D API produced a result");
+        const DetailLayout generic = t.detail(r);
+        QVERIFY(noteContaining(generic, QStringLiteral("No GPU score")));
+        QCOMPARE(noteContaining(generic, QStringLiteral("No GPU score"))->text, QStringLiteral("No GPU score: no 3D API produced a result."));
+    }
+
+    // AP-5 L6: the Direct2D Warn note is §15's sentence alone, not the whole stored note.
+    void detailDirect2dNoteIsTheSentence()
+    {
+        GpuTest t;
+        TestResult r = windowsRun(t);
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("api.d2d.status"))
+                m.value = QStringLiteral("Error: the GPU worker exited with code 3");
+        }
+        addText(r, QStringLiteral("api.d2d.note"),
+                QStringLiteral("Direct2D 1.3 on the D3D11 device \u00b7 the bundled font isn't in the worker; Segoe UI instead \u00b7 "
+                               "Direct2D failed during Text (the GPU worker exited with code 3). It isn't scored, so the GPU score stands."));
+        const DetailLayout d = t.detail(r);
+        const NoteBlock *n = noteContaining(d, QStringLiteral("Direct2D failed during"));
+        QVERIFY(n && n->tone == Tone::Warn);
+        QCOMPARE(n->text, QStringLiteral("Direct2D failed during Text (the GPU worker exited with code 3). It isn't scored, so the GPU score stands."));
+    }
+
+    // §12, AP-5 L8: an old v0 stub GPU run (no api.<api>.status at all) renders through its stored labels.
+    void stubRunUsesTheGenericLayout()
+    {
+        GpuTest t;
+        TestResult r;
+        r.testId = QStringLiteral("gpu");
+        r.status = Status::Ok;
+        addNumber(r, QStringLiteral("scenes3d.vulkan.fps"), 412, QStringLiteral("fps"));
+        addNumber(r, QStringLiteral("fill2d.vulkan"), 79.6, QStringLiteral("Gpx/s"));
+        addNumber(r, QStringLiteral("native2d.text"), 3.25, QStringLiteral("MOps/s"));
+        const DetailLayout d = t.detail(r);
+        const DetailLayout g = genericDetailLayout(r);
+        QCOMPARE(d.blocks.size(), g.blocks.size());
+        QCOMPARE(d.subtitle, g.subtitle);
+        QCOMPARE(indexOfTable(d, QStringLiteral("APIs")), -1);
+        QVERIFY(blocksOf<KpisBlock>(d).size() == blocksOf<KpisBlock>(g).size());
+        // A real run (any api.<api>.status) keeps the GPU page.
+        QVERIFY(indexOfTable(t.detail(windowsRun(t)), QStringLiteral("APIs")) >= 0);
     }
 };
 
