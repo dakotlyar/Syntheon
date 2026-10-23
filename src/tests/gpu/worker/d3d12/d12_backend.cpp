@@ -222,7 +222,7 @@ std::string D3D12Backend::load(const SceneData &scene)
     m_ldrA.rtv = kRtvLdrA;
     m_loaded = true;
     m_lastDraws = 0;
-    // Task 19: the scenes (Quads and Sprites still clear ldrA, task 30).
+    // The scenes (task 19) and the fill workloads (task 30); a native 2D workload is the clear workload.
     std::string e;
     switch (scene.workload) {
     case Workload::Geometry:
@@ -396,17 +396,20 @@ void D3D12Backend::recordWorkload(ID3D12GraphicsCommandList *list, Slot &slot, d
     list->SetGraphicsRootConstantBufferView(1, slot.objectConstants ? slot.objectConstants->GetGPUVirtualAddress() : frameAddress);
     list->SetGraphicsRootConstantBufferView(2, frameAddress + kPassBase);
     list->SetGraphicsRootDescriptorTable(3, m_ctx.srvGpu(m_presentTable));
-    switch (m_work ? m_work->workload : Workload::Quads) {
-    case Workload::Geometry:
-    case Workload::DrawCalls: recordScene(list, slot, t); return;
-    case Workload::Shading: recordShading(list, slot, t); return;
-    case Workload::Particles: recordParticles(list, slot, t); return;
-    case Workload::Quads:
-    case Workload::Sprites: recordFill(list, slot, t); return;
-    case Workload::Shapes:
-    case Workload::Text:
-    case Workload::Blits:
-    case Workload::Gradients: break;
+    // No workload loaded (unreachable today): the clear workload below, never a fill path without its state.
+    if (m_work) {
+        switch (m_work->workload) {
+        case Workload::Geometry:
+        case Workload::DrawCalls: recordScene(list, slot, t); return;
+        case Workload::Shading: recordShading(list, slot, t); return;
+        case Workload::Particles: recordParticles(list, slot, t); return;
+        case Workload::Quads:
+        case Workload::Sprites: recordFill(list, slot, t); return;
+        case Workload::Shapes:
+        case Workload::Text:
+        case Workload::Blits:
+        case Workload::Gradients: break;
+        }
     }
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     // DX-1: the previous frame's present pass sampled ldrA, a readback copied it.

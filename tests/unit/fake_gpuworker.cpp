@@ -13,6 +13,7 @@
 //     mismatch-fill      like ok, but the opengl worker draws the fill workloads (quads, sprites) differently (200 fps, another signature)
 //     crash-at-quads     like ok, but the opengl worker crashes at `run quads`
 //     crash-at-shading   like ok, but the opengl worker crashes at `run shading` (the second API of the GPU test's case)
+//     crash-all-at-shading  like ok, but every 3D API's worker crashes at `run shading` (no API reaches the fills)
 //     crash-d2d / crash-qt   like ok, but the native path with that --api crashes right after ready
 //     d2d-fast           like ok, but the d2d worker's native results are four times faster (more frames)
 //     exit-after-finish  like ok, but the native paths (d2d, qt) exit with code 1 right after their last result
@@ -222,7 +223,8 @@ int fakeMain(int argc, char **argv)
             }
             if (mode == "crash-at-quads" && api == "opengl" && item.rfind("quads", 0) == 0)
                 crash();
-            if (mode == "crash-after-ready" || (mode == "crash-at-shading" && api == "opengl" && item.rfind("shading", 0) == 0))
+            if (mode == "crash-after-ready" || (mode == "crash-at-shading" && api == "opengl" && item.rfind("shading", 0) == 0)
+                || (mode == "crash-all-at-shading" && item.rfind("shading", 0) == 0))
                 crash();
             if (!sleepMs(millis(item), true))
                 return 4;

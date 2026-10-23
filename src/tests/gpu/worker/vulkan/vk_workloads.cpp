@@ -1078,7 +1078,9 @@ std::string VulkanBackend::loadFill(const SceneData &scene)
                 return e;
         }
     }
-    w.draws = quads ? 1 : std::uint32_t(sc::spriteBatches(w.fillCount).size());
+    if (!quads)
+        w.spriteBatches = sc::spriteBatches(w.fillCount);
+    w.draws = quads ? 1 : std::uint32_t(w.spriteBatches.size());
     return {};
 }
 
@@ -1122,7 +1124,7 @@ void VulkanBackend::recordFill(VkCommandBuffer cmd, Slot &slot, double t)
         } else {
             const VkDeviceSize zero = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &slot.spriteRing.buffer, &zero);
-            for (const sc::SpriteBatch &b : sc::spriteBatches(w.fillCount)) {
+            for (const sc::SpriteBatch &b : w.spriteBatches) {
                 vkCmdDraw(cmd, 6, b.count, 0, b.first);  // firstInstance = the batch's first sprite
                 ++draws;
             }

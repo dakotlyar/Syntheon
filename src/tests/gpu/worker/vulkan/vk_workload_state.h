@@ -7,6 +7,7 @@
 // the backend: only these two files include it.
 
 #include "tests/gpu/worker/vulkan/vk_backend.h"
+#include "tests/gpu/worker/scene_constants.h"
 
 #include <array>
 #include <vector>
@@ -39,6 +40,7 @@ struct VulkanBackend::WorkloadState {
 
     // Quads and Sprites (task 29): layers or sprites; w.scene.sprites is the CPU copy writeSprites() reads; pipeline + materialSets[0].
     std::uint32_t fillCount = 0;
+    std::vector<sc::SpriteBatch> spriteBatches;  // the Sprites' batches, made once at load (no allocation in the timed loop)
 
     // Particles + post (task 12): the ground uses geometry.hlsl (pipeline), the
     // sky and the particles their own; materials[0] is the soft disc (materialSets[0]).

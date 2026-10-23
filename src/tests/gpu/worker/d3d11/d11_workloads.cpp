@@ -461,7 +461,9 @@ std::string D3D11Backend::loadFill(const SceneData &scene)
         if (const HRESULT hr = m_device->CreateBuffer(&bd, nullptr, &m_spriteCb); FAILED(hr))
             return dxgi::failure("CreateBuffer (sprites)", hr);
     }
-    w.draws = quads ? 1 : std::uint32_t(sc::spriteBatches(w.fillCount).size());
+    if (!quads)
+        w.spriteBatches = sc::spriteBatches(w.fillCount);
+    w.draws = quads ? 1 : std::uint32_t(w.spriteBatches.size());
     return {};
 }
 
@@ -497,7 +499,7 @@ std::string D3D11Backend::recordFill(double t)
             ID3D11Buffer *ring = m_spriteCb.Get();
             const UINT stride = UINT(sc::kSpriteBytes), offset = 0;
             m_cx->IASetVertexBuffers(0, 1, &ring, &stride, &offset);
-            for (const sc::SpriteBatch &b : sc::spriteBatches(w.fillCount)) {
+            for (const sc::SpriteBatch &b : w.spriteBatches) {
                 m_cx->DrawInstanced(6, b.count, 0, b.first);  // StartInstanceLocation = the batch's first sprite
                 ++draws;
             }

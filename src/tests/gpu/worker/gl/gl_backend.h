@@ -83,7 +83,8 @@ private:
     void useProgram(const Program &p);
     std::string waitSlot(std::uint32_t slot, std::vector<double> *gpuMs);  // gpuMs null: drop its timestamps
     std::string waitAll();
-    void recordWorkload(Slot &slot, double t);  // leaves the output (outputTarget()) drawn; sets m_lastDraws
+    // Leaves the output (outputTarget()) drawn; sets m_lastDraws. Non-empty: the frame failed (the Sprites' buffer map).
+    std::string recordWorkload(Slot &slot, double t);
     void presentPass(Slot &slot, std::uint32_t fbo, std::uint32_t w, std::uint32_t h);
     std::string readTarget(const Target &t, std::vector<std::uint8_t> *rgba8);
     std::string validationProblem();
@@ -107,7 +108,7 @@ private:
     void recordScene(Slot &slot, double t);
     void recordShading(Slot &slot, double t);
     void recordParticles(Slot &slot, double t);
-    void recordFill(Slot &slot, double t);
+    std::string recordFill(Slot &slot, double t);
     std::uint32_t drawObjects(Slot &slot, bool materials);
     // One post pass into `target`: program, t0 (and t1), the Post block.
     void postPass(Slot &slot, const Target &target, const Program &program, std::uint32_t t0, std::uint32_t t1, std::uint32_t block, bool blend);

@@ -301,7 +301,9 @@ jobs:
 
       # §10 smoke launch (a GUI exe). run-smoke.ps1 cannot hang: the Windows error
       # mode turns a missing DLL into an immediate exit code instead of a dialog,
-      # and the wait is bounded (60 s, then the process tree is killed).
+      # and the wait is bounded (150 s, then the process tree is killed). It took
+      # 54 s at checkpoint 4, before the fill workloads; 150 s leaves headroom and
+      # still ends 30 s inside the step's 3 minutes, so the script reports it.
       - name: Smoke launch
         timeout-minutes: 3
         shell: pwsh
@@ -310,7 +312,7 @@ jobs:
           SYNBENCH_GPU_WORKER_ARGS: "--allow-software --render-size 320x180 --content-scale 64"
           # As on Linux: §9's 20-frame floor is lowered to 1 for the smoke's 0.03x windows only (dev hook).
           SYNBENCH_GPU_MIN_FRAMES: "1"
-        run: ./packaging/checks/run-smoke.ps1 -Exe build/windows-x64-release/bin/SynBench.exe -TimeoutSeconds 60
+        run: ./packaging/checks/run-smoke.ps1 -Exe build/windows-x64-release/bin/SynBench.exe -TimeoutSeconds 150
 
       # A failing (or crashing) test must leave something to read: the tail of
       # every test log, the failed tests re-run verbosely, and the logs as an

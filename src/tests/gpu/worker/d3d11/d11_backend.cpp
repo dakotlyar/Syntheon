@@ -655,17 +655,20 @@ std::string D3D11Backend::flushFrameConstants()
 std::string D3D11Backend::recordWorkload(double t)
 {
     bindCommon();
-    switch (m_work ? m_work->workload : Workload::Quads) {
-    case Workload::Geometry:
-    case Workload::DrawCalls: return recordScene(t);
-    case Workload::Shading: return recordShading(t);
-    case Workload::Particles: return recordParticles(t);
-    case Workload::Quads:
-    case Workload::Sprites: return recordFill(t);
-    case Workload::Shapes:
-    case Workload::Text:
-    case Workload::Blits:
-    case Workload::Gradients: break;
+    // No workload loaded (unreachable today): the clear workload below, never a fill path without its state.
+    if (m_work) {
+        switch (m_work->workload) {
+        case Workload::Geometry:
+        case Workload::DrawCalls: return recordScene(t);
+        case Workload::Shading: return recordShading(t);
+        case Workload::Particles: return recordParticles(t);
+        case Workload::Quads:
+        case Workload::Sprites: return recordFill(t);
+        case Workload::Shapes:
+        case Workload::Text:
+        case Workload::Blits:
+        case Workload::Gradients: break;
+        }
     }
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     if (std::string e = flushFrameConstants(); !e.empty())

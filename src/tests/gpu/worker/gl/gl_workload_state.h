@@ -6,6 +6,7 @@
 // Every GL object here is freed by GlBackend::releaseWorkload() (the context current).
 
 #include "tests/gpu/worker/gl/gl_backend.h"
+#include "tests/gpu/worker/scene_constants.h"
 
 #include <vector>
 
@@ -29,6 +30,7 @@ struct GlBackend::WorkloadState {
     Program sky, particle, bright, down, up, composite, toneMap, fxaa;
     std::uint32_t particleBuffer = 0, particleVao = 0, particleCount = 0;
     std::uint32_t spriteBuffer = 0, spriteVao = 0, fillCount = 0;  // Quads' layers or Sprites' count; scene3d is the fill program, materials[0] its texture
+    std::vector<sc::SpriteBatch> spriteBatches;  // the Sprites' batches, made once at load (no allocation in the timed loop)
 };
 
 } // namespace sb::gpu::gl

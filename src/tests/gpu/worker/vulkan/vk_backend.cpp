@@ -366,8 +366,8 @@ std::string VulkanBackend::load(const SceneData &scene)
     m_work->workload = scene.workload;
     m_loaded = true;
     m_lastDraws = 0;
-    // Geometry and Draw calls (task 11) render into sceneColor; the others still clear ldrA.
-    // Shading and Particles (task 12) too; Quads and Sprites still clear ldrA (task 29).
+    // The four scenes render into sceneColor (tasks 11, 12), Quads and Sprites into ldrA (task 29);
+    // a native 2D workload (never sent to a 3D API) is the clear workload.
     std::string e;
     switch (scene.workload) {
     case Workload::Geometry:
@@ -563,17 +563,20 @@ Image &VulkanBackend::outputImage()
 
 void VulkanBackend::recordWorkload(VkCommandBuffer cmd, Slot &slot, double t)
 {
-    switch (m_work ? m_work->workload : Workload::Quads) {
-    case Workload::Geometry:
-    case Workload::DrawCalls: recordScene(cmd, slot, t); return;
-    case Workload::Shading: recordShading(cmd, slot, t); return;
-    case Workload::Particles: recordParticles(cmd, slot, t); return;
-    case Workload::Quads:
-    case Workload::Sprites: recordFill(cmd, slot, t); return;
-    case Workload::Shapes:
-    case Workload::Text:
-    case Workload::Blits:
-    case Workload::Gradients: break;
+    // No workload loaded (unreachable today): the clear workload below, never a fill path without its state.
+    if (m_work) {
+        switch (m_work->workload) {
+        case Workload::Geometry:
+        case Workload::DrawCalls: recordScene(cmd, slot, t); return;
+        case Workload::Shading: recordShading(cmd, slot, t); return;
+        case Workload::Particles: recordParticles(cmd, slot, t); return;
+        case Workload::Quads:
+        case Workload::Sprites: recordFill(cmd, slot, t); return;
+        case Workload::Shapes:
+        case Workload::Text:
+        case Workload::Blits:
+        case Workload::Gradients: break;
+        }
     }
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass
     // The previous frame's present pass sampled ldrA and a readback copied it:

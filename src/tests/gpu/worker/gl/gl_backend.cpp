@@ -593,19 +593,22 @@ void GlBackend::bindPassConstants(Slot &slot, std::size_t offset, std::size_t by
     glBindBufferRange(GL_UNIFORM_BUFFER, 2, slot.frameConstants, GLintptr(offset), GLsizeiptr(bytes));
 }
 
-void GlBackend::recordWorkload(Slot &slot, double t)
+std::string GlBackend::recordWorkload(Slot &slot, double t)
 {
-    switch (m_work ? m_work->workload : Workload::Quads) {
-    case Workload::Geometry:
-    case Workload::DrawCalls: recordScene(slot, t); return;
-    case Workload::Shading: recordShading(slot, t); return;
-    case Workload::Particles: recordParticles(slot, t); return;
-    case Workload::Quads:
-    case Workload::Sprites: recordFill(slot, t); return;
-    case Workload::Shapes:
-    case Workload::Text:
-    case Workload::Blits:
-    case Workload::Gradients: break;
+    // No workload loaded (unreachable today): the clear workload below, never a fill path without its state.
+    if (m_work) {
+        switch (m_work->workload) {
+        case Workload::Geometry:
+        case Workload::DrawCalls: recordScene(slot, t); return {};
+        case Workload::Shading: recordShading(slot, t); return {};
+        case Workload::Particles: recordParticles(slot, t); return {};
+        case Workload::Quads:
+        case Workload::Sprites: return recordFill(slot, t);
+        case Workload::Shapes:
+        case Workload::Text:
+        case Workload::Blits:
+        case Workload::Gradients: break;
+        }
     }
     uploadConstants(slot);
     glBindFramebuffer(GL_FRAMEBUFFER, m_ldrA.fbo);
@@ -615,6 +618,7 @@ void GlBackend::recordWorkload(Slot &slot, double t)
     glClearColor(kClearColour[0], kClearColour[1], kClearColour[2], kClearColour[3]);
     glClear(GL_COLOR_BUFFER_BIT);
     m_lastDraws = 0;  // the clear workload draws nothing before the present pass
+    return {};
 }
 
 void GlBackend::presentPass(Slot &slot, std::uint32_t fbo, std::uint32_t w, std::uint32_t h)
@@ -655,7 +659,8 @@ std::string GlBackend::frame(double t, std::vector<double> *gpuMs)
     std::memcpy(m_constants.data() + sc::kPresentOffset, &pc, sizeof pc);
     if (m_timestamps)
         glQueryCounter(s.queries[0], GL_TIMESTAMP);
-    recordWorkload(s, t);
+    if (std::string e = recordWorkload(s, t); !e.empty())
+        return e;
     presentPass(s, m_defaultFramebuffer, m_windowW, m_windowH);
     if (m_timestamps)
         glQueryCounter(s.queries[1], GL_TIMESTAMP);
@@ -704,7 +709,8 @@ std::string GlBackend::readback(double t, std::vector<std::uint8_t> *rgba8)
     // §5.7: the workload's output before the present pass, exactly render size.
     Slot &s = m_slots[0];
     if (!tonemapped()) {
-        recordWorkload(s, t);
+        if (std::string e = recordWorkload(s, t); !e.empty())
+            return e;
         return readTarget(outputTarget(), rgba8);
     }
     // A tone mapped scene (sceneColor is RGBA16F, linear): the present pass in mode 0,
@@ -712,7 +718,8 @@ std::string GlBackend::readback(double t, std::vector<std::uint8_t> *rgba8)
     const Target &target = m_work->readTarget;
     const PresentConstants pc = presentConstants(kPresentTonemap, std::string(), 1.0, target.width, target.height, true);
     std::memcpy(m_constants.data() + sc::kPresentOffset, &pc, sizeof pc);
-    recordWorkload(s, t);
+    if (std::string e = recordWorkload(s, t); !e.empty())
+        return e;
     presentPass(s, target.fbo, target.width, target.height);
     return readTarget(target, rgba8);
 }

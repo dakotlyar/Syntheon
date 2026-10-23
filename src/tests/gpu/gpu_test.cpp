@@ -178,6 +178,21 @@ int minFrames()
     return kMinFrames;
 }
 
+// The fill workloads' real per-frame counts (L3): 128 layers and 100,000 sprites, divided as the worker's scenes divide
+// them (max(1, ceil(n / scale)), scenes.cpp) when the dev hook SYNBENCH_GPU_WORKER_ARGS passes --content-scale (smoke, CI).
+// A packaged build has no worker arguments: the full counts.
+double fillCount(FillId f)
+{
+    const double n = f == FillId::Quads ? double(kFillQuadLayers) : double(kFillSprites);
+    const QStringList args = GpuClient::extraArgs();
+    const qsizetype at = args.lastIndexOf(QStringLiteral("--content-scale"));
+    bool ok = false;
+    const double scale = at >= 0 && at + 1 < args.size() ? args[at + 1].toDouble(&ok) : 1.0;
+    if (!ok || !(scale > 1.0))
+        return n;
+    return std::max(1.0, std::ceil(n / scale));
+}
+
 // Dev hook: SYNBENCH_GPU_FAKE_D2D=1 runs the Direct2D path on any OS (the tests serve it with the fake worker).
 bool fakeD2d()
 {
@@ -755,17 +770,19 @@ TestResult GpuRun::finish(bool stopped)
 
     // Fill-rate (§6.5, §6.6, §10): per API `fill2d.<api>` (Gpx/s), `fill2d.<api>.sprites` (MOps/s), `.quads.fps` / `.sprites.fps`, the
     // `ft.<api>.quads|sprites` series, `.match` for a signature outlier; then the best API's `fill2d.quads|sprites` (+ `.api`), which
-    // is what the score reads (D4). The rates use the unscaled units (ids.h) and the render size the worker reported.
+    // is what the score reads (D4). The rates use the units of ids.h (divided by a dev hook's --content-scale, L3) and the
+    // render size the worker reported.
     const QString fill = kFill2dId;
     bool everyFill = true;
-    const auto fillRate = [](const ApiRun &a, FillId f, const pr::ResultEvent &res) {
+    const double quadLayers = fillCount(FillId::Quads), sprites = fillCount(FillId::Sprites);
+    const auto fillRate = [&](const ApiRun &a, FillId f, const pr::ResultEvent &res) {
         if (res.seconds <= 0)
             return 0.0;
         if (f == FillId::Sprites)
-            return double(kFillSprites) * double(res.frames) / res.seconds / 1e6;
+            return sprites * double(res.frames) / res.seconds / 1e6;
         const int w = res.renderW > 0 ? res.renderW : (a.ready ? a.ready->renderW : 0);
         const int h = res.renderH > 0 ? res.renderH : (a.ready ? a.ready->renderH : 0);
-        return double(kFillQuadLayers) * double(w) * double(h) * double(res.frames) / res.seconds / 1e9;
+        return quadLayers * double(w) * double(h) * double(res.frames) / res.seconds / 1e9;
     };
     const auto fillUnit = [](FillId f) { return f == FillId::Quads ? QStringLiteral("Gpx/s") : QStringLiteral("MOps/s"); };
     const auto fillBad = [&](const ApiRun &a, FillId f) {
@@ -857,7 +874,13 @@ TestResult GpuRun::finish(bool stopped)
     }
     if (!firstFillReason.isEmpty() || !everyFill) {
         sFill.status = Status::Error;
-        sFill.reason = !firstFillReason.isEmpty() ? firstFillReason : QStringLiteral("not every fill workload ran");
+        // L2: no fill failed, but an API that died in a 3D scene was the only one left for them: say so.
+        bool anyFill = false;
+        for (const ApiRun &a : m_apis)
+            anyFill = anyFill || !a.fills.empty();
+        sFill.reason = !firstFillReason.isEmpty()            ? firstFillReason
+                       : !anyFill && !firstReason.isEmpty() ? QStringLiteral("no API ran the fill workloads (%1)").arg(firstReason)
+                                                            : QStringLiteral("not every fill workload ran");
     }
     if (stopped) {
         s3d.status = Status::Cancelled;

@@ -122,6 +122,7 @@ private slots:
         qunsetenv("SYNBENCH_GPU_WORKER_ENV");
         qunsetenv("SYNBENCH_GPU_FAKE_D2D");
         qunsetenv("SYNBENCH_GPU_MIN_FRAMES");
+        qunsetenv("SYNBENCH_GPU_WORKER_ARGS");
         tests::setStubTimeScale(0.02);
     }
 
@@ -466,6 +467,40 @@ private slots:
         QCOMPARE(number(r, QStringLiteral("scenes3d.geometry.fps")), 100.0);          // Vulkan's, not the faster one
         QCOMPARE(textOf(r, QStringLiteral("scenes3d.geometry.api")), QStringLiteral("Vulkan"));
         QCOMPARE(r.subResults[0].status, Status::Error);
+    }
+
+    // L2: when every API died in a 3D scene, fill2d says why it has no numbers, not the generic "not every fill workload ran".
+    void fillReasonWhenEveryApiDiedIn3d()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-all-at-shading")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.subResults[0].status, Status::Error);
+        QCOMPARE(r.subResults[2].status, Status::Error);
+        QVERIFY2(r.subResults[2].reason.startsWith(QLatin1StringView("no API ran the fill workloads (Vulkan failed in Shading: the GPU worker exited with code")),
+                 qPrintable(r.subResults[2].reason));
+        QVERIFY2(r.subResults[0].reason.startsWith(QLatin1StringView("Vulkan failed in Shading: ")), qPrintable(r.subResults[0].reason));
+        QCOMPARE(r.status, Status::Partial);  // native 2D still ran
+    }
+
+    // L3: under the dev hook's --content-scale, the fill rates count the layers and sprites the worker really drew
+    // (max(1, ceil(n / scale)): 2 layers and 1,563 sprites at 64), not the full 128 and 100,000.
+    void fillRatesFollowTheContentScale()
+    {
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNBENCH_GPU_WORKER_ARGS", "--allow-software --content-scale 64");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        qunsetenv("SYNBENCH_GPU_WORKER_ARGS");
+        QCOMPARE(r.status, Status::Ok);
+        // The fake's 20 frames in 0.2 s at 320x180.
+        QVERIFY(std::fabs(number(r, QStringLiteral("fill2d.vulkan")) - 2.0 * 320.0 * 180.0 * 100.0 / 1e9) < 1e-12);
+        QVERIFY(std::fabs(number(r, QStringLiteral("fill2d.vulkan.sprites")) - 1563.0 * 100.0 / 1e6) < 1e-12);
     }
 
     // §9 (H1): fewer than 20 measured frames is an API Error "too few frames to measure (n)" in that workload; its numbers

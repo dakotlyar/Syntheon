@@ -5,6 +5,7 @@
 // d12_backend.cpp and d12_workloads.cpp only (Vulkan's vk_workload_state.h).
 
 #include "tests/gpu/worker/d3d12/d12_backend.h"
+#include "tests/gpu/worker/scene_constants.h"
 
 #include <array>
 #include <vector>
@@ -23,6 +24,7 @@ struct D3D12Backend::WorkloadState {
     Image readTarget;                  // render size, RGBA8: tone mapped, no overlay (§5.7)
     std::uint32_t draws = 0;
     std::uint32_t fillCount = 0;  // task 30: Quads' layers or Sprites' count (w.scene.sprites is the CPU copy; pipeline + materialTables[0])
+    std::vector<sc::SpriteBatch> spriteBatches;  // the Sprites' batches, made once at load (no allocation in the timed loop)
 
     ComPtr<ID3D12PipelineState> pipeline;  // Geometry/Draw calls: the scene; Shading: the EQUAL pass; Particles: the ground
     ComPtr<ID3D12PipelineState> shadowPipeline, prepassPipeline;  // Shading

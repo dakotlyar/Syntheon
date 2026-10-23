@@ -5,6 +5,7 @@
 // d11_backend.cpp and d11_workloads.cpp only (d12_workload_state.h's counterpart).
 
 #include "tests/gpu/worker/d3d11/d11_backend.h"
+#include "tests/gpu/worker/scene_constants.h"
 
 #include <array>
 #include <vector>
@@ -23,6 +24,7 @@ struct D3D11Backend::WorkloadState {
     Image readTarget;                // render size, RGBA8: tone mapped, no overlay (§5.7)
     std::uint32_t draws = 0;
     std::uint32_t fillCount = 0;  // Quads' layers or Sprites' count (scene.sprites is the CPU copy; pipeline + materialTables[0])
+    std::vector<sc::SpriteBatch> spriteBatches;  // the Sprites' batches, made once at load (no allocation in the timed loop)
 
     Pipeline pipeline;  // Geometry/Draw calls: the scene; Shading: the EQUAL pass; Particles: the ground
     Pipeline shadowPipeline, prepassPipeline;  // Shading

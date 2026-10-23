@@ -534,11 +534,13 @@ std::string GlBackend::loadFill(const SceneData &scene)
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
     }
-    w.draws = quads ? 1 : std::uint32_t(sc::spriteBatches(w.fillCount).size());
+    if (!quads)
+        w.spriteBatches = sc::spriteBatches(w.fillCount);
+    w.draws = quads ? 1 : std::uint32_t(w.spriteBatches.size());
     return {};
 }
 
-void GlBackend::recordFill(Slot &slot, double t)
+std::string GlBackend::recordFill(Slot &slot, double t)
 {
     WorkloadState &w = *m_work;
     const bool quads = w.workload == Workload::Quads;
@@ -551,11 +553,17 @@ void GlBackend::recordFill(Slot &slot, double t)
         glBindBuffer(GL_ARRAY_BUFFER, w.spriteBuffer);
         glBufferData(GL_ARRAY_BUFFER, bytes, nullptr, GL_STREAM_DRAW);
         void *p = glMapBufferRange(GL_ARRAY_BUFFER, 0, bytes, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-        if (p) {
-            sc::writeSprites(w.scene, t, static_cast<std::uint8_t *>(p));
-            glUnmapBuffer(GL_ARRAY_BUFFER);
+        // L1: a failed map, or an unmap whose contents were lost (GL_FALSE), fails the frame as D3D11's Map does,
+        // rather than drawing undefined sprites.
+        if (!p) {
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+            return "glMapBufferRange failed for the sprite buffer";
         }
+        sc::writeSprites(w.scene, t, static_cast<std::uint8_t *>(p));
+        const GLboolean unmapped = glUnmapBuffer(GL_ARRAY_BUFFER);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
+        if (unmapped == GL_FALSE)
+            return "glUnmapBuffer lost the sprite buffer's contents";
     }
     beginPass(m_ldrA.fbo, width, height);
     setPassState(false, false, GL_ALWAYS, false);
@@ -578,7 +586,7 @@ void GlBackend::recordFill(Slot &slot, double t)
             glBindVertexArray(w.spriteVao);
             glBindBuffer(GL_ARRAY_BUFFER, w.spriteBuffer);
             const GLsizei stride = GLsizei(sc::kSpriteBytes);
-            for (const sc::SpriteBatch &b : sc::spriteBatches(w.fillCount)) {
+            for (const sc::SpriteBatch &b : w.spriteBatches) {
                 const void *offset = reinterpret_cast<const void *>(std::uintptr_t(b.first) * sc::kSpriteBytes);
                 glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, offset);
                 glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, stride, static_cast<const char *>(offset) + 8);
@@ -592,6 +600,7 @@ void GlBackend::recordFill(Slot &slot, double t)
         glDisable(GL_BLEND);
     }
     m_lastDraws = draws;
+    return {};
 }
 
 } // namespace sb::gpu::gl

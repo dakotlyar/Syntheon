@@ -634,7 +634,9 @@ std::string D3D12Backend::loadFill(const SceneData &scene)
             s.mapped[2] = ring.mapped;
         }
     }
-    w.draws = quads ? 1 : std::uint32_t(sc::spriteBatches(w.fillCount).size());
+    if (!quads)
+        w.spriteBatches = sc::spriteBatches(w.fillCount);
+    w.draws = quads ? 1 : std::uint32_t(w.spriteBatches.size());
     return {};
 }
 
@@ -668,7 +670,7 @@ void D3D12Backend::recordFill(ID3D12GraphicsCommandList *list, Slot &slot, doubl
         } else {
             const D3D12_VERTEX_BUFFER_VIEW ring{slot.spriteRing->GetGPUVirtualAddress(), UINT(w.fillCount * sc::kSpriteBytes), UINT(sc::kSpriteBytes)};
             list->IASetVertexBuffers(0, 1, &ring);
-            for (const sc::SpriteBatch &b : sc::spriteBatches(w.fillCount)) {
+            for (const sc::SpriteBatch &b : w.spriteBatches) {
                 list->DrawInstanced(6, b.count, 0, b.first);  // StartInstanceLocation = the batch's first sprite
                 ++draws;
             }
