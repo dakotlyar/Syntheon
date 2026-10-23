@@ -105,8 +105,10 @@ void qtMessageToStderr(QtMsgType type, const QMessageLogContext &context, const 
 }
 #endif
 
-// First thing in main, before Qt: the worker never shows a dialog (no Windows error boxes for a crash, a missing
-// file or a critical error; no Qt message box).
+// First thing in main, before Qt: the worker shows no dialog for a crash, a file it can't open at run time or a
+// critical error (no Windows error box, no Qt message box). It can NOT cover the worker's own import failures: the
+// loader reports a missing static-import DLL before main runs, so SetErrorMode here is too late for that box. The
+// packaged case is guarded by the static checks (packaging/checks), not by this function.
 void noDialogs()
 {
 #if defined(_WIN32)

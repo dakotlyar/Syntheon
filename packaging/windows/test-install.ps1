@@ -97,8 +97,8 @@ function Test-Launch {
         Start-Sleep -Milliseconds 200
     }
     if ($dialog) {
-        Get-Process -Name 'synbench-gpu' -ErrorAction SilentlyContinue | Stop-Process -Force
-        if (-not $p.HasExited) { $p | Stop-Process -Force }
+        Get-Process -Name 'synbench-gpu' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        if (-not $p.HasExited) { $p | Stop-Process -Force -ErrorAction SilentlyContinue }
         throw "the GPU worker showed a window during the app's start-up probe ($dialog): a dialog"
     }
     Write-Host "start-up GPU probe: $(if ($sawWorker) { 'the worker ran, no window' } else { 'the worker was not seen (it may have finished between polls)' })"
@@ -153,9 +153,9 @@ function Test-GpuProbe {
     }
     # A machine with no hardware GPU (a CI runner has only Microsoft Basic Render Driver, a software
     # adapter, which a packaged build doesn't list): the probe still started Qt and answered with one
-    # error event and exit code 1. Anything else is a failure: no protocol line at all means the
+    # error event ("no graphics adapter found") and exit code 1. Anything else is a failure: no protocol line at all means the
     # worker died before or inside Qt's start (stderr has why).
-    if ($code -eq 1 -and $events.Count -eq 1 -and $events[0].ev -eq 'error') {
+    if ($code -eq 1 -and $events.Count -eq 1 -and $events[0].ev -eq 'error' -and "$($events[0].reason)" -like '*no graphics adapter found*') {
         Write-Host "GPU probe ran, Qt started; no usable GPU on this machine: $($events[0].reason)"
         return
     }

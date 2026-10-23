@@ -304,6 +304,16 @@ DetailLayout GpuTest::detail(const TestResult &r) const
         && std::none_of(kApis.begin(), kApis.end(), [&](ApiId a) { return r.metric(apiStatusKey(apiKey(a), u"status")); }))
         return genericDetailLayout(r);
     DetailLayout d;
+    // AP-5 M1: a result with no metrics that was never measured (not available before the probe, or not run) has no GPU
+    // page to show; its state and reason are the page, as the generic layout showed them (withNotAvailableState turns the
+    // N/A one into the NaStateBlock).
+    if (r.metrics.isEmpty() && (r.status == Status::NotAvailable || r.status == Status::NotRun)) {
+        const bool na = r.status == Status::NotAvailable;
+        d.subtitle = na ? QStringLiteral("Not available on this machine") : QStringLiteral("Not run");
+        const QString state = na ? QStringLiteral("N/A") : QStringLiteral("Not run");
+        d.blocks.append({{}, NoteBlock{r.statusReason.isEmpty() ? state : QStringLiteral("%1: %2").arg(state, r.statusReason), Tone::Na}});
+        return d;
+    }
     d.headlineMetrics = {QStringLiteral("score.3d"), QStringLiteral("score.2d")};
     d.headlineLabels.insert(QStringLiteral("score.3d"), QStringLiteral("3D"));
     d.headlineLabels.insert(QStringLiteral("score.2d"), QStringLiteral("2D"));
@@ -725,10 +735,12 @@ DetailLayout GpuTest::detail(const TestResult &r) const
             note = QStringLiteral("No GPU score: %1.").arg(r.statusReason.isEmpty() ? QStringLiteral("the test failed") : r.statusReason);
         d.blocks.append({{}, NoteBlock{note, Tone::Warn}});
     } else if (r.status == Status::Cancelled) {
-        d.blocks.append({{}, NoteBlock{QStringLiteral("Stopped before the end: the parts that finished are shown, without scores."), Tone::Warn}});
+        d.blocks.append({{}, NoteBlock{r.metrics.isEmpty() ? QStringLiteral("Stopped before anything was measured.")
+                                                           : QStringLiteral("Stopped before the end: the parts that finished are shown, without scores."),
+                                       Tone::Warn}});
     } else if (r.status == Status::TimedOut || r.status == Status::Interrupted) {
         // AP-5 L1: with nothing measured there are no parts to show, so the reason alone is the note.
-        const bool nothing = !r.metric(QStringLiteral("gpu.name")) && r.metrics.isEmpty();
+        const bool nothing = r.metrics.isEmpty();  // gpu.name is a metric, so no metrics means no name either
         d.blocks.append({{}, NoteBlock{nothing && !r.statusReason.isEmpty()
                                            ? QStringLiteral("No GPU score: %1.").arg(r.statusReason)
                                            : QStringLiteral("The test didn't finish: the parts that finished are shown, without scores."),

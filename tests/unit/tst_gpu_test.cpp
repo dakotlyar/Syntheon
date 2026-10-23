@@ -1496,6 +1496,41 @@ private slots:
         QCOMPARE(indexOfTable(t.detail(stub), QStringLiteral("Sub-tests")), -1);
     }
 
+    // AP-5 M1: metric-less NotAvailable, NotRun and Cancelled results. N/A shows its reason as the N/A note (and
+    // withNotAvailableState makes the NaStateBlock of it); NotRun shows its state; a Cancelled one with nothing measured
+    // doesn't claim "the parts that finished are shown".
+    void detailMetricLessStates()
+    {
+        GpuTest t;
+        TestResult na = TestResult::notAvailable(QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found"));
+        na.testId = QStringLiteral("gpu");
+        const DetailLayout nd = t.detail(na);
+        const NoteBlock *nn = noteContaining(nd, QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found"));
+        QVERIFY(nn && nn->tone == Tone::Na);
+        QCOMPARE(nn->text, QStringLiteral("N/A: No GPU with Vulkan, DirectX or OpenGL found"));
+        QCOMPARE(nd.subtitle, QStringLiteral("Not available on this machine"));
+        QCOMPARE(nd.blocks.size(), 1);
+        const DetailLayout wrapped = withNotAvailableState(nd, na, QStringLiteral("GPU"));
+        QCOMPARE(wrapped.blocks.size(), 1);
+        const auto *block = std::get_if<NaStateBlock>(&wrapped.blocks.first().content);
+        QVERIFY(block);
+        QCOMPARE(block->body, QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found"));
+
+        TestResult notRun = TestResult::withStatus(Status::NotRun);
+        notRun.testId = QStringLiteral("gpu");
+        const DetailLayout rd = t.detail(notRun);
+        QCOMPARE(rd.subtitle, QStringLiteral("Not run"));
+        const NoteBlock *rn = noteContaining(rd, QStringLiteral("Not run"));
+        QVERIFY(rn && rn->tone == Tone::Na);
+        QCOMPARE(rd.blocks.size(), 1);
+
+        TestResult stopped = TestResult::withStatus(Status::Cancelled);
+        stopped.testId = QStringLiteral("gpu");
+        const DetailLayout cd = t.detail(stopped);
+        QVERIFY(noteContaining(cd, QStringLiteral("Stopped before anything was measured")));
+        QVERIFY(!noteContaining(cd, QStringLiteral("the parts that finished")));
+    }
+
     // AP-5 L6: the Direct2D Warn note is §15's sentence alone, not the whole stored note.
     void detailDirect2dNoteIsTheSentence()
     {
