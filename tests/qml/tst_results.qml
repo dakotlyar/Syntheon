@@ -61,6 +61,14 @@ TestCase {
         verify(findChild(screen, "detailPage") !== null)
         compare(Results.detailTabs.length, 2)  // the tests of this run, no Battery yet
         verify(findChild(screen, "dtab-ai") !== null)
+        // Zeb D2: a chip that takes the keyboard focus draws a ring; the others don't.
+        const chip = findChild(screen, "dtab-ai")
+        chip.forceActiveFocus(Qt.TabFocusReason)
+        verify(chip.visualFocus)
+        verify(findChild(chip, "focusRing").visible)
+        verify(!findChild(findChild(screen, "dtab-storage"), "focusRing").visible)
+        findChild(screen, "dtab-storage").forceActiveFocus(Qt.TabFocusReason)
+        verify(!findChild(chip, "focusRing").visible)
 
         // Another tab: Storage's CrystalDiskMark-style grid.
         mouseClick(findChild(screen, "dtab-storage"))

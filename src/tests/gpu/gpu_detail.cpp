@@ -180,6 +180,8 @@ QString shortGpuName(QString name)
         }
     }
     name.remove(QStringLiteral("(TM)"));
+    if (const qsizetype paren = name.indexOf(QStringLiteral(" (")); paren > 0)  // "(RADV STRIX_HALO)": the driver's tag
+        name.truncate(paren);
     if (name.startsWith(QStringLiteral("GeForce ")))
         name.remove(0, 8);
     else if (name.startsWith(QStringLiteral("Radeon RX ")) || name.startsWith(QStringLiteral("Radeon PRO ")))

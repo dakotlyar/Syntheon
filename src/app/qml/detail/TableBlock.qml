@@ -31,6 +31,8 @@ Box {
         return boldRows.indexOf(row) >= 0 || boldCells.some(p => p[0] === c && p[1] === row)
     }
 
+    // Whether the table's rows exist: a collapsed table builds, measures and wraps nothing (AP-5 L2).
+    readonly property bool open: !collapsible || expanded
     implicitHeight: content.implicitHeight
     clip: true
 
@@ -164,6 +166,7 @@ Box {
     // What each column needs when its headers wrap: their widest word, and
     // the widest cell line.
     readonly property var compactNeeds: {
+        if (!open) return []
         const n = columns.length
         const out = []
         for (let c = 0; c < n; ++c)
@@ -177,6 +180,7 @@ Box {
     // What each column needs so no word is broken: its widest header word
     // and widest cell word.
     readonly property var wordNeeds: {
+        if (!open) return []
         const n = columns.length
         const out = []
         for (let c = 0; c < n; ++c)
@@ -189,6 +193,7 @@ Box {
     }
     // What each column needs to show its widest header or cell line.
     readonly property var needs: {
+        if (!open) return []
         const n = columns.length
         const out = []
         for (let c = 0; c < n; ++c)
@@ -282,12 +287,16 @@ Box {
             Keys.onReturnPressed: root.expandRequested(!root.expanded)
             Keys.onEnterPressed: root.expandRequested(!root.expanded)
             HoverHandler { cursorShape: Qt.PointingHandCursor }
+            // Inside the Box's 1 px border, which the hover fill and the focus ring must not cover.
+            topInset: 1; bottomInset: 1; leftInset: 1; rightInset: 1
             background: Rectangle {
-                radius: 7
+                radius: 6
                 color: header.hovered ? Theme.sunk : "transparent"
                 border.color: header.visualFocus ? Theme.accent : "transparent"
                 border.width: 1.5
             }
+            // The summary elides first: the title keeps its width up to what is left after the chevron and the two gaps, the
+            // summary takes the rest (down to nothing), and the chevron never shrinks (AP-5 L4).
             contentItem: RowLayout {
                 spacing: 10
                 SbText {
@@ -295,7 +304,7 @@ Box {
                     text: root.headerTitle
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
-                    Layout.maximumWidth: Math.max(0, header.availableWidth - 26)
+                    Layout.maximumWidth: Math.max(0, header.availableWidth - 16 - 2 * 10)
                 }
                 SbText {
                     objectName: "headerSummary"
@@ -304,12 +313,14 @@ Box {
                     horizontalAlignment: Text.AlignRight
                     elide: Text.ElideRight
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                 }
                 Icon {
                     objectName: "chevron"
                     path: root.expanded ? "M4 6l4 4 4-4" : "M6 4l4 4-4 4"
                     color: Theme.muted
-                    Layout.preferredWidth: 16; Layout.preferredHeight: 16
+                    Layout.minimumWidth: 16; Layout.preferredWidth: 16; Layout.maximumWidth: 16
+                    Layout.preferredHeight: 16
                 }
             }
         }
@@ -323,7 +334,7 @@ Box {
 
         // header
         Rectangle {
-            visible: !root.collapsible || root.expanded
+            visible: root.open
             Layout.fillWidth: true
             implicitHeight: headRow.implicitHeight + 16
             color: Theme.sunk
@@ -334,7 +345,7 @@ Box {
                 anchors.leftMargin: 12; anchors.rightMargin: 12
                 spacing: root.gap
                 Repeater {
-                    model: root.columns
+                    model: root.open ? root.columns : []
                     delegate: SbText {
                         required property string modelData
                         required property int index
@@ -356,9 +367,9 @@ Box {
         ColumnLayout {
             spacing: 0
             Layout.fillWidth: true
-            visible: !root.collapsible || root.expanded
+            visible: root.open
             Repeater {
-                model: root.rows
+                model: root.open ? root.rows : []
                 delegate: Item {
                     id: tableRow
                     required property var modelData

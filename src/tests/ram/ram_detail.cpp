@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The RAM test's Detail page (Phase 3 design §12, task 12): the layout of
 // the approved mockup ([[Phase 3 - RAM Mockup]], Dave 2026-10-19), which wins
-// where it differs from §12 (the charts share their rows with their tables
-// 3:2, open dots on the scored targets, the memory configuration split into
-// the SMBIOS readout and the derived peak, the two-line Memory KPI, both
-// bandwidth lines in the Sub-tests row, amber neutral notes), plus the
-// approved extras since: the Modules table's maker column (JEP106, d6f1fff)
-// and P9's cap-hit note. Built only from the existing blocks, for Ok (with
+// where it differs from §12 (open dots on the scored targets, the memory
+// configuration split into the SMBIOS readout and the derived peak, the
+// two-line Memory KPI, both bandwidth lines in the Sub-tests row, amber
+// neutral notes), plus the approved extras since: the Modules table's maker
+// column (JEP106, d6f1fff) and P9's cap-hit note. Since Phase 4a the renderer
+// arranges the page (graphs first, tables collapsed), so only the order of
+// the blocks matters here. Built only from the existing blocks, for Ok (with
 // and without an L3), Partial, Stopped and small-page results. Pure over the
 // stored result.
 #include "core/units.h"
@@ -340,8 +341,7 @@ DetailLayout RamTest::detail(const TestResult &r) const
     }
     d.blocks.append({QStringLiteral("Sub-tests"), groups});
 
-    // 3. The latency chart (log-log) beside the Latency table (the
-    // renderer's 3:2 split row), then its note.
+    // 3. The latency chart (log-log), the Latency table, then its note.
     const std::vector<CacheEntry> caches = cacheEntries(text(r, QStringLiteral("cache.levels")));
     const bool fromCurve = text(r, QStringLiteral("cache.levels")).endsWith(QLatin1StringView("(detected from the curve)"));
     const QString where = latencyCore.isEmpty() ? QString() : latencyCore;
@@ -396,9 +396,9 @@ DetailLayout RamTest::detail(const TestResult &r) const
             const QString key = QStringLiteral("latency.l%1").arg(k);
             const QString at = text(r, key + QStringLiteral(".at"));
             QString value = r.metric(key) ? nsOf(r, key, true) : kDash;
-            // Short, so the table fits its 2/5 of a 1100 px row (Zeb D4): a
-            // core without an L3 says "none" in Cache size (the note under the
-            // chart lists the caches); one too close to the L2 says so.
+            // Short (Zeb D4): a core without an L3 says "none" in Cache size
+            // (the note under the chart lists the caches); one too close to the
+            // L2 says so.
             QString size = c != caches.end() ? c->size : kDash;
             if (c == caches.end() && k == 3 && !caches.empty())
                 size = fromCurve ? QStringLiteral("none found") : QStringLiteral("none");
@@ -460,7 +460,7 @@ DetailLayout RamTest::detail(const TestResult &r) const
     if (const QString limited = text(r, QStringLiteral("bandwidth.limited")); !limited.isEmpty())
         d.blocks.append({{}, NoteBlock{limited, Tone::Warn}});
 
-    // 5. Loaded latency: the chart beside its points, then its note. The
+    // 5. Loaded latency: the chart, its points table, then its note. The
     // series is in level order (§5.4): the idle point (when the DRAM
     // latency was measured), then 6,000 ns ... full load.
     if (const Series *loaded = series(r, "loaded_curve"); loaded && !loaded->points.isEmpty()) {
@@ -516,8 +516,8 @@ DetailLayout RamTest::detail(const TestResult &r) const
         }
     }
 
-    // 6. The memory configuration: the SMBIOS readout beside the derived
-    // peak (two tables that pair), the Modules table, the no-SPD note.
+    // 6. The memory configuration: the SMBIOS readout, the derived peak, the
+    // Modules table, the no-SPD note.
     if (!type.isEmpty() || r.metric(QStringLiteral("config.total"))) {
         TableBlock config;
         config.columns = {QStringLiteral("Field"), QStringLiteral("Value")};

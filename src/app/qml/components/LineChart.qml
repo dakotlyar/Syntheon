@@ -187,9 +187,12 @@ Item {
         }
         return best
     }
-    // Over the plot (+-8 px): the nearest point; elsewhere none.
+    // Over the plot (+-8 px): the nearest point; elsewhere none (-1).
+    function indexAt(px) {
+        return px >= padLeft - 8 && px <= padLeft + plotW + 8 ? nearestIndex(px) : -1
+    }
     function hoverAt(px) {
-        hoverIndex = px >= padLeft - 8 && px <= padLeft + plotW + 8 ? nearestIndex(px) : -1
+        hoverIndex = indexAt(px)
     }
     function hoverText(p) {
         if (p.label !== undefined) return p.label
@@ -214,7 +217,8 @@ Item {
     TapHandler {
         acceptedDevices: PointerDevice.TouchScreen
         onTapped: (eventPoint) => {
-            const i = root.nearestIndex(eventPoint.position.x)
+            // The same +-8 px zone as the mouse (AP-5 L3); a tap outside it clears.
+            const i = root.indexAt(eventPoint.position.x)
             root.hoverIndex = i === root.hoverIndex ? -1 : i
         }
     }
@@ -272,8 +276,9 @@ Item {
             }
         }
     }
+    // Clear of the focus ring (Zeb D1).
     SbText {
-        x: 2; y: 0
+        x: 6; y: 3
         text: root.yUnit === "%" ? "" : root.yUnit
         kind: "data"; font.pixelSize: 11; color: Theme.muted
     }
@@ -282,7 +287,8 @@ Item {
         model: root.xTicks
         delegate: SbText {
             required property var modelData
-            x: root.fx(modelData.x) - width / 2
+            // Centred on its tick, but inside the chart and clear of the focus ring ("150 GB/s", "262 s": Zeb D1).
+            x: Math.max(4, Math.min(root.width - 4 - width, root.fx(modelData.x) - width / 2))
             y: root.height - root.padBottom + 14
             text: modelData.label
             kind: "data"; font.pixelSize: 11; color: Theme.muted

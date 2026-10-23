@@ -216,16 +216,26 @@ TestCase {
         for (const k in extra) props[k] = extra[k]
         return createTemporaryObject(tableComponent, test, props)
     }
+    // A table that isn't collapsible is the table of Phase 3: its title, column header and every row, whatever `expanded` says
+    // (the property belongs to the collapsible case), and none of the header button.
     function test_notCollapsibleIsUnchanged() {
-        const t = collapsibleTable({})
-        waitForRendering(t)
-        verify(!findChild(t, "tableHeader").visible)
-        const second = collapsibleTable({ collapsible: false })
-        compare(t.implicitHeight, second.implicitHeight)
-        let titleSeen = false
-        for (const c of t.children[t.children.length - 1].children)
-            if (c.text === "Sub-tests (all threads)" && c.visible) titleSeen = true
-        verify(titleSeen)
+        for (const extra of [{}, { collapsible: false, expanded: false }]) {
+            const t = collapsibleTable(extra)
+            waitForRendering(t)
+            verify(!findChild(t, "tableHeader").visible)
+            compare(t.open, true)
+            compare(t.widths.length, 4)
+            let titleSeen = false
+            for (const c of t.children[t.children.length - 1].children)
+                if (c.text === "Sub-tests (all threads)" && c.visible) titleSeen = true
+            verify(titleSeen)
+            const rowText = findAllText(t).filter(c => c.text === "973")
+            compare(rowText.length, 1)
+            verify(rowText[0].visible)
+            // Its height is the title, the column header and the rows: more than the collapsed 42 px by far.
+            verify(t.implicitHeight > 42 + 32)
+        }
+        compare(collapsibleTable({}).implicitHeight, collapsibleTable({ expanded: false }).implicitHeight)
     }
     function test_collapsedIsJustTheHeader() {
         const t = collapsibleTable({ collapsible: true, expanded: false })
@@ -233,9 +243,18 @@ TestCase {
         compare(t.implicitHeight, 42)
         verify(findChild(t, "tableHeader").visible)
         compare(findChild(t, "chevron").path, "M6 4l4 4-4 4")
-        const rowText = findAllText(t).filter(c => c.text === "973")
-        compare(rowText.length, 1)
-        verify(!rowText[0].visible)
+        // AP-5 L2: nothing of the table is built while it is collapsed (no rows, no column heads, nothing measured).
+        compare(findAllText(t).filter(c => c.text === "973").length, 0)
+        compare(findAllText(t).filter(c => c.text === "GROUP").length, 0)
+        compare(t.widths.length, 0)
+        compare(t.open, false)
+        t.expanded = true
+        waitForRendering(t)
+        compare(findAllText(t).filter(c => c.text === "973").length, 1)
+        compare(t.widths.length, 4)
+        t.expanded = false
+        compare(findAllText(t).filter(c => c.text === "973").length, 0)
+        tryCompare(t, "implicitHeight", 42)
     }
     function findAllText(item) {
         let out = []
@@ -287,5 +306,45 @@ TestCase {
         compare(findChild(plain, "headerSummary").text, "")
         const untitled = collapsibleTable({ block: { type: "table", title: "", columns: ["A"], rows: [["x"]] }, collapsible: true })
         compare(findChild(untitled, "headerTitle").text, "Details")
+    }
+    // AP-5 L4 / nit: the summary elides first, the chevron keeps its 16 px inside the header, the title is capped at what is left after
+    // the chevron and the two gaps, and the hover fill / focus ring stay inside the Box's border.
+    readonly property var longSummary: ({ type: "table", title: "Sub-tests (all threads)",
+                                          summary: "Vulkan 412 fps · 1% low 354 · plus a very long tail that cannot fit in a narrow window",
+                                          columns: ["A"], rows: [["x"]] })
+    function headerParts(width) {
+        const t = collapsibleTable({ block: longSummary, collapsible: true, expanded: false, width: width })
+        waitForRendering(t)
+        const header = findChild(t, "tableHeader")
+        return { t: t, header: header, title: findChild(t, "headerTitle"), summary: findChild(t, "headerSummary"),
+                 chevron: findChild(t, "chevron") }
+    }
+    function test_headerSummaryElidesFirst() {
+        const p = headerParts(420)
+        fuzzyCompare(p.title.width, p.title.implicitWidth, 1)  // the title is whole
+        verify(p.summary.width < p.summary.implicitWidth)  // the summary gave way
+        verify(p.summary.truncated)
+        compare(p.chevron.width, 16)
+        const right = p.chevron.mapToItem(p.header, p.chevron.width, 0).x
+        verify(right <= p.header.width - p.header.rightPadding + 0.5, "chevron right edge " + right)
+    }
+    function test_headerNarrowKeepsChevronAndCapsTitle() {
+        for (const w of [200, 120, 80]) {
+            const p = headerParts(w)
+            compare(p.chevron.width, 16)
+            const right = p.chevron.mapToItem(p.header, p.chevron.width, 0).x
+            verify(right <= p.header.width - p.header.rightPadding + 0.5, "chevron right edge " + right + " at " + w)
+            verify(p.title.width <= Math.max(0, p.header.availableWidth - 16 - 20) + 0.5, "title " + p.title.width + " at " + w)
+            verify(p.summary.width >= 0)
+            // the title, two gaps and the chevron never exceed the header's content width
+            verify(p.title.width + 20 + p.chevron.width <= p.header.availableWidth + 0.5)
+        }
+    }
+    function test_headerHoverStaysInsideTheBorder() {
+        const p = headerParts(420)
+        compare(p.header.background.x, 1)
+        compare(p.header.background.y, 1)
+        compare(p.header.background.width, p.header.width - 2)
+        compare(p.header.background.height, p.header.height - 2)
     }
 }

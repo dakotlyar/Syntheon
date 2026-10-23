@@ -129,9 +129,16 @@ void ResultsController::setRun(RunRecord run, bool live)
     rebuild();
     emit runChanged();
     // Keep the Detail page on the same test while a live run updates.
-    if (sameRun && !previousDetail.isEmpty())
-        selectDetail(previousDetail);
-    else {
+    // The page is only told when what it shows changed: a re-emit rebuilds it, which drops the chart hover and the keyboard focus
+    // (AP-5 L5), and most updates of a live run don't touch the shown test.
+    if (sameRun && !previousDetail.isEmpty()) {
+        const QVariantList blocks = m_detailBlocks;
+        const QString title = m_detailTitle, subtitle = m_detailSubtitle, note = m_detailNote, color = m_detailColor;
+        m_detailId = previousDetail;
+        buildDetail();
+        if (m_detailBlocks != blocks || m_detailTitle != title || m_detailSubtitle != subtitle || m_detailNote != note || m_detailColor != color)
+            emit detailChanged();
+    } else {
         m_detailId.clear();
         m_detailBlocks.clear();
         emit detailChanged();

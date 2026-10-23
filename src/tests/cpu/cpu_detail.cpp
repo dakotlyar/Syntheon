@@ -233,7 +233,6 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         QStringLiteral("64-bit ") + withUnit(r, QStringLiteral("sort.u64")) + QStringLiteral("\nstrings ")
             + withUnit(r, QStringLiteral("sort.str")));
     row("physics", QStringLiteral("Physics (n-body, FP64)"), "5%", withUnit(r, QStringLiteral("physics.nbody")));
-    // Full width always, as in the mockup (only Compression + Single-thread pair).
     groups.fullWidth = true;
     if (scored) {
         groups.boldRows.append(int(groups.rows.size()));
@@ -245,8 +244,7 @@ DetailLayout CpuTest::detail(const TestResult &r) const
     }
     d.blocks.append({QStringLiteral("Sub-tests (all threads)"), groups});
 
-    // The throttling note sits between the two tables on purpose (the
-    // renderer pairs consecutive tables; these two need the full width).
+    // The throttling note is about the run (Warn), so the renderer draws it at the top of the page.
     if (const QString note = text(r, QStringLiteral("throttle.note")); !note.isEmpty())
         d.blocks.append({{}, NoteBlock{note, Tone::Warn}});
 
@@ -270,9 +268,9 @@ DetailLayout CpuTest::detail(const TestResult &r) const
                                        Tone::Neutral}});
     }
 
-    // 3 and 5: Compression and Single-thread, a side-by-side pair.
+    // 3 and 5: Compression and Single-thread.
     TableBlock comp;
-    comp.fullWidth = true;  // Dave, 2026-10-18: nothing pairs on the CPU page
+    comp.fullWidth = true;
     comp.columns = {QStringLiteral("Codec"), QStringLiteral("Compress"), QStringLiteral("Decompress"), QStringLiteral("Ratio")};
     bool anyCodec = false;
     for (const cpu::Codec c : cpu::kCodecs) {
@@ -304,7 +302,7 @@ DetailLayout CpuTest::detail(const TestResult &r) const
         else
             title = prefix + QStringLiteral(" · CPU %1").arg(cores.join(QStringLiteral(", ")));
         TableBlock st;
-        st.fullWidth = true;  // its own row, with the all-threads note right under it
+        st.fullWidth = true;
         st.columns = {QStringLiteral("Part"), QStringLiteral("Result")};
         st.rows.append({DetailCell::literal(QStringLiteral("Integer")), DetailCell::literal(withUnit(r, QStringLiteral("single.int")))});
         st.rows.append({DetailCell::literal(QStringLiteral("Floating point")), DetailCell::literal(withUnit(r, QStringLiteral("single.fp")))});

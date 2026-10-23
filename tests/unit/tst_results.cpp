@@ -11,6 +11,7 @@
 #include "tests/common/stub_clock.h"
 
 #include <QSignalSpy>
+#include <cmath>
 #include <limits>
 #include <QTemporaryDir>
 #include <QTest>
@@ -326,6 +327,10 @@ private slots:
         QCOMPARE(hoverValue(5836.8, QStringLiteral("KiB")), QStringLiteral("5.7 MiB"));
         QCOMPARE(hoverValue(24, QStringLiteral("KiB")), QStringLiteral("24 KiB"));
         QCOMPARE(hoverValue(1048576, QStringLiteral("KiB")), QStringLiteral("1 GiB"));
+        // The unit follows the rounded value (AP-5 nit): no "1,024 KiB" / "1,024 MiB".
+        QCOMPARE(hoverValue(1023.9996, QStringLiteral("KiB")), QStringLiteral("1 MiB"));
+        QCOMPARE(hoverValue(1023.4, QStringLiteral("KiB")), QStringLiteral("1,023 KiB"));
+        QCOMPARE(hoverValue(1048575.9, QStringLiteral("KiB")), QStringLiteral("1 GiB"));
         QCOMPARE(hoverValue(98.25, QStringLiteral("%")), QStringLiteral("98.25%"));
         QCOMPARE(hoverValue(61.5, QStringLiteral("°C")), QStringLiteral("61.5 °C"));
         QCOMPARE(hoverValue(3, QString()), QStringLiteral("3"));
@@ -363,6 +368,25 @@ private slots:
                               1000.0 / 2.4271));
         chart.seriesKeys = {QStringLiteral("nope")};
         QCOMPARE(build(chart).value(QStringLiteral("xUnit")).toString(), QString());
+    }
+
+    // D26: a stored y that isn't a positive finite number is left out of an FPS chart, whatever it is (AP-5 L6).
+    void lineChartFpsLeavesOutNegativeAndNonFiniteMs()
+    {
+        TestResult r;
+        const double inf = std::numeric_limits<double>::infinity();
+        r.series = {{QStringLiteral("ft.x"), QStringLiteral("X"), QStringLiteral("Time"), QStringLiteral("s"), QStringLiteral("ms"),
+                     {{0.05, -2.5}, {0.15, NAN}, {0.25, inf}, {0.35, -inf}, {0.45, 0.0}, {0.55, 4.0}}}};
+        LineChartBlock chart;
+        chart.seriesKeys = {QStringLiteral("ft.x")};
+        chart.yValue = ChartValue::PerSecondFromMs;
+        chart.yUnit = QStringLiteral("fps");
+        DetailLayout layout;
+        layout.blocks.append({QStringLiteral("X"), chart});
+        const QVariantList pts = buildDetailBlocks(layout, r, QStringLiteral("t-gpu")).first().toMap().value(QStringLiteral("points")).toList();
+        QCOMPARE(pts.size(), 1);  // negative, NaN, +-inf and 0 ms are all left out
+        QCOMPARE(pts[0].toMap().value(QStringLiteral("x")).toDouble(), 0.55);
+        QCOMPARE(pts[0].toMap().value(QStringLiteral("label")).toString(), QStringLiteral("0.55 s · 250 fps"));
     }
 
     void lineChartAsStoredHasLabels()
@@ -576,6 +600,32 @@ private slots:
         log->setMinLevel(QStringLiteral("warning"));
         QVERIFY(log->rowCount() < all);
         QCOMPARE(res.logTests().size(), 2);
+    }
+
+    // AP-5 L5: re-setting the same run (a live run's update, its stored copy at the end) must not re-emit detailChanged
+    // when the shown test's page is the same, because the page rebuilds on it and loses the chart hover and the keyboard focus.
+    void sameRunSameDetailDoesNotReEmit()
+    {
+        startRuntime();
+        RunController &rc = m_rt->run();
+        for (const QString &id : {QStringLiteral("storage"), QStringLiteral("ai")})
+            rc.toggle(id);
+        QSignalSpy finished(&rc, &RunController::runFinished);
+        QVERIFY(rc.start());
+        QVERIFY(finished.wait(60000));
+        ResultsController &res = m_rt->results();
+        res.showDetail(QStringLiteral("ai"));
+        QVERIFY(!res.detailBlocks().isEmpty());
+        const QVariantList before = res.detailBlocks();
+        QSignalSpy changed(&res, &ResultsController::detailChanged);
+        QVERIFY(res.openRun(res.uuid()));
+        QVERIFY(res.openRun(res.uuid()));
+        QCOMPARE(changed.count(), 0);
+        QCOMPARE(res.detailBlocks(), before);
+        QCOMPARE(res.detailTitle(), QStringLiteral("AI inference"));
+        // A different test is a change; an explicit select always tells the page.
+        res.selectDetail(QStringLiteral("storage"));
+        QCOMPARE(changed.count(), 1);
     }
 
     void followsTheLiveRun()

@@ -205,7 +205,7 @@ StubSpec makeSpec()
             d.blocks.append({QStringLiteral("Charge over time"), chart});
         }
         if (r.statusReason == QLatin1StringView("Recovered from checkpoints"))
-            d.blocks.append({{}, NoteBlock{QStringLiteral("Recovered from checkpoints after the machine shut down."), Tone::Neutral}});
+            d.blocks.append({{}, NoteBlock{QStringLiteral("Recovered from checkpoints after the machine shut down."), Tone::Warn}});
         return d;
     };
     return s;

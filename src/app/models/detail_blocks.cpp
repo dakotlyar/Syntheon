@@ -39,12 +39,28 @@ QString hoverNumber(double v)
     return s;
 }
 
+namespace {
+
+// v rounded the way hoverNumber prints it.
+double hoverRounded(double v)
+{
+    if (!std::isfinite(v) || v == 0)
+        return v;
+    const int decimals = std::clamp(3 - int(std::floor(std::log10(std::abs(v)))), 0, 3);
+    const double scale = std::pow(10.0, decimals);
+    return std::round(v * scale) / scale;
+}
+
+} // namespace
+
 QString hoverValue(double v, const QString &unit)
 {
     if (unit == QLatin1String("KiB")) {
-        if (v >= 1048576)
+        // The unit follows the rounded value, so 1023.9996 KiB reads "1 MiB", not "1,024 KiB" (AP-5 nit).
+        const double rounded = hoverRounded(v);
+        if (rounded >= 1048576)
             return hoverNumber(v / 1048576) + QStringLiteral(" GiB");
-        if (v >= 1024)
+        if (rounded >= 1024)
             return hoverNumber(v / 1024) + QStringLiteral(" MiB");
         return hoverNumber(v) + QStringLiteral(" KiB");
     }

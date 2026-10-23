@@ -48,6 +48,17 @@ ScreenFrame {
                     radius: 15
                     color: tab.active ? Theme.accentSoft : "transparent"
                     border.color: tab.active ? Theme.accent : Theme.line
+                    // The keyboard focus ring (Zeb D2), just outside the chip so an active chip's own border still reads.
+                    Rectangle {
+                        objectName: "focusRing"
+                        anchors.fill: parent
+                        anchors.margins: -3
+                        radius: 18
+                        visible: tab.visualFocus
+                        color: "transparent"
+                        border.color: Theme.accent
+                        border.width: 2
+                    }
                 }
                 contentItem: RowLayout {
                     spacing: 7

@@ -467,6 +467,18 @@ private slots:
         QCOMPARE(std::get<double>(rec.tests[0].metric(QStringLiteral("runtime"))->value), 75.0);
         QCOMPARE(rec.tests[0].statusReason, QStringLiteral("Recovered from checkpoints"));
         QCOMPARE(rec.tests[0].series[0].points.size(), 6);
+        // AP-5 L1: "Recovered from checkpoints" is about the run, so its note is a warning (the renderer draws it at the top).
+        {
+            const DetailLayout layout = m_registry.find(QStringLiteral("battery"))->detail(rec.tests[0]);
+            bool found = false;
+            for (const DetailBlock &b : layout.blocks) {
+                if (const auto *n = std::get_if<NoteBlock>(&b.content); n && n->text.startsWith(QStringLiteral("Recovered from checkpoints"))) {
+                    found = true;
+                    QVERIFY(n->tone == Tone::Warn);
+                }
+            }
+            QVERIFY(found);
+        }
         // No checkpoints at all: interrupted, not recovered.
         RunRecord none = cut;
         none.uuid = QUuid::createUuid();

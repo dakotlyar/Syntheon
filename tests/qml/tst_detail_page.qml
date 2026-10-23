@@ -328,4 +328,104 @@ TestCase {
         chart.points = [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }]
         compare(chart.hoverIndex, -1)
     }
+
+    // AP-5 L6: the readout never starts left of 0, even when flipping left from near the right edge puts it there.
+    function test_hoverReadoutPosClampsAfterFlip() {
+        const chart = hoverChart({})
+        const p = chart.readoutPos(chart.width - 5, 100, chart.width, 20)  // as wide as the chart: px - 10 - w < 0
+        compare(p.x, 0)
+        compare(p.y, 72)
+    }
+
+    // AP-5 L3: a touch tap uses the mouse's +-8 px zone.
+    function test_tapZone() {
+        const chart = hoverChart({})
+        waitForRendering(chart)
+        compare(chart.indexAt(chart.fx(24)), 1)
+        compare(chart.indexAt(chart.padLeft - 8), 0)
+        compare(chart.indexAt(chart.padLeft - 9), -1)
+        compare(chart.indexAt(chart.padLeft + chart.plotW + 8), 4)
+        compare(chart.indexAt(chart.padLeft + chart.plotW + 9), -1)
+        const tap = (x) => {
+            touchEvent(chart).press(0, chart, x, chart.padTop + 20).commit()
+            touchEvent(chart).release(0, chart, x, chart.padTop + 20).commit()
+        }
+        tap(chart.fx(24))
+        tryCompare(chart, "hoverIndex", 1)
+        tap(chart.fx(24))  // tapping the shown point again hides it
+        tryCompare(chart, "hoverIndex", -1)
+        tap(chart.padLeft - 20)  // outside the zone: nothing
+        wait(50)
+        compare(chart.hoverIndex, -1)
+    }
+
+    // Zeb D1: the last x tick stays inside the chart box and clear of the focus ring, and so does the unit label.
+    function test_lastTickInsideTheChart() {
+        const chart = hoverChart({ logX: false, yUnit: "ns", xTicks: [{ x: 0, label: "0 GB/s" }, { x: 150, label: "150 GB/s" }],
+                                   points: [{ x: 0, y: 1 }, { x: 75, y: 2 }, { x: 150, y: 3 }] })
+        waitForRendering(chart)
+        const labels = []
+        const scan = (item) => { for (const c of item.children) { if (c.text !== undefined) labels.push(c); scan(c) } }
+        scan(chart)
+        const tick = labels.filter(l => l.text === "150 GB/s")[0]
+        const first = labels.filter(l => l.text === "0 GB/s")[0]
+        const unit = labels.filter(l => l.text === "ns")[0]
+        verify(tick && first && unit)
+        verify(tick.x + tick.width <= chart.width - 4, "last tick right edge " + (tick.x + tick.width) + " of " + chart.width)
+        verify(first.x >= 4)
+        verify(unit.x >= 4 && unit.y >= 2)
+        // a tick that fits is still centred on its position
+        const mid = hoverChart({ logX: false, xTicks: [{ x: 0, label: "0" }, { x: 75, label: "75" }, { x: 150, label: "150" }],
+                                 points: [{ x: 0, y: 1 }, { x: 150, y: 3 }] })
+        waitForRendering(mid)
+        const m = []
+        const scan2 = (item) => { for (const c of item.children) { if (c.text === "75") m.push(c); scan2(c) } }
+        scan2(mid)
+        fuzzyCompare(m[0].x + m[0].width / 2, mid.fx(75), 0.5)
+    }
+
+    // A custom block the build can't draw becomes a warning note at the top (AP-5 L6).
+    function test_customBlockFallback() {
+        const page = createTemporaryObject(pageComponent, test, { blocks: [{ type: "custom", title: "", qmlType: "Nope", data: {} }, kpis()] })
+        waitForRendering(page)
+        compare(shape(page.sections), { top: ["custom", "kpis"], charts: [], tables: [] })
+        const found = []
+        const scan = (item) => {
+            for (const c of item.children) {
+                if (c.block !== undefined && c.block !== null && c.block.text !== undefined) found.push(c)
+                scan(c)
+            }
+        }
+        scan(page)
+        compare(found.length, 1)
+        compare(found[0].block.text, "This view isn't available in this version.")
+        compare(found[0].block.tone, "warn")
+    }
+
+    // The sections draw top first, then the charts, then the tables bar and the tables (AP-5 L6).
+    function test_renderedOrder() {
+        const blocks = [table("Late", false), chartBlock({ title: "C1" }), { type: "kpis", title: "", items: [{ label: "L", value: "1", unit: "" }] },
+                        chartBlock({ title: "C2" }), note("warned", "warn"), table("Early", false)]
+        const page = createTemporaryObject(pageComponent, test, { testId: "order", blocks: blocks })
+        waitForRendering(page)
+        const yOf = (item) => page.mapFromItem(item, 0, 0).y
+        const kpi = findAll(page, "kpiValue")[0]
+        const warned = []
+        const scan = (item) => { for (const c of item.children) { if (c.block && c.block.text === "warned") warned.push(c); scan(c) } }
+        scan(page)
+        const charts = findAll(page, "chart")
+        const bar = findChild(page, "tablesBar")
+        const tables = findAll(page, "detailTable")
+        compare(charts.length, 2)
+        compare(tables.length, 2)
+        compare(warned.length, 1)
+        verify(kpi && bar)
+        verify(yOf(kpi) < yOf(charts[0]), "KPIs above the charts")
+        verify(yOf(warned[0]) < yOf(charts[0]), "the warning above the charts")
+        verify(yOf(charts[0]) < yOf(charts[1]), "charts in order")
+        verify(yOf(charts[1]) < yOf(bar), "the tables bar below the charts")
+        verify(yOf(bar) < yOf(tables[0]), "the tables below the bar")
+        verify(yOf(tables[0]) < yOf(tables[1]), "tables in order")
+        compare(page.sections.tables[0].block.title, "Late")  // in the order given
+    }
 }
