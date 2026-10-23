@@ -24,7 +24,10 @@ Usage:
 
   --test T    which test's results: cpu (the default), ram or gpu
   -n N        the last N results of that test that have a score (default
-              5), of the newest result's test and formula version
+              5), of the newest result's test and formula version; with
+              --test gpu the last N results whatever their status (a Partial
+              one has no score: it is named, doesn't count, and so fewer than
+              N Ok runs fail the gate)
   --runs ...  these run ids instead (as the first column prints them), in
               the order given; an unscored result is shown, and left out of
               the CVs where its values are missing
@@ -40,8 +43,9 @@ Usage:
               GPU calibration (Phase 4a §17.4) is the same with --test gpu:
               the gate is status ok on every run (a Partial run, such as a
               signature outlier, doesn't count and is reported) on one
-              machine, the GPU score's CV, and each scored metric's CV
-              (reported; target 2%). The ten constants are formula_v1.cpp's
+              machine, and the GPU score's CV. Every group's and every
+              scored metric's CV is reported, never gated: above 2% is
+              "above target", above the limit says so too. The ten constants are formula_v1.cpp's
               (kGeometryFps .. kSpritesMops), and the runs are also
               re-scored with the constants that file has NOW: the check that
               this script's formula is the C++ one. Those scores equal the
@@ -53,7 +57,8 @@ For RAM there is no MLC cross-check (Phase 3 D19): the gate is this CV plus
 a sensible machine ranking.
 
 Exit code: 0 if every CV is within the limit, 1 if any is above it (or fewer
-than 2 values could be compared), 2 for a usage or database problem.
+than 2 values could be compared), 2 for a usage or database problem. With
+--test gpu only the score's CV gates (with every run Ok, on one machine).
 
 Standard library only; it never modifies the history and never touches the
 network. The database is opened read-only, but SynBench's history is in WAL
@@ -263,7 +268,7 @@ def open_readonly(path):
 def test_results(con, test, n, run_ids):
     q = (
         "SELECT r.id, r.started_at, r.status, r.machine_label, r.app_version, "
-        "t.id, t.status, t.score, t.test_version, t.formula_version "
+        "t.id, t.status, t.score, t.test_version, t.formula_version, t.status_reason "
         "FROM runs r JOIN test_results t ON t.run_id = r.id AND t.test_id = ? "
     )
     if run_ids:
@@ -276,10 +281,13 @@ def test_results(con, test, n, run_ids):
         return rows
     # Only results comparable with the newest one: the same test and formula
     # version (a Phase 1 stub result or an older formula never mixes in).
-    newest = con.execute(q + "WHERE t.score IS NOT NULL ORDER BY r.started_at DESC, r.id DESC LIMIT 1", (test,)).fetchone()
+    # GPU (§17.4): the newest N results whatever their status, since a Partial one has no score and must be named, not
+    # skipped; the CPU and RAM tests take scored results only, as Phase 2 and 3 defined.
+    scored = "" if test == "gpu" else "t.score IS NOT NULL AND "
+    newest = con.execute(q + f"WHERE {scored}1 ORDER BY r.started_at DESC, r.id DESC LIMIT 1", (test,)).fetchone()
     if newest is None:
         return []
-    rows = con.execute(q + "WHERE t.score IS NOT NULL AND t.test_version = ? AND t.formula_version = ? "
+    rows = con.execute(q + f"WHERE {scored}t.test_version = ? AND t.formula_version = ? "
                            "ORDER BY r.started_at DESC, r.id DESC LIMIT ?", (test, newest[8], newest[9], n)).fetchall()
     return list(reversed(rows))  # oldest first
 
@@ -360,12 +368,12 @@ def main(argv=None):
         return 2
 
     runs = []
-    for (rid, started, rstatus, machine, appver, tid, tstatus, score, tver, fver) in rows:
+    for (rid, started, rstatus, machine, appver, tid, tstatus, score, tver, fver, treason) in rows:
         subs = sub_scores(con, tid)
         bg = metric(con, tid, "background.load")
         runs.append({
             "id": rid, "started": started, "run_status": rstatus, "machine": machine, "app": appver,
-            "status": tstatus, "score": score, "test_version": tver, "formula_version": fver,
+            "status": tstatus, "reason": treason, "score": score, "test_version": tver, "formula_version": fver,
             "subs": {g: subs.get(g) for g, _ in groups},
             "metrics": {k: metric(con, tid, k) for k, _ in spec["metrics"]},
             "power": metric(con, tid, "power.source"),
@@ -386,6 +394,12 @@ def main(argv=None):
 
     # --- per run --------------------------------------------------------------
     print(f"{name} repeatability: {len(runs)} run(s) from {args.db}")
+    # GPU (§17.4): only Ok runs count. A Partial (unscored) or otherwise not-Ok run is shown and named, and fails the gate.
+    gpu_mode = args.test == "gpu"
+    full = runs
+    if gpu_mode:
+        runs = [r for r in full if r["status"] == "ok"]
+    not_counted = [r for r in full if r not in runs]
     if args.test == "cpu":
         extra_head = ["ST mark"]
         extra = lambda r: [fmt_num(r["metrics"]["single.mark"])]
@@ -405,7 +419,7 @@ def main(argv=None):
     head = ["run", "started (UTC)", "status", "score"] + [label for _, label in groups] + \
            extra_head + ["power", "profile", "bg load"] + tail_head
     table = []
-    for r in runs:
+    for r in full:
         bg = r["background"]
         table.append([str(r["id"]), (r["started"] or "")[:19].replace("T", " "), r["status"], fmt_num(r["score"])]
                      + [fmt_num(r["subs"][g]) for g, _ in groups]
@@ -427,7 +441,8 @@ def main(argv=None):
              [(label, [r["subs"][g] for r in runs], False) for g, label in groups] + \
              [(label, [r["metrics"][k] for r in runs], k in spec.get("optional", ())) for k, label in spec["metrics"]]
     width = max(20, *(len(label) for label, _, _ in series))
-    gpu_metric_labels = {label for _, label in spec["metrics"]}
+    # §17.4: under --test gpu only the score's CV gates; each group's and metric's CV is reported.
+    gpu_reported = {label for _, label in groups} | {label for _, label in spec["metrics"]}
     for label, values, optional in series:
         used = sum(isinstance(v, (int, float)) for v in values)
         if optional and used == 0:
@@ -436,21 +451,42 @@ def main(argv=None):
             print(f"  {label:<{width}} —      (not measured on these runs)")
             continue
         cv = cv_percent([v if isinstance(v, (int, float)) else None for v in values])
+        reported_only = gpu_mode and label in gpu_reported
         if cv is None:
-            failed = True
-            print(f"  {label:<{width}} —      (only {used} value(s): nothing to compare)  FAIL")
+            failed = failed or not reported_only
+            print(f"  {label:<{width}} —      (only {used} value(s): nothing to compare)  " + ("not compared" if reported_only else "FAIL"))
             continue
-        flag = "FAIL" if cv > args.limit else "ok"
-        failed = failed or cv > args.limit
-        # §17.4: each scored GPU metric's CV is reported against a 2% target (the gate is the score's CV).
-        if args.test == "gpu" and flag == "ok" and label in gpu_metric_labels and cv > GPU_METRIC_CV_TARGET:
-            flag = f"ok (above the {GPU_METRIC_CV_TARGET:g}% target)"
+        if reported_only:
+            # Reported, never gated: above 2% is "above target", above the limit says so as well.
+            flag = "ok"
+            if cv > args.limit:
+                flag = f"above target ({GPU_METRIC_CV_TARGET:g}%) and above {args.limit:g}% (reported, not a gate)"
+            elif cv > GPU_METRIC_CV_TARGET:
+                flag = f"above target ({GPU_METRIC_CV_TARGET:g}%)"
+        else:
+            flag = "FAIL" if cv > args.limit else "ok"
+            failed = failed or cv > args.limit
         mean = statistics.fmean([v for v in values if isinstance(v, (int, float))])
         print(f"  {label:<{width}} {cv:5.2f}%  (n={used}, mean {mean:,.{3 if mean < 10 else 1}f})  {flag}")
 
     # --- conditions that make a set not comparable ---------------------------------
     notes = []
-    if not run_ids and len(runs) < args.n:
+    if gpu_mode:
+        # Every not-Ok run is named, and the gate fails: "every run Ok" (§17.4).
+        for r in not_counted:
+            reason = r["reason"] or "no reason stored"
+            notes.append(f"run {r['id']}: {r['status']}, {reason}, doesn't count")
+        if not_counted and not run_ids:
+            failed = True
+            notes.append(f"not enough Ok runs: {len(runs)} of the {args.n} asked for  FAIL (not counted: "
+                         + ", ".join(f"run {r['id']} {r['status']}" for r in not_counted) + ")")
+        elif not_counted:
+            failed = True
+            notes.append("not every run is Ok  FAIL (not counted: " + ", ".join(f"run {r['id']} {r['status']}" for r in not_counted) + ")")
+        elif not run_ids and len(runs) < args.n:
+            failed = True
+            notes.append(f"not enough Ok runs: {len(runs)} of the {args.n} asked for  FAIL")
+    elif not run_ids and len(runs) < args.n:
         notes.append(f"only {len(runs)} comparable scored result(s), of the {args.n} asked for")
     if len({r["machine"] for r in runs}) > 1:
         notes.append("the runs are from different machines")
@@ -462,7 +498,7 @@ def main(argv=None):
                 notes.append(f"the runs have different {what}: " + ", ".join(sorted({str(r[key]) for r in runs})))
     for r in runs:
         why = []
-        if r["status"] != "ok":
+        if r["status"] != "ok":  # CPU and RAM only: the GPU's not-Ok runs are named above
             why.append(f"status {r['status']}")
         if r["power"] not in (None, "AC"):
             why.append(f"power {r['power']}")
@@ -491,20 +527,20 @@ def main(argv=None):
         gpu = args.test == "gpu"
         print()
         if gpu:
-            print(f"Calibration gate (§17.4): {len(runs)} run(s), every one status ok (a Partial run doesn't count):")
+            print(f"Calibration gate (§17.4): {len(full)} run(s), every one status ok (a Partial run doesn't count):")
         else:
             print(f"Calibration gate (§15.1): {len(runs)} run(s), status ok, huge pages >= {RAM_HUGE_PAGES_MIN}%:")
-        if not run_ids and len(runs) < args.n:
+        if not gpu and not run_ids and len(runs) < args.n:  # the GPU's count is the "not enough Ok runs" note above
             failed = True
             print(f"  only {len(runs)} of the {args.n} runs asked for  FAIL")
         if len({r["machine"] for r in runs}) > 1:
             failed = True
             print("  the runs are from different machines  FAIL")
-        for r in runs:
+        for r in (full if gpu else runs):
             if gpu:
                 ok = r["status"] == "ok"
                 failed = failed or not ok
-                print(f"  run {r['id']}: status {r['status']}  {'ok' if ok else 'FAIL'}")
+                print(f"  run {r['id']}: status {r['status']}  " + ("ok" if ok else "FAIL (doesn't count)"))
                 continue
             huge = r["huge"]
             ok = r["status"] == "ok" and isinstance(huge, (int, float)) and huge >= RAM_HUGE_PAGES_MIN
@@ -524,10 +560,10 @@ def main(argv=None):
             print(f"  constexpr double {aname} = {sig3_text(anchors[key])};{comment}")
         print()
         if gpu:
-            rescored = [gpu_rescore(r["metrics"], anchors)[0] for r in runs]
+            results = [gpu_rescore(r["metrics"], anchors) for r in runs]
+            rescored = [total for total, _, _ in results]
             print("Each run re-scored with these anchors (formula v1):")
-            for r in runs:
-                total, subs, two_d = gpu_rescore(r["metrics"], anchors)
+            for r, (total, subs, two_d) in zip(runs, results):
                 parts = " · ".join(f"{label} {fmt_num(subs.get(g))}" for g, label in groups)
                 print(f"  run {r['id']}: {fmt_num(total)} (stored {fmt_num(r['score'])})  {parts} · 2D {fmt_num(two_d)}")
         else:
@@ -559,7 +595,8 @@ def main(argv=None):
                       + " · ".join(f"{label} {fmt_num(subs.get(g))} ({fmt_num(r['subs'][g])})" for g, label in groups)
                       + f" · 2D {fmt_num(two_d)} ({fmt_num(r['stored2d'])})  " + ("equal" if same else "differs"))
     print()
-    print("RESULT: " + ("FAIL (a CV is above the limit, or there is too little to compare)" if failed else "PASS"))
+    print("RESULT: " + ("FAIL (the score's CV is above the limit, a run is not Ok, or there is too little to compare)" if failed and gpu_mode
+                        else "FAIL (a CV is above the limit, or there is too little to compare)" if failed else "PASS"))
     return 1 if failed else 0
 
 

@@ -153,7 +153,14 @@ def main():
     by_file = linux_flags()
     sources = tracked_sources()
     moc_stubs(sources)
-    only = set(args.files)
+    # FILE arguments are matched as repo-relative posix paths: a "./"-prefixed or absolute path is normalised first.
+    only = set()
+    for f in args.files:
+        path = pathlib.Path(f)
+        try:
+            only.add((path if path.is_absolute() else pathlib.Path.cwd() / path).resolve().relative_to(REPO.resolve()).as_posix())
+        except ValueError:
+            only.add(path.as_posix())  # outside the repo: matches nothing, and is reported below
     checked, failed = [], []
     for src in sources:
         rel = src.relative_to(REPO).as_posix()
@@ -179,12 +186,16 @@ def main():
                 failed.append((tag, r.stderr))
             else:
                 checked.append((tag, len([l for l in r.stderr.splitlines() if 'warning:' in l])))
+    seen = {t.split(" ")[0] for t, _ in checked} | {t.split(" ")[0] for t, _ in failed}
+    unmatched = sorted(only - seen)
     for tag, warns in checked:
         print(f"OK   {tag}" + (f"  [{warns} warnings]" if warns else ""))
     for tag, err in failed:
         print(f"FAIL {tag}\n" + "\n".join(err.splitlines()[:25]))
-    print(f"\n{len(checked)} clean, {len(failed)} failed")
-    return 1 if failed else 0
+    for f in unmatched:
+        print(f"NOT CHECKED {f}: not a source this tool checks (not tracked, or no Windows-reachable code)")
+    print(f"\n{len(checked)} clean, {len(failed)} failed" + (f", {len(unmatched)} named file(s) matched nothing" if unmatched else ""))
+    return 1 if failed or unmatched else 0
 
 if __name__ == "__main__":
     sys.exit(main())

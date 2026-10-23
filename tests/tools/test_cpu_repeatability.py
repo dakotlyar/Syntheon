@@ -32,9 +32,11 @@ on them:
     and score.2d that the fixture stores; --anchors prints the ten constants
     in formula_v1.cpp's order, 3-significant-figure medians, the re-scores
     (about 1,000 at the median), and gates on status ok (a Partial run is
-    reported and fails the gate).
+    reported and fails the gate); a real Partial run with no score is named by
+    the default selection (no --runs), and fewer than N Ok runs fail; only the
+    score's CV gates under --test gpu (a noisy metric is reported).
 
-  test_cpu_repeatability.py <source dir> [<GPU fixture synbench.db>]
+  test_cpu_repeatability.py <source dir> <GPU fixture synbench.db>   (both required; the fixture is not optional)
 """
 import hashlib
 import importlib.util
@@ -48,8 +50,12 @@ import subprocess
 import sys
 import tempfile
 
+if len(sys.argv) != 3 or not sys.argv[1].strip() or not sys.argv[2].strip():
+    # An empty argument would resolve to the current directory: refuse it instead of testing the wrong thing.
+    print("usage: test_cpu_repeatability.py <source dir> <GPU fixture synbench.db> (neither may be empty)", file=sys.stderr)
+    sys.exit(2)
 SRC = pathlib.Path(sys.argv[1]).resolve()
-GPU_FIXTURE = pathlib.Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else None
+GPU_FIXTURE = pathlib.Path(sys.argv[2]).resolve()
 SCRIPT = SRC / "tools" / "cpu-repeatability.py"
 MIGRATIONS = sorted((SRC / "src" / "storage" / "migrations").glob("*.sql"))
 GROUPS = ["int", "fp", "simd", "compress", "crypto", "sort", "physics"]
@@ -234,7 +240,47 @@ def gpu_tests(tmp):
     rc, out, _ = run(part, "--test", "gpu", "--anchors", "--runs", "1,2,3,4,5")
     print(out)
     check(rc == 1 and "run 3: status partial  FAIL" in out, "GPU --anchors: a Partial run fails the gate")
-    check("run 3: status partial" in out and "Conditions to check" in out, "GPU: the Partial run is reported under the conditions")
+    check("run 3: partial, no reason stored, doesn't count" in out and "Conditions to check" in out,
+          "GPU: the Partial run is reported under the conditions")
+
+    # A real Partial run (no score, a reason), default selection with no --runs: it is named, doesn't count, and fewer than
+    # N Ok runs is a clear failure (AP-5 High).
+    real = tmp / "gpu-real-partial.db"
+    shutil.copyfile(GPU_FIXTURE, real)
+    c = sqlite3.connect(real)
+    c.execute("UPDATE test_results SET status = 'partial', score = NULL, "
+              "status_reason = 'OpenGL failed during Shading: too few frames' WHERE run_id = 3 AND test_id = 'gpu'")
+    c.execute("DELETE FROM sub_results WHERE test_result_id = (SELECT id FROM test_results WHERE run_id = 3 AND test_id = 'gpu')")
+    c.commit()
+    c.close()
+    rc, out, _ = run(real, "--test", "gpu")
+    print(out)
+    check(rc == 1 and "RESULT: FAIL" in out, "GPU: a real Partial run in the default selection fails")
+    check("run 3: partial, OpenGL failed during Shading: too few frames, doesn't count" in out, "GPU: the Partial run is named with its reason")
+    check("not enough Ok runs: 4 of the 5 asked for  FAIL (not counted: run 3 partial)" in out, "GPU: 'not enough Ok runs' lists the Partial one")
+    check(any(l.split()[:1] == ["3"] and "partial" in l for l in out.splitlines()), "GPU: the Partial run is a row of the table")
+    check(any(l.strip().startswith("GPU score") and "(n=4," in l for l in out.splitlines()), "GPU: its missing score isn't counted")
+    rc, out, _ = run(real, "--test", "gpu", "--anchors")
+    check(rc == 1 and "run 3: status partial  FAIL" in out and "only 4 of the 5" not in out, "GPU --anchors: the same, in the gate")
+    # With -n 2 the Partial run is outside the selection: the newest two Ok runs gate on their own.
+    rc, out, _ = run(real, "--test", "gpu", "-n", "2")
+    check(rc == 0 and "run 3" not in out.split("CV (sample")[1], "GPU: a Partial run outside the last N is not selected")
+
+    # Only the score's CV gates: a noisy metric (Blits at ~3.4%) with a steady score passes, and is reported.
+    noisy = tmp / "gpu-noisy.db"
+    shutil.copyfile(GPU_FIXTURE, noisy)
+    c = sqlite3.connect(noisy)
+    for rid, d in zip(range(1, 6), (-0.034, 0.034, -0.034, 0.034, 0.0)):
+        c.execute("UPDATE metrics SET value_num = ? WHERE key = 'native2d.blits' AND test_result_id = "
+                  "(SELECT id FROM test_results WHERE run_id = ? AND test_id = 'gpu')", (100.0 * (1 + d), rid))
+    c.commit()
+    c.close()
+    rc, out, _ = run(noisy, "--test", "gpu")
+    print(out)
+    blits = [l for l in out.splitlines() if l.strip().startswith("Blits")][0]
+    check(rc == 0 and "RESULT: PASS" in out, "GPU: a metric at ~3.4% with a steady score passes")
+    check("3.40%" in blits and "above target (2%)" in blits and "above 3%" in blits and "FAIL" not in blits, f"GPU: the noisy metric is reported, not failed ({blits.strip()})")
+    check("FAIL" not in out.split("Conditions")[0], "GPU: nothing in the CV list fails")
     other = tmp / "gpu-other-anchors.db"
     shutil.copyfile(GPU_FIXTURE, other)
     c = sqlite3.connect(other)
