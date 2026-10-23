@@ -6,11 +6,14 @@
 namespace sb::gpu::formula_v1 {
 
 namespace {
-// Anchors: PROVISIONAL, Knowhere (Radeon 8060S) real-display run 2026-10-22, formula versions 0; replaced at
-// calibration on Imagionationmake (task 36). Rounded to 3 significant figures. Nothing may depend on these numbers.
-constexpr double kGeometryFps = 673, kDrawcallsFps = 265, kShadingFps = 119, kParticlesFps = 96.0;
-constexpr double kShapes = 0.0191, kText = 1.81, kBlits = 0.0130, kGradients = 0.0208;  // Qt raster, MOps/s
-constexpr double kQuadsGpx = 74.3, kSpritesMops = 33.8;
+// Anchors (frozen, formula v1): the median of each scored metric over 3 runs on Knowhere (Knowhere = 1,000), rounded to
+// 3 significant figures. Radeon 8060S (Strix Halo), CachyOS, RADV (Mesa 26.2.4), Wayland, the display at 125% (D21) so the
+// render size is 2400x1350 in a 1920x1080 window. Build linux-x64 5570135, GPU results 20-22 (runs 9-11), 2026-10-23, AC,
+// balanced profile, background load 0.3-0.8%, no driver settings or overlays, other apps closed. Never change one
+// without bumping formulaVersion.
+constexpr double kGeometryFps = 673, kDrawcallsFps = 273, kShadingFps = 122, kParticlesFps = 98.4;
+constexpr double kShapes = 0.0194, kText = 1.8, kBlits = 0.0132, kGradients = 0.0217;  // Qt raster, MOps/s
+constexpr double kQuadsGpx = 74.4, kSpritesMops = 38.9;
 }
 
 const QVector<GeometricGroup> &groups()
@@ -21,7 +24,7 @@ const QVector<GeometricGroup> &groups()
           {QStringLiteral("scenes3d.drawcalls.fps"), kDrawcallsFps, 0.20},
           {QStringLiteral("scenes3d.shading.fps"), kShadingFps, 0.30},
           {QStringLiteral("scenes3d.particles.fps"), kParticlesFps, 0.30}}},
-        // §11.1: Qt raster's MOps/s (D8), 0.25 each; provisional anchors.
+        // §11.1: Qt raster's MOps/s (D8), 0.25 each.
         {QStringLiteral("native2d"), 0.10,
          {{QStringLiteral("native2d.shapes"), kShapes, 0.25},
           {QStringLiteral("native2d.text"), kText, 0.25},

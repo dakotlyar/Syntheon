@@ -458,7 +458,7 @@ private slots:
         for (const Series &s : r.series)
             series = series || (s.key == QLatin1StringView("ft.vulkan.geometry") && !s.points.isEmpty());
         QVERIFY(series);
-        // score.3d is the 3D sub-score (all four scenes at the provisional anchor).
+        // score.3d is the 3D sub-score (all four scenes at the formula anchors).
         const ScoreBreakdown b = t.score(r);
         QVERIFY(b.subScores.contains(QStringLiteral("scenes3d")));
         QCOMPARE(number(r, QStringLiteral("score.3d")), b.subScores.value(QStringLiteral("scenes3d")));

@@ -175,12 +175,12 @@ GPU_ANCHOR_NAMES = [("kGeometryFps", "scenes3d.geometry.fps", "fps"), ("kDrawcal
                     ("kShapes", "native2d.shapes", "Qt raster, MOps/s"), ("kText", "native2d.text", ""),
                     ("kBlits", "native2d.blits", ""), ("kGradients", "native2d.gradients", ""),
                     ("kQuadsGpx", "fill2d.quads", "Gpx/s, the best API's"), ("kSpritesMops", "fill2d.sprites", "MOps/s, the best API's")]
-# The constants formula_v1.cpp has now (PROVISIONAL, the real-display Knowhere run of 2026-10-22; task 36 replaces them).
+# The constants formula_v1.cpp has now (frozen: Knowhere, results 20-22, task 36).
 # tests/tools/test_cpu_repeatability.py compares this table with that file, so an edit of one without the other fails.
-GPU_CURRENT_ANCHORS = {"scenes3d.geometry.fps": 673.0, "scenes3d.drawcalls.fps": 265.0, "scenes3d.shading.fps": 119.0,
-                       "scenes3d.particles.fps": 96.0, "native2d.shapes": 0.0191, "native2d.text": 1.81,
-                       "native2d.blits": 0.0130, "native2d.gradients": 0.0208, "fill2d.quads": 74.3,
-                       "fill2d.sprites": 33.8}
+GPU_CURRENT_ANCHORS = {"scenes3d.geometry.fps": 673.0, "scenes3d.drawcalls.fps": 273.0, "scenes3d.shading.fps": 122.0,
+                       "scenes3d.particles.fps": 98.4, "native2d.shapes": 0.0194, "native2d.text": 1.8,
+                       "native2d.blits": 0.0132, "native2d.gradients": 0.0217, "fill2d.quads": 74.4,
+                       "fill2d.sprites": 38.9}
 
 
 def sig3(x):

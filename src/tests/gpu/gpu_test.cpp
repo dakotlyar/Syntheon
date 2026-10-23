@@ -1171,8 +1171,8 @@ GpuTest::GpuTest()
     m_info.name = QStringLiteral("GPU");
     m_info.summary = QStringLiteral("3D, 2D and fill-rate on 4 graphics APIs");  // M7
     m_info.colorToken = QStringLiteral("t-gpu");
-    m_info.testVersion = 0;     // provisional anchors (task 36 freezes them)
-    m_info.formulaVersion = 0;
+    m_info.testVersion = 1;     // anchors frozen at calibration (Phase 4a task 36)
+    m_info.formulaVersion = 1;
     // D13: every run runs all three; none is selectable.
     m_info.subTests = {{kScenes3dId, QStringLiteral("3D scenes"), false, true},
                        {kNative2dId, QStringLiteral("Native 2D"), false, true},

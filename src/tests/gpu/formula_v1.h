@@ -4,8 +4,8 @@
 // The GPU score, formula v1 (Phase 4a design §11): the weighted geometric
 // mean of metric / anchor, built with weightedGeometricScore() as the RAM
 // score is. Task 15 had the 3D scenes group only; task 28 adds native 2D; task 32
-// adds fill-rate (all three groups). PROVISIONAL anchors (versions 0), until the
-// calibration on Imagionationmake (task 36) freezes them.
+// adds fill-rate (all three groups). Anchors frozen at versions 1 by the
+// calibration on Knowhere (task 36).
 //
 //   scenes3d   W 0.80   scenes3d.geometry.fps 0.20, .drawcalls.fps 0.20,
 //                       .shading.fps 0.30, .particles.fps 0.30 (Dave, D3)
