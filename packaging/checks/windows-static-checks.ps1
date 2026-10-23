@@ -39,8 +39,10 @@ if (-not (Test-Path (Join-Path $Tree 'synbench-cpucrypto.exe'))) { throw 'synben
 # The GPU test's worker, likewise (Phase 4a §2.2).
 if (-not (Test-Path (Join-Path $Tree 'synbench-gpu.exe'))) { throw 'synbench-gpu.exe (the GPU worker) is missing from the tree' }
 # The GPU worker links Qt (Gui) and loads it from its own folder only (/DEPENDENTLOADFLAG:0xA00), so it
-# must sit in the same folder as the Qt DLLs and the platform plugin, as SynBench.exe does.
-foreach ($f in 'Qt6Core.dll', 'Qt6Gui.dll', 'platforms\qwindows.dll') {
+# must sit in the same folder as the Qt DLLs and the platform plugins, as SynBench.exe does. Its probe and
+# its headless mode use the offscreen platform, which windeployqt doesn't deploy (deploy.ps1 copies it):
+# without it the probe fails and the GPU test is N/A on every machine.
+foreach ($f in 'Qt6Core.dll', 'Qt6Gui.dll', 'platforms\qwindows.dll', 'platforms\qoffscreen.dll') {
     if (-not (Test-Path (Join-Path $Tree $f))) { throw "$f is not next to synbench-gpu.exe: the GPU worker would not start" }
 }
 # D11: the licence and the third-party notices go into every package.

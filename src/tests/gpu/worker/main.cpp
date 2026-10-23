@@ -90,6 +90,31 @@ namespace {
 
 constexpr int kExitOk = 0, kExitError = 1, kExitArgs = 2, kExitStdin = 3, kExitStopped = 4, kExitNa = 5;
 
+#if defined(_WIN32)
+// Qt's messages to stderr, as on Linux. Qt's own Windows handler shows a message box for a fatal error when there
+// is no console (the worker is started without one), e.g. "no Qt platform plugin could be initialized": an
+// unattended child would then sit on a dialog until SynBench kills it. A fatal message ends the process here
+// instead, with exit code 1 and the message on stderr (Qt would abort after the handler returns).
+void qtMessageToStderr(QtMsgType type, const QMessageLogContext &context, const QString &message)
+{
+    const QByteArray text = qFormatLogMessage(type, context, message).toUtf8();
+    std::fprintf(stderr, "synbench-gpu: %s\n", text.constData());
+    std::fflush(stderr);
+    if (type == QtFatalMsg)
+        std::_Exit(kExitError);
+}
+#endif
+
+// First thing in main, before Qt: the worker never shows a dialog (no Windows error boxes for a crash, a missing
+// file or a critical error; no Qt message box).
+void noDialogs()
+{
+#if defined(_WIN32)
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    qInstallMessageHandler(qtMessageToStderr);
+#endif
+}
+
 void hardenProcess()
 {
 #if defined(_WIN32)
@@ -919,6 +944,7 @@ void reportNullCalls(const Args &a, IBackend *b)
 
 int main(int argc, char **argv)
 {
+    noDialogs();
     hardenProcess();
     const std::vector<std::string> args(argv + 1, argv + argc);
     if (args == std::vector<std::string>{"--self-test"})

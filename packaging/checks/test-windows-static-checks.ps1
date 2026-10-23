@@ -66,6 +66,11 @@ try {
     Remove-Item (Join-Path $work 'synbench-cpucrypto.exe')
     Assert-Fails 'synbench-cpucrypto.exe removed'
 
+    # 6a. the GPU worker's offscreen platform plugin is gone (checkpoints 5 and 6 shipped without it)
+    Fresh-Copy
+    Remove-Item (Join-Path $work 'platforms\qoffscreen.dll')
+    Assert-Fails 'platforms\qoffscreen.dll removed'
+
     Fresh-Copy
     Remove-Item (Join-Path $work 'THIRD-PARTY-NOTICES.txt')
     Assert-Fails 'THIRD-PARTY-NOTICES.txt removed'

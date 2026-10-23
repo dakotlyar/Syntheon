@@ -444,8 +444,8 @@ jobs:
           test -f AppDir/usr/libexec/qt.conf || { echo "::error::the GPU worker's qt.conf is not in the AppDir"; exit 1; }
           # D11: the licence and the third-party notices.
           for f in LICENSE.txt THIRD-PARTY-NOTICES.txt; do test -f "AppDir/usr/share/doc/synbench/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
-          # Both Qt platform plugins: native Wayland and xcb (the X11/XWayland fallback).
-          for f in libqwayland.so libqxcb.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
+          # Both Qt platform plugins: native Wayland and xcb (the X11/XWayland fallback); and offscreen, the GPU worker's probe's.
+          for f in libqwayland.so libqxcb.so libqoffscreen.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
           test -n "$(find AppDir/usr/plugins/wayland-shell-integration -name 'libxdg-shell.so')"
           bash packaging/checks/no-dev-hooks.sh AppDir
           bash packaging/checks/no-test-binaries.sh AppDir
@@ -1013,7 +1013,7 @@ jobs:
           test -f AppDir/usr/libexec/qt.conf || { echo "::error::the GPU worker's qt.conf is not in the AppDir"; exit 1; }
           # D11: the licence and the third-party notices.
           for f in LICENSE.txt THIRD-PARTY-NOTICES.txt; do test -f "AppDir/usr/share/doc/synbench/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
-          for f in libqwayland.so libqxcb.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
+          for f in libqwayland.so libqxcb.so libqoffscreen.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
           test -n "$(find AppDir/usr/plugins/wayland-shell-integration -name 'libxdg-shell.so')"
           bash packaging/checks/no-dev-hooks.sh AppDir
           bash packaging/checks/no-test-binaries.sh AppDir

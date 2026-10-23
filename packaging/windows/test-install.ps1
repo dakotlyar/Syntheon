@@ -22,6 +22,14 @@ if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Pri
     throw 'run this from an elevated (administrator) shell: the installers and SynBench.exe need it, and a UAC prompt would hang an unattended run'
 }
 
+# A user's machine has no Qt development environment. The CI job's Qt install
+# (install-qt-action) exports QT_PLUGIN_PATH and QML2_IMPORT_PATH, through which
+# the installed SynBench and its GPU worker would find plugins and QML modules the
+# package lacks, and pass. Cleared for everything this script starts.
+foreach ($name in 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH', 'QML_IMPORT_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QT_QPA_PLATFORM', 'QT_FORCE_STDERR_LOGGING') {
+    Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+}
+
 # Absolute paths: installers and msiexec resolve relative ones against their own idea of the folder.
 $Inno = (Resolve-Path $Inno).Path
 $Msi = (Resolve-Path $Msi).Path
@@ -72,15 +80,86 @@ function Run([string]$file, [string[]]$arguments) {
 
 # Starts the installed app and checks it keeps running (a packaged build has no
 # smoke switch), reports its window, then closes it.
+# The app runs the GPU worker's probe at start-up (synbench-gpu.exe --probe), which
+# opens no window: a worker with a visible window during these 10 s is a dialog
+# (checkpoints 5 and 6: Qt's "no Qt platform plugin could be initialized" box)
+# and fails the test.
 function Test-Launch {
     $p = Start-Process -FilePath $exe -PassThru
-    Start-Sleep -Seconds 10
+    $deadline = (Get-Date).AddSeconds(10)
+    $dialog = $null
+    $sawWorker = $false
+    while (-not $dialog -and (Get-Date) -lt $deadline) {
+        foreach ($w in @(Get-Process -Name 'synbench-gpu' -ErrorAction SilentlyContinue)) {
+            $sawWorker = $true
+            if ($w.MainWindowHandle -ne [IntPtr]::Zero) { $dialog = "pid $($w.Id), window '$($w.MainWindowTitle)'" }
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    if ($dialog) {
+        Get-Process -Name 'synbench-gpu' -ErrorAction SilentlyContinue | Stop-Process -Force
+        if (-not $p.HasExited) { $p | Stop-Process -Force }
+        throw "the GPU worker showed a window during the app's start-up probe ($dialog): a dialog"
+    }
+    Write-Host "start-up GPU probe: $(if ($sawWorker) { 'the worker ran, no window' } else { 'the worker was not seen (it may have finished between polls)' })"
     if ($p.HasExited) { throw "SynBench exited with code $($p.ExitCode) right after launch" }
     $p.Refresh()
     Write-Host "SynBench is running: pid $($p.Id), window handle $($p.MainWindowHandle), responding $($p.Responding)"
     if (-not $p.Responding) { throw 'SynBench is not responding 10 s after launch' }
     $p | Stop-Process -Force
     $p.WaitForExit()
+}
+
+# The INSTALLED GPU worker's probe, run directly, started as SynBench starts it:
+# without a console (QProcess uses CREATE_NO_WINDOW), the case where Qt shows a
+# message box for a fatal error. It must start Qt on the offscreen platform and
+# answer in the protocol (src/tests/gpu/model/protocol.h: one JSON object per
+# stdout line). A dialog hangs it, so the timeout is that failure; a Qt error now
+# exits 1 with the message on stderr and no protocol line.
+function Test-GpuProbe {
+    if (-not (Test-Path (Join-Path $app 'platforms\qoffscreen.dll'))) { throw "platforms\qoffscreen.dll is missing from ${app}: the GPU worker's probe can't start" }
+    Write-Host "> $gpuWorker --probe (no console)"
+    $si = New-Object System.Diagnostics.ProcessStartInfo
+    $si.FileName = $gpuWorker
+    $si.Arguments = '--probe'
+    $si.WorkingDirectory = $app
+    $si.UseShellExecute = $false
+    $si.CreateNoWindow = $true
+    $si.RedirectStandardOutput = $true
+    $si.RedirectStandardError = $true
+    $p = [System.Diagnostics.Process]::Start($si)
+    $stdout = $p.StandardOutput.ReadToEndAsync()
+    $stderr = $p.StandardError.ReadToEndAsync()
+    if (-not $p.WaitForExit(30 * 1000)) {
+        & taskkill.exe /PID $p.Id /T /F | Out-Null
+        throw 'synbench-gpu.exe --probe did not finish within 30 s (a modal dialog nobody can click?)'
+    }
+    $code = $p.ExitCode
+    $out = $stdout.Result   # waits for the end of each stream
+    $err = $stderr.Result
+    Set-Content -Path (Join-Path $logs 'gpu-probe.txt') -Value "exit code $code`n--- stdout`n$out`n--- stderr`n$err"
+    $events = @()
+    foreach ($line in ($out -split "`r?`n" | Where-Object { $_.Trim() })) {
+        try { $o = $line | ConvertFrom-Json } catch { throw "synbench-gpu.exe --probe wrote a line that isn't JSON: $line" }
+        if (-not $o.ev) { throw "synbench-gpu.exe --probe wrote a line without an event: $line" }
+        $events += $o
+    }
+    if ($code -eq 0) {
+        if ($events.Count -eq 0 -or $events[-1].ev -ne 'done') { throw "the probe exited 0 without its 'done' line; stdout: $out" }
+        $other = @($events | Select-Object -SkipLast 1 | Where-Object { $_.ev -ne 'gpu' })
+        if ($other) { throw "the probe wrote events other than 'gpu' before 'done': $(($other | ForEach-Object { $_.ev }) -join ', ')" }
+        Write-Host "GPU probe OK: $($events.Count - 1) GPU(s), 'done'"
+        return
+    }
+    # A machine with no hardware GPU (a CI runner has only Microsoft Basic Render Driver, a software
+    # adapter, which a packaged build doesn't list): the probe still started Qt and answered with one
+    # error event and exit code 1. Anything else is a failure: no protocol line at all means the
+    # worker died before or inside Qt's start (stderr has why).
+    if ($code -eq 1 -and $events.Count -eq 1 -and $events[0].ev -eq 'error') {
+        Write-Host "GPU probe ran, Qt started; no usable GPU on this machine: $($events[0].reason)"
+        return
+    }
+    throw "synbench-gpu.exe --probe exited with $code; stdout: $out; stderr: $err"
 }
 
 # The Inno uninstaller hands over to a copy of itself in %TEMP% and returns at
@@ -110,6 +189,7 @@ try {
     if (-not (Test-Path $worker)) { throw 'synbench-cpucrypto.exe missing after the Inno install' }
     if (-not (Test-Path $gpuWorker)) { throw 'synbench-gpu.exe missing after the Inno install' }
     if (-not (Test-Path $notices)) { throw 'THIRD-PARTY-NOTICES.txt missing after the Inno install' }
+    Test-GpuProbe
     Assert-Version
     Test-Launch
     Run (Get-InnoUninstaller) @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
@@ -123,6 +203,7 @@ try {
     if (-not (Test-Path $worker)) { throw 'synbench-cpucrypto.exe missing after the MSI install' }
     if (-not (Test-Path $gpuWorker)) { throw 'synbench-gpu.exe missing after the MSI install' }
     if (-not (Test-Path $notices)) { throw 'THIRD-PARTY-NOTICES.txt missing after the MSI install' }
+    Test-GpuProbe
     Test-Launch
     Run 'msiexec.exe' @('/x', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-uninstall.log")
     Wait-Gone
