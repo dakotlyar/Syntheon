@@ -730,11 +730,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Set up MSVC (x64 -> ARM64 cross tools)
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1 (= v1.13.0)
-        with:
-          arch: amd64_arm64
-
+      # Both Qt installs run before the MSVC cross environment is set (checkpoint 5 CI): with
+      # CommandPromptType Cross in the environment, a pip source build (inflate64, which py7zr
+      # needs, when install-qt-action's cache misses) links its x64 extension with the ARM64
+      # tools and fails. The steps after them need the cross environment (clang-cl, the CRT,
+      # OpenSSL's VCToolsVersion key, the build).
       - name: Install the host Qt (x64)
         uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
         with:
@@ -755,6 +755,11 @@ jobs:
           $target = Get-ChildItem "$env:RUNNER_TEMP\qt-arm64\$env:QT_VERSION" -Directory | Select-Object -First 1
           "HOST_QT=$host_qt" | Out-File -FilePath $env:GITHUB_ENV -Append
           "TARGET_QT=$($target.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Set up MSVC (x64 -> ARM64 cross tools)
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1 (= v1.13.0)
+        with:
+          arch: amd64_arm64
 
       # OpenSSL's VC-WIN64-CLANGASM-ARM target (N4) assembles its ARMv8 Crypto
       # code with clang-cl: Visual Studio's C++ Clang tools, else LLVM.
