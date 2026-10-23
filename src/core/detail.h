@@ -53,6 +53,10 @@ struct TableBlock {
     // Single cells drawn bold, as (column, row) (Phase 4a M1: the best API's number).
     // Empty by default: every existing table is unchanged.
     QVector<QPoint> boldCells;
+    // The short summary on the collapsed table's header (Phase 4a D25), e.g.
+    // "Vulkan 412 fps · 1% low 354". Empty by default: the header shows only
+    // the title.
+    QString summary;
     bool operator==(const TableBlock &) const = default;
 };
 

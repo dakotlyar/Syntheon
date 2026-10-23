@@ -120,6 +120,7 @@ QVariantMap table(const TableBlock &b, const DetailBlock &block, const TestResul
     for (const QPoint &p : b.boldCells)
         boldCells.append(QVariantList{p.x(), p.y()});
     out.insert(QStringLiteral("boldCells"), boldCells);
+    out.insert(QStringLiteral("summary"), b.summary);
     return out;
 }
 

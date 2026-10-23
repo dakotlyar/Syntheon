@@ -385,6 +385,21 @@ private slots:
         QCOMPARE(LineChartBlock{}.yValue, ChartValue::AsStored);
     }
 
+    void tableSummaryIsExported()
+    {
+        TestResult r;
+        TableBlock t;
+        const auto summary = [&](const TableBlock &b) {
+            DetailLayout layout;
+            layout.blocks.append({QStringLiteral("T"), b});
+            return buildDetailBlocks(layout, r, QStringLiteral("t")).first().toMap();
+        };
+        QVERIFY(summary(t).contains(QStringLiteral("summary")));
+        QCOMPARE(summary(t).value(QStringLiteral("summary")).toString(), QString());
+        t.summary = QStringLiteral("Vulkan 412 fps");
+        QCOMPARE(summary(t).value(QStringLiteral("summary")).toString(), QStringLiteral("Vulkan 412 fps"));
+    }
+
     void summaryOfAStoredRun()
     {
         startRuntime();
