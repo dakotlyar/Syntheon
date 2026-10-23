@@ -405,8 +405,22 @@ private slots:
         QCOMPARE(textOf(r, QStringLiteral("power.source")), QStringLiteral("AC"));
         QVERIFY(std::any_of(r.metrics.cbegin(), r.metrics.cend(), [](const Metric &m) { return m.key == QLatin1StringView("background.load"); }));
         QVERIFY2(textOf(r, QStringLiteral("shaders")).startsWith(QLatin1StringView("SPIR-V/GLSL stamp ")), qPrintable(textOf(r, QStringLiteral("shaders"))));
+#if defined(Q_OS_WIN)
+        {
+            // Windows appends the SDK compilers that built the DXIL and the DXBC (gpu_test.cpp's shadersText).
+            const QStringList parts = textOf(r, QStringLiteral("shaders")).split(QStringLiteral("; "));
+            QCOMPARE(parts.size(), 3);
+            QVERIFY2(parts[0].endsWith(QChar(0x2026)), qPrintable(parts[0]));
+            QVERIFY2(parts[1].startsWith(QLatin1StringView("DXIL dxc ")), qPrintable(parts[1]));
+            QVERIFY2(parts[2].startsWith(QLatin1StringView("DXBC fxc ")), qPrintable(parts[2]));
+        }
+        // Windows reads the machine's own HwSchMode: "on", "off", or nothing for a missing or unknown value.
+        QVERIFY2((QStringList{QString(), QStringLiteral("on"), QStringLiteral("off")}.contains(textOf(r, QStringLiteral("gpu.hags")))),
+                 qPrintable(textOf(r, QStringLiteral("gpu.hags"))));
+#else
         QVERIFY(textOf(r, QStringLiteral("shaders")).endsWith(QChar(0x2026)));
         QVERIFY(textOf(r, QStringLiteral("gpu.hags")).isEmpty());
+#endif
         QVERIFY(textOf(r, QStringLiteral("gpu.display")).isEmpty());
         QVERIFY(r.metric(QStringLiteral("scenes3d.vulkan.fps")));  // the stub key kept: all four scenes are there
         QCOMPARE(textOf(r, QStringLiteral("api.vulkan.status")), QStringLiteral("OK"));
