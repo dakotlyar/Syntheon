@@ -26,6 +26,7 @@ QVector<GpuEntry> mergeWindowsGpus(const QVector<DxgiAdapterRecord> &adapters, c
                  : integrated || a.dedicatedBytes < (qint64(512) << 20) ? GpuKind::Integrated
                                                                         : GpuKind::Discrete;
         g.luid = luidHex(a.luid);
+        g.drivesDisplay = a.drivesOutput;
         const int n = seen[(quint64(a.vendorId) << 32) | a.deviceId]++;
         g.id = makeWindowsGpuId(a.vendorId, a.deviceId, n);
         ApiAvailability none;

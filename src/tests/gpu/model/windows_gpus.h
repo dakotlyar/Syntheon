@@ -18,6 +18,7 @@ struct DxgiAdapterRecord {
     quint32 vendorId = 0, deviceId = 0;
     bool software = false;  // DXGI_ADAPTER_FLAG_SOFTWARE (only listed with --allow-software)
     qint64 dedicatedBytes = 0, sharedBytes = 0;  // DedicatedVideoMemory, SharedSystemMemory
+    bool drivesOutput = false;                   // IDXGIAdapter::EnumOutputs(0) finds an output
     bool umaKnown = false, uma = false;          // D3D12_FEATURE_DATA_ARCHITECTURE::UMA (when a D3D12 device could be made)
     quint8 luid[8] = {};
     ApiAvailability dx12, dx11, d2d;

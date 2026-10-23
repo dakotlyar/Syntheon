@@ -10,11 +10,13 @@
 #include "tests/gpu/model/best_of.h"
 #include "tests/gpu/model/frame_stats.h"
 #include "tests/gpu/model/gl_env.h"
+#include "tests/gpu/model/hags.h"
 #include "tests/gpu/model/ids.h"
 #include "sysinfo/system_info.h"
 #include "tests/gpu/model/render_size.h"
 
 #include <QGuiApplication>
+#include <QJsonObject>
 #include <QMutexLocker>
 #include <QSysInfo>
 
@@ -79,6 +81,34 @@ Metric text(const QString &key, const QString &sub, const QString &label, const 
 std::chrono::milliseconds scaled(int ms)
 {
     return cpu::scaledWindow(std::chrono::milliseconds(ms));
+}
+
+// §10's `shaders`: "SPIR-V/GLSL stamp 3f2a…" from generated/STAMP, plus, on Windows, the SDK compilers that built the
+// DXIL and the DXBC. The CMake file defines the pieces.
+QString shadersText()
+{
+    QString t = QStringLiteral("SPIR-V/GLSL stamp %1\u2026").arg(QStringLiteral(SYNBENCH_GPU_SHADER_STAMP));
+#if defined(Q_OS_WIN)
+    t += QStringLiteral("; DXIL dxc %1; DXBC fxc %2").arg(QStringLiteral(SYNBENCH_GPU_DXC_VERSION), QStringLiteral(SYNBENCH_GPU_FXC_VERSION));
+#endif
+    return t;
+}
+
+// §15's hybrid note, Windows only (Linux: not detected): the chosen GPU drives no output while another real GPU does.
+QString displayGpuName(const QVector<GpuEntry> &list, int chosen)
+{
+#if defined(Q_OS_WIN)
+    if (chosen < 0 || chosen >= list.size() || !list[chosen].drivesDisplay.has_value() || *list[chosen].drivesDisplay)
+        return {};
+    for (const GpuEntry &g : list) {
+        if (g.id != list[chosen].id && g.kind != GpuKind::Software && g.drivesDisplay.value_or(false))
+            return g.name;
+    }
+#else
+    Q_UNUSED(list)
+    Q_UNUSED(chosen)
+#endif
+    return {};
 }
 
 QString kindName(GpuKind k)
@@ -262,7 +292,7 @@ QString naReason(const std::vector<ApiRun> &apis)
 class GpuRun
 {
 public:
-    GpuRun(RunContext &ctx, const GpuEntry &gpu) : m_ctx(ctx), m_gpu(gpu) {}
+    GpuRun(RunContext &ctx, const GpuEntry &gpu, const QString &displayGpu = {}) : m_ctx(ctx), m_gpu(gpu), m_displayGpu(displayGpu) {}
 
     TestResult run();
 
@@ -293,6 +323,7 @@ private:
 
     RunContext &m_ctx;
     const GpuEntry m_gpu;
+    const QString m_displayGpu;  // hybrid: the name of the GPU that drives the display, else empty
     std::vector<ApiRun> m_apis;
     std::vector<NativeRun> m_natives;  // Direct2D, Qt raster
     TestResult m_r;
@@ -417,6 +448,16 @@ TestResult GpuRun::run()
     m_ctx.holdInterface(true);
     if (const auto load = cpu::sampleBackgroundLoadPercent(cpu::scaledWindow(1000ms), [this] { return cancelled(); }))
         m_r.metrics.append(number(QStringLiteral("background.load"), {}, QStringLiteral("Background load"), *load, QStringLiteral("%")));
+    // §10: the power source and profile, as in the CPU test.
+    {
+        const QJsonObject battery = m_ctx.system().data.value(QStringLiteral("battery")).toObject();
+        const bool onBattery = battery.value(QStringLiteral("present")).toBool() && !battery.value(QStringLiteral("ac_online")).toBool();
+        m_r.metrics.append(text(QStringLiteral("power.source"), {}, QStringLiteral("Power source"), onBattery ? QStringLiteral("Battery") : QStringLiteral("AC")));
+        if (onBattery)
+            m_ctx.log(LogLevel::Warning, QStringLiteral("On battery: plug in AC power for repeatable numbers"));
+        if (const std::string profile = cpu::powerProfile(); !profile.empty())
+            m_r.metrics.append(text(QStringLiteral("power.profile"), {}, QStringLiteral("Power profile"), QString::fromStdString(profile)));
+    }
 
     // §15: the part and the stage while the workers start ("Starting" / "Starting Vulkan, OpenGL on <GPU>").
     {
@@ -687,6 +728,14 @@ TestResult GpuRun::finish(bool stopped)
     r.metrics.append(text(QStringLiteral("gpu.kind"), {}, QStringLiteral("GPU kind"), kindName(m_gpu.kind)));
     r.metrics.append(text(QStringLiteral("gpu.vram"), {}, QStringLiteral("Video memory"), vramText(m_gpu.vramBytes)));
     r.metrics.append(text(QStringLiteral("session"), {}, QStringLiteral("Session"), sessionName()));
+    // §10: Windows only, read only.
+    if (const std::string hags = hagsText(readHwSchMode()); !hags.empty())
+        r.metrics.append(text(QStringLiteral("gpu.hags"), {}, QStringLiteral("GPU scheduling (HAGS)"), QString::fromStdString(hags)));
+    // §10's shader stamp: what the shaders this build uses were generated and compiled from.
+    r.metrics.append(text(QStringLiteral("shaders"), {}, QStringLiteral("Shaders"), shadersText()));
+    // §15's hybrid note: the chosen GPU draws the frames but another one drives the monitors (Windows only).
+    if (!m_displayGpu.isEmpty())
+        r.metrics.append(text(QStringLiteral("gpu.display"), {}, QStringLiteral("Window shown by"), m_displayGpu));
     for (const ApiRun &a : m_apis) {
         const QString key = apiKey(a.id);
         const QString name = apiName(a.id);
@@ -1202,7 +1251,7 @@ TestResult GpuTest::run(RunContext &ctx, const OptionValues &options)
             return TestResult::notAvailable(QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found"));
         at = *def;  // an unknown id falls back to the default (P11)
     }
-    GpuRun run(ctx, list[at]);
+    GpuRun run(ctx, list[at], displayGpuName(list, at));
     return run.run();
 }
 

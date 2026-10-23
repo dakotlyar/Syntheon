@@ -103,6 +103,10 @@ AdapterProbe describe(IDXGIAdapter1 *adapter, const DXGI_ADAPTER_DESC1 &desc)
         a.luid[std::size_t(4 + i)] = std::uint8_t(DWORD(high) >> (8 * i));
     }
     a.sharedBytes = std::int64_t(desc.SharedSystemMemory);
+    {
+        ComPtr<IDXGIOutput> output;
+        a.drivesOutput = SUCCEEDED(adapter->EnumOutputs(0, &output));  // DXGI_ERROR_NOT_FOUND: none
+    }
     a.dx12 = probeDx12(adapter, &a.umaKnown, &a.uma);
     probeDx11AndD2d(adapter, &a.dx11, &a.d2d);
     return a;

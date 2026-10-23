@@ -6,6 +6,7 @@
 #include "tests/gpu/model/frame_stats.h"
 #include "tests/gpu/model/gl_env.h"
 #include "tests/gpu/model/gpu_identity.h"
+#include "tests/gpu/model/hags.h"
 #include "tests/gpu/model/linux_gpus.h"
 #include "tests/gpu/model/ids.h"
 #include "tests/gpu/model/protocol.h"
@@ -722,6 +723,37 @@ private slots:
             return std::nullopt;
         });
         QCOMPARE(arm[0].apis.value(QStringLiteral("opengl")).reason, QStringLiteral("OpenGL isn't tested on Linux ARM"));
+    }
+
+    // §10 gpu.hags: HwSchMode 2 is on, 1 is off, anything else (or unreadable) stores nothing.
+    void hagsMapping()
+    {
+        QCOMPARE(hagsText(2), std::string("on"));
+        QCOMPARE(hagsText(1), std::string("off"));
+        QCOMPARE(hagsText(0), std::string());
+        QCOMPARE(hagsText(3), std::string());
+        QCOMPARE(hagsText(std::nullopt), std::string());
+#if !defined(_WIN32)
+        QVERIFY(!readHwSchMode().has_value());
+#endif
+    }
+
+    // §15's hybrid note (Windows): the adapter's DXGI output answer becomes GpuEntry::drivesDisplay.
+    void windowsDrivesOutput()
+    {
+        DxgiAdapterRecord a, b;
+        a.name = QStringLiteral("A");
+        a.vendorId = 0x10de;
+        a.deviceId = 1;
+        a.dedicatedBytes = qint64(8) << 30;
+        a.drivesOutput = false;
+        b = a;
+        b.name = QStringLiteral("B");
+        b.deviceId = 2;
+        b.drivesOutput = true;
+        const QVector<GpuEntry> gpus = mergeWindowsGpus({a, b}, {});
+        QCOMPARE(gpus[0].drivesDisplay, std::optional<bool>(false));
+        QCOMPARE(gpus[1].drivesDisplay, std::optional<bool>(true));
     }
 
     // M2: the LUID is carried (probe list -> protocol -> the worker's arguments) so every API selects the same adapter.

@@ -16,9 +16,24 @@ target_link_libraries(synbench_gpu_model PUBLIC synbench_core Qt6::Core)
 
 add_library(synbench_test_gpu STATIC gpu_test.h gpu_test.cpp gpu_detail.cpp formula_v1.h formula_v1.cpp client/gpu_client.h client/gpu_client.cpp)
 target_link_libraries(synbench_test_gpu PUBLIC synbench_core synbench_test_common synbench_gpu_model synbench_test_engine synbench_sysinfo Qt6::Core Qt6::Gui)
+if(WIN32)
+    target_link_libraries(synbench_test_gpu PRIVATE advapi32)  # RegGetValueW: gpu.hags
+endif()
 
 # The worker's shaders: the Windows build's DXIL and DXBC (§13.1).
 add_subdirectory(worker/shaders)
+
+# §10's `shaders` metric: the committed SPIR-V/GLSL stamp (first 4 hex digits) and, on Windows, the SDK compilers'
+# versions (found by worker/shaders/CMakeLists.txt).
+set(_stamp_file "${CMAKE_CURRENT_SOURCE_DIR}/worker/shaders/generated/STAMP")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_stamp_file}")
+file(STRINGS "${_stamp_file}" _stamp LIMIT_COUNT 1)
+string(SUBSTRING "${_stamp}" 0 4 _stamp4)
+target_compile_definitions(synbench_test_gpu PRIVATE SYNBENCH_GPU_SHADER_STAMP="${_stamp4}")
+if(WIN32)
+    target_compile_definitions(synbench_test_gpu PRIVATE
+        SYNBENCH_GPU_DXC_VERSION="${SYNBENCH_GPU_DXC_VERSION}" SYNBENCH_GPU_FXC_VERSION="${SYNBENCH_GPU_FXC_VERSION}")
+endif()
 
 # The scene content: pure C++, no Qt.
 add_subdirectory(worker/scene)

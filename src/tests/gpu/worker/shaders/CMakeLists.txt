@@ -48,6 +48,19 @@ if(NOT SYNBENCH_SDK_DXC OR NOT SYNBENCH_SDK_FXC)
     message(FATAL_ERROR "dxc.exe/fxc.exe not found in the Windows SDK (looked in: ${_sdk_bins})")
 endif()
 
+# The compilers' versions, for the GPU test's `shaders` metric (§10): the first "major.minor[.patch...]" in
+# `dxc.exe -version` / the banner of `fxc.exe /?`; "unknown" when the tool doesn't say.
+function(_synbench_tool_version out exe)
+    execute_process(COMMAND "${exe}" ${ARGN} OUTPUT_VARIABLE _o ERROR_VARIABLE _e RESULT_VARIABLE _rc TIMEOUT 30)
+    string(REGEX MATCH "[0-9]+\\.[0-9]+(\\.[0-9]+)*" _v "${_o}\n${_e}")
+    if(NOT _v)
+        set(_v "unknown")
+    endif()
+    set(${out} "${_v}" CACHE INTERNAL "")
+endfunction()
+_synbench_tool_version(SYNBENCH_GPU_DXC_VERSION "${SYNBENCH_SDK_DXC}" -version)
+_synbench_tool_version(SYNBENCH_GPU_FXC_VERSION "${SYNBENCH_SDK_FXC}" /?)
+
 set(_sb_shader_incs "")
 
 # synbench_gpu_shader(NAME <name>): <name>.hlsl's VSMain and PSMain as DXIL

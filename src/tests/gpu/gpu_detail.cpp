@@ -595,7 +595,13 @@ DetailLayout GpuTest::detail(const TestResult &r) const
         add(QStringLiteral("Scale"), scaleText);
         add(QStringLiteral("Window"), text(r, QStringLiteral("window.size")));
         add(QStringLiteral("Screen"), text(r, QStringLiteral("screen")));
-        add(QStringLiteral("Session"), text(r, QStringLiteral("session")));
+        {
+            QString session = text(r, QStringLiteral("session"));
+            if (const QString hags = text(r, QStringLiteral("gpu.hags")); !hags.isEmpty())
+                session += (session.isEmpty() ? QString() : QStringLiteral(" \u00b7 ")) + QStringLiteral("hardware-accelerated GPU scheduling ") + hags;
+            add(QStringLiteral("Session"), session);
+        }
+        add(QStringLiteral("Shaders"), text(r, QStringLiteral("shaders")));
         QStringList run;
         if (r.durationMs > 0)
             run << duration(r.durationMs);
@@ -647,6 +653,10 @@ DetailLayout GpuTest::detail(const TestResult &r) const
             d.blocks.append({{}, NoteBlock{QStringLiteral("%1 layers were active (%2): overlays and recorders can lower the result.").arg(apiName(a), layers),
                                            Tone::Warn}});
     }
+    if (const QString shownBy = text(r, QStringLiteral("gpu.display")); !shownBy.isEmpty() && !gpuName.isEmpty())
+        d.blocks.append({{}, NoteBlock{QStringLiteral("Rendered on the %1; the window is shown by another GPU, so a cross-GPU copy is included.")
+                                           .arg(shortGpuName(gpuName)),
+                                       Tone::Warn}});
     if (text(r, QStringLiteral("power.source")) == QLatin1StringView("Battery"))
         d.blocks.append({{}, NoteBlock{QStringLiteral("On battery"), Tone::Warn}});
     if (const auto load = number(r, QStringLiteral("background.load")); load && *load >= 10)

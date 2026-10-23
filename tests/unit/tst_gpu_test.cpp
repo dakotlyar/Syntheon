@@ -390,6 +390,14 @@ private slots:
         QCOMPARE(number(r, QStringLiteral("scenes3d.geometry.fps")), number(r, QStringLiteral("scenes3d.vulkan.geometry.fps")));
         QCOMPARE(number(r, QStringLiteral("scenes3d.geometry.fps")), 100.0);
         QCOMPARE(textOf(r, QStringLiteral("scenes3d.geometry.api")), QStringLiteral("Vulkan"));
+        // §10's context keys: the power source and the background-load sample are always stored; HAGS and the hybrid
+        // key are Windows only; the shaders stamp is the build's.
+        QCOMPARE(textOf(r, QStringLiteral("power.source")), QStringLiteral("AC"));
+        QVERIFY(std::any_of(r.metrics.cbegin(), r.metrics.cend(), [](const Metric &m) { return m.key == QLatin1StringView("background.load"); }));
+        QVERIFY2(textOf(r, QStringLiteral("shaders")).startsWith(QLatin1StringView("SPIR-V/GLSL stamp ")), qPrintable(textOf(r, QStringLiteral("shaders"))));
+        QVERIFY(textOf(r, QStringLiteral("shaders")).endsWith(QChar(0x2026)));
+        QVERIFY(textOf(r, QStringLiteral("gpu.hags")).isEmpty());
+        QVERIFY(textOf(r, QStringLiteral("gpu.display")).isEmpty());
         QVERIFY(r.metric(QStringLiteral("scenes3d.vulkan.fps")));  // the stub key kept: all four scenes are there
         QCOMPARE(textOf(r, QStringLiteral("api.vulkan.status")), QStringLiteral("OK"));
         QCOMPARE(textOf(r, QStringLiteral("api.opengl.status")), QStringLiteral("OK"));
@@ -1065,6 +1073,41 @@ private slots:
         // The Direct2D column is absent when Direct2D didn't run.
         QCOMPARE(tableOf(d, QStringLiteral("Native 2D (MOps/s)")).columns, (QStringList{QStringLiteral("Workload"), QStringLiteral("Qt raster (scored)")}));
         QCOMPARE(tableOf(d, QStringLiteral("Native 2D (MOps/s)")).boldCells.size(), 4);
+    }
+
+    // The Render setup rows for the remaining §10 keys, and the hybrid note (Windows stores gpu.display and gpu.hags).
+    void detailContextKeys()
+    {
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        TestResult r = scored(t, t.run(ctx, {}));
+        const auto setupValue = [](const DetailLayout &d, const QString &item) {
+            const TableBlock &tb = tableOf(d, QStringLiteral("Render setup"));
+            for (int i = 0; i < tb.rows.size(); ++i) {
+                if (cell(tb, i, 0) == item)
+                    return cell(tb, i, 1);
+            }
+            return QString();
+        };
+        DetailLayout d = t.detail(r);
+        QVERIFY(setupValue(d, QStringLiteral("Shaders")).startsWith(QLatin1StringView("SPIR-V/GLSL stamp ")));
+        QVERIFY(!setupValue(d, QStringLiteral("Session")).contains(QLatin1StringView("scheduling")));
+        QVERIFY(!noteContaining(d, QStringLiteral("cross-GPU copy")));
+        Metric hags;
+        hags.key = QStringLiteral("gpu.hags");
+        hags.value = QStringLiteral("on");
+        Metric shown;
+        shown.key = QStringLiteral("gpu.display");
+        shown.value = QStringLiteral("Intel(R) UHD Graphics");
+        r.metrics.append(hags);
+        r.metrics.append(shown);
+        d = t.detail(r);
+        QVERIFY(setupValue(d, QStringLiteral("Session")).endsWith(QLatin1StringView("hardware-accelerated GPU scheduling on")));
+        const NoteBlock *note = noteContaining(d, QStringLiteral("cross-GPU copy"));
+        QVERIFY(note);
+        QCOMPARE(note->tone, Tone::Warn);
     }
 
     // Partial (an API failed in a scene): "No GPU score" in the subtitle, one Warn note, the Error cells.
