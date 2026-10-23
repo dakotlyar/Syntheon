@@ -21,6 +21,8 @@
 //     few-frames         like ok, but the opengl worker measures only 19 frames in `shading` (§9: too few)
 //     implausible        like ok, but the opengl worker's `drawcalls` has a 0.004 ms frame (§9: implausible frame rate)
 //     fast-fps           like ok, but the opengl worker's `sprites` runs at 150,000 fps (§9: implausible frame rate)
+//     implausible-qt / implausible-d2d   like ok, but that native path's `text` has a 0.004 ms frame (§9 on native 2D)
+//     few-native         like ok, but the native paths (d2d, qt) measure only 5 frames per workload (no floor on native 2D)
 //     bad-gpu-time       like ok, with GPU times: vulkan's median is 16 ms against a 10 ms p50 (§9: dropped), opengl's 9 ms
 // Every result is 20 frames in 0.2 s (100 fps, p50 10 ms, fastest frame 9 ms) unless a mode says otherwise:
 // §9 needs at least 20 frames.
@@ -74,6 +76,11 @@ void result(const std::string &workload)
         frames = 30000;
         fps = "150000";
         min = "0.006";
+    } else if ((g_mode == "implausible-qt" && g_api == "qt" && workload == "text") || (g_mode == "implausible-d2d" && g_api == "d2d" && workload == "text")) {
+        min = "0.004";
+    } else if (g_mode == "few-native" && (g_api == "qt" || g_api == "d2d")) {
+        frames = 5;
+        seconds = "0.05";
     } else if (g_mode == "bad-gpu-time") {
         gpu = gl ? ",\"gpuMs\":9" : ",\"gpuMs\":16";
     }

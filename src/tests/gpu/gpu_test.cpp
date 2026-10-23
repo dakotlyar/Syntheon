@@ -583,8 +583,18 @@ void GpuRun::runNatives(double *done, bool *stopped)
         });
         n.ready = o.ready;
         n.notes += o.warnings;
+        // §9's implausible-frame-rate rule applies here too (Dave): FPS > 100,000 or a frame < 0.005 ms. Not the 20-frame floor
+        // (native windows are short and the ops heavy) and not the GPU-time rule (no timestamps). The first implausible
+        // result and everything after it is dropped, and the path fails in that workload like any other native failure.
+        QString badWorkload, badReason;
         for (const pr::ResultEvent &r : o.results) {
             if (const auto w = nativeFromKey(r.workload)) {
+                const Plausibility check = plausibility(r.frames, r.fps, r.ftMin, r.ftP50, std::nullopt, 0);
+                if (!check.error.isEmpty()) {
+                    badWorkload = nativeName(*w);
+                    badReason = check.error;
+                    break;
+                }
                 n.results[*w] = r;
                 if (n.present.isEmpty())
                     n.present = r.present;
@@ -604,6 +614,23 @@ void GpuRun::runNatives(double *done, bool *stopped)
                 failedIn = nativeName(w);
                 break;
             }
+        }
+        // A native path's failure (D23 a: Direct2D's is a warning and its own status, never an API error for D6).
+        const auto failNative = [&](const QString &failedIn, const QString &reason) {
+            n.errored = true;
+            n.errorWorkload = failedIn;  // empty: it never produced a result (start-up)
+            n.errorReason = reason;
+            n.status = QStringLiteral("Error: ") + reason;
+            if (n.path == NativePath::Direct2D)
+                n.notes << QStringLiteral("Direct2D failed during %1 (%2). It isn't scored, so the GPU score stands.")
+                               .arg(failedIn.isEmpty() ? QStringLiteral("start-up") : failedIn, reason);
+            m_ctx.log(n.path == NativePath::Direct2D ? LogLevel::Warning : LogLevel::Error,
+                      QStringLiteral("%1 failed %2: %3").arg(pathName, failedIn.isEmpty() ? QStringLiteral("during start-up") : QStringLiteral("in ") + failedIn, reason));
+        };
+        if (!badReason.isEmpty() && (o.status == ClientOutcome::Status::Ok || o.status == ClientOutcome::Status::Failed)) {
+            *done += windows;
+            failNative(badWorkload, badReason);
+            continue;
         }
         const bool everyResult = n.results.size() == std::size_t(kNativeWorkloads.size());
         switch (o.status) {
@@ -626,16 +653,7 @@ void GpuRun::runNatives(double *done, bool *stopped)
                 m_ctx.log(LogLevel::Warning, QStringLiteral("%1: the worker exited with code %2 after finishing").arg(pathName).arg(o.exitCode));
                 break;
             }
-            n.errored = true;
-            n.errorWorkload = failedIn;  // empty: it never produced a result (start-up)
-            n.errorReason = o.reason;
-            n.status = QStringLiteral("Error: ") + o.reason;
-            // D23 a: a Direct2D failure is a warning and its own status, never an API error for D6.
-            if (n.path == NativePath::Direct2D)
-                n.notes << QStringLiteral("Direct2D failed during %1 (%2). It isn't scored, so the GPU score stands.")
-                               .arg(failedIn.isEmpty() ? QStringLiteral("start-up") : failedIn, o.reason);
-            m_ctx.log(n.path == NativePath::Direct2D ? LogLevel::Warning : LogLevel::Error,
-                      QStringLiteral("%1 failed %2: %3").arg(pathName, failedIn.isEmpty() ? QStringLiteral("during start-up") : QStringLiteral("in ") + failedIn, o.reason));
+            failNative(failedIn, o.reason);
             break;
         }
     }

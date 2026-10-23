@@ -674,6 +674,68 @@ private slots:
         QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: Qt raster failed during start-up: ")), qPrintable(r.statusReason));
     }
 
+    // §9 on native 2D (Dave): an implausible frame rate is that path's Error in that workload. Qt raster's is the native2d
+    // sub-test's Error (Partial, no score), like any Qt raster error.
+    void implausibleNativeRateIsQtRastersError()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("implausible-qt")});
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::Partial);
+        QCOMPARE(r.statusReason, QStringLiteral("No GPU score: Qt raster failed in Text: implausible frame rate"));
+        QCOMPARE(r.subResults[0].status, Status::Ok);
+        QCOMPARE(r.subResults[1].status, Status::Error);
+        QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("Error: implausible frame rate"));
+        QVERIFY(r.metric(QStringLiteral("native2d.qt.shapes")));  // the workloads before it stand
+        QVERIFY(!r.metric(QStringLiteral("native2d.qt.text")));
+        QVERIFY(!r.metric(QStringLiteral("native2d.text")));
+        QVERIFY(!t.score(r).total);
+    }
+
+    // The same on Direct2D is a warning and its own status only (D23 a): the result stays Ok with its score.
+    void implausibleDirect2dRateIsOnlyAWarning()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("implausible-d2d")});
+        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(textOf(r, QStringLiteral("api.d2d.status")), QStringLiteral("Error: implausible frame rate"));
+        const QString note = textOf(r, QStringLiteral("api.d2d.note"));
+        QVERIFY2(note.startsWith(QLatin1StringView("Direct2D failed during Text (implausible frame rate)")), qPrintable(note));
+        QVERIFY(!r.metric(QStringLiteral("native2d.d2d.text")));
+        QCOMPARE(r.subResults[1].status, Status::Ok);
+        QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("OK"));
+        QCOMPARE(r.status, Status::Ok);
+        QVERIFY(r.statusReason.isEmpty());
+        QVERIFY(t.score(r).total.has_value());
+        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+    }
+
+    // The 20-frame floor does not apply to native 2D: 5 frames per workload is accepted.
+    void fewNativeFramesAreAccepted()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("few-native")});
+        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::Ok);
+        QCOMPARE(r.subResults[1].status, Status::Ok);
+        QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("OK"));
+        QCOMPARE(textOf(r, QStringLiteral("api.d2d.status")), QStringLiteral("OK"));
+        for (const char *w : {"shapes", "text", "blits", "gradients"}) {
+            QVERIFY(r.metric(QStringLiteral("native2d.qt.%1").arg(QLatin1String(w))));
+            QVERIFY(r.metric(QStringLiteral("native2d.d2d.%1").arg(QLatin1String(w))));
+        }
+        QVERIFY(r.metric(QStringLiteral("native2d.text")));
+        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+    }
+
     // A Qt raster crash is the native2d sub-test's Error, so the test is Partial with no score.
     void qtRasterCrashIsPartial()
     {
