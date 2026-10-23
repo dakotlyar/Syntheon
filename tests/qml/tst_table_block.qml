@@ -17,6 +17,7 @@ TestCase {
     when: windowShown
 
     Component { id: tableComponent; TableBlock { } }
+    Component { id: spyComponent; SignalSpy { } }
 
     readonly property var cpuBlock: ({
         type: "table", title: "Sub-tests (all threads)",
@@ -208,5 +209,83 @@ TestCase {
         compare(t.measure(m, "GB/s", 0), m.advanceWidth("GB/s"))
         compare(t.measure(m, "GB/s", 0), m.advanceWidth("GB/s"))  // from the memo
         compare(t.tokens("a b"), t.tokens("a b"))
+    }
+    // Phase 4a D25: the collapsible header.
+    function collapsibleTable(extra) {
+        const props = { block: cpuBlock, width: 880 }
+        for (const k in extra) props[k] = extra[k]
+        return createTemporaryObject(tableComponent, test, props)
+    }
+    function test_notCollapsibleIsUnchanged() {
+        const t = collapsibleTable({})
+        waitForRendering(t)
+        verify(!findChild(t, "tableHeader").visible)
+        const second = collapsibleTable({ collapsible: false })
+        compare(t.implicitHeight, second.implicitHeight)
+        let titleSeen = false
+        for (const c of t.children[t.children.length - 1].children)
+            if (c.text === "Sub-tests (all threads)" && c.visible) titleSeen = true
+        verify(titleSeen)
+    }
+    function test_collapsedIsJustTheHeader() {
+        const t = collapsibleTable({ collapsible: true, expanded: false })
+        waitForRendering(t)
+        compare(t.implicitHeight, 42)
+        verify(findChild(t, "tableHeader").visible)
+        compare(findChild(t, "chevron").path, "M6 4l4 4-4 4")
+        const rowText = findAllText(t).filter(c => c.text === "973")
+        compare(rowText.length, 1)
+        verify(!rowText[0].visible)
+    }
+    function findAllText(item) {
+        let out = []
+        for (const c of item.children) {
+            if (c.text !== undefined) out.push(c)
+            out = out.concat(findAllText(c))
+        }
+        return out
+    }
+    function test_expandedShowsTheTable() {
+        const t = collapsibleTable({ collapsible: true, expanded: true })
+        waitForRendering(t)
+        verify(t.implicitHeight > 42 + 32)
+        const rowText = findAllText(t).filter(c => c.text === "973")
+        compare(rowText.length, 1)
+        verify(rowText[0].visible)
+        compare(findChild(t, "chevron").path, "M4 6l4 4 4-4")
+    }
+    function test_clickRequests() {
+        const t = collapsibleTable({ collapsible: true, expanded: false })
+        waitForRendering(t)
+        const spy = createTemporaryObject(spyComponent, test, { target: t, signalName: "expandRequested" })
+        mouseClick(findChild(t, "tableHeader"))
+        compare(spy.count, 1)
+        compare(spy.signalArguments[0][0], true)
+        verify(!t.expanded)  // the block didn't flip itself
+        t.expanded = true
+        mouseClick(findChild(t, "tableHeader"))
+        compare(spy.count, 2)
+        compare(spy.signalArguments[1][0], false)
+    }
+    function test_keysRequest() {
+        const t = collapsibleTable({ collapsible: true, expanded: false })
+        waitForRendering(t)
+        const spy = createTemporaryObject(spyComponent, test, { target: t, signalName: "expandRequested" })
+        findChild(t, "tableHeader").forceActiveFocus()
+        keyClick(Qt.Key_Space)
+        compare(spy.count, 1)
+        keyClick(Qt.Key_Return)
+        compare(spy.count, 2)
+    }
+    function test_summaryAndTitle() {
+        const withSummary = { type: "table", title: "Sub-tests (all threads)", summary: "Vulkan 412 fps · 1% low 354",
+                              columns: ["A"], rows: [["x"]] }
+        const t = collapsibleTable({ block: withSummary, collapsible: true, expanded: false })
+        compare(findChild(t, "headerSummary").text, "Vulkan 412 fps · 1% low 354")
+        compare(findChild(t, "tableHeader").Accessible.name, "Sub-tests (all threads), Vulkan 412 fps · 1% low 354")
+        const plain = collapsibleTable({ collapsible: true, expanded: false })
+        compare(findChild(plain, "headerSummary").text, "")
+        const untitled = collapsibleTable({ block: { type: "table", title: "", columns: ["A"], rows: [["x"]] }, collapsible: true })
+        compare(findChild(untitled, "headerTitle").text, "Details")
     }
 }

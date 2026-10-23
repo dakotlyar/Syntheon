@@ -2,6 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls.Basic
 import SynBench
 
 // A table of already-formatted cells; the first column left, the rest right in
@@ -14,6 +15,13 @@ Box {
     id: root
 
     property var block
+    // Phase 4a D25: a collapsible table shows a header button; the page owns
+    // `expanded` (the block never sets it) and listens to expandRequested.
+    property bool collapsible: false
+    property bool expanded: true
+    signal expandRequested(bool on)
+    readonly property string summary: block && block.summary ? block.summary : ""
+    readonly property string headerTitle: block && block.title.length > 0 ? block.title : qsTr("Details")
     readonly property var columns: block ? block.columns : []
     readonly property var rows: block ? block.rows : []
     readonly property var boldRows: block && block.boldRows ? block.boldRows : []
@@ -258,8 +266,56 @@ Box {
         anchors.right: parent.right
         spacing: 0
 
+        AbstractButton {
+            id: header
+            objectName: "tableHeader"
+            visible: root.collapsible
+            Layout.fillWidth: true
+            implicitHeight: 42
+            leftPadding: 12; rightPadding: 12
+            hoverEnabled: true
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Button
+            Accessible.name: root.headerTitle + (root.summary.length > 0 ? ", " + root.summary : "")
+            Accessible.description: root.expanded ? qsTr("expanded") : qsTr("collapsed")
+            onClicked: root.expandRequested(!root.expanded)
+            Keys.onReturnPressed: root.expandRequested(!root.expanded)
+            Keys.onEnterPressed: root.expandRequested(!root.expanded)
+            HoverHandler { cursorShape: Qt.PointingHandCursor }
+            background: Rectangle {
+                radius: 7
+                color: header.hovered ? Theme.sunk : "transparent"
+                border.color: header.visualFocus ? Theme.accent : "transparent"
+                border.width: 1.5
+            }
+            contentItem: RowLayout {
+                spacing: 10
+                SbText {
+                    objectName: "headerTitle"
+                    text: root.headerTitle
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: Math.max(0, header.availableWidth - 26)
+                }
+                SbText {
+                    objectName: "headerSummary"
+                    text: root.summary
+                    kind: "small"
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                Icon {
+                    objectName: "chevron"
+                    path: root.expanded ? "M4 6l4 4 4-4" : "M6 4l4 4-4 4"
+                    color: Theme.muted
+                    Layout.preferredWidth: 16; Layout.preferredHeight: 16
+                }
+            }
+        }
+
         SbText {
-            visible: root.block && root.block.title.length > 0
+            visible: !root.collapsible && root.block && root.block.title.length > 0
             Layout.margins: 12
             text: root.block ? root.block.title : ""
             font.weight: Font.DemiBold
@@ -267,6 +323,7 @@ Box {
 
         // header
         Rectangle {
+            visible: !root.collapsible || root.expanded
             Layout.fillWidth: true
             implicitHeight: headRow.implicitHeight + 16
             color: Theme.sunk
@@ -296,41 +353,46 @@ Box {
                 }
             }
         }
-        Repeater {
-            model: root.rows
-            delegate: Item {
-                id: tableRow
-                required property var modelData
-                required property int index
-                Layout.fillWidth: true
-                implicitHeight: rowLayout.implicitHeight + 16
-                Rectangle {
-                    visible: tableRow.index < root.rows.length - 1
-                    anchors.bottom: parent.bottom
-                    width: parent.width; height: 1; color: Theme.line
-                }
-                Row {
-                    id: rowLayout
-                    anchors.left: parent.left; anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: 12; anchors.rightMargin: 12
-                    spacing: root.gap
-                    Repeater {
-                        model: tableRow.modelData
-                        delegate: SbText {
-                            required property string modelData
-                            required property int index
-                            width: root.columnWidth(index)
-                            horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
-                            readonly property bool bold: root.isBold(tableRow.index, index)
-                            // Whole tokens per line; a token wider than the
-                            // column is split by characters (root.wrapped).
-                            text: root.wrapped(modelData, width, root.cellMetrics(tableRow.index, index), 0)
-                            Accessible.name: modelData  // unwrapped (AP-5 round 4 L7)
-                            kind: index === 0 ? "body" : "data"
-                            font.pixelSize: 13
-                            font.weight: bold ? Font.DemiBold : Font.Normal
-                            wrapMode: Text.NoWrap
+        ColumnLayout {
+            spacing: 0
+            Layout.fillWidth: true
+            visible: !root.collapsible || root.expanded
+            Repeater {
+                model: root.rows
+                delegate: Item {
+                    id: tableRow
+                    required property var modelData
+                    required property int index
+                    Layout.fillWidth: true
+                    implicitHeight: rowLayout.implicitHeight + 16
+                    Rectangle {
+                        visible: tableRow.index < root.rows.length - 1
+                        anchors.bottom: parent.bottom
+                        width: parent.width; height: 1; color: Theme.line
+                    }
+                    Row {
+                        id: rowLayout
+                        anchors.left: parent.left; anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 12; anchors.rightMargin: 12
+                        spacing: root.gap
+                        Repeater {
+                            model: tableRow.modelData
+                            delegate: SbText {
+                                required property string modelData
+                                required property int index
+                                width: root.columnWidth(index)
+                                horizontalAlignment: index === 0 ? Text.AlignLeft : Text.AlignRight
+                                readonly property bool bold: root.isBold(tableRow.index, index)
+                                // Whole tokens per line; a token wider than the
+                                // column is split by characters (root.wrapped).
+                                text: root.wrapped(modelData, width, root.cellMetrics(tableRow.index, index), 0)
+                                Accessible.name: modelData  // unwrapped (AP-5 round 4 L7)
+                                kind: index === 0 ? "body" : "data"
+                                font.pixelSize: 13
+                                font.weight: bold ? Font.DemiBold : Font.Normal
+                                wrapMode: Text.NoWrap
+                            }
                         }
                     }
                 }
