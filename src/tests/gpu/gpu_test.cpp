@@ -726,6 +726,8 @@ TestResult GpuRun::finish(bool stopped)
     r.metrics.append(text(QStringLiteral("gpu.name"), {}, QStringLiteral("GPU"), m_gpu.name));
     r.metrics.append(text(QStringLiteral("gpu.id"), {}, QStringLiteral("GPU id"), m_gpu.id));
     r.metrics.append(text(QStringLiteral("gpu.kind"), {}, QStringLiteral("GPU kind"), kindName(m_gpu.kind)));
+    if (!m_gpu.driverVersion.isEmpty())
+        r.metrics.append(text(QStringLiteral("gpu.driver"), {}, QStringLiteral("GPU driver"), m_gpu.driverVersion));
     r.metrics.append(text(QStringLiteral("gpu.vram"), {}, QStringLiteral("Video memory"), vramText(m_gpu.vramBytes)));
     r.metrics.append(text(QStringLiteral("session"), {}, QStringLiteral("Session"), sessionName()));
     // §10: Windows only, read only.

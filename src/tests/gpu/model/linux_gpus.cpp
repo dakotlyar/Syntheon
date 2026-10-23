@@ -99,6 +99,16 @@ QVector<DrmCard> readDrmCards(const QString &root)
     return out;
 }
 
+QString linuxDriverText(const QString &kernelDriver, const QString &vulkanDriverInfo)
+{
+    QString info = vulkanDriverInfo.trimmed();
+    if (const qsizetype paren = info.indexOf(QStringLiteral(" (")); paren > 0)  // "(LLVM 20.1.8)"
+        info.truncate(paren);
+    if (kernelDriver.isEmpty() || info.isEmpty())
+        return kernelDriver + info;
+    return kernelDriver + QStringLiteral(" \u00b7 ") + info;
+}
+
 QVector<GpuEntry> mergeLinuxGpus(const QVector<VkDeviceRecord> &vk, const QVector<DrmCard> &drm)
 {
     QVector<GpuEntry> out;
@@ -128,6 +138,7 @@ QVector<GpuEntry> mergeLinuxGpus(const QVector<VkDeviceRecord> &vk, const QVecto
             g.name = vk[v].name;
             g.kind = kindOf(vk[v].type);
             g.vramBytes = vk[v].deviceLocalBytes;
+            g.driverVersion = linuxDriverText(c.driver, vk[v].driverInfo);
             g.apis.insert(QStringLiteral("vulkan"), vulkanAvailability(vk[v]));
         } else {
             g.name = QStringLiteral("GPU %1:%2").arg(c.vendorId, 4, 16, QLatin1Char('0')).arg(c.deviceId, 4, 16, QLatin1Char('0'));
@@ -135,6 +146,8 @@ QVector<GpuEntry> mergeLinuxGpus(const QVector<VkDeviceRecord> &vk, const QVecto
             none.reason = QStringLiteral("This GPU has no Vulkan driver");
             g.apis.insert(QStringLiteral("vulkan"), none);
         }
+        if (g.driverVersion.isEmpty())
+            g.driverVersion = c.driver;
         addWindowsOnly(g);
         out.append(g);
     }

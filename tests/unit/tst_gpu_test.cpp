@@ -1103,7 +1103,13 @@ private slots:
         shown.value = QStringLiteral("Intel(R) UHD Graphics");
         r.metrics.append(hags);
         r.metrics.append(shown);
+        Metric drv;
+        drv.key = QStringLiteral("gpu.driver");
+        drv.value = QStringLiteral("amdgpu \u00b7 Mesa 25.2.4");
+        r.metrics.append(drv);
         d = t.detail(r);
+        QCOMPARE(setupValue(d, QStringLiteral("Driver")), QStringLiteral("amdgpu \u00b7 Mesa 25.2.4"));
+        QVERIFY(!setupValue(d, QStringLiteral("GPU")).contains(QLatin1StringView("chosen")));
         QVERIFY(setupValue(d, QStringLiteral("Session")).endsWith(QLatin1StringView("hardware-accelerated GPU scheduling on")));
         const NoteBlock *note = noteContaining(d, QStringLiteral("cross-GPU copy"));
         QVERIFY(note);

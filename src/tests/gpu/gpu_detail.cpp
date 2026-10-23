@@ -584,8 +584,10 @@ DetailLayout GpuTest::detail(const TestResult &r) const
             }
             add(QStringLiteral("GPU"), detail.isEmpty() ? gpuName : QStringLiteral("%1 (%2)").arg(gpuName, detail.join(QStringLiteral(", "))));
         }
-        QString driver;
+        QString driver = text(r, QStringLiteral("gpu.driver"));  // the OS-reported one; the APIs' own strings are in the APIs table
         for (const ApiId a : kApis) {
+            if (!driver.isEmpty())
+                break;
             driver = text(r, apiStatusKey(apiKey(a), u"driver"));
             if (!driver.isEmpty())
                 break;

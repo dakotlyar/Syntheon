@@ -738,6 +738,26 @@ private slots:
 #endif
     }
 
+    // §10 gpu.driver: Linux composes the kernel driver with the Vulkan driver's version; Windows carries the UMD version.
+    void driverVersionText()
+    {
+        QCOMPARE(linuxDriverText(QStringLiteral("amdgpu"), QStringLiteral("Mesa 25.2.4-arch1.1 (LLVM 20.1.8)")), QStringLiteral("amdgpu \u00b7 Mesa 25.2.4-arch1.1"));
+        QCOMPARE(linuxDriverText(QStringLiteral("nvidia"), QStringLiteral("615.78.08")), QStringLiteral("nvidia \u00b7 615.78.08"));
+        QCOMPARE(linuxDriverText(QStringLiteral("i915"), {}), QStringLiteral("i915"));
+        QCOMPARE(linuxDriverText({}, QStringLiteral("Mesa 25.2.4")), QStringLiteral("Mesa 25.2.4"));
+        DxgiAdapterRecord a;
+        a.name = QStringLiteral("A");
+        a.vendorId = 0x10de;
+        a.dedicatedBytes = qint64(8) << 30;
+        a.driverVersion = QStringLiteral("32.0.21025.10");
+        const QVector<GpuEntry> gpus = mergeWindowsGpus({a}, {});
+        QCOMPARE(gpus[0].driverVersion, QStringLiteral("32.0.21025.10"));
+        namespace pr = sb::gpu::protocol;
+        const auto e = pr::parseLine(pr::encode(pr::GpuEvent{gpus[0]}), nullptr);
+        QVERIFY(e);
+        QCOMPARE(std::get<pr::GpuEvent>(*e).gpu.driverVersion, QStringLiteral("32.0.21025.10"));
+    }
+
     // §15's hybrid note (Windows): the adapter's DXGI output answer becomes GpuEntry::drivesDisplay.
     void windowsDrivesOutput()
     {

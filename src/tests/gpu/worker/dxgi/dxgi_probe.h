@@ -28,6 +28,7 @@ struct AdapterProbe {
     std::int64_t dedicatedBytes = 0, sharedBytes = 0;
     bool umaKnown = false, uma = false;  // D3D12_FEATURE_DATA_ARCHITECTURE::UMA, when a D3D12 device could be made
     std::array<std::uint8_t, 8> luid{};
+    std::string driverVersion;  // IDXGIAdapter::CheckInterfaceSupport(IDXGIDevice) "a.b.c.d"; empty when it fails (software adapters)
     bool drivesOutput = false;  // IDXGIAdapter::EnumOutputs(0) finds an output (a monitor is attached to this GPU)
     ApiProbe dx12, dx11, d2d;
 };

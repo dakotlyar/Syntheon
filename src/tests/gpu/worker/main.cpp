@@ -989,6 +989,7 @@ int main(int argc, char **argv)
             r.dedicatedBytes = p.dedicatedBytes;
             r.sharedBytes = p.sharedBytes;
             r.drivesOutput = p.drivesOutput;
+            r.driverVersion = QString::fromStdString(p.driverVersion);
             r.umaKnown = p.umaKnown;
             r.uma = p.uma;
             std::memcpy(r.luid, p.luid.data(), sizeof r.luid);

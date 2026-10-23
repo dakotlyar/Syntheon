@@ -32,6 +32,10 @@ struct DrmCard {
     bool operator==(const DrmCard &) const = default;
 };
 
+// The Linux `gpu.driver` text: the kernel driver and the Vulkan driver's own version ("amdgpu · Mesa 25.2.4",
+// "nvidia · 615.78.08"); either part alone when the other is unknown.
+QString linuxDriverText(const QString &kernelDriver, const QString &vulkanDriverInfo);
+
 // apis["vulkan"] of a device: ok = apiVersion >= 1.3, else "Needs Vulkan 1.3 (the driver has 1.2.x)".
 ApiAvailability vulkanAvailability(const VkDeviceRecord &d);
 

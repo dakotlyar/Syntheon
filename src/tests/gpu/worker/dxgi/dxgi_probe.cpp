@@ -104,6 +104,13 @@ AdapterProbe describe(IDXGIAdapter1 *adapter, const DXGI_ADAPTER_DESC1 &desc)
     }
     a.sharedBytes = std::int64_t(desc.SharedSystemMemory);
     {
+        LARGE_INTEGER umd{};
+        if (SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &umd))) {
+            a.driverVersion = std::to_string(HIWORD(umd.HighPart)) + "." + std::to_string(LOWORD(umd.HighPart)) + "."
+                              + std::to_string(HIWORD(umd.LowPart)) + "." + std::to_string(LOWORD(umd.LowPart));
+        }
+    }
+    {
         ComPtr<IDXGIOutput> output;
         a.drivesOutput = SUCCEEDED(adapter->EnumOutputs(0, &output));  // DXGI_ERROR_NOT_FOUND: none
     }
