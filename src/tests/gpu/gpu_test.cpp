@@ -418,6 +418,17 @@ TestResult GpuRun::run()
     if (const auto load = cpu::sampleBackgroundLoadPercent(cpu::scaledWindow(1000ms), [this] { return cancelled(); }))
         m_r.metrics.append(number(QStringLiteral("background.load"), {}, QStringLiteral("Background load"), *load, QStringLiteral("%")));
 
+    // §15: the part and the stage while the workers start ("Starting" / "Starting Vulkan, OpenGL on <GPU>").
+    {
+        QStringList names;
+        for (const ApiRun &a : m_apis) {
+            if (a.active)
+                names << apiShort(a.id);
+        }
+        m_ctx.setPart(QStringLiteral("Starting"));
+        m_ctx.progress(0, QStringLiteral("Starting %1 on %2").arg(names.join(QStringLiteral(", ")), m_gpu.name));
+    }
+
     // Start every worker at once, then wait for each (§2.5).
     for (ApiRun &a : m_apis) {
         if (!a.active)
@@ -464,9 +475,11 @@ TestResult GpuRun::run()
         for (ApiRun &a : m_apis) {
             if (!a.active || stopped)
                 continue;
-            m_ctx.setPart(QStringLiteral("%1 · %2").arg(workName, apiName(a.id)));
+            // §15: the fill workloads read "Quads · DirectX 12" and "Quads on DX12 · 4 s of 10 s".
+            const QString shown = work.fill && *work.fill == FillId::Quads ? QStringLiteral("Quads") : workName;
+            m_ctx.setPart(QStringLiteral("%1 · %2").arg(shown, apiName(a.id)));
             const auto stage = [&](const QString &what) {
-                return QStringLiteral("%1 on %2 · %3").arg(workName, apiShort(a.id), what);
+                return QStringLiteral("%1 on %2 · %3").arg(shown, apiShort(a.id), what);
             };
             report(done, stage(QStringLiteral("starting")));
             const ClientOutcome o = a.session->runWorkload(p, [this] { return cancelled(); }, [&](const pr::Event &e) {
@@ -554,8 +567,11 @@ void GpuRun::runNatives(double *done, bool *stopped)
             continue;
         const QString pathName = nativePathName(n.path);
         m_ctx.setPart(QStringLiteral("Native 2D · %1").arg(pathName));
-        const auto stage = [&](const QString &what) { return QStringLiteral("%1 · %2").arg(pathName, what); };
-        report(*done, stage(QStringLiteral("starting")));
+        // §15: "Text on Qt raster · 6 s of 10 s".
+        const auto stage = [&](const QString &workload, const QString &what) {
+            return QStringLiteral("%1 on %2 · %3").arg(workload, pathName, what);
+        };
+        report(*done, QStringLiteral("%1 · starting").arg(pathName));
         ClientRunSpec spec;
         spec.api = nativePathKey(n.path);
         spec.gpuId = m_gpu.id;
@@ -577,9 +593,10 @@ void GpuRun::runNatives(double *done, bool *stopped)
             const auto kind = nativeFromKey(s->workload);
             const QString what = kind ? nativeName(*kind) : s->workload;
             if (s->phase == QLatin1StringView("warmup"))
-                report(itemStart + before + double(s->seconds), stage(what + QStringLiteral(" · warming up")));
+                report(itemStart + before + double(s->seconds), stage(what, QStringLiteral("warming up")));
             else if (s->phase == QLatin1StringView("measure"))
-                report(itemStart + before + warm + double(s->seconds), stage(what));
+                report(itemStart + before + warm + double(s->seconds),
+                       stage(what, QStringLiteral("%1 s of %2 s").arg(s->seconds).arg(item == plan.end() ? 0 : int(std::lround(double(item->measureMs) / 1000.0)))));
         });
         n.ready = o.ready;
         n.notes += o.warnings;
@@ -1192,11 +1209,6 @@ TestResult GpuTest::run(RunContext &ctx, const OptionValues &options)
 ScoreBreakdown GpuTest::score(const TestResult &result) const
 {
     return gpu::formula_v1::score(result);
-}
-
-DetailLayout GpuTest::detail(const TestResult &result) const
-{
-    return genericDetailLayout(result);  // the real page comes with task 34
 }
 
 } // namespace sb::tests

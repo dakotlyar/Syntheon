@@ -92,6 +92,171 @@ QString textOf(const TestResult &r, const QString &key)
     return m && !m->isNumeric() ? std::get<QString>(m->value) : QString();
 }
 
+
+// --- Detail page (task 34) -------------------------------------------------------------------
+
+void addNumber(TestResult &r, const QString &key, double v, const QString &unit)
+{
+    Metric m;
+    m.key = key;
+    m.label = key;
+    m.value = v;
+    m.unit = unit;
+    r.metrics.append(m);
+}
+
+void addText(TestResult &r, const QString &key, const QString &v)
+{
+    Metric m;
+    m.key = key;
+    m.label = key;
+    m.value = v;
+    r.metrics.append(m);
+}
+
+// What the orchestrator does after a run: the score and the sub-scores from ITest::score().
+TestResult scored(const GpuTest &t, TestResult r)
+{
+    const ScoreBreakdown b = t.score(r);
+    r.score = b.total;
+    for (SubResult &s : r.subResults) {
+        if (b.subScores.contains(s.id))
+            s.score = b.subScores.value(s.id);
+    }
+    return r;
+}
+
+// A Windows-like run with made-up numbers (the mockup's): Vulkan best in Geometry and Particles, DX12 in Draw calls
+// and Shading. Every API OK, Direct2D and Qt raster too.
+TestResult windowsRun(const GpuTest &t)
+{
+    TestResult r;
+    r.status = Status::Ok;
+    r.durationMs = 604000;
+    addText(r, QStringLiteral("gpu.name"), QStringLiteral("AMD Radeon RX 7800 XT"));
+    addText(r, QStringLiteral("gpu.kind"), QStringLiteral("discrete"));
+    addText(r, QStringLiteral("gpu.vram"), QStringLiteral("16 GB"));
+    addText(r, QStringLiteral("render.size"), QStringLiteral("1920×1080"));
+    addNumber(r, QStringLiteral("render.scale"), 100, QStringLiteral("%"));
+    addText(r, QStringLiteral("window.size"), QStringLiteral("1920×1080"));
+    const char *apis[] = {"vulkan", "dx12", "dx11", "opengl"};
+    const char *scenes[] = {"geometry", "drawcalls", "shading", "particles"};
+    const double fps[4][4] = {{412, 181, 291, 341}, {405, 188, 296, 336}, {371, 92.4, 284, 318}, {344, 71.6, 262, 297}};
+    for (int a = 0; a < 4; ++a) {
+        addText(r, QStringLiteral("api.%1.status").arg(QLatin1String(apis[a])), QStringLiteral("OK"));
+        addText(r, QStringLiteral("api.%1.driver").arg(QLatin1String(apis[a])), QStringLiteral("32.0.21025.10"));
+        for (int s = 0; s < 4; ++s) {
+            const QString k = QStringLiteral("scenes3d.%1.%2.").arg(QLatin1String(apis[a]), QLatin1String(scenes[s]));
+            addNumber(r, k + QStringLiteral("fps"), fps[a][s], QStringLiteral("fps"));
+            addNumber(r, k + QStringLiteral("low"), fps[a][s] * 0.85, QStringLiteral("fps"));
+            addNumber(r, k + QStringLiteral("gpu"), 2.35 + a * 0.1, QStringLiteral("ms"));
+            addNumber(r, k + QStringLiteral("cpu"), s == 1 ? 5.0 + a * 3 : 0.3, QStringLiteral("ms"));
+        }
+    }
+    const QString names[] = {QStringLiteral("Vulkan"), QStringLiteral("DirectX 12"), QStringLiteral("DirectX 11"), QStringLiteral("OpenGL")};
+    for (int s = 0; s < 4; ++s) {
+        int best = 0;
+        for (int a = 1; a < 4; ++a)
+            best = fps[a][s] > fps[best][s] ? a : best;
+        const QString k = QStringLiteral("scenes3d.%1.").arg(QLatin1String(scenes[s]));
+        addNumber(r, k + QStringLiteral("fps"), fps[best][s], QStringLiteral("fps"));
+        addNumber(r, k + QStringLiteral("low"), fps[best][s] * 0.85, QStringLiteral("fps"));
+        addText(r, k + QStringLiteral("api"), names[best]);
+        Series ser{QStringLiteral("ft.%1.%2").arg(QLatin1String(apis[best]), QLatin1String(scenes[s])), QStringLiteral("x"), QStringLiteral("Time"),
+                   QStringLiteral("s"), QStringLiteral("ms"), {{0.05, 2.4}, {0.15, 2.5}}};
+        r.series.append(ser);
+    }
+    for (int a = 0; a < 4; ++a) {
+        addNumber(r, QStringLiteral("fill2d.%1").arg(QLatin1String(apis[a])), 79.6 + a, QStringLiteral("Gpx/s"));
+        addNumber(r, QStringLiteral("fill2d.%1.sprites").arg(QLatin1String(apis[a])), 31.4 - a, QStringLiteral("MOps/s"));
+    }
+    addNumber(r, QStringLiteral("fill2d.quads"), 82.6, QStringLiteral("Gpx/s"));
+    addText(r, QStringLiteral("fill2d.quads.api"), QStringLiteral("OpenGL"));
+    addNumber(r, QStringLiteral("fill2d.sprites"), 31.4, QStringLiteral("MOps/s"));
+    addText(r, QStringLiteral("fill2d.sprites.api"), QStringLiteral("Vulkan"));
+    const char *natives[] = {"shapes", "text", "blits", "gradients"};
+    for (int w = 0; w < 4; ++w) {
+        addNumber(r, QStringLiteral("native2d.qt.%1").arg(QLatin1String(natives[w])), 0.41 + w, QStringLiteral("MOps/s"));
+        addNumber(r, QStringLiteral("native2d.d2d.%1").arg(QLatin1String(natives[w])), 1.62 + w, QStringLiteral("MOps/s"));
+        addNumber(r, QStringLiteral("native2d.%1").arg(QLatin1String(natives[w])), 0.41 + w, QStringLiteral("MOps/s"));
+    }
+    addText(r, QStringLiteral("api.d2d.status"), QStringLiteral("OK"));
+    addText(r, QStringLiteral("api.qt.status"), QStringLiteral("OK"));
+    r.subResults = {{QStringLiteral("scenes3d"), Status::Ok, {}, std::nullopt},
+                    {QStringLiteral("native2d"), Status::Ok, {}, std::nullopt},
+                    {QStringLiteral("fill2d"), Status::Ok, {}, std::nullopt}};
+    addNumber(r, QStringLiteral("score.3d"), 1244, QStringLiteral("points"));
+    addNumber(r, QStringLiteral("score.2d"), 1294, QStringLiteral("points"));
+    TestResult done = scored(t, r);
+    done.score = 1254;  // the mockup's
+    done.subResults[0].score = 1244;
+    done.subResults[1].score = 1293;
+    done.subResults[2].score = 1295;
+    return done;
+}
+
+template <typename T>
+QVector<const T *> blocksOf(const DetailLayout &d)
+{
+    QVector<const T *> out;
+    for (const DetailBlock &b : d.blocks) {
+        if (const auto *p = std::get_if<T>(&b.content))
+            out.append(p);
+    }
+    return out;
+}
+
+int indexOfTable(const DetailLayout &d, const QString &title)
+{
+    for (int i = 0; i < d.blocks.size(); ++i) {
+        if (d.blocks[i].title == title && std::holds_alternative<TableBlock>(d.blocks[i].content))
+            return i;
+    }
+    return -1;
+}
+
+const TableBlock &tableOf(const DetailLayout &d, const QString &title)
+{
+    static const TableBlock none;
+    const int i = indexOfTable(d, title);
+    return i < 0 ? none : std::get<TableBlock>(d.blocks[i].content);
+}
+
+QString cell(const TableBlock &t, int row, int col)
+{
+    return t.rows.value(row).value(col).text;
+}
+
+const NoteBlock *noteContaining(const DetailLayout &d, const QString &part)
+{
+    for (const DetailBlock &b : d.blocks) {
+        if (const auto *n = std::get_if<NoteBlock>(&b.content); n && n->text.contains(part))
+            return n;
+    }
+    return nullptr;
+}
+
+// "detail renders from stored data": every metric a cell names and every series a chart names is in the result.
+void checkReferences(const DetailLayout &d, const TestResult &r)
+{
+    for (const DetailBlock &b : d.blocks) {
+        if (const auto *t = std::get_if<TableBlock>(&b.content)) {
+            for (const auto &row : t->rows) {
+                for (const DetailCell &c : row)
+                    QVERIFY2(c.metricKey.isEmpty() || r.metric(c.metricKey), qPrintable(c.metricKey));
+            }
+        } else if (const auto *k = std::get_if<KpisBlock>(&b.content)) {
+            for (const KpiItem &i : k->items)
+                QVERIFY2(i.value.metricKey.isEmpty() || r.metric(i.value.metricKey), qPrintable(i.value.metricKey));
+        } else if (const auto *c = std::get_if<LineChartBlock>(&b.content)) {
+            for (const QString &key : c->seriesKeys) {
+                const bool found = std::any_of(r.series.begin(), r.series.end(), [&](const Series &s) { return s.key == key; });
+                QVERIFY2(found, qPrintable(key));
+            }
+        }
+    }
+}
+
 } // namespace
 
 class TestGpuTest : public QObject
@@ -301,11 +466,11 @@ private slots:
         QCOMPARE(b.subScores.value(QStringLiteral("scenes3d")), std::round(1000.0 * g3));
         QCOMPARE(b.subScores.value(QStringLiteral("native2d")), std::round(1000.0 * gn));
         QCOMPARE(ctx.holds(), (QVector<bool>{true, false}));
-        QCOMPARE(ctx.parts(), (QStringList{QStringLiteral("Geometry · Vulkan"), QStringLiteral("Geometry · OpenGL"),
+        QCOMPARE(ctx.parts(), (QStringList{QStringLiteral("Starting"), QStringLiteral("Geometry · Vulkan"), QStringLiteral("Geometry · OpenGL"),
                                            QStringLiteral("Draw calls · Vulkan"), QStringLiteral("Draw calls · OpenGL"),
                                            QStringLiteral("Shading · Vulkan"), QStringLiteral("Shading · OpenGL"),
                                            QStringLiteral("Particles + post · Vulkan"), QStringLiteral("Particles + post · OpenGL"),
-                                           QStringLiteral("Textured quads · Vulkan"), QStringLiteral("Textured quads · OpenGL"),
+                                           QStringLiteral("Quads · Vulkan"), QStringLiteral("Quads · OpenGL"),
                                            QStringLiteral("Sprites · Vulkan"), QStringLiteral("Sprites · OpenGL"),
                                            QStringLiteral("Native 2D · Qt raster")}));  // the fills after the 3D scenes, native 2D last (§8)
         QVERIFY(!ctx.backwards());
@@ -786,6 +951,233 @@ private slots:
         const TestResult r = t.run(ctx, {});
         QCOMPARE(r.status, Status::NotAvailable);
         QVERIFY2(r.statusReason.contains(QLatin1StringView("No Vulkan driver is installed")), qPrintable(r.statusReason));
+    }
+
+    // --- Detail page (task 34) ---------------------------------------------------------------
+
+    // The Windows Ok layout: four FPS charts, the exact summaries, one bold cell per scene row, the notes in place.
+    void detailWindowsOk()
+    {
+        GpuTest t;
+        const TestResult r = windowsRun(t);
+        const DetailLayout d = t.detail(r);
+        QCOMPARE(d.headlineMetrics, (QStringList{QStringLiteral("score.3d"), QStringLiteral("score.2d")}));
+        QCOMPARE(d.subtitle, QStringLiteral("Score 1,254 · AMD Radeon RX 7800 XT · 1920×1080 at 100% · 4 APIs"));
+        checkReferences(d, r);
+        // The charts: FPS, from the best API's frame-time series.
+        const auto charts = blocksOf<LineChartBlock>(d);
+        QCOMPARE(charts.size(), 4);
+        const QStringList best = {QStringLiteral("vulkan"), QStringLiteral("dx12"), QStringLiteral("dx12"), QStringLiteral("vulkan")};
+        const QStringList scenes = {QStringLiteral("geometry"), QStringLiteral("drawcalls"), QStringLiteral("shading"), QStringLiteral("particles")};
+        for (int i = 0; i < 4; ++i) {
+            QVERIFY(charts[i]->yValue == ChartValue::PerSecondFromMs);
+            QCOMPARE(charts[i]->yUnit, QStringLiteral("fps"));
+            QCOMPARE(charts[i]->seriesKeys, (QStringList{QStringLiteral("ft.%1.%2").arg(best[i], scenes[i])}));
+            QCOMPARE(charts[i]->xAxis.tickLabels, (QStringList{QStringLiteral("0 s"), QStringLiteral("5 s"), QStringLiteral("10 s"),
+                                                               QStringLiteral("15 s"), QStringLiteral("20 s")}));
+            QVERIFY(charts[i]->annotations.isEmpty() && charts[i]->markers.isEmpty());
+        }
+        QVERIFY(indexOfTable(d, QStringLiteral("Geometry by API")) >= 0);
+        int chartTitles = 0;
+        for (const DetailBlock &b : d.blocks) {
+            if (std::holds_alternative<LineChartBlock>(b.content))
+                chartTitles += b.title == QStringLiteral("Geometry: FPS over time (Vulkan, best API)")
+                               || b.title == QStringLiteral("Draw calls: FPS over time (DX12, best API)");
+        }
+        QCOMPARE(chartTitles, 2);
+        // The summaries (D25).
+        QCOMPARE(tableOf(d, QStringLiteral("Sub-tests")).summary, QStringLiteral("3D 1,244 · Native 2D 1,293 · Fill-rate 1,295"));
+        const TableBlock &scenesTable = tableOf(d, QStringLiteral("3D scenes: average FPS by API"));
+        QCOMPARE(scenesTable.summary, QStringLiteral("Best: Vulkan 2 scenes · DX12 2 scenes"));
+        QCOMPARE(scenesTable.columns, (QStringList{QStringLiteral("Scene"), QStringLiteral("Vulkan"), QStringLiteral("DX12"),
+                                                   QStringLiteral("DX11"), QStringLiteral("OpenGL")}));
+        // M1: exactly one bold cell per scene row, in the column of scenes3d.<scene>.api.
+        QCOMPARE(scenesTable.boldCells.size(), 4);
+        const QVector<QPoint> boldWanted = {{1, 0}, {2, 1}, {2, 2}, {1, 3}};
+        QCOMPARE(scenesTable.boldCells, boldWanted);
+        QCOMPARE(tableOf(d, QStringLiteral("Geometry by API")).summary, QStringLiteral("Vulkan 412 fps · 1% low 350"));
+        QCOMPARE(tableOf(d, QStringLiteral("Draw calls by API")).summary, QStringLiteral("DX12 188 fps · 1% low 160"));
+        QCOMPARE(tableOf(d, QStringLiteral("2D fill-rate")).summary, QStringLiteral("Quads 82.6 Gpx/s (OpenGL) · Sprites 31.4 MOps/s (Vulkan)"));
+        QCOMPARE(tableOf(d, QStringLiteral("Native 2D (MOps/s)")).summary, QStringLiteral("Qt raster (scored) · sub-score 1,293"));
+        QCOMPARE(tableOf(d, QStringLiteral("APIs")).summary, QStringLiteral("6 OK"));
+        QCOMPARE(tableOf(d, QStringLiteral("Render setup")).summary, QStringLiteral("1920×1080 at 100% · fits"));
+        // The tables' cells.
+        QCOMPARE(cell(scenesTable, 1, 3), QStringLiteral("92.4"));
+        QCOMPARE(cell(tableOf(d, QStringLiteral("Geometry by API")), 0, 3), QStringLiteral("2.35"));
+        // Titles are stable and the order is §15's (the renderer does the rest).
+        QStringList titles;
+        for (const DetailBlock &b : d.blocks) {
+            if (std::holds_alternative<TableBlock>(b.content))
+                titles << b.title;
+        }
+        QCOMPARE(titles, (QStringList{QStringLiteral("Sub-tests"), QStringLiteral("3D scenes: average FPS by API"), QStringLiteral("Geometry by API"),
+                                      QStringLiteral("Draw calls by API"), QStringLiteral("Shading by API"), QStringLiteral("Particles by API"),
+                                      QStringLiteral("2D fill-rate"), QStringLiteral("Native 2D (MOps/s)"), QStringLiteral("APIs"),
+                                      QStringLiteral("Render setup")}));
+        // The notes: the fill and native notes are two Neutral notes, each right after its table; the Draw calls note after its table.
+        const auto noteAfter = [&](const QString &title) {
+            const int i = indexOfTable(d, title);
+            return i >= 0 && i + 1 < d.blocks.size() ? std::get_if<NoteBlock>(&d.blocks[i + 1].content) : nullptr;
+        };
+        const NoteBlock *fill = noteAfter(QStringLiteral("2D fill-rate"));
+        QVERIFY(fill);
+        QCOMPARE(fill->text, QStringLiteral("Fill-rate: 128 blended full-screen layers per frame, and 100,000 sprites streamed by the CPU every frame; "
+                                            "the best API (bold) counts."));
+        QVERIFY(fill->tone == Tone::Neutral);
+        const NoteBlock *native = noteAfter(QStringLiteral("Native 2D (MOps/s)"));
+        QVERIFY(native);
+        QCOMPARE(native->text, QStringLiteral("Native 2D: Qt raster draws on the CPU and is scored; Direct2D draws on the GPU and is shown for comparison."));
+        QVERIFY(native->tone == Tone::Neutral);
+        const NoteBlock *dc = noteAfter(QStringLiteral("Draw calls by API"));
+        QVERIFY(dc && dc->text.startsWith(QStringLiteral("Draw calls measures the CPU cost of submitting 38,401 draws per frame (GPU time about 2.5 ms against 5–14 ms")));
+        QVERIFY(noteAfter(QStringLiteral("3D scenes: average FPS by API")));
+        // No warning about the run on a clean Windows run.
+        for (const NoteBlock *n : blocksOf<NoteBlock>(d))
+            QVERIFY(n->tone == Tone::Neutral);
+    }
+
+    // Linux, two APIs (a real run through the fake worker): no DX columns, the N/A rows, every referenced metric present.
+    void detailLinuxTwoApis()
+    {
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = scored(t, t.run(ctx, {}));
+        QCOMPARE(r.status, Status::Ok);
+        const DetailLayout d = t.detail(r);
+        checkReferences(d, r);
+        QCOMPARE(blocksOf<LineChartBlock>(d).size(), 4);
+        const TableBlock &scenes = tableOf(d, QStringLiteral("3D scenes: average FPS by API"));
+        QCOMPARE(scenes.columns, (QStringList{QStringLiteral("Scene"), QStringLiteral("Vulkan"), QStringLiteral("OpenGL")}));
+        QCOMPARE(scenes.summary, QStringLiteral("Best: Vulkan 4 scenes"));
+        QCOMPARE(scenes.boldCells.size(), 4);
+        QCOMPARE(cell(scenes, 0, 1), QStringLiteral("100"));
+        const TableBlock &apis = tableOf(d, QStringLiteral("APIs"));
+        QCOMPARE(apis.rows.size(), 6);
+        QCOMPARE(cell(apis, 1, 1), QStringLiteral("N/A"));
+        QCOMPARE(cell(apis, 1, 5), QStringLiteral("DirectX is Windows only"));
+        QCOMPARE(cell(apis, 5, 5), QStringLiteral("CPU path, scored"));
+        QCOMPARE(apis.summary, QStringLiteral("3 OK · 3 N/A"));
+        QVERIFY(r.score);
+        QVERIFY(d.subtitle.startsWith(QLatin1StringView("Score ")));
+        QVERIFY(d.subtitle.endsWith(QLatin1StringView("2 APIs")));
+        // The Direct2D column is absent when Direct2D didn't run.
+        QCOMPARE(tableOf(d, QStringLiteral("Native 2D (MOps/s)")).columns, (QStringList{QStringLiteral("Workload"), QStringLiteral("Qt raster (scored)")}));
+        QCOMPARE(tableOf(d, QStringLiteral("Native 2D (MOps/s)")).boldCells.size(), 4);
+    }
+
+    // Partial (an API failed in a scene): "No GPU score" in the subtitle, one Warn note, the Error cells.
+    void detailPartialApiError()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-at-shading")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = scored(t, t.run(ctx, {}));
+        QCOMPARE(r.status, Status::Partial);
+        const DetailLayout d = t.detail(r);
+        checkReferences(d, r);
+        QVERIFY2(d.subtitle.startsWith(QStringLiteral("No GPU score · OpenGL failed in Shading · ")), qPrintable(d.subtitle));
+        const NoteBlock *n = noteContaining(d, QStringLiteral("No GPU score: OpenGL failed during Shading ("));
+        QVERIFY(n);
+        QVERIFY(n->tone == Tone::Warn);
+        QVERIFY(n->text.endsWith(QLatin1StringView("). Its other results and every other API are shown.")));
+        const TableBlock &scenes = tableOf(d, QStringLiteral("3D scenes: average FPS by API"));
+        QCOMPARE(cell(scenes, 2, 2), QStringLiteral("Error"));  // Shading, OpenGL
+        const TableBlock &apis = tableOf(d, QStringLiteral("APIs"));
+        QCOMPARE(cell(apis, 3, 1), QStringLiteral("Error"));
+        QVERIFY2(cell(apis, 3, 5).startsWith(QLatin1StringView("failed during Shading: ")), qPrintable(cell(apis, 3, 5)));
+        QVERIFY(apis.summary.contains(QLatin1StringView("1 Error")));
+        // No GPU score row / KPI, the sub-scores of the groups that finished stay.
+        QVERIFY(!r.score);
+        QCOMPARE(cell(tableOf(d, QStringLiteral("Sub-tests")), 0, 2), QStringLiteral("Error"));
+        QCOMPARE(tableOf(d, QStringLiteral("Sub-tests")).summary.left(4), QStringLiteral("3D —"));
+    }
+
+    // An API that drew a scene differently: the note names it ("No GPU score: DirectX 11 drew …").
+    void detailOutlierAndOtherWarnings()
+    {
+        GpuTest t;
+        TestResult r = windowsRun(t);
+        r.status = Status::Partial;
+        r.statusReason = QStringLiteral("No GPU score: DirectX 11 failed in Particles + post: drew Particles + post differently from Vulkan (mean 9.3/255)");
+        r.score.reset();
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("api.dx11.status"))
+                m.value = QStringLiteral("Error: drew Particles + post differently from Vulkan (mean 9.3/255)");
+        }
+        addText(r, QStringLiteral("api.vulkan.layers"), QStringLiteral("VK_LAYER_OBS_HOOK"));
+        addNumber(r, QStringLiteral("background.load"), 12, QStringLiteral("%"));
+        addText(r, QStringLiteral("power.source"), QStringLiteral("Battery"));
+        const DetailLayout d = t.detail(r);
+        const NoteBlock *o = noteContaining(d, QStringLiteral("DirectX 11 drew"));
+        QVERIFY(o);
+        QCOMPARE(o->text, QStringLiteral("No GPU score: DirectX 11 drew Particles + post differently from Vulkan (mean 9.3/255)."));
+        QVERIFY(o->tone == Tone::Warn);
+        QCOMPARE(cell(tableOf(d, QStringLiteral("APIs")), 2, 5), QStringLiteral("drew Particles + post differently from Vulkan (mean 9.3/255)"));
+        for (const char *part : {"Vulkan layers were active (VK_LAYER_OBS_HOOK)", "On battery", "Background load 12% before the run"}) {
+            const NoteBlock *n = noteContaining(d, QLatin1StringView(part));
+            QVERIFY2(n, part);
+            QVERIFY(n->tone == Tone::Warn);
+        }
+    }
+
+    // M5: one scaled-to-fit note, and it is Warn (it changes what the FPS means); the Render KPI and summary follow.
+    void detailScaledToFit()
+    {
+        GpuTest t;
+        TestResult r = windowsRun(t);
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("render.size"))
+                m.value = QStringLiteral("2880×1620");
+            else if (m.key == QLatin1StringView("render.scale"))
+                m.value = 150.0;
+            else if (m.key == QLatin1StringView("window.size"))
+                m.value = QStringLiteral("1640×923 (scaled to fit the screen)");
+        }
+        const DetailLayout d = t.detail(r);
+        const NoteBlock *n = noteContaining(d, QStringLiteral("Scaled to fit"));
+        QVERIFY(n);
+        QCOMPARE(n->text, QStringLiteral("Scaled to fit this screen at 150%: 2880×1620 rendered per frame, so FPS isn't comparable with 100%."));
+        QVERIFY(n->tone == Tone::Warn);
+        QCOMPARE(tableOf(d, QStringLiteral("Render setup")).summary, QStringLiteral("2880×1620 at 150% · scaled to fit"));
+        const auto kpis = blocksOf<KpisBlock>(d);
+        QCOMPARE(kpis.size(), 1);
+        QCOMPARE(kpis[0]->items.size(), 5);
+        QCOMPARE(kpis[0]->items[3].label, QStringLiteral("Render"));
+        QCOMPARE(kpis[0]->items[3].unitOverride, QStringLiteral("at 150% · scaled to fit"));
+        // Not scaled to fit, but not 100%: the other wording, also Warn.
+        for (Metric &m : r.metrics) {
+            if (m.key == QLatin1StringView("window.size"))
+                m.value = QStringLiteral("2400×1350");
+        }
+        const NoteBlock *rendered = noteContaining(t.detail(r), QStringLiteral("Rendered at 150%"));
+        QVERIFY(rendered && rendered->tone == Tone::Warn);
+    }
+
+    // A Stopped run builds from what is there; nothing is invented.
+    void detailCancelledAndEmpty()
+    {
+        GpuTest t;
+        TestResult r = windowsRun(t);
+        r.status = Status::Cancelled;
+        r.statusReason = defaultStoppedReason();
+        r.score.reset();
+        for (SubResult &s : r.subResults)
+            s.status = Status::Cancelled;
+        const DetailLayout d = t.detail(r);
+        QVERIFY(d.subtitle.startsWith(QLatin1StringView("Stopped")));
+        const NoteBlock *n = noteContaining(d, QStringLiteral("Stopped before the end"));
+        QVERIFY(n && n->tone == Tone::Warn);
+        QCOMPARE(cell(tableOf(d, QStringLiteral("Sub-tests")), 0, 2), QStringLiteral("Stopped"));
+        // A result with nothing in it: no crash, no blocks that need data.
+        TestResult empty;
+        empty.status = Status::Error;
+        const DetailLayout e = t.detail(empty);
+        QVERIFY(blocksOf<LineChartBlock>(e).isEmpty());
+        QCOMPARE(indexOfTable(e, QStringLiteral("APIs")), -1);
     }
 };
 

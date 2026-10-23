@@ -29,7 +29,7 @@ public:
     std::chrono::seconds timeLimit(const OptionValues &) const override;
     TestResult run(RunContext &ctx, const OptionValues &options) override;
     ScoreBreakdown score(const TestResult &result) const override;
-    DetailLayout detail(const TestResult &result) const override;  // genericDetailLayout until task 34
+    DetailLayout detail(const TestResult &result) const override;  // gpu_detail.cpp
 
     // §8: ceil10(16 + 124 a + 46 n), a = 3D APIs, n = native 2D paths.
     static int estimateSeconds(int apis3d, int nativePaths);
