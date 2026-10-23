@@ -17,6 +17,29 @@
 
 using namespace sb::gpu;
 
+namespace {
+
+// The loops over every vertex, particle or op check thousands of items. QCOMPARE and QVERIFY each write a line at -v2
+// (a gigabyte of log for this test), so a hot loop counts what fails and keeps the first, and one QVERIFY2 after it
+// reports them; the test checks the same conditions.
+class LoopCheck
+{
+public:
+    void expect(bool ok, const char *what, std::size_t item)
+    {
+        if (!ok && m_bad++ == 0)
+            m_first = QStringLiteral("%1 (item %2)").arg(QLatin1StringView(what)).arg(item);
+    }
+    bool ok() const { return m_bad == 0; }
+    QByteArray message() const { return QStringLiteral("%1 failed; the first: %2").arg(m_bad).arg(m_first).toLocal8Bit(); }
+
+private:
+    int m_bad = 0;
+    QString m_first;
+};
+
+} // namespace
+
 class TestGpuScene : public QObject
 {
     Q_OBJECT
@@ -46,20 +69,27 @@ private slots:
     void everyIndexIsInRange()
     {
         for (const Mesh &m : {cube(), octahedron(), cylinder(24), cone(24), torus(16, 8, 1.f, 0.35f), uvSphere(16, 8), room(), icosphere(3)}) {
+            LoopCheck c;
+            std::size_t at = 0;
             for (const std::uint32_t i : m.indices)
-                QVERIFY(i < m.vertices.size());
+                c.expect(i < m.vertices.size(), "an index past the vertices", at++);
+            QVERIFY2(c.ok(), c.message().constData());
         }
     }
 
     void displacedStaysNearTheSphere()
     {
         const Mesh m = displaced(icosphere(4), 0x47454F4Du, 0.12f, 2.f);
+        LoopCheck c;
+        std::size_t at = 0;
         for (const Vertex &v : m.vertices) {
             const float r = std::sqrt(v.px * v.px + v.py * v.py + v.pz * v.pz);
-            QVERIFY2(r >= 0.88f - 1e-4f && r <= 1.12f + 1e-4f, "radius out of range");
+            c.expect(r >= 0.88f - 1e-4f && r <= 1.12f + 1e-4f, "radius out of range", at);
             const float n = std::sqrt(v.nx * v.nx + v.ny * v.ny + v.nz * v.nz);
-            QVERIFY(std::abs(n - 1.f) < 1e-4f);
+            c.expect(std::abs(n - 1.f) < 1e-4f, "normal not unit length", at);
+            ++at;
         }
+        QVERIFY2(c.ok(), c.message().constData());
     }
 
     void sceneTotals()
@@ -94,10 +124,14 @@ private slots:
         QCOMPARE(draw.instances[0].mesh, 8u);  // the ground plane is drawn first
         const SceneData part = buildScene(Workload::Particles);
         QCOMPARE(part.particles.size(), std::size_t(2359296));
+        LoopCheck c;
+        std::size_t at = 0;
         for (const Particle &p : part.particles) {
-            QVERIFY(p.life >= 2.f && p.life <= 4.f && p.phase >= 0.f && p.phase < p.life + 1e-4f);
-            QVERIFY(p.speed >= 6.f && p.speed <= 10.f && p.size >= 0.04f && p.size <= 0.12f);
+            c.expect(p.life >= 2.f && p.life <= 4.f && p.phase >= 0.f && p.phase < p.life + 1e-4f, "life or phase out of range", at);
+            c.expect(p.speed >= 6.f && p.speed <= 10.f && p.size >= 0.04f && p.size <= 0.12f, "speed or size out of range", at);
+            ++at;
         }
+        QVERIFY2(c.ok(), c.message().constData());
     }
 
     void scaledScenes()
@@ -243,36 +277,48 @@ private slots:
     void nativeOpContent()
     {
         const NativeOps shapes = buildNativeOps(NativeKind::Shapes);
+        LoopCheck shapeCheck;
         for (std::size_t i = 0; i < shapes.shapes.size(); ++i) {
             const ShapeOp &s = shapes.shapes[i];
-            QCOMPARE(int(s.type), int(i % 4));
-            QVERIFY(s.w >= 16.f && s.w <= 160.f && s.h >= 16.f && s.h <= 160.f);  // the sizes, 16 to 160
+            shapeCheck.expect(int(s.type) == int(i % 4), "shape type", i);
+            shapeCheck.expect(s.w >= 16.f && s.w <= 160.f && s.h >= 16.f && s.h <= 160.f, "size outside 16 to 160", i);
             if (s.type == 3)
-                QCOMPARE(s.h, s.w);  // a star is round
-            QVERIFY(s.cx >= 0.f && s.cx <= kCanvasWidth && s.cy >= 0.f && s.cy <= kCanvasHeight);
-            QVERIFY(s.rotation >= 0.f && s.rotation <= 360.f);
+                shapeCheck.expect(s.h == s.w, "a star is round", i);
+            shapeCheck.expect(s.cx >= 0.f && s.cx <= kCanvasWidth && s.cy >= 0.f && s.cy <= kCanvasHeight, "centre off the canvas", i);
+            shapeCheck.expect(s.rotation >= 0.f && s.rotation <= 360.f, "rotation", i);
             const unsigned alpha = s.rgba8 >> 24;
-            QVERIFY(alpha >= 102 && alpha <= 255);  // 0.4 .. 1.0
+            shapeCheck.expect(alpha >= 102 && alpha <= 255, "alpha outside 0.4 .. 1.0", i);
         }
+        QVERIFY2(shapeCheck.ok(), shapeCheck.message().constData());
         const NativeOps text = buildNativeOps(NativeKind::Text);
         const QByteArray set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:!?-()");
+        LoopCheck textCheck;
+        std::size_t textAt = 0;
         for (const TextOp &t : text.texts) {
-            QCOMPARE(t.text.size(), std::size_t(40));
+            textCheck.expect(t.text.size() == 40, "text length", textAt);
             for (const char c : t.text)
-                QVERIFY(set.contains(c));
-            QCOMPARE(t.rgba8 >> 24, 255u);
+                textCheck.expect(set.contains(c), "a character outside the set", textAt);
+            textCheck.expect((t.rgba8 >> 24) == 255u, "text alpha", textAt);
+            ++textAt;
         }
+        QVERIFY2(textCheck.ok(), textCheck.message().constData());
         const NativeOps blits = buildNativeOps(NativeKind::Blits);
         QCOMPARE(blits.image.width, 256u);  // §7.1: one 256 x 256 image
         QCOMPARE(blits.image.height, 256u);
+        LoopCheck blitCheck;
+        std::size_t blitAt = 0;
         for (const BlitOp &b : blits.blits)
-            QVERIFY(b.scale >= 0.25f && b.scale <= 1.f && b.opacity >= 0.5f && b.opacity <= 1.f && b.rotation >= 0.f && b.rotation <= 360.f);
+            blitCheck.expect(b.scale >= 0.25f && b.scale <= 1.f && b.opacity >= 0.5f && b.opacity <= 1.f && b.rotation >= 0.f && b.rotation <= 360.f,
+                             "blit scale, opacity or rotation", blitAt++);
+        QVERIFY2(blitCheck.ok(), blitCheck.message().constData());
         const NativeOps gradients = buildNativeOps(NativeKind::Gradients);
+        LoopCheck gradientCheck;
         for (std::size_t i = 0; i < gradients.gradients.size(); ++i) {
             const GradientOp &g = gradients.gradients[i];
-            QCOMPARE(int(g.radial), int(i % 2));  // even linear, odd radial
-            QVERIFY(g.gradient < 16 && g.w >= 32.f && g.w <= 256.f && g.h >= 32.f && g.h <= 256.f);
+            gradientCheck.expect(int(g.radial) == int(i % 2), "even linear, odd radial", i);
+            gradientCheck.expect(g.gradient < 16 && g.w >= 32.f && g.w <= 256.f && g.h >= 32.f && g.h <= 256.f, "gradient index or size", i);
         }
+        QVERIFY2(gradientCheck.ok(), gradientCheck.message().constData());
         // The translation is 8 logical px on a 4 s loop.
         QCOMPARE(nativeTranslation(0).x, 0.f);
         QCOMPARE(nativeTranslation(0).y, 8.f);
@@ -408,12 +454,14 @@ private slots:
         QCOMPARE(l.h, 26);
         QCOMPARE(px.size(), std::size_t(22) * 26 * 4);
         std::size_t ink = 0;
+        LoopCheck pixels;
         for (std::size_t i = 0; i < px.size(); i += 4) {
             if (px[i] == 255 && px[i + 1] == 255 && px[i + 2] == 255 && px[i + 3] == 255)
                 ++ink;
             else
-                QVERIFY(px[i] == 0 && px[i + 1] == 0 && px[i + 2] == 0 && px[i + 3] == 153);
+                pixels.expect(px[i] == 0 && px[i + 1] == 0 && px[i + 2] == 0 && px[i + 3] == 153, "a pixel that is neither ink nor background", i / 4);
         }
+        QVERIFY2(pixels.ok(), pixels.message().constData());
         QCOMPARE(ink, std::size_t(4 * glyphInk('A')));
     }
 };
