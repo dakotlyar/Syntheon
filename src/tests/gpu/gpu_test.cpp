@@ -192,13 +192,24 @@ struct ApiRun {
     bool active = false;       // a worker is running for it
     bool errored = false;
     QString status;            // "OK", "N/A: ...", "Error: ..."
-    QString errorScene;        // first Error: the scene (name) and reason
+    QString errorScene;        // first Error: the workload (scene or fill name) and reason
     QString errorReason;
+    QString errorSub;          // the sub-test that workload belongs to (scenes3d or fill2d)
     std::optional<pr::ReadyEvent> ready;
     QString present;
     std::unique_ptr<GpuSession> session;
     std::map<SceneId, pr::ResultEvent> results;
+    std::map<FillId, pr::ResultEvent> fills;   // Quads and Sprites (§6.5, §6.6), after the four scenes
 };
+
+// A workload of the 3D plan: one of the four scenes or one of the two fill workloads.
+struct WorkloadRef {
+    std::optional<SceneId> scene;
+    std::optional<FillId> fill;
+    QString name() const { return scene ? sceneName(*scene) : fillName(*fill); }
+    QString sub() const { return scene ? kScenes3dId : kFill2dId; }
+};
+WorkloadRef workloadRef(const QString &key) { return {sceneFromKey(key), fillFromKey(key)}; }
 
 // Why no API ran, in the APIs' own words: their distinct N/A reasons ("No Vulkan driver is
 // installed; DirectX is Windows only"), or the generic text when there are none.
@@ -232,14 +243,15 @@ private:
         m_last = std::clamp(std::max(m_last, at / m_total), 0.0, 0.999);  // never backwards
         m_ctx.progress(m_last, stage);
     }
-    void fail(ApiRun &a, const QString &sceneName, const QString &reason)
+    void fail(ApiRun &a, const QString &workloadName, const QString &reason, const QString &sub = kScenes3dId)
     {
         a.errored = true;
         a.active = false;
         a.status = QStringLiteral("Error: ") + reason;
         if (a.errorScene.isEmpty()) {
-            a.errorScene = sceneName;
+            a.errorScene = workloadName;
             a.errorReason = reason;
+            a.errorSub = sub;
         }
         if (a.session)
             a.session->kill();  // its remaining workloads are skipped
@@ -256,18 +268,27 @@ private:
     TestResult m_r;
     double m_total = 1, m_last = 0;
     std::map<std::pair<ApiId, SceneId>, QString> m_mismatch;  // api, scene -> "drew X differently from Y (mean 9.3/255)"
+    std::map<std::pair<ApiId, FillId>, QString> m_fillMismatch;  // the same for the fill workloads
 };
 
 void GpuRun::compareSignatures(int item, const QVector<pr::PlanItem> &plan)
 {
-    const SceneId scene = *sceneFromKey(plan[item].workload);
+    const WorkloadRef w = workloadRef(plan[item].workload);
+    const QString workloadName = w.name();
     // §5.7, D20: in run order; an API that didn't run (or sent no usable signature) is an empty entry.
     QVector<QByteArray> sigs;
     int ran = 0;
     for (const ApiRun &a : m_apis) {
-        const auto it = a.results.find(scene);
-        const bool have = a.active && it != a.results.end() && it->second.signature.size() == 432;
-        sigs.append(have ? it->second.signature : QByteArray());
+        const pr::ResultEvent *res = nullptr;
+        if (w.scene) {
+            const auto it = a.results.find(*w.scene);
+            res = it != a.results.end() ? &it->second : nullptr;
+        } else {
+            const auto it = a.fills.find(*w.fill);
+            res = it != a.fills.end() ? &it->second : nullptr;
+        }
+        const bool have = a.active && res && res->signature.size() == 432;
+        sigs.append(have ? res->signature : QByteArray());
         ran += have ? 1 : 0;
     }
     if (ran < 2)
@@ -276,17 +297,21 @@ void GpuRun::compareSignatures(int item, const QVector<pr::PlanItem> &plan)
     for (const int i : verdict.outliers) {
         ApiRun &a = m_apis[std::size_t(i)];
         const QString why = QStringLiteral("drew %1 differently from %2 (mean %3/255)")
-                                .arg(sceneName(scene), apiName(m_apis[std::size_t(verdict.reference)].id))
+                                .arg(workloadName, apiName(m_apis[std::size_t(verdict.reference)].id))
                                 .arg(verdict.diffToReference[i].mean, 0, 'f', 1);
-        m_mismatch[{a.id, scene}] = why;
+        if (w.scene)
+            m_mismatch[{a.id, *w.scene}] = why;
+        else
+            m_fillMismatch[{a.id, *w.fill}] = why;
         m_ctx.log(LogLevel::Error, QStringLiteral("%1: %2").arg(apiName(a.id), why));
-        fail(a, sceneName(scene), why);  // an Error (D20): the score is withheld through D6
+        fail(a, workloadName, why, w.sub());  // an Error (D20): the score is withheld through D6
     }
 }
 
 TestResult GpuRun::run()
 {
-    const QVector<pr::PlanItem> basePlan = GpuTest::plan3d();
+    QVector<pr::PlanItem> basePlan = GpuTest::plan3d();
+    basePlan += GpuTest::planFill();  // §8: Quads and Sprites follow the four scenes
     QVector<pr::PlanItem> plan;
     for (const pr::PlanItem &p : basePlan)
         plan.append({p.workload, int(scaled(p.warmupMs).count()), int(scaled(p.measureMs).count())});
@@ -403,14 +428,15 @@ TestResult GpuRun::run()
     double done = 4.0;
     for (int item = 0; item < plan.size() && !stopped; ++item) {
         const pr::PlanItem &p = plan[item];
-        const SceneId scene = *sceneFromKey(p.workload);
+        const WorkloadRef work = workloadRef(p.workload);
+        const QString workName = work.name();
         const double windows = double(p.warmupMs + p.measureMs) / 1000.0;
         for (ApiRun &a : m_apis) {
             if (!a.active || stopped)
                 continue;
-            m_ctx.setPart(QStringLiteral("%1 · %2").arg(sceneName(scene), apiName(a.id)));
+            m_ctx.setPart(QStringLiteral("%1 · %2").arg(workName, apiName(a.id)));
             const auto stage = [&](const QString &what) {
-                return QStringLiteral("%1 on %2 · %3").arg(sceneName(scene), apiShort(a.id), what);
+                return QStringLiteral("%1 on %2 · %3").arg(workName, apiShort(a.id), what);
             };
             report(done, stage(QStringLiteral("starting")));
             const ClientOutcome o = a.session->runWorkload(p, [this] { return cancelled(); }, [&](const pr::Event &e) {
@@ -426,10 +452,13 @@ TestResult GpuRun::run()
             });
             switch (o.status) {
             case ClientOutcome::Status::Ok: {
-                a.results[scene] = o.results.first();
+                if (work.scene)
+                    a.results[*work.scene] = o.results.first();
+                else
+                    a.fills[*work.fill] = o.results.first();
                 if (a.present.isEmpty())
                     a.present = o.results.first().present;
-                m_ctx.log(LogLevel::Info, QStringLiteral("%1 on %2: %3 fps").arg(sceneName(scene), apiName(a.id)).arg(o.results.first().fps, 0, 'f', 1));
+                m_ctx.log(LogLevel::Info, QStringLiteral("%1 on %2: %3 fps").arg(workName, apiName(a.id)).arg(o.results.first().fps, 0, 'f', 1));
                 break;
             }
             case ClientOutcome::Status::Cancelled:
@@ -442,8 +471,8 @@ TestResult GpuRun::run()
                 m_ctx.log(LogLevel::Info, QStringLiteral("%1: N/A (%2)").arg(apiName(a.id), o.reason));
                 break;
             case ClientOutcome::Status::Failed:
-                fail(a, sceneName(scene), o.reason);
-                m_ctx.log(LogLevel::Error, QStringLiteral("%1 failed in %2: %3").arg(apiName(a.id), sceneName(scene), o.reason));
+                fail(a, workName, o.reason, work.sub());
+                m_ctx.log(LogLevel::Error, QStringLiteral("%1 failed in %2: %3").arg(apiName(a.id), workName, o.reason));
                 break;
             }
             // Only a window that ran counts: an API that dropped out skips its windows, so the progress
@@ -581,7 +610,7 @@ TestResult GpuRun::finish(bool stopped)
         const QString name = apiName(a.id);
         QString status = a.status;
         if (status.isEmpty())  // an API a Stop cut short never reads "OK" (L4)
-            status = stopped && a.results.size() < kScenes.size() ? QStringLiteral("Stopped") : QStringLiteral("OK");
+            status = stopped && a.results.size() + a.fills.size() < kScenes.size() + kFills.size() ? QStringLiteral("Stopped") : QStringLiteral("OK");
         r.metrics.append(text(apiStatusKey(key, u"status"), {}, name + QStringLiteral(" status"), status));
         if (a.ready) {
             const ApiAvailability av = m_gpu.apis.value(key);
@@ -672,7 +701,7 @@ TestResult GpuRun::finish(bool stopped)
             const auto it = a.results.find(scene);
             // An API that errored in this scene, or drew it differently from the reference, never
             // gives the headline number (M2).
-            if (it != a.results.end() && !m_mismatch.count({a.id, scene}) && !(a.errored && a.errorScene == sceneName(scene)))
+            if (it != a.results.end() && !m_mismatch.count({a.id, scene}) && !(a.errored && a.errorSub == kScenes3dId && a.errorScene == sceneName(scene)))
                 candidates.append({apiKey(a.id), it->second.fps});
         }
         const auto best = bestOf(candidates);
@@ -687,6 +716,61 @@ TestResult GpuRun::finish(bool stopped)
         r.metrics.append(text(sceneBestKey(scene, u"api"), scenes, what + QStringLiteral(": best API"), apiName(bestApi)));
         r.metrics.append(number(sceneBestKey(scene, u"low"), scenes, what + QStringLiteral(": best API, 1% low"),
                                 res.ftP99 > 0 ? 1000.0 / res.ftP99 : 0.0, QStringLiteral("fps"), Direction::HigherIsBetter));
+    }
+
+    // Fill-rate (§6.5, §6.6, §10): per API `fill2d.<api>` (Gpx/s), `fill2d.<api>.sprites` (MOps/s), `.quads.fps` / `.sprites.fps`, the
+    // `ft.<api>.quads|sprites` series, `.match` for a signature outlier; then the best API's `fill2d.quads|sprites` (+ `.api`), which
+    // is what the score reads (D4). The rates use the unscaled units (ids.h) and the render size the worker reported.
+    const QString fill = kFill2dId;
+    bool everyFill = true;
+    const auto fillRate = [](const ApiRun &a, FillId f, const pr::ResultEvent &res) {
+        if (res.seconds <= 0)
+            return 0.0;
+        if (f == FillId::Sprites)
+            return double(kFillSprites) * double(res.frames) / res.seconds / 1e6;
+        const int w = res.renderW > 0 ? res.renderW : (a.ready ? a.ready->renderW : 0);
+        const int h = res.renderH > 0 ? res.renderH : (a.ready ? a.ready->renderH : 0);
+        return double(kFillQuadLayers) * double(w) * double(h) * double(res.frames) / res.seconds / 1e9;
+    };
+    const auto fillUnit = [](FillId f) { return f == FillId::Quads ? QStringLiteral("Gpx/s") : QStringLiteral("MOps/s"); };
+    const auto fillBad = [&](const ApiRun &a, FillId f) {
+        return m_fillMismatch.count({a.id, f}) || (a.errored && a.errorSub == kFill2dId && a.errorScene == fillName(f));
+    };
+    for (const ApiRun &a : m_apis) {
+        for (const FillId f : kFills) {
+            const auto it = a.fills.find(f);
+            if (it == a.fills.end())
+                continue;
+            const pr::ResultEvent &res = it->second;
+            anyMeasured = true;
+            const QString what = QStringLiteral("%1 on %2").arg(fillName(f), apiShort(a.id));
+            if (const double rate = fillRate(a, f, res); rate > 0)
+                r.metrics.append(number(fillApiKey(a.id, f), fill, what, rate, fillUnit(f), Direction::HigherIsBetter));
+            r.metrics.append(number(fillApiFpsKey(a.id, f), fill, what + QStringLiteral(": average"), res.fps, QStringLiteral("fps"), Direction::HigherIsBetter));
+            if (const auto mm = m_fillMismatch.find({a.id, f}); mm != m_fillMismatch.end())
+                r.metrics.append(text(fillApiMatchKey(a.id, f), fill, what + QStringLiteral(": image"), mm->second));
+            if (!res.series.isEmpty()) {
+                Series s{seriesKey(apiKey(a.id), fillKey(f)), what + QStringLiteral(": frame time"), QStringLiteral("Time"), QStringLiteral("s"), QStringLiteral("ms"), {}};
+                s.points = res.series;
+                r.series.append(s);
+            }
+        }
+    }
+    for (const FillId f : kFills) {
+        QVector<Candidate> candidates;
+        for (const ApiRun &a : m_apis) {
+            const auto it = a.fills.find(f);
+            // As for the scenes: an API that errored here or drew it differently never gives the headline number.
+            if (it != a.fills.end() && !fillBad(a, f))
+                candidates.append({apiKey(a.id), fillRate(a, f, it->second)});
+        }
+        const auto best = bestOf(candidates);
+        if (!best) {
+            everyFill = false;
+            continue;
+        }
+        r.metrics.append(number(fillBestKey(f), fill, fillName(f), best->value, fillUnit(f), Direction::HigherIsBetter));
+        r.metrics.append(text(fillBestKey(f, true), fill, fillName(f) + QStringLiteral(": best API"), apiName(*apiFromKey(best->source))));
     }
 
     // The native 2D paths (§10): api.<path>.status for both (N/A ones included), the version / driver / present of the
@@ -719,20 +803,31 @@ TestResult GpuRun::finish(bool stopped)
         }
     }
 
-    // Sub-results (§12): scenes3d is an Error when any API errored or a scene has no API; native2d is Ok when Qt raster
-    // finished all four workloads; fill2d is a placeholder until task 32.
+    // Sub-results (§12): scenes3d and fill2d are an Error when any API errored in one of their workloads (the first such error,
+    // in API order) or a workload has no Ok API; native2d is Ok when Qt raster finished all four workloads.
     SubResult s3d{kScenes3dId, Status::Ok, {}, std::nullopt};
-    QString firstReason;
+    SubResult sFill{kFill2dId, Status::Ok, {}, std::nullopt};
+    QString firstReason, firstFillReason;
     for (const ApiRun &a : m_apis) {
-        if (a.errored && firstReason.isEmpty())
-            firstReason = QStringLiteral("%1 failed in %2: %3").arg(apiName(a.id), a.errorScene, a.errorReason);
+        if (!a.errored)
+            continue;
+        const QString why = QStringLiteral("%1 failed in %2: %3").arg(apiName(a.id), a.errorScene, a.errorReason);
+        QString &slot = a.errorSub == kFill2dId ? firstFillReason : firstReason;
+        if (slot.isEmpty())
+            slot = why;
     }
     if (!firstReason.isEmpty() || !everyScene) {
-        s3d.status = stopped ? Status::Cancelled : Status::Error;
+        s3d.status = Status::Error;
         s3d.reason = !firstReason.isEmpty() ? firstReason : QStringLiteral("not every scene ran");
     }
-    if (stopped)
+    if (!firstFillReason.isEmpty() || !everyFill) {
+        sFill.status = Status::Error;
+        sFill.reason = !firstFillReason.isEmpty() ? firstFillReason : QStringLiteral("not every fill workload ran");
+    }
+    if (stopped) {
         s3d.status = Status::Cancelled;
+        sFill.status = Status::Cancelled;
+    }
     SubResult n2d{kNative2dId, Status::Ok, {}, std::nullopt};
     QString nativeReason;  // a Qt raster failure, for the test's status
     {
@@ -752,9 +847,12 @@ TestResult GpuRun::finish(bool stopped)
             n2d.reason = QStringLiteral("not every native 2D workload ran");
         }
     }
-    r.subResults = {s3d, n2d, SubResult{kFill2dId, Status::NotAvailable, QStringLiteral("not built yet (Phase 4a-4)"), std::nullopt}};
+    r.subResults = {s3d, n2d, sFill};
 
-    // The test's status (§12, D6).
+    // The test's status (§12, D6): all three Ok -> Ok; otherwise Partial with "No GPU score: ..." when at least one part is Ok;
+    // none Ok -> Error. The reason is the first API failure (3D before fill), then Qt raster's, then the generic text.
+    const QString apiFailure = !firstReason.isEmpty() ? firstReason : firstFillReason;
+    const int okParts = int(s3d.status == Status::Ok) + int(n2d.status == Status::Ok) + int(sFill.status == Status::Ok);
     if (stopped) {
         r.status = Status::Cancelled;
         r.statusReason = defaultStoppedReason();
@@ -765,12 +863,15 @@ TestResult GpuRun::finish(bool stopped)
     } else if (!anyMeasured) {
         r.status = Status::Error;
         r.statusReason = !firstReason.isEmpty() ? firstReason : QStringLiteral("no 3D API produced a result");
-    } else if (s3d.status == Status::Ok) {
-        r.status = Status::Partial;  // fill-rate isn't built yet (task 32), or Qt raster failed
-        r.statusReason = !nativeReason.isEmpty() ? QStringLiteral("No GPU score: ") + nativeReason : QStringLiteral("No GPU score: not every part ran");
+    } else if (okParts == 3) {
+        r.status = Status::Ok;
+    } else if (okParts == 0) {
+        r.status = Status::Error;
+        r.statusReason = !apiFailure.isEmpty() ? apiFailure : !nativeReason.isEmpty() ? nativeReason : QStringLiteral("not every part ran");
     } else {
         r.status = Status::Partial;
-        r.statusReason = apiError ? QStringLiteral("No GPU score: ") + firstReason : QStringLiteral("No GPU score: not every part ran");
+        r.statusReason = QStringLiteral("No GPU score: ")
+                         + (!apiFailure.isEmpty() ? apiFailure : !nativeReason.isEmpty() ? nativeReason : QStringLiteral("not every part ran"));
     }
 
     // score.3d (M4, P21): the 3D sub-score, when its group is complete and Ok.
@@ -778,6 +879,9 @@ TestResult GpuRun::finish(bool stopped)
     const ScoreBreakdown b = gpu::formula_v1::score(probe);
     if (const auto it = b.subScores.constFind(kScenes3dId); it != b.subScores.cend())
         r.metrics.append(number(QStringLiteral("score.3d"), {}, QStringLiteral("3D score"), *it, QStringLiteral("points"), Direction::HigherIsBetter));
+    // score.2d (M4, P21): round(1000 x sqrt(G_native x G_fill)), when both groups are complete and Ok.
+    if (const auto s2d = gpu::formula_v1::score2d(probe))
+        r.metrics.append(number(QStringLiteral("score.2d"), {}, QStringLiteral("2D score"), *s2d, QStringLiteral("points"), Direction::HigherIsBetter));
     return r;
 }
 
@@ -801,6 +905,12 @@ int GpuTest::estimateSeconds(int apis3d, int nativePaths)
 {
     const int raw = 16 + 124 * apis3d + 46 * nativePaths;
     return (raw + 9) / 10 * 10;
+}
+
+QVector<pr::PlanItem> GpuTest::planFill()
+{
+    return {{QStringLiteral("quads"), 2000, 10000},
+            {QStringLiteral("sprites"), 2000, 10000}};
 }
 
 QVector<pr::PlanItem> GpuTest::plan3d()

@@ -292,6 +292,15 @@ private slots:
         }
     }
 
+    // The fill-rate maths uses ids.h's counts: they are what the workers draw at content scale 1.
+    void fillUnitsMatchTheScenes()
+    {
+        QCOMPARE(kFillQuadLayers, kQuadLayers);
+        QCOMPARE(kFillSprites, kSprites);
+        QCOMPARE(buildScene(Workload::Quads).quadLayers, kFillQuadLayers);
+        QCOMPARE(std::uint32_t(buildScene(Workload::Sprites).sprites.size()), kFillSprites);
+    }
+
     void nativeHashes()
     {
         static_assert(kGoldenNativeHash.size() == kNativeKinds.size());

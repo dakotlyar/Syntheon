@@ -10,6 +10,8 @@
 //     na                 an error event with na true, exit 5 (--probe still answers)
 //     protocol-error     ready, then an error event "protocol: unknown command 'x'" and exit 2
 //     mismatch           like ok, but the opengl worker is faster (200 fps) and draws something else (its signature differs)
+//     mismatch-fill      like ok, but the opengl worker draws the fill workloads (quads, sprites) differently (200 fps, another signature)
+//     crash-at-quads     like ok, but the opengl worker crashes at `run quads`
 //     crash-at-shading   like ok, but the opengl worker crashes at `run shading` (the second API of the GPU test's case)
 //     crash-d2d / crash-qt   like ok, but the native path with that --api crashes right after ready
 //     d2d-fast           like ok, but the d2d worker's native results are four times faster (more frames)
@@ -44,14 +46,15 @@ void out(const std::string &line)
 void ready() { out("{\"ev\":\"ready\",\"api\":\"fake\",\"device\":\"Fake GPU\",\"renderW\":320,\"renderH\":180,\"windowW\":0,\"windowH\":0}"); }
 
 std::string g_api;  // the worker's --api, for the modes that differ by API
-bool g_mismatch = false;
+bool g_mismatch = false, g_mismatchFill = false;
 
 bool g_d2dFast = false;
 
 void result(const std::string &workload)
 {
-    const bool other = g_mismatch && g_api == "opengl";
-    const int frames = g_d2dFast && g_api == "d2d" ? 40 : 10;
+    const bool fill = workload == "quads" || workload == "sprites";
+    const bool other = (g_mismatch || (g_mismatchFill && fill)) && g_api == "opengl";
+    const int frames = g_d2dFast && g_api == "d2d" ? 40 : (g_mismatchFill && fill && other ? 20 : 10);  // the other opengl is faster
     const std::string sig(864, other ? 'f' : '0');
     const char *fps = other ? "200" : "100";
     out("{\"ev\":\"result\",\"workload\":\"" + workload + "\",\"frames\":" + std::to_string(frames) + ",\"seconds\":0.1,\"fps\":" + std::string(fps) + ","
@@ -104,6 +107,7 @@ int fakeMain(int argc, char **argv)
     }
     g_api = api;
     g_mismatch = mode == "mismatch";
+    g_mismatchFill = mode == "mismatch-fill";
     g_d2dFast = mode == "d2d-fast";
     if (probe) {
         out("{\"ev\":\"gpu\",\"id\":\"10de:2c05@0000:01:00.0\",\"name\":\"Fake GPU\",\"vendorId\":4318,\"deviceId\":11269,"
@@ -195,6 +199,8 @@ int fakeMain(int argc, char **argv)
                     std::fclose(f);
                 }
             }
+            if (mode == "crash-at-quads" && api == "opengl" && item.rfind("quads", 0) == 0)
+                crash();
             if (mode == "crash-after-ready" || (mode == "crash-at-shading" && api == "opengl" && item.rfind("shading", 0) == 0))
                 crash();
             if (!sleepMs(millis(item), true))

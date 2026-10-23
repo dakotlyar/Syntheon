@@ -530,20 +530,23 @@ private slots:
         gpuPartial.status = Status::Partial;
         gpuPartial.subResults = {{QStringLiteral("scenes3d"), Status::Error, QStringLiteral("DirectX 11 failed in Geometry: x"), std::nullopt}};
         QVERIFY(!smokeAccepts(gpuPartial));
-        // Partial with only the fill-rate placeholder is accepted (task 32 removes it); a native 2D "not built yet" or error is not.
+        // Task 32: every part exists now, so any GPU Partial is rejected: a missing fill-rate or native 2D part, or an error in one.
         TestResult gpuFill;
         gpuFill.testId = QStringLiteral("gpu");
         gpuFill.status = Status::Partial;
         gpuFill.subResults = {{QStringLiteral("scenes3d"), Status::Ok, {}, 1000.0},
                               {QStringLiteral("native2d"), Status::Ok, {}, 1000.0},
                               {QStringLiteral("fill2d"), Status::NotAvailable, QStringLiteral("not built yet (Phase 4a-4)"), std::nullopt}};
-        QVERIFY(smokeAccepts(gpuFill));
-        TestResult gpuNativeMissing = gpuFill;
-        gpuNativeMissing.subResults[1] = {QStringLiteral("native2d"), Status::NotAvailable, QStringLiteral("not built yet (Phase 4a-3)"), std::nullopt};
-        QVERIFY(!smokeAccepts(gpuNativeMissing));
+        QVERIFY(!smokeAccepts(gpuFill));
+        TestResult gpuFillError = gpuFill;
+        gpuFillError.subResults[2] = {QStringLiteral("fill2d"), Status::Error, QStringLiteral("OpenGL failed in Sprites: x"), std::nullopt};
+        QVERIFY(!smokeAccepts(gpuFillError));
         TestResult gpuNativeError = gpuFill;
         gpuNativeError.subResults[1] = {QStringLiteral("native2d"), Status::Error, QStringLiteral("Qt raster failed in Text: x"), std::nullopt};
         QVERIFY(!smokeAccepts(gpuNativeError));
+        TestResult gpuOk = gpuFill;  // all three parts Ok: an Ok result
+        gpuOk.status = Status::Ok;
+        QVERIFY(smokeAccepts(gpuOk));
         TestResult notGpu = gpuNa;
         notGpu.testId = QStringLiteral("cpu");
         QVERIFY(!smokeAccepts(notGpu));

@@ -73,6 +73,7 @@ set_target_properties(fake-gpuworker PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC 
 add_dependencies(tst_gpu_client fake-gpuworker synbench-gpu)
 target_compile_definitions(tst_gpu_client PRIVATE SB_FAKE_GPUWORKER="$<TARGET_FILE:fake-gpuworker>" SB_GPU_WORKER="$<TARGET_FILE:synbench-gpu>")
 # The GPU test (task 15) with the fake worker.
+synbench_add_unit_test(tst_gpu_formula SOURCES tst_gpu_formula.cpp LIBS synbench_test_gpu Qt6::Core)
 synbench_add_unit_test(tst_gpu_test SOURCES tst_gpu_test.cpp fake_test.h LIBS synbench_test_gpu synbench_builtin_tests Qt6::Core)
 add_dependencies(tst_gpu_test fake-gpuworker)
 target_compile_definitions(tst_gpu_test PRIVATE SB_FAKE_GPUWORKER="$<TARGET_FILE:fake-gpuworker>")
@@ -108,7 +109,7 @@ if(TARGET synbench_app)
 endif()
 
 # The GPU tests, to run (or skip) as a group: ctest -L gpu.
-foreach(t tst_gpu_model tst_gpu_scene tst_gpu_loaders tst_gpu_worker tst_gpu_client tst_gpu_test tst_gpu_backends tst_gpu_present tst_gpu_signature tst_gpu_native)
+foreach(t tst_gpu_model tst_gpu_scene tst_gpu_loaders tst_gpu_worker tst_gpu_client tst_gpu_formula tst_gpu_test tst_gpu_backends tst_gpu_present tst_gpu_signature tst_gpu_native)
     if(TARGET ${t})
         set_property(TEST ${t} APPEND PROPERTY LABELS gpu)
     endif()

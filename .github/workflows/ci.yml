@@ -116,6 +116,21 @@ jobs:
           SYNBENCH_REQUIRE_SOFTWARE_GPU: "1"
         run: xvfb-run -a -s "-screen 0 1920x1080x24" ctest --preset linux-x64-release --output-on-failure
 
+      # ctest hides the output of passing tests, so which GPU cases ran and which skipped (the lavapipe and
+      # llvmpipe ones, Direct2D on WARP) was invisible. Every test already writes its full -v2 log to test-logs/
+      # (tests/CMakeLists.txt), so this reads those: no second run, no extra CI minutes.
+      - name: GPU test results (PASS / SKIP lines)
+        if: always()
+        shell: bash
+        run: |
+          for f in build/linux-x64-release/test-logs/tst_gpu_*.txt; do
+            [ -f "$f" ] || continue
+            echo "::group::$(basename "$f" .txt)"
+            grep -E '^(PASS|SKIP|XFAIL|XPASS|FAIL|QINFO)' "$f" || true
+            grep -E '^Totals' "$f" || true
+            echo "::endgroup::"
+          done
+
       # §6.4: the golden tables must not depend on the compiler. The GCC build
       # above checked them (ctest cpu_golden_tables); this builds the
       # generator with Clang and checks again (an unspecified evaluation
@@ -265,6 +280,21 @@ jobs:
             ctest --preset windows-x64-release --output-on-failure
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # ctest hides the output of passing tests, so which GPU cases ran and which skipped (the lavapipe and
+      # llvmpipe ones, Direct2D on WARP) was invisible. Every test already writes its full -v2 log to test-logs/
+      # (tests/CMakeLists.txt), so this reads those: no second run, no extra CI minutes.
+      - name: GPU test results (PASS / SKIP lines)
+        if: always()
+        shell: bash
+        run: |
+          for f in build/windows-x64-release/test-logs/tst_gpu_*.txt; do
+            [ -f "$f" ] || continue
+            echo "::group::$(basename "$f" .txt)"
+            grep -E '^(PASS|SKIP|XFAIL|XPASS|FAIL|QINFO)' "$f" || true
+            grep -E '^Totals' "$f" || true
+            echo "::endgroup::"
+          done
 
       # §10 smoke launch (a GUI exe). run-smoke.ps1 cannot hang: the Windows error
       # mode turns a missing DLL into an immediate exit code instead of a dialog,

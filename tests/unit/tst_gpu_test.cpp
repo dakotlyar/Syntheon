@@ -8,6 +8,7 @@
 #include "privileged/privileged_ops.h"
 #include "tests/common/stub_clock.h"
 #include "tests/gpu/client/gpu_client.h"
+#include "tests/gpu/formula_v1.h"
 #include "tests/gpu/gpu_test.h"
 
 #include <QElapsedTimer>
@@ -202,22 +203,22 @@ private slots:
 #endif
     }
 
-    // A run of every API the fake GPU has (Vulkan and OpenGL: task 24 lifted the placeholders):
-    // Partial (native 2D and fill-rate aren't built), the 3D numbers, the hold pair, the parts
-    // scene by scene, monotonic progress.
+    // A run of every API the fake GPU has (Vulkan and OpenGL): Ok with a score (task 32 completed
+    // formula v1), the 3D, native and fill numbers, the hold pair, the parts workload by workload,
+    // monotonic progress.
     void allApisRun()
     {
         GpuTest t;
         probed(t);
         Ctx ctx;
         const TestResult r = t.run(ctx, {});
-        QCOMPARE(r.status, Status::Partial);
-        QVERIFY(r.statusReason.startsWith(QLatin1StringView("No GPU score")));
+        QCOMPARE(r.status, Status::Ok);
+        QVERIFY2(r.statusReason.isEmpty(), qPrintable(r.statusReason));
         QCOMPARE(r.subResults.size(), 3);
         QCOMPARE(r.subResults[0].id, QStringLiteral("scenes3d"));
         QCOMPARE(r.subResults[0].status, Status::Ok);
         QCOMPARE(r.subResults[1].status, Status::Ok);  // native 2D: Qt raster finished all four workloads
-        QCOMPARE(r.subResults[2].status, Status::NotAvailable);  // fill-rate: task 32
+        QCOMPARE(r.subResults[2].status, Status::Ok);  // fill-rate: Quads and Sprites on both APIs
         QCOMPARE(number(r, QStringLiteral("scenes3d.geometry.fps")), number(r, QStringLiteral("scenes3d.vulkan.geometry.fps")));
         QCOMPARE(number(r, QStringLiteral("scenes3d.geometry.fps")), 100.0);
         QCOMPARE(textOf(r, QStringLiteral("scenes3d.geometry.api")), QStringLiteral("Vulkan"));
@@ -253,14 +254,56 @@ private slots:
         const ScoreBreakdown b = t.score(r);
         QVERIFY(b.subScores.contains(QStringLiteral("scenes3d")));
         QCOMPARE(number(r, QStringLiteral("score.3d")), b.subScores.value(QStringLiteral("scenes3d")));
-        QCOMPARE(b.subScores.value(QStringLiteral("scenes3d")), 1000.0);
-        QVERIFY(!b.total);  // Partial: no GPU score
+        QCOMPARE(b.subScores.value(QStringLiteral("scenes3d")), 1000.0);  // the fake's 100 fps is the provisional anchor
+        // The stub keys kept (P1): scenes3d.vulkan.fps is the geometric mean of the four scene fps.
+        double logSum = 0;
+        for (const char *scene : {"geometry", "drawcalls", "shading", "particles"})
+            logSum += std::log(number(r, QStringLiteral("scenes3d.vulkan.%1.fps").arg(QLatin1String(scene))));
+        QVERIFY(std::fabs(number(r, QStringLiteral("scenes3d.vulkan.fps")) - std::exp(logSum / 4.0)) < 1e-9);
+        // Fill-rate (§6.5, §6.6): the fake's result is 10 frames in 0.1 s at the 320x180 it reports as its render size.
+        const double gpx = 128.0 * 320.0 * 180.0 * 100.0 / 1e9, sprites = 100000.0 * 100.0 / 1e6;
+        for (const char *api : {"vulkan", "opengl"}) {
+            QVERIFY(std::fabs(number(r, QStringLiteral("fill2d.%1").arg(QLatin1String(api))) - gpx) < 1e-9);
+            QVERIFY(std::fabs(number(r, QStringLiteral("fill2d.%1.sprites").arg(QLatin1String(api))) - sprites) < 1e-9);
+            QCOMPARE(number(r, QStringLiteral("fill2d.%1.quads.fps").arg(QLatin1String(api))), 100.0);
+            QCOMPARE(number(r, QStringLiteral("fill2d.%1.sprites.fps").arg(QLatin1String(api))), 100.0);
+        }
+        QCOMPARE(number(r, QStringLiteral("fill2d.quads")), number(r, QStringLiteral("fill2d.vulkan")));  // the best API's (a tie: the earlier)
+        QCOMPARE(number(r, QStringLiteral("fill2d.sprites")), number(r, QStringLiteral("fill2d.vulkan.sprites")));
+        QCOMPARE(textOf(r, QStringLiteral("fill2d.quads.api")), QStringLiteral("Vulkan"));
+        QCOMPARE(textOf(r, QStringLiteral("fill2d.sprites.api")), QStringLiteral("Vulkan"));
+        QVERIFY(r.metric(QStringLiteral("fill2d.quads"))->unit == QLatin1StringView("Gpx/s"));
+        QVERIFY(r.metric(QStringLiteral("fill2d.sprites"))->unit == QLatin1StringView("MOps/s"));
+        bool fillSeries = false;
+        for (const Series &s : r.series)
+            fillSeries = fillSeries || (s.key == QLatin1StringView("ft.opengl.sprites") && !s.points.isEmpty());
+        QVERIFY(fillSeries);
+        // The scores, from the formula's own anchors: score.2d = round(1000 x sqrt(G_native x G_fill)), the total the
+        // three groups at 0.8 / 0.1 / 0.1.
+        const auto groupG = [&](const char *id) {
+            for (const GeometricGroup &g : gpu::formula_v1::groups()) {
+                if (g.id != QLatin1String(id))
+                    continue;
+                double l = 0;
+                for (const GeometricMetric &m : g.metrics)
+                    l += m.weight * std::log(number(r, m.metricKey) / m.anchor);
+                return std::exp(l);
+            }
+            return 0.0;
+        };
+        const double g3 = groupG("scenes3d"), gn = groupG("native2d"), gf = groupG("fill2d");
+        QVERIFY(b.total.has_value());
+        QVERIFY2(std::fabs(*b.total - 1000.0 * std::exp(0.8 * std::log(g3) + 0.1 * std::log(gn) + 0.1 * std::log(gf))) <= 0.5 + 1e-9, qPrintable(QString::number(*b.total)));
+        QCOMPARE(number(r, QStringLiteral("score.2d")), std::round(1000.0 * std::sqrt(gn * gf)));
+        QCOMPARE(b.subScores.value(QStringLiteral("fill2d")), std::round(1000.0 * gf));
         QCOMPARE(ctx.holds(), (QVector<bool>{true, false}));
         QCOMPARE(ctx.parts(), (QStringList{QStringLiteral("Geometry · Vulkan"), QStringLiteral("Geometry · OpenGL"),
                                            QStringLiteral("Draw calls · Vulkan"), QStringLiteral("Draw calls · OpenGL"),
                                            QStringLiteral("Shading · Vulkan"), QStringLiteral("Shading · OpenGL"),
                                            QStringLiteral("Particles + post · Vulkan"), QStringLiteral("Particles + post · OpenGL"),
-                                           QStringLiteral("Native 2D · Qt raster")}));  // after the 3D scenes (§8)
+                                           QStringLiteral("Textured quads · Vulkan"), QStringLiteral("Textured quads · OpenGL"),
+                                           QStringLiteral("Sprites · Vulkan"), QStringLiteral("Sprites · OpenGL"),
+                                           QStringLiteral("Native 2D · Qt raster")}));  // the fills after the 3D scenes, native 2D last (§8)
         QVERIFY(!ctx.backwards());
         QVERIFY(ctx.fractions().last() < 1.0);
     }
@@ -318,7 +361,9 @@ private slots:
         const QStringList lines = QString::fromUtf8(f.readAll()).remove(QLatin1Char('\r')).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
         QCOMPARE(lines, (QStringList{QStringLiteral("vulkan geometry"), QStringLiteral("opengl geometry"), QStringLiteral("vulkan drawcalls"),
                                      QStringLiteral("opengl drawcalls"), QStringLiteral("vulkan shading"), QStringLiteral("opengl shading"),
-                                     QStringLiteral("vulkan particles"), QStringLiteral("opengl particles")}));
+                                     QStringLiteral("vulkan particles"), QStringLiteral("opengl particles"),
+                                     QStringLiteral("vulkan quads"), QStringLiteral("opengl quads"), QStringLiteral("vulkan sprites"),
+                                     QStringLiteral("opengl sprites")}));
         QCOMPARE(ctx.holds(), (QVector<bool>{true, false}));
         QVERIFY(!ctx.backwards());
     }
@@ -344,6 +389,62 @@ private slots:
         QVERIFY(!r.metric(QStringLiteral("scenes3d.opengl.shading.fps")));
         QVERIFY(!t.score(r).subScores.contains(QStringLiteral("scenes3d")));    // a group that isn't Ok has no sub-score
         QVERIFY(!r.metric(QStringLiteral("score.3d")));
+        // The fill workloads ran on Vulkan alone (OpenGL was dropped), and that is enough for fill2d (the error was in a 3D scene).
+        QCOMPARE(r.subResults[2].status, Status::Ok);
+        QVERIFY(r.metric(QStringLiteral("fill2d.vulkan.sprites")));
+        QVERIFY(!r.metric(QStringLiteral("fill2d.opengl")));
+        QCOMPARE(textOf(r, QStringLiteral("fill2d.quads.api")), QStringLiteral("Vulkan"));
+        QVERIFY(r.metric(QStringLiteral("score.2d")));  // native 2D and fill-rate are both Ok: the 2D score stands
+    }
+
+    // D20 for the fill workloads: OpenGL draws Quads differently (and faster): `fill2d.opengl.quads.match`, an API Error on the
+    // fill2d sub-test (the scenes are fine), never the best number, and no score.
+    void fillSignatureMismatch()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("mismatch-fill")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::Partial);
+        QVERIFY2(textOf(r, QStringLiteral("api.opengl.status")).startsWith(QLatin1StringView("Error: drew Textured quads differently from Vulkan")),
+                 qPrintable(textOf(r, QStringLiteral("api.opengl.status"))));
+        QCOMPARE(textOf(r, QStringLiteral("fill2d.opengl.quads.match")), textOf(r, QStringLiteral("api.opengl.status")).mid(7));
+        QVERIFY(number(r, QStringLiteral("fill2d.opengl")) > number(r, QStringLiteral("fill2d.vulkan")));  // stored, and faster
+        QCOMPARE(number(r, QStringLiteral("fill2d.quads")), number(r, QStringLiteral("fill2d.vulkan")));    // but not the headline
+        QCOMPARE(textOf(r, QStringLiteral("fill2d.quads.api")), QStringLiteral("Vulkan"));
+        QVERIFY(!r.metric(QStringLiteral("fill2d.opengl.sprites")));  // the API stopped there
+        QCOMPARE(r.subResults[0].status, Status::Ok);
+        QCOMPARE(r.subResults[1].status, Status::Ok);
+        QCOMPARE(r.subResults[2].status, Status::Error);
+        QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: OpenGL failed in Textured quads: drew Textured quads differently from Vulkan")),
+                 qPrintable(r.statusReason));
+        const ScoreBreakdown b = t.score(r);
+        QVERIFY(!b.total);
+        QVERIFY(b.subScores.contains(QStringLiteral("scenes3d")) && !b.subScores.contains(QStringLiteral("fill2d")));
+        QVERIFY(!r.metric(QStringLiteral("score.2d")));
+    }
+
+    // An API crashing in a fill workload: the fill2d sub-test is the Error, the four scenes stay Ok.
+    void fillCrashIsPartial()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-at-quads")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::Partial);
+        QVERIFY2(r.statusReason.startsWith(QLatin1StringView("No GPU score: OpenGL failed in Textured quads: the GPU worker exited with code")),
+                 qPrintable(r.statusReason));
+        QCOMPARE(r.subResults[0].status, Status::Ok);
+        QCOMPARE(r.subResults[2].status, Status::Error);
+        QVERIFY(r.metric(QStringLiteral("scenes3d.opengl.particles.fps")));
+        QVERIFY(!r.metric(QStringLiteral("fill2d.opengl")));
+        QVERIFY(!t.score(r).total);
+        QVERIFY(!r.metric(QStringLiteral("score.2d")));
+        QVERIFY(r.metric(QStringLiteral("score.3d")));
     }
     // M2: the faster API that drew the scene differently is the outlier (an Error) and never
     // the headline "best API" number.
@@ -403,8 +504,9 @@ private slots:
         QCOMPARE(textOf(r, QStringLiteral("api.qt.status")), QStringLiteral("OK"));
         QVERIFY(r.metric(QStringLiteral("native2d.text")));
         QVERIFY2(!r.statusReason.contains(QLatin1StringView("Direct2D")), qPrintable(r.statusReason));  // never an API error for D6
-        QCOMPARE(r.status, Status::Partial);  // fill-rate isn't built yet (task 32): the only reason
-        QCOMPARE(r.statusReason, QStringLiteral("No GPU score: not every part ran"));
+        QCOMPARE(r.status, Status::Ok);  // Direct2D isn't scored: the result keeps its score
+        QVERIFY(r.statusReason.isEmpty());
+        QVERIFY(t.score(r).total.has_value());
         qunsetenv("SYNBENCH_GPU_FAKE_D2D");
     }
 
@@ -469,30 +571,6 @@ private slots:
         QVERIFY(!r.metric(QStringLiteral("native2d.text")));
         QVERIFY(!t.score(r).subScores.contains(QStringLiteral("native2d")));  // a group that isn't Ok has no sub-score
         QVERIFY(!t.score(r).total);
-    }
-
-    // Formula (§11.1): the native2d group at its anchors (1 MOps/s each) is 1000, and 2x on all four is 2000.
-    void native2dFormula()
-    {
-        GpuTest t;
-        TestResult r;
-        r.testId = QStringLiteral("gpu");
-        r.status = Status::Partial;
-        r.subResults = {{QStringLiteral("native2d"), Status::Ok, {}, std::nullopt}};
-        const auto add = [&](const char *w, double v) {
-            Metric m;
-            m.key = QStringLiteral("native2d.%1").arg(QLatin1String(w));
-            m.subTestId = QStringLiteral("native2d");
-            m.value = v;
-            r.metrics.append(m);
-        };
-        for (const char *w : {"shapes", "text", "blits", "gradients"})
-            add(w, 1.0);
-        QCOMPARE(t.score(r).subScores.value(QStringLiteral("native2d")), 1000.0);
-        r.metrics.clear();
-        for (const char *w : {"shapes", "text", "blits", "gradients"})
-            add(w, 2.0);
-        QCOMPARE(t.score(r).subScores.value(QStringLiteral("native2d")), 2000.0);  // the group's own score is 1000 x G; the total's weight (0.10) gives 2^0.1 = 1072 (task 32's test)
     }
 
     // L6: Stop with two APIs running still returns within 250 ms.

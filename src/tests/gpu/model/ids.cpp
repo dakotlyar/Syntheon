@@ -109,6 +109,8 @@ QString fillApiKey(ApiId a, FillId f)
 
 QString fillApiFpsKey(ApiId a, FillId f) { return QStringLiteral("fill2d.%1.%2.fps").arg(apiKey(a), fillKey(f)); }
 
+QString fillApiMatchKey(ApiId a, FillId f) { return QStringLiteral("fill2d.%1.%2.match").arg(apiKey(a), fillKey(f)); }
+
 QString fillBestKey(FillId f, bool apiField)
 {
     return apiField ? QStringLiteral("fill2d.%1.api").arg(fillKey(f)) : QStringLiteral("fill2d.%1").arg(fillKey(f));

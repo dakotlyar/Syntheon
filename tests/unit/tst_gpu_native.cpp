@@ -83,6 +83,8 @@ std::unique_ptr<d2d::Direct2DNative> makeDirect2D(std::uint32_t w, std::uint32_t
     std::string e = n->init(init, PresentTarget{true}, &info);
     if (e.empty() && info.apiVersion.rfind("Direct2D 1.1", 0) != 0)
         e = "apiVersion is '" + info.apiVersion + "'";
+    if (e.empty())  // visible in the CI log (the "GPU test results" step): proof that these cases ran on WARP, not skipped
+        qInfo("Direct2D ran: %s on %s (%s)", info.apiVersion.c_str(), info.deviceName.c_str(), info.driver.c_str());
     if (e.empty())
         e = n->resume(PresentTarget{true});
     if (e.empty())

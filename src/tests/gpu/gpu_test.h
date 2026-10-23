@@ -5,8 +5,8 @@
 // scene by scene across the APIs (D12) in a worker process per API
 // (synbench-gpu), with the main window held still while they draw. Task 24:
 // every API the probe found (Vulkan, DirectX 12 and 11, OpenGL) runs, with the
-// cross-API signature check (D20); native 2D and fill-rate are N/A
-// placeholders that tasks 28 and 32 remove.
+// cross-API signature check (D20); task 28 added native 2D and task 32
+// fill-rate (Quads and Sprites on every API), which completes formula v1.
 
 #include "core/itest.h"
 #include "tests/gpu/model/gpu_identity.h"
@@ -37,6 +37,8 @@ public:
     // includes the first workload's extra 2 s), draw calls, shading and
     // particles 3 s + 20 s.
     static QVector<gpu::protocol::PlanItem> plan3d();
+    // §8: the fill workloads, after the four scenes on every API: Quads and Sprites, warm-up 2 s + 10 s each.
+    static QVector<gpu::protocol::PlanItem> planFill();
 
 private:
     // The cached probe (a lock: probe() runs on a pool thread, options() and estimate() on the UI thread).

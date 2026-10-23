@@ -33,6 +33,7 @@ private slots:
         QCOMPARE(fillApiKey(ApiId::Dx12, FillId::Quads), QStringLiteral("fill2d.dx12"));
         QCOMPARE(fillApiKey(ApiId::Dx12, FillId::Sprites), QStringLiteral("fill2d.dx12.sprites"));
         QCOMPARE(fillApiFpsKey(ApiId::Dx12, FillId::Sprites), QStringLiteral("fill2d.dx12.sprites.fps"));
+        QCOMPARE(fillApiMatchKey(ApiId::OpenGl, FillId::Quads), QStringLiteral("fill2d.opengl.quads.match"));
         QCOMPARE(fillBestKey(FillId::Quads), QStringLiteral("fill2d.quads"));
         QCOMPARE(fillBestKey(FillId::Quads, true), QStringLiteral("fill2d.quads.api"));
         QCOMPARE(nativePathMetricKey(NativePath::QtRaster, NativeWorkload::Text), QStringLiteral("native2d.qt.text"));

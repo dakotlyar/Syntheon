@@ -40,6 +40,10 @@ QString nativeName(NativeWorkload);  // "Shapes" "Text" "Image blits" "Gradients
 // §7.1: the ops one frame draws at content scale 1 (2,000 shapes, 8,000 glyphs = 200 strings x 40, 1,000 blits, 1,000 gradients);
 // MOps/s = this x frames / seconds / 1e6. (native_ops.h's opsPerFrame is the same, a test checks it.)
 std::uint32_t nativeOpsPerFrame(NativeWorkload);
+// §6.5, §6.6: the fill workloads' units per frame at content scale 1: 128 full-screen quad layers (Gpx/s = layers x render W x H x
+// frames / seconds / 1e9) and 100,000 sprites (MOps/s = sprites x frames / seconds / 1e6). scene/scenes.h's kQuadLayers and kSprites
+// are the same numbers (a test checks them).
+inline constexpr std::uint32_t kFillQuadLayers = 128, kFillSprites = 100000;
 
 std::optional<ApiId> apiFromKey(QStringView);
 std::optional<SceneId> sceneFromKey(QStringView);
@@ -53,6 +57,7 @@ QString sceneBestKey(SceneId, QStringView field);        // "scenes3d.geometry.f
 QString apiSummaryKey(ApiId, QStringView field);         // "scenes3d.vulkan.fps", "scenes3d.vulkan.low"
 QString fillApiKey(ApiId, FillId);                       // Quads: "fill2d.dx12"; Sprites: "fill2d.dx12.sprites"
 QString fillApiFpsKey(ApiId, FillId);                    // "fill2d.dx12.quads.fps", "fill2d.dx12.sprites.fps"
+QString fillApiMatchKey(ApiId, FillId);                  // "fill2d.dx12.quads.match"
 QString fillBestKey(FillId, bool apiField = false);      // "fill2d.quads" / "fill2d.quads.api"
 QString nativePathMetricKey(NativePath, NativeWorkload); // "native2d.qt.text"
 QString nativeBestKey(NativeWorkload, bool pathField = false);  // "native2d.text" / "native2d.text.path"

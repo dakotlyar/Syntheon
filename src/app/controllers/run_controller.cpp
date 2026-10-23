@@ -778,18 +778,6 @@ bool smokeAccepts(const TestResult &result)
     // the D3D coverage is the WARP unit tests'.
     if (result.status == Status::NotAvailable && result.testId == QLatin1StringView("gpu"))
         return true;
-    // The GPU test is Partial until its fill-rate part is built (Phase 4a, task 32): the 3D scenes and native 2D
-    // ran, and the fill2d sub-test says "not built yet".
-    if (result.status == Status::Partial && result.testId == QLatin1StringView("gpu")) {
-        for (const SubResult &s : result.subResults) {
-            if (s.status == Status::Ok)
-                continue;
-            if (s.id == QLatin1StringView("fill2d") && s.status == Status::NotAvailable && s.reason.startsWith(QLatin1StringView("not built yet")))
-                continue;
-            return false;
-        }
-        return true;
-    }
     if (result.status != Status::Partial || result.testId != QLatin1StringView("ram"))
         return false;
     bool loadedNa = false;
@@ -827,9 +815,7 @@ void RunController::runSmoke()
             if (smokeAccepts(t)) {
                 if (t.status != Status::Ok)
                     qCInfo(lcRun) << "smoke:" << t.testId << "ended" << toKey(t.status) << t.statusReason
-                                  << (t.testId == QLatin1StringView("gpu") ? (t.status == Status::NotAvailable ? gpuNaNote(t)
-                                                                                                                : "(GPU: fill-rate not built yet: accepted)")
-                                                                           : "(loaded latency needs two cores: accepted)");
+                                  << (t.testId == QLatin1StringView("gpu") ? gpuNaNote(t) : "(loaded latency needs two cores: accepted)");
                 continue;
             }
             qCCritical(lcRun) << "smoke:" << t.testId << "ended" << toKey(t.status) << t.statusReason;
