@@ -202,7 +202,7 @@ QString plural(int n, const QString &what)
     return QStringLiteral("%1 %2%3").arg(n).arg(what, n == 1 ? QString() : QStringLiteral("s"));
 }
 
-// "No GPU score: <Api> failed in <Workload>: <reason>" (and its siblings) taken apart.
+// "No GPU score: <Api> failed during <Workload>: <reason>" (and its siblings; "in" in older runs) taken apart.
 struct Failure {
     QString api, workload, why;
     bool matched = false;
@@ -221,6 +221,18 @@ Failure failureOf(const QString &statusReason)
     return {m.captured(1), m.captured(2), m.captured(3), true};
 }
 
+// What follows "<name> failed during " in a sub-test's reason, or "<name> failed in " in a run stored before Zeb Z1 (so old
+// runs stay readable); nullopt when the reason isn't about this name.
+std::optional<QString> afterFailed(const QString &reason, const QString &name)
+{
+    for (const QString &word : {QStringLiteral(" failed during "), QStringLiteral(" failed in ")}) {
+        const QString prefix = name + word;
+        if (reason.startsWith(prefix))
+            return reason.mid(int(prefix.size()));
+    }
+    return std::nullopt;
+}
+
 // The Note column of an API that errored: "failed during <workload>: <reason>", or "drew …" for a signature outlier.
 // The status says where since checkpoint 6 ("Error: failed during Shading: …", every errored API); an older run's
 // status has only the reason, and its workload is found for the API the sub-test's reason names.
@@ -229,10 +241,11 @@ QString errorNote(const TestResult &r, const QString &name, const QString &statu
     const QString reason = statusReason(status);
     if (reason.startsWith(QStringLiteral("drew ")) || reason.startsWith(QStringLiteral("failed during ")))
         return reason;
-    const QString prefix = name + QStringLiteral(" failed in ");
     for (const SubResult &s : r.subResults) {
-        if (s.status == Status::Error && s.reason.startsWith(prefix))
-            return QStringLiteral("failed during ") + s.reason.mid(int(prefix.size()));
+        if (s.status != Status::Error)
+            continue;
+        if (const auto rest = afterFailed(s.reason, name))
+            return QStringLiteral("failed during ") + *rest;
     }
     return reason.isEmpty() ? QStringLiteral("failed") : QStringLiteral("failed: ") + reason;
 }
@@ -245,22 +258,24 @@ QString failedWorkload(const TestResult &r, ApiId a)
     static const QRegularExpression during(QStringLiteral("^failed during (.+?): "));
     if (const QRegularExpressionMatch m = during.match(reason); m.hasMatch())
         return m.captured(1);
-    const QString prefix = apiName(a) + QStringLiteral(" failed in ");
     for (const SubResult &s : r.subResults) {
-        if (s.status == Status::Error && s.reason.startsWith(prefix))
-            return s.reason.mid(prefix.size()).section(QStringLiteral(": "), 0, 0);
+        if (s.status != Status::Error)
+            continue;
+        if (const auto rest = afterFailed(s.reason, apiName(a)))
+            return rest->section(QStringLiteral(": "), 0, 0);
     }
     return {};
 }
 
 // A cell with no number for an API that errored: "Error" in the workload it failed in, "—" in the ones it never ran
-// (Zeb nit: as a failed Direct2D's cells). An older run that doesn't say where keeps "Error" everywhere.
+// (Zeb nit: as a failed Direct2D's cells). An API that failed at start-up ran nothing, so every cell reads "Error" (AP-5 L2,
+// as before), and so does an older run that doesn't say where.
 QString missingCell(const TestResult &r, ApiId a, const QString &workload)
 {
     if (!errored(r, apiKey(a)))
         return kDash;
     const QString where = failedWorkload(r, a);
-    return where.isEmpty() || where == workload ? QStringLiteral("Error") : kDash;
+    return where.isEmpty() || where == workload || where == QLatin1StringView("start-up") ? QStringLiteral("Error") : kDash;
 }
 
 // " (why)" after a sentence, or ": why" when the reason has parentheses of its own (Zeb nit: no
@@ -281,9 +296,12 @@ TableBlock table(const QStringList &columns)
 
 DetailLayout GpuTest::detail(const TestResult &r) const
 {
-    // §12, AP-5 L8: an old v0 stub run has none of the real keys (no api.<api>.status), so it renders through its stored
-    // labels, as before task 34.
-    if (std::none_of(kApis.begin(), kApis.end(), [&](ApiId a) { return r.metric(apiStatusKey(apiKey(a), u"status")); }))
+    // §12, AP-5 L8/L1: an old v0 stub run renders through its stored labels, as before task 34. It is told apart by what
+    // it lacks and has: no real run's finish() leaves out `gpu.name`, and a stub's metrics are all there is to show. An
+    // orchestrator exception or an Interrupted run has no metrics at all, so it keeps this page and says why in the Warn
+    // note at the top.
+    if (!r.metric(QStringLiteral("gpu.name")) && !r.metrics.isEmpty()
+        && std::none_of(kApis.begin(), kApis.end(), [&](ApiId a) { return r.metric(apiStatusKey(apiKey(a), u"status")); }))
         return genericDetailLayout(r);
     DetailLayout d;
     d.headlineMetrics = {QStringLiteral("score.3d"), QStringLiteral("score.2d")};
@@ -306,9 +324,7 @@ DetailLayout GpuTest::detail(const TestResult &r) const
     } else if (r.status == Status::Partial) {
         QString why = QStringLiteral("No GPU score");
         if (failure.matched) {
-            const QString what = failure.drew()                              ? failure.why.section(QStringLiteral(" ("), 0, 0)
-                                 : failure.workload == QLatin1StringView("start-up") ? QStringLiteral("failed during start-up")
-                                                                                     : QStringLiteral("failed in ") + failure.workload;
+            const QString what = failure.drew() ? failure.why.section(QStringLiteral(" ("), 0, 0) : QStringLiteral("failed during ") + failure.workload;
             why += QStringLiteral(" · %1 %2").arg(failure.api, what);
         }
         parts << why;
@@ -691,8 +707,10 @@ DetailLayout GpuTest::detail(const TestResult &r) const
         if (failure.matched && failure.drew())
             note = QStringLiteral("No GPU score: %1 %2.").arg(failure.api, failure.why);
         else if (failure.matched)
-            note = QStringLiteral("No GPU score: %1 failed during %2%3. Its other results and every other API are shown.")
-                       .arg(failure.api, failure.workload, becauseOf(failure.why));
+            note = QStringLiteral("No GPU score: %1 failed during %2%3. %4")
+                       .arg(failure.api, failure.workload, becauseOf(failure.why),
+                            failure.workload == QLatin1StringView("start-up") ? QStringLiteral("Every other API is shown.")  // it ran nothing (L2)
+                                                                              : QStringLiteral("Its other results and every other API are shown."));
         else
             note = r.statusReason.startsWith(QStringLiteral("No GPU score")) ? r.statusReason : QStringLiteral("No GPU score: %1").arg(r.statusReason);
         d.blocks.append({{}, NoteBlock{note, Tone::Warn}});
@@ -709,14 +727,23 @@ DetailLayout GpuTest::detail(const TestResult &r) const
     } else if (r.status == Status::Cancelled) {
         d.blocks.append({{}, NoteBlock{QStringLiteral("Stopped before the end: the parts that finished are shown, without scores."), Tone::Warn}});
     } else if (r.status == Status::TimedOut || r.status == Status::Interrupted) {
-        d.blocks.append({{}, NoteBlock{QStringLiteral("The test didn't finish: the parts that finished are shown, without scores."), Tone::Warn}});
+        // AP-5 L1: with nothing measured there are no parts to show, so the reason alone is the note.
+        const bool nothing = !r.metric(QStringLiteral("gpu.name")) && r.metrics.isEmpty();
+        d.blocks.append({{}, NoteBlock{nothing && !r.statusReason.isEmpty()
+                                           ? QStringLiteral("No GPU score: %1.").arg(r.statusReason)
+                                           : QStringLiteral("The test didn't finish: the parts that finished are shown, without scores."),
+                                       Tone::Warn}});
     }
     if (errored(r, nativePathKey(NativePath::Direct2D))) {
         // §15's sentence only (AP-5 L6): the stored note also holds the ready note and the worker's warnings, joined by " · ".
         const QString n = text(r, apiStatusKey(nativePathKey(NativePath::Direct2D), u"note"));
         const qsizetype at = n.indexOf(QStringLiteral("Direct2D failed during "));
-        if (at >= 0)
-            d.blocks.append({{}, NoteBlock{n.mid(at).section(QStringLiteral(" \u00b7 "), 0, 0), Tone::Warn}});
+        if (at >= 0) {
+            // The sentence ends at its fixed tail: the reason inside it may hold " · " itself.
+            const QString tail = QStringLiteral("It isn't scored, so the GPU score stands.");
+            const qsizetype end = n.indexOf(tail, at);
+            d.blocks.append({{}, NoteBlock{end >= 0 ? n.mid(at, end + tail.size() - at) : n.mid(at).section(QStringLiteral(" \u00b7 "), 0, 0), Tone::Warn}});
+        }
     }
     for (const ApiId a : apis) {
         if (const QString layers = text(r, apiStatusKey(apiKey(a), u"layers")); !layers.isEmpty())

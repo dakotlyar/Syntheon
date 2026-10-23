@@ -18,7 +18,6 @@
 #include <QGuiApplication>
 #include <QJsonObject>
 #include <QMutexLocker>
-#include <QRegularExpression>
 #include <QSysInfo>
 
 #include <algorithm>
@@ -287,11 +286,27 @@ QString naReason(const std::vector<ApiRun> &apis)
     return reasons.isEmpty() ? QStringLiteral("No GPU with Vulkan, DirectX or OpenGL found") : reasons.join(QStringLiteral("; "));
 }
 
-// Where an API failed, for the reasons: "during start-up" (its worker never got ready, AP-5 L3) or "in <workload>".
+// Where an API failed, for the reasons: "during start-up" (its worker never got ready, AP-5 L3) or "during <workload>"
+// (Zeb Z1: one wording; the Detail page still reads the "failed in <workload>" of runs stored before).
 const QString kStartUp = QStringLiteral("start-up");
 QString failedWhere(const QString &workload)
 {
-    return workload == kStartUp ? QStringLiteral("during start-up") : QStringLiteral("in ") + workload;
+    return QStringLiteral("during ") + workload;
+}
+
+// Whether the Direct2D path runs on this GPU (§7.1): where the probe says it is available (Windows), or by the dev hook.
+// The run and the queue's estimate both ask this, so the start line and the picker agree (AP-5 nit).
+bool d2dRuns(const GpuEntry &g)
+{
+    if (fakeD2d())
+        return true;
+#if defined(Q_OS_WIN)
+    const auto it = g.apis.constFind(QStringLiteral("d2d"));
+    return it != g.apis.cend() && it->ok;
+#else
+    Q_UNUSED(g)
+    return false;
+#endif
 }
 
 // One GPU test run (§8): the sessions, the scene-by-scene loop, the metrics and the status.
@@ -330,9 +345,12 @@ private:
     // §15: log Warning "OpenGL failed during Shading: the GPU driver reset; continuing with the next API".
     void logFailure(const ApiRun &a, const QString &workload, const QString &reason)
     {
+        // The native paths still run after the last 3D API fails, so there is always something to continue with (AP-5 nit).
         const bool others = std::any_of(m_apis.begin(), m_apis.end(), [&](const ApiRun &o) { return o.active && o.id != a.id; });
         m_ctx.log(LogLevel::Warning, QStringLiteral("%1 failed during %2: %3%4")
-                                         .arg(apiName(a.id), workload, reason, others ? QStringLiteral("; continuing with the next API") : QString()));
+                                         .arg(apiName(a.id), workload, reason,
+                                              others ? QStringLiteral("; continuing with the next API")
+                                                     : cancelled() ? QString() : QStringLiteral("; continuing with native 2D")));
     }
     // §15's line after each workload, every API that measured it: "Geometry: Vulkan 412 fps, OpenGL 344",
     // "Quads: Vulkan 79.6 Gpx/s, DX12 80.1".
@@ -475,11 +493,7 @@ TestResult GpuRun::run()
         NativeRun d2d;
         d2d.path = NativePath::Direct2D;
         const auto entry = m_gpu.apis.constFind(QStringLiteral("d2d"));
-#if defined(Q_OS_WIN)
-        d2d.available = entry != m_gpu.apis.cend() && entry->ok;
-#endif
-        if (fakeD2d())
-            d2d.available = true;
+        d2d.available = d2dRuns(m_gpu);
         if (!d2d.available) {
             // The probe's own reason; with no entry, the truth: on Windows the GPU list came from the fallback (never checked).
 #if defined(Q_OS_WIN)
@@ -557,8 +571,10 @@ TestResult GpuRun::run()
         a.session = std::make_unique<GpuSession>();
         QString err;
         // D17: OpenGL runs in the environment that puts it on the chosen GPU (the offload variables).
-        if (!a.session->start(apiKey(a.id), m_gpu.id, a.id == ApiId::OpenGl ? glEnvironment(m_gpu) : QProcessEnvironment(), &err, m_gpu.luid))
+        if (!a.session->start(apiKey(a.id), m_gpu.id, a.id == ApiId::OpenGl ? glEnvironment(m_gpu) : QProcessEnvironment(), &err, m_gpu.luid)) {
             fail(a, kStartUp, err);
+            logFailure(a, kStartUp, err);
+        }
     }
     bool stopped = cancelled(), renderLogged = false;
     for (ApiRun &a : m_apis) {
@@ -592,7 +608,7 @@ TestResult GpuRun::run()
             break;
         case ClientOutcome::Status::Failed:
             fail(a, kStartUp, ready.reason);
-            m_ctx.log(LogLevel::Error, QStringLiteral("%1: %2").arg(apiName(a.id), ready.reason));
+            logFailure(a, kStartUp, ready.reason);  // Zeb Z2: §15's Warning, as for a failure in a workload and for the native paths
             break;
         }
     }
@@ -671,8 +687,8 @@ TestResult GpuRun::run()
                 done += windows;
         }
         if (!stopped) {
+            logWorkload(work);  // before the outlier's Error line, so the numbers lead (AP-5 nit)
             compareSignatures(item, plan);
-            logWorkload(work);
         }
     }
     for (ApiRun &a : m_apis) {
@@ -781,12 +797,12 @@ void GpuRun::runNatives(double *done, bool *stopped)
             n.errored = true;
             n.errorWorkload = failedIn;  // empty: it never produced a result (start-up)
             n.errorReason = reason;
-            n.status = QStringLiteral("Error: ") + reason;
+            n.status = QStringLiteral("Error: failed during %1: %2").arg(failedIn.isEmpty() ? kStartUp : failedIn, reason);  // as the 3D APIs (Z2)
             if (n.path == NativePath::Direct2D)
                 n.notes << QStringLiteral("Direct2D failed during %1 (%2). It isn't scored, so the GPU score stands.")
                                .arg(failedIn.isEmpty() ? QStringLiteral("start-up") : failedIn, reason);
             m_ctx.log(n.path == NativePath::Direct2D ? LogLevel::Warning : LogLevel::Error,
-                      QStringLiteral("%1 failed %2: %3").arg(pathName, failedIn.isEmpty() ? QStringLiteral("during start-up") : QStringLiteral("in ") + failedIn, reason));
+                      QStringLiteral("%1 failed during %2: %3").arg(pathName, failedIn.isEmpty() ? kStartUp : failedIn, reason));
         };
         if (!badReason.isEmpty() && (o.status == ClientOutcome::Status::Ok || o.status == ClientOutcome::Status::Failed)) {
             *done += windows;
@@ -880,7 +896,6 @@ TestResult GpuRun::finish(bool stopped)
         pr::ReadyEvent e = *a.ready;
         if (!a.results.empty() && !a.results.begin()->second.screen.isEmpty()) {
             const pr::ResultEvent &res = a.results.begin()->second;
-            e.screen = res.screen;
             e.renderW = res.renderW;
             e.renderH = res.renderH;
             e.windowW = res.windowW;
@@ -1082,8 +1097,8 @@ TestResult GpuRun::finish(bool stopped)
         if (stopped) {
             n2d.status = Status::Cancelled;
         } else if (qt.errored) {
-            nativeReason = QStringLiteral("Qt raster failed %1: %2")
-                               .arg(qt.errorWorkload.isEmpty() ? QStringLiteral("during start-up") : QStringLiteral("in ") + qt.errorWorkload, qt.errorReason);
+            nativeReason = QStringLiteral("Qt raster failed during %1: %2")
+                               .arg(qt.errorWorkload.isEmpty() ? kStartUp : qt.errorWorkload, qt.errorReason);
             n2d.status = Status::Error;
             n2d.reason = nativeReason;
         } else if (!qt.available) {
@@ -1143,8 +1158,6 @@ TestResult GpuRun::finish(bool stopped)
         QString why = r.statusReason;
         if (why.startsWith(QLatin1StringView("No GPU score: ")))
             why.remove(0, 14);
-        static const QRegularExpression failedIn(QStringLiteral("^(.+?) failed in "));
-        why.replace(failedIn, QStringLiteral("\\1 failed during "));
         m_ctx.log(LogLevel::Warning, QStringLiteral("No GPU score: ") + why);
     }
     return r;
@@ -1323,14 +1336,14 @@ OptionSchema GpuTest::options(const ProbeContext &ctx, const Availability &) con
             info("window", "Window", head + QStringLiteral("here: %1 px, fits").arg(sizeText(plan.render)));
     }
     const int secs = int(estimate({}).count());
-    info("runs", "Runs", QStringLiteral("Every API and part runs (about %1 min %2 s)").arg(secs / 60).arg(secs % 60));
+    info("runs", "Runs", QStringLiteral("Every API and part runs (about %1)").arg(aboutText(secs)));
     return o;
 }
 
 std::chrono::seconds GpuTest::estimate(const OptionValues &values) const
 {
     const QVector<GpuEntry> list = gpus();
-    int apis = kDefaultApis;
+    int apis = kDefaultApis, natives = kNativePaths;
     if (!list.isEmpty()) {
         const int at = findGpu(list, values.value(QStringLiteral("gpu")).toString());
         const auto def = at >= 0 ? std::optional<int>(at) : chooseDefault(list);
@@ -1339,9 +1352,10 @@ std::chrono::seconds GpuTest::estimate(const OptionValues &values) const
             for (const char *key : kApiKeys)
                 apis += list[*def].apis.value(QString::fromLatin1(key)).ok ? 1 : 0;
             apis = std::max(apis, 1);
+            natives = 1 + (d2dRuns(list[*def]) ? 1 : 0);  // Qt raster always, Direct2D where it runs: the start line's count
         }
     }
-    return std::chrono::seconds(estimateSeconds(apis, kNativePaths));
+    return std::chrono::seconds(estimateSeconds(apis, natives));
 }
 
 std::chrono::seconds GpuTest::timeLimit(const OptionValues &o) const
