@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
 import SynBench
+import SynBenchTest
 
 // The Detail page's table: columns sized to their content (Dave, 2026-10-18).
 // Wide: nothing wraps and the first column takes the spare room. Narrow (the
@@ -169,6 +170,25 @@ TestCase {
         compare(f.cellMetrics(1, 0).font.weight, Font.DemiBold)
         compare(f.cellMetrics(0, 0).font.weight, Font.Normal)
         verify(f.needs[0] >= f.lineWidth(f.cellMetrics(1, 0), "Weighted geometric mean", 0))
+    }
+
+    // Zeb D1: the same through the C++ export (buildDetailBlocks), whose boldCells once arrived flattened.
+    function test_boldCellsFromTheCppExport() {
+        const block = Fixtures.exportedBoldTable()
+        compare(block.boldCells.length, 1)
+        compare(block.boldCells[0].length, 2)
+        const t = createTemporaryObject(tableComponent, test, { block: block, width: 600 })
+        waitForRendering(t)
+        verify(t.isBold(1, 2))
+        verify(!t.isBold(2, 1))
+        let bold = 0
+        for (const c of boldCellItems(t)) {
+            if (c.font.weight === Font.DemiBold) {
+                ++bold
+                compare(c.text, "199 fps")
+            }
+        }
+        compare(bold, 1)
     }
 
     // A table without boldCells (or with an empty list) is sized exactly as before.

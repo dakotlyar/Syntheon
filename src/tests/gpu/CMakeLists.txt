@@ -11,14 +11,15 @@ add_library(synbench_gpu_model STATIC
     model/linux_gpus.h model/linux_gpus.cpp
     model/windows_gpus.h model/windows_gpus.cpp
     model/gl_env.h model/gl_env.cpp
+    model/hags.h model/hags.cpp
 )
 target_link_libraries(synbench_gpu_model PUBLIC synbench_core Qt6::Core)
+if(WIN32)
+    target_link_libraries(synbench_gpu_model PRIVATE advapi32)  # RegGetValueW: gpu.hags (hags.cpp)
+endif()
 
 add_library(synbench_test_gpu STATIC gpu_test.h gpu_test.cpp gpu_detail.cpp formula_v1.h formula_v1.cpp client/gpu_client.h client/gpu_client.cpp)
 target_link_libraries(synbench_test_gpu PUBLIC synbench_core synbench_test_common synbench_gpu_model synbench_test_engine synbench_sysinfo Qt6::Core Qt6::Gui)
-if(WIN32)
-    target_link_libraries(synbench_test_gpu PRIVATE advapi32)  # RegGetValueW: gpu.hags
-endif()
 
 # The worker's shaders: the Windows build's DXIL and DXBC (§13.1).
 add_subdirectory(worker/shaders)

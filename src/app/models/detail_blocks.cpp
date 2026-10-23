@@ -134,7 +134,7 @@ QVariantMap table(const TableBlock &b, const DetailBlock &block, const TestResul
     out.insert(QStringLiteral("boldRows"), bold);
     QVariantList boldCells;
     for (const QPoint &p : b.boldCells)
-        boldCells.append(QVariantList{p.x(), p.y()});
+        boldCells.append(QVariant(QVariantList{p.x(), p.y()}));  // one [column, row] pair each: append(QVariantList) would concatenate (Zeb D1)
     out.insert(QStringLiteral("boldCells"), boldCells);
     out.insert(QStringLiteral("summary"), b.summary);
     return out;

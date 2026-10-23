@@ -3,6 +3,7 @@
 
 #include "app/controllers/app_controller.h"
 #include "app/controllers/run_controller.h"
+#include "app/models/detail_blocks.h"
 #include "app/models/options_model.h"
 #include "core/options.h"
 #include "tests/common/stub_clock.h"
@@ -52,6 +53,22 @@ public:
         u.stage = QStringLiteral("stage");
         u.part = part;
         emit run->orchestrator().progress(u);
+    }
+    // Zeb D1: a table block as the C++ export builds it (buildDetailBlocks), so the QML test sees the real shape
+    // of boldCells: "Shading" on DX12 bold.
+    Q_INVOKABLE QVariantMap exportedBoldTable() const
+    {
+        sb::TableBlock t;
+        t.columns = {QStringLiteral("Scene"), QStringLiteral("Vulkan"), QStringLiteral("DX12")};
+        const auto row = [](const char *a, const char *b, const char *c) {
+            return QVector<sb::DetailCell>{sb::DetailCell::literal(QString::fromUtf8(a)), sb::DetailCell::literal(QString::fromUtf8(b)),
+                                           sb::DetailCell::literal(QString::fromUtf8(c))};
+        };
+        t.rows = {row("Geometry", "410 fps", "412 fps"), row("Shading", "205 fps", "199 fps"), row("Particles", "88 fps", "90 fps")};
+        t.boldCells = {QPoint(2, 1)};
+        sb::DetailLayout layout;
+        layout.blocks.append({QString(), t});
+        return sb::buildDetailBlocks(layout, sb::TestResult{}, QStringLiteral("t-gpu")).first().toMap();
     }
     Q_INVOKABLE void setPower(bool present, bool acOnline, double chargePct)
     {

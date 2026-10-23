@@ -424,6 +424,24 @@ private slots:
         QCOMPARE(summary(t).value(QStringLiteral("summary")).toString(), QStringLiteral("Vulkan 412 fps"));
     }
 
+    // Zeb D1: each bold cell reaches QML as its own [column, row] pair, not flattened into one list.
+    void tableBoldCellsArePairs()
+    {
+        TestResult r;
+        TableBlock t;
+        t.columns = {QStringLiteral("Scene"), QStringLiteral("Vulkan"), QStringLiteral("OpenGL")};
+        t.rows = {{DetailCell::literal(QStringLiteral("Geometry")), DetailCell::literal(QStringLiteral("412")), DetailCell::literal(QStringLiteral("344"))},
+                  {DetailCell::literal(QStringLiteral("Shading")), DetailCell::literal(QStringLiteral("291")), DetailCell::literal(QStringLiteral("296"))}};
+        t.boldCells = {QPoint(1, 0), QPoint(2, 1)};
+        DetailLayout layout;
+        layout.blocks.append({QStringLiteral("T"), t});
+        const QVariantList bold = buildDetailBlocks(layout, r, QStringLiteral("t")).first().toMap().value(QStringLiteral("boldCells")).toList();
+        QCOMPARE(bold.size(), 2);
+        QCOMPARE(bold[0].toList().size(), 2);
+        QCOMPARE(bold[0].toList(), (QVariantList{1, 0}));
+        QCOMPARE(bold[1].toList(), (QVariantList{2, 1}));
+    }
+
     void summaryOfAStoredRun()
     {
         startRuntime();

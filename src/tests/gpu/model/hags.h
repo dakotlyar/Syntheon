@@ -2,37 +2,18 @@
 #pragma once
 
 // Hardware-accelerated GPU scheduling (Phase 4a design §10, `gpu.hags`): Windows only, read only, from
-// HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\HwSchMode (REG_DWORD: 2 = on, 1 = off). Header-only
-// and std only (plus <windows.h> on Windows), so the mapping tests everywhere.
+// HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\HwSchMode (REG_DWORD: 2 = on, 1 = off). Std only: the
+// registry read lives in hags.cpp, so no Windows header reaches the files that include this one (checkpoint 6, B1).
 
 #include <optional>
 #include <string>
 
-#if defined(_WIN32)
-#include <windows.h>
-#endif
-
 namespace sb::gpu {
 
 // "on" for 2, "off" for 1, empty for anything else (an unknown value stores nothing).
-inline std::string hagsText(std::optional<unsigned long> hwSchMode)
-{
-    if (!hwSchMode)
-        return {};
-    return *hwSchMode == 2 ? "on" : *hwSchMode == 1 ? "off" : std::string();
-}
+std::string hagsText(std::optional<unsigned long> hwSchMode);
 
 // The value, or nullopt where it can't be read (not Windows, no such value on this build).
-inline std::optional<unsigned long> readHwSchMode()
-{
-#if defined(_WIN32)
-    DWORD value = 0, size = sizeof value;
-    const LSTATUS st = RegGetValueW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers", L"HwSchMode",
-                                    RRF_RT_REG_DWORD, nullptr, &value, &size);
-    if (st == ERROR_SUCCESS)
-        return static_cast<unsigned long>(value);
-#endif
-    return std::nullopt;
-}
+std::optional<unsigned long> readHwSchMode();
 
 } // namespace sb::gpu
