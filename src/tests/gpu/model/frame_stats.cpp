@@ -29,6 +29,7 @@ FrameStats frameStats(const std::vector<double> &frameMs)
     s.frames = int(frameMs.size());
     s.seconds = sumMs / 1000.0;
     s.fps = sumMs > 0 ? double(frameMs.size()) / s.seconds : 0;
+    s.min = sorted.front();
     s.p1 = percentileNearestRank(sorted, 1);
     s.p50 = percentileNearestRank(sorted, 50);
     s.p99 = percentileNearestRank(sorted, 99);
@@ -83,6 +84,17 @@ QVector<QPointF> bucketSeries(const std::vector<double> &frameMs, double bucketM
     }
     flush();
     return out;
+}
+
+Plausibility plausibility(int frames, double fps, std::optional<double> minFrameMs, double p50Ms, std::optional<double> gpuMs, int minFrames)
+{
+    Plausibility p;
+    if (fps > kMaxFps || (minFrameMs && *minFrameMs < kMinFrameMs))
+        p.error = QStringLiteral("implausible frame rate");
+    else if (frames < minFrames)
+        p.error = QStringLiteral("too few frames to measure (%1)").arg(frames);
+    p.dropGpu = gpuMs && *gpuMs > kMaxGpuToP50 * p50Ms;
+    return p;
 }
 
 } // namespace sb::gpu

@@ -454,6 +454,7 @@ private slots:
         QCOMPARE(*r[0].gpuMs, 0.5);
         QVERIFY(r[0].seconds >= 0.3 && r[0].seconds < 1.0);
         QVERIFY(r[0].fps > 0 && r[0].ftP1 <= r[0].ftP50 && r[0].ftP50 <= r[0].ftP99);
+        QVERIFY(r[0].ftMin && *r[0].ftMin > 0 && *r[0].ftMin <= r[0].ftP1);  // §9's fastest frame (H1)
         QVERIFY(!r[0].series.isEmpty());
         QCOMPARE(r[0].signature.size(), qsizetype(sb::gpu::kSignatureBytes));
         // Every phase was announced, in order.

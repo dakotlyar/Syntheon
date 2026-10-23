@@ -49,6 +49,9 @@ struct ResultEvent {
     int frames = 0;
     double seconds = 0, fps = 0, ftP1 = 0, ftP50 = 0, ftP99 = 0, cpuMs = 0;
     std::optional<double> gpuMs;
+    // Optional (checkpoint 5, H1): the fastest frame time in ms ("ftMs.min"), for §9's
+    // "a frame time < 0.005 ms" rule in the GPU test; the real worker always sends it.
+    std::optional<double> ftMin;
     QVector<QPointF> series;
     QByteArray signature;
     // Optional (Antilles' decision after task 9): the present mode resume()

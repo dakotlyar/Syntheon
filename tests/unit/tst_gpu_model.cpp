@@ -93,6 +93,37 @@ private slots:
         const FrameStats none = frameStats({});
         QCOMPARE(none.frames, 0);
         QCOMPARE(none.fps, 0.0);
+        QCOMPARE(none.min, 0.0);
+        QCOMPARE(frameStats({12, 3, 7}).min, 3.0);
+    }
+
+    // §9's plausibility rules (checkpoint 5, H1), with their exact boundaries.
+    void plausibilityRules()
+    {
+        // 20 frames at 10 ms, GPU 10 ms: plausible.
+        Plausibility p = plausibility(20, 100, 10.0, 10, 10.0);
+        QVERIFY(p.error.isEmpty());
+        QVERIFY(!p.dropGpu);
+        // n < 20 -> "too few frames to measure (n)"; exactly 20 is enough.
+        QCOMPARE(plausibility(19, 100, 10.0, 10, std::nullopt).error, QStringLiteral("too few frames to measure (19)"));
+        QCOMPARE(plausibility(0, 0, std::nullopt, 0, std::nullopt).error, QStringLiteral("too few frames to measure (0)"));
+        QVERIFY(plausibility(5, 100, 10.0, 10, std::nullopt, 5).error.isEmpty());  // a lowered floor (the CI smoke's dev hook)
+        QCOMPARE(plausibility(0, 0, std::nullopt, 0, std::nullopt, 1).error, QStringLiteral("too few frames to measure (0)"));
+        // FPS > 100,000 (100,000 itself is allowed), or one frame < 0.005 ms (0.005 itself is allowed).
+        QCOMPARE(plausibility(5000, 100000.5, 0.01, 0.01, std::nullopt).error, QStringLiteral("implausible frame rate"));
+        QVERIFY(plausibility(5000, 100000, 0.01, 0.01, std::nullopt).error.isEmpty());
+        QCOMPARE(plausibility(5000, 1000, 0.0049, 1, std::nullopt).error, QStringLiteral("implausible frame rate"));
+        QVERIFY(plausibility(5000, 1000, 0.005, 1, std::nullopt).error.isEmpty());
+        QVERIFY(plausibility(5000, 1000, std::nullopt, 1, std::nullopt).error.isEmpty());  // min not sent: that half is skipped
+        // Both wrong: the frame-rate rule is checked first.
+        QCOMPARE(plausibility(3, 200000, 0.001, 0.001, std::nullopt).error, QStringLiteral("implausible frame rate"));
+        // Median GPU time > 1.5 x p50: GPU time dropped (a warning, not an error); 1.5 x itself is kept.
+        p = plausibility(100, 100, 9.0, 10, 15.01);
+        QVERIFY(p.error.isEmpty());
+        QVERIFY(p.dropGpu);
+        QVERIFY(!plausibility(100, 100, 9.0, 10, 15.0).dropGpu);
+        QVERIFY(!plausibility(100, 100, 9.0, 10, std::nullopt).dropGpu);
+        QCOMPARE(kGpuTimeWarning, QStringLiteral("GPU timestamps look wrong; GPU time not shown"));
     }
 
     void percentilesMedianGeometricMean()
@@ -442,6 +473,12 @@ private slots:
         QCOMPARE(gg.gpu, g);
         const auto rr = std::get<pr::ReadyEvent>(*pr::parseLine(pr::encode(ready), nullptr));
         QVERIFY(std::abs(rr.scale - 1.25) < 1e-9 && rr.gpuTimestamps && !rr.fit && rr.screen == QStringLiteral("DP-3"));
+        // The fastest frame (checkpoint 5, H1): optional, round-tripped when sent.
+        QVERIFY(!r.ftMin);
+        res.ftMin = 1.75;
+        QVERIFY(pr::encode(res).contains("\"min\":1.75"));
+        QCOMPARE(*std::get<pr::ResultEvent>(*pr::parseLine(pr::encode(res), nullptr)).ftMin, 1.75);
+        res.ftMin.reset();
         // A result without GPU timestamps has no gpuMs.
         res.gpuMs.reset();
         QVERIFY(!std::get<pr::ResultEvent>(*pr::parseLine(pr::encode(res), nullptr)).gpuMs);
@@ -466,6 +503,8 @@ private slots:
         QCOMPARE(err, QStringLiteral("result: missing fps"));
         QVERIFY(!pr::parseLine("{\"ev\":\"result\",\"workload\":\"g\",\"frames\":1,\"seconds\":1,\"fps\":1,\"ftMs\":{\"p1\":1,\"p50\":1,\"p99\":1},\"cpuMs\":1,\"sig\":\"zz\"}", &err));
         QCOMPARE(err, QStringLiteral("result: bad sig"));
+        QVERIFY(!pr::parseLine("{\"ev\":\"result\",\"workload\":\"g\",\"frames\":1,\"seconds\":1,\"fps\":1,\"ftMs\":{\"p1\":1,\"p50\":1,\"p99\":1,\"min\":\"x\"},\"cpuMs\":1,\"sig\":\"\"}", &err));
+        QCOMPARE(err, QStringLiteral("result: bad ftMs.min"));
         QVERIFY(!pr::parseLine("not json", &err));
         // Extra keys are ignored.
         const auto done = pr::parseLine("{\"ev\":\"done\",\"extra\":[1,2]}", &err);

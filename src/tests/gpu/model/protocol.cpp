@@ -90,8 +90,11 @@ QJsonObject encodeEvent(const Event &event)
                 QJsonArray series;
                 for (const QPointF &p : e.series)
                     series.append(QJsonArray{p.x(), p.y()});
+                QJsonObject ft{{S("p1"), e.ftP1}, {S("p50"), e.ftP50}, {S("p99"), e.ftP99}};
+                if (e.ftMin)
+                    ft.insert(S("min"), *e.ftMin);
                 QJsonObject o{{S("ev"), S("result")}, {S("workload"), e.workload}, {S("frames"), e.frames},
-                              {S("seconds"), e.seconds}, {S("ftMs"), QJsonObject{{S("p1"), e.ftP1}, {S("p50"), e.ftP50}, {S("p99"), e.ftP99}}},
+                              {S("seconds"), e.seconds}, {S("ftMs"), ft},
                               {S("fps"), e.fps}, {S("cpuMs"), e.cpuMs}, {S("series"), series},
                               {S("sig"), QString::fromLatin1(e.signature.toHex())}};
                 if (e.gpuMs)
@@ -279,6 +282,11 @@ std::optional<Event> parseResult(const QJsonObject &o, QString *error)
             return std::nullopt;
         }
     }
+    if (!optional(ft, "result", "min", Type::Number, nullptr)) {
+        if (error)
+            *error = QStringLiteral("result: bad ftMs.min");
+        return std::nullopt;
+    }
     ResultEvent e;
     e.workload = o.value(S("workload")).toString();
     e.frames = o.value(S("frames")).toInt();
@@ -287,6 +295,8 @@ std::optional<Event> parseResult(const QJsonObject &o, QString *error)
     e.ftP1 = ft.value(S("p1")).toDouble();
     e.ftP50 = ft.value(S("p50")).toDouble();
     e.ftP99 = ft.value(S("p99")).toDouble();
+    if (ft.contains(S("min")))
+        e.ftMin = ft.value(S("min")).toDouble();
     e.cpuMs = o.value(S("cpuMs")).toDouble();
     if (o.contains(S("gpuMs")))
         e.gpuMs = o.value(S("gpuMs")).toDouble();

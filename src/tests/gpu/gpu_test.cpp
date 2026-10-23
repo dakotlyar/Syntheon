@@ -164,6 +164,20 @@ struct NativeRun {
     std::map<NativeWorkload, pr::ResultEvent> results;
 };
 
+// §9's frame floor (n >= 20). Dev hook SYNBENCH_GPU_MIN_FRAMES=<n >= 1> lowers it for the CI smoke only, whose windows are
+// 0.03 x the real ones (SYNBENCH_SMOKE): 600 ms of Geometry on a CI runner's lavapipe is about 20 frames, so the real floor
+// there would test the runner's speed, not the GPU path. A packaged build always uses 20.
+int minFrames()
+{
+#if defined(SYNBENCH_DEV_HOOKS)
+    bool ok = false;
+    const int n = qEnvironmentVariableIntValue("SYNBENCH_GPU_MIN_FRAMES", &ok);
+    if (ok && n >= 1)
+        return n;
+#endif
+    return kMinFrames;
+}
+
 // Dev hook: SYNBENCH_GPU_FAKE_D2D=1 runs the Direct2D path on any OS (the tests serve it with the fake worker).
 bool fakeD2d()
 {
@@ -197,6 +211,7 @@ struct ApiRun {
     QString errorSub;          // the sub-test that workload belongs to (scenes3d or fill2d)
     std::optional<pr::ReadyEvent> ready;
     QString present;
+    QStringList notes;         // warnings for api.<api>.note (§9: GPU timestamps that look wrong)
     std::unique_ptr<GpuSession> session;
     std::map<SceneId, pr::ResultEvent> results;
     std::map<FillId, pr::ResultEvent> fills;   // Quads and Sprites (§6.5, §6.6), after the four scenes
@@ -452,13 +467,30 @@ TestResult GpuRun::run()
             });
             switch (o.status) {
             case ClientOutcome::Status::Ok: {
+                pr::ResultEvent res = o.results.first();
+                // §9's plausibility rules (H1): an implausible frame rate or fewer than 20 frames is an API Error in this
+                // workload (its numbers aren't stored); a median GPU time over 1.5 x p50 drops `gpu` with a warning.
+                const Plausibility check = plausibility(res.frames, res.fps, res.ftMin, res.ftP50, res.gpuMs, minFrames());
+                if (!check.error.isEmpty()) {
+                    fail(a, workName, check.error, work.sub());
+                    m_ctx.log(LogLevel::Error, QStringLiteral("%1 failed in %2: %3 (%4 frames, %5 fps)")
+                                                   .arg(apiName(a.id), workName, check.error).arg(res.frames).arg(res.fps, 0, 'f', 1));
+                    break;
+                }
+                if (check.dropGpu) {
+                    m_ctx.log(LogLevel::Warning, QStringLiteral("%1 on %2: GPU time %3 ms against a frame time p50 of %4 ms: %5")
+                                                     .arg(workName, apiName(a.id)).arg(*res.gpuMs, 0, 'f', 3).arg(res.ftP50, 0, 'f', 3).arg(kGpuTimeWarning));
+                    res.gpuMs.reset();
+                    if (!a.notes.contains(kGpuTimeWarning))
+                        a.notes << kGpuTimeWarning;
+                }
                 if (work.scene)
-                    a.results[*work.scene] = o.results.first();
+                    a.results[*work.scene] = res;
                 else
-                    a.fills[*work.fill] = o.results.first();
+                    a.fills[*work.fill] = res;
                 if (a.present.isEmpty())
-                    a.present = o.results.first().present;
-                m_ctx.log(LogLevel::Info, QStringLiteral("%1 on %2: %3 fps").arg(workName, apiName(a.id)).arg(o.results.first().fps, 0, 'f', 1));
+                    a.present = res.present;
+                m_ctx.log(LogLevel::Info, QStringLiteral("%1 on %2: %3 fps").arg(workName, apiName(a.id)).arg(res.fps, 0, 'f', 1));
                 break;
             }
             case ClientOutcome::Status::Cancelled:
@@ -618,8 +650,11 @@ TestResult GpuRun::finish(bool stopped)
             r.metrics.append(text(apiStatusKey(key, u"driver"), {}, name + QStringLiteral(" driver"), av.driver.isEmpty() ? a.ready->driver : av.driver));
             if (!a.present.isEmpty())
                 r.metrics.append(text(apiStatusKey(key, u"present"), {}, name + QStringLiteral(" present mode"), a.present));
+            QStringList notes = a.notes;
             if (!a.ready->note.isEmpty())
-                r.metrics.append(text(apiStatusKey(key, u"note"), {}, name + QStringLiteral(" note"), a.ready->note));
+                notes.prepend(a.ready->note);
+            if (!notes.isEmpty())
+                r.metrics.append(text(apiStatusKey(key, u"note"), {}, name + QStringLiteral(" note"), notes.join(QStringLiteral(" · "))));
             if (!a.ready->layers.isEmpty())
                 r.metrics.append(text(apiStatusKey(key, u"layers"), {}, name + QStringLiteral(" layers"), a.ready->layers));
         }

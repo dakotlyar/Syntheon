@@ -113,6 +113,7 @@ private slots:
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("ok")});
         qunsetenv("SYNBENCH_GPU_FAKE_APIS");
         qunsetenv("SYNBENCH_GPU_WORKER_ENV");
+        qunsetenv("SYNBENCH_GPU_MIN_FRAMES");
     }
     void cleanup()
     {
@@ -120,6 +121,7 @@ private slots:
         qunsetenv("SYNBENCH_GPU_FAKE_APIS");
         qunsetenv("SYNBENCH_GPU_WORKER_ENV");
         qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+        qunsetenv("SYNBENCH_GPU_MIN_FRAMES");
         tests::setStubTimeScale(0.02);
     }
 
@@ -242,7 +244,7 @@ private slots:
             QVERIFY(r.metric(QStringLiteral("native2d.%1").arg(QLatin1String(w))));
             QCOMPARE(number(r, QStringLiteral("native2d.%1").arg(QLatin1String(w))), number(r, QStringLiteral("native2d.qt.%1").arg(QLatin1String(w))));
         }
-        // The fake's result is 10 frames in 0.1 s: MOps/s = the UNSCALED ops (§7.1) x 100 / 1e6.
+        // The fake's result is 20 frames in 0.2 s: MOps/s = the UNSCALED ops (§7.1) x 100 / 1e6.
         QVERIFY(std::fabs(number(r, QStringLiteral("native2d.text")) - 8000.0 * 100.0 / 1e6) < 1e-9);
         QVERIFY(std::fabs(number(r, QStringLiteral("native2d.shapes")) - 2000.0 * 100.0 / 1e6) < 1e-9);
         QCOMPARE(textOf(r, QStringLiteral("gpu.name")), QStringLiteral("Fake GPU"));
@@ -259,7 +261,7 @@ private slots:
         for (const char *scene : {"geometry", "drawcalls", "shading", "particles"})
             logSum += std::log(number(r, QStringLiteral("scenes3d.vulkan.%1.fps").arg(QLatin1String(scene))));
         QVERIFY(std::fabs(number(r, QStringLiteral("scenes3d.vulkan.fps")) - std::exp(logSum / 4.0)) < 1e-9);
-        // Fill-rate (§6.5, §6.6): the fake's result is 10 frames in 0.1 s at the 320x180 it reports as its render size.
+        // Fill-rate (§6.5, §6.6): the fake's result is 20 frames in 0.2 s at the 320x180 it reports as its render size.
         const double gpx = 128.0 * 320.0 * 180.0 * 100.0 / 1e9, sprites = 100000.0 * 100.0 / 1e6;
         for (const char *api : {"vulkan", "opengl"}) {
             QVERIFY(std::fabs(number(r, QStringLiteral("fill2d.%1").arg(QLatin1String(api))) - gpx) < 1e-9);
@@ -464,6 +466,87 @@ private slots:
         QCOMPARE(number(r, QStringLiteral("scenes3d.geometry.fps")), 100.0);          // Vulkan's, not the faster one
         QCOMPARE(textOf(r, QStringLiteral("scenes3d.geometry.api")), QStringLiteral("Vulkan"));
         QCOMPARE(r.subResults[0].status, Status::Error);
+    }
+
+    // §9 (H1): fewer than 20 measured frames is an API Error "too few frames to measure (n)" in that workload; its numbers
+    // aren't stored, and the API's remaining workloads are skipped.
+    void tooFewFramesIsAnApiError()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("few-frames")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::Partial);
+        QCOMPARE(r.statusReason, QStringLiteral("No GPU score: OpenGL failed in Shading: too few frames to measure (19)"));
+        QCOMPARE(textOf(r, QStringLiteral("api.opengl.status")), QStringLiteral("Error: too few frames to measure (19)"));
+        QCOMPARE(r.subResults[0].status, Status::Error);
+        QVERIFY(r.metric(QStringLiteral("scenes3d.opengl.drawcalls.fps")));
+        QVERIFY(!r.metric(QStringLiteral("scenes3d.opengl.shading.fps")));
+        QVERIFY(!r.metric(QStringLiteral("scenes3d.opengl.shading.frames")));
+        QCOMPARE(textOf(r, QStringLiteral("scenes3d.shading.api")), QStringLiteral("Vulkan"));
+        QVERIFY(!r.metric(QStringLiteral("fill2d.opengl")));  // skipped after the Error
+        QCOMPARE(r.subResults[2].status, Status::Ok);
+        QVERIFY(!t.score(r).total);
+        // The CI smoke's dev hook lowers the floor (never in a packaged build): the same 19 frames are then accepted.
+        qputenv("SYNBENCH_GPU_MIN_FRAMES", "10");
+        Ctx ctx2;
+        const TestResult lowered = t.run(ctx2, {});
+        QCOMPARE(lowered.status, Status::Ok);
+        QCOMPARE(number(lowered, QStringLiteral("scenes3d.opengl.shading.frames")), 19.0);
+    }
+
+    // §9 (H1): a frame faster than 0.005 ms, or more than 100,000 fps, is an API Error "implausible frame rate".
+    void implausibleFrameRateIsAnApiError_data()
+    {
+        QTest::addColumn<QString>("mode");
+        QTest::addColumn<QString>("workload");
+        QTest::addColumn<QString>("key");
+        QTest::addColumn<int>("errorSub");
+        QTest::newRow("a 0.004 ms frame in a scene") << QStringLiteral("implausible") << QStringLiteral("Draw calls")
+                                                     << QStringLiteral("scenes3d.opengl.drawcalls.fps") << 0;
+        QTest::newRow("150,000 fps in a fill") << QStringLiteral("fast-fps") << QStringLiteral("Sprites") << QStringLiteral("fill2d.opengl.sprites") << 2;
+    }
+    void implausibleFrameRateIsAnApiError()
+    {
+        QFETCH(QString, mode);
+        QFETCH(QString, workload);
+        QFETCH(QString, key);
+        QFETCH(int, errorSub);
+        gpu::GpuClient::setWorkerForTests(kFake, {mode});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::Partial);
+        QCOMPARE(r.statusReason, QStringLiteral("No GPU score: OpenGL failed in %1: implausible frame rate").arg(workload));
+        QCOMPARE(textOf(r, QStringLiteral("api.opengl.status")), QStringLiteral("Error: implausible frame rate"));
+        QVERIFY(!r.metric(key));
+        QCOMPARE(r.subResults[errorSub].status, Status::Error);
+        QCOMPARE(r.subResults[2 - errorSub].status, Status::Ok);
+    }
+
+    // §9 (H1): a median GPU time over 1.5 x the p50 frame time is dropped (no `gpu` key) with a warning note on that API;
+    // it isn't an error, so the score stands. A plausible GPU time is stored as before.
+    void implausibleGpuTimeIsDroppedWithAWarning()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("bad-gpu-time")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::Ok);
+        QVERIFY(t.score(r).total);
+        for (const char *scene : {"geometry", "drawcalls", "shading", "particles"}) {
+            QVERIFY(!r.metric(QStringLiteral("scenes3d.vulkan.%1.gpu").arg(QLatin1String(scene))));
+            QCOMPARE(number(r, QStringLiteral("scenes3d.opengl.%1.gpu").arg(QLatin1String(scene))), 9.0);
+        }
+        QCOMPARE(textOf(r, QStringLiteral("api.vulkan.note")), QStringLiteral("GPU timestamps look wrong; GPU time not shown"));
+        QVERIFY(!r.metric(QStringLiteral("api.opengl.note")));
+        QCOMPARE(textOf(r, QStringLiteral("api.vulkan.status")), QStringLiteral("OK"));
     }
 
     // Task 28, D8: native2d.<w> is Qt raster's number even when Direct2D's is larger; Direct2D is stored and shown, not scored.

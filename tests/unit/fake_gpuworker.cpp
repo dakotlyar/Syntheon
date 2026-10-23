@@ -17,6 +17,12 @@
 //     d2d-fast           like ok, but the d2d worker's native results are four times faster (more frames)
 //     exit-after-finish  like ok, but the native paths (d2d, qt) exit with code 1 right after their last result
 //     warn-d2d           like ok, but the d2d worker sends a `warning` event after ready
+//     few-frames         like ok, but the opengl worker measures only 19 frames in `shading` (§9: too few)
+//     implausible        like ok, but the opengl worker's `drawcalls` has a 0.004 ms frame (§9: implausible frame rate)
+//     fast-fps           like ok, but the opengl worker's `sprites` runs at 150,000 fps (§9: implausible frame rate)
+//     bad-gpu-time       like ok, with GPU times: vulkan's median is 16 ms against a 10 ms p50 (§9: dropped), opengl's 9 ms
+// Every result is 20 frames in 0.2 s (100 fps, p50 10 ms, fastest frame 9 ms) unless a mode says otherwise:
+// §9 needs at least 20 frames.
 // --probe answers one fake GPU (Vulkan and OpenGL OK, DirectX Windows only) and done, in every mode.
 // SB_FAKE_LOG=<file> (through SYNBENCH_GPU_WORKER_ENV): "<api> <workload>" appended per `run` command.
 // "stop" on stdin ends it with exit 4 (not in `hang`), "quit" with exit 0, EOF with exit 3.
@@ -49,16 +55,30 @@ std::string g_api;  // the worker's --api, for the modes that differ by API
 bool g_mismatch = false, g_mismatchFill = false;
 
 bool g_d2dFast = false;
+std::string g_mode;
 
 void result(const std::string &workload)
 {
     const bool fill = workload == "quads" || workload == "sprites";
-    const bool other = (g_mismatch || (g_mismatchFill && fill)) && g_api == "opengl";
-    const int frames = g_d2dFast && g_api == "d2d" ? 40 : (g_mismatchFill && fill && other ? 20 : 10);  // the other opengl is faster
+    const bool gl = g_api == "opengl";
+    const bool other = (g_mismatch || (g_mismatchFill && fill)) && gl;
+    int frames = g_d2dFast && g_api == "d2d" ? 80 : (g_mismatchFill && fill && other ? 40 : 20);  // the other opengl is faster
+    std::string seconds = "0.2", fps = other ? "200" : "100", min = "9", gpu;
+    if (g_mode == "few-frames" && gl && workload == "shading") {
+        frames = 19;
+        seconds = "0.19";
+    } else if (g_mode == "implausible" && gl && workload == "drawcalls") {
+        min = "0.004";
+    } else if (g_mode == "fast-fps" && gl && workload == "sprites") {
+        frames = 30000;
+        fps = "150000";
+        min = "0.006";
+    } else if (g_mode == "bad-gpu-time") {
+        gpu = gl ? ",\"gpuMs\":9" : ",\"gpuMs\":16";
+    }
     const std::string sig(864, other ? 'f' : '0');
-    const char *fps = other ? "200" : "100";
-    out("{\"ev\":\"result\",\"workload\":\"" + workload + "\",\"frames\":" + std::to_string(frames) + ",\"seconds\":0.1,\"fps\":" + std::string(fps) + ","
-        "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11},\"cpuMs\":1,\"series\":[[0.05,10.0],[0.15,10.0]],\"sig\":\"" + sig + "\"}");
+    out("{\"ev\":\"result\",\"workload\":\"" + workload + "\",\"frames\":" + std::to_string(frames) + ",\"seconds\":" + seconds + ",\"fps\":" + fps + ","
+        "\"ftMs\":{\"p1\":9,\"p50\":10,\"p99\":11,\"min\":" + min + "},\"cpuMs\":1" + gpu + ",\"series\":[[0.05,10.0],[0.15,10.0]],\"sig\":\"" + sig + "\"}");
 }
 
 // Sleeps ms in small steps; false when "stop" arrived (the caller exits 4).
@@ -109,6 +129,7 @@ int fakeMain(int argc, char **argv)
     g_mismatch = mode == "mismatch";
     g_mismatchFill = mode == "mismatch-fill";
     g_d2dFast = mode == "d2d-fast";
+    g_mode = mode;
     if (probe) {
         out("{\"ev\":\"gpu\",\"id\":\"10de:2c05@0000:01:00.0\",\"name\":\"Fake GPU\",\"vendorId\":4318,\"deviceId\":11269,"
             "\"kind\":\"discrete\",\"vramBytes\":17179869184,\"pciSlot\":\"0000:01:00.0\",\"apis\":{"

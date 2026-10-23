@@ -65,7 +65,6 @@
 #include <functional>
 #include <map>
 #include <memory>
-#include <numeric>
 #include <optional>
 #include <string>
 #include <thread>
@@ -322,11 +321,6 @@ pr::ErrorEvent errorEvent(Workload *w, const std::string &reason)
     }
     e.reason = QString::fromStdString(text);
     return e;
-}
-
-double mean(const std::vector<double> &v)
-{
-    return v.empty() ? 0.0 : std::accumulate(v.begin(), v.end(), 0.0) / double(v.size());
 }
 
 // ---- stdin: the lifeline and the commands ----
@@ -832,9 +826,11 @@ private:
         e.ftP1 = s.p1;
         e.ftP50 = s.p50;
         e.ftP99 = s.p99;
-        e.cpuMs = mean(r.cpuMs);
+        if (s.frames > 0)
+            e.ftMin = s.min;
+        e.cpuMs = median(r.cpuMs);  // §9: medians, not means
         if (m_info.gpuTimestamps && !r.gpuMs.empty())
-            e.gpuMs = mean(r.gpuMs);
+            e.gpuMs = median(r.gpuMs);
         e.series = bucketSeries(r.frameMs);
         e.signature = QByteArray(reinterpret_cast<const char *>(r.signature.data()), qsizetype(r.signature.size()));
         e.present = QString::fromStdString(m_present);
