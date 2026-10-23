@@ -72,6 +72,16 @@ constexpr Group kGroups[] = {{"int", "Integer"},       {"fp", "Floating point + 
                              {"crypto", "Encryption"},  {"sort", "Sorting"},
                              {"physics", "Physics"}};
 
+// A group's display name from its sub-test id ("Integer" for "int"); the id itself if it isn't one of the groups.
+QString groupName(const QString &id)
+{
+    for (const Group &g : kGroups) {
+        if (id == QLatin1StringView(g.id))
+            return QLatin1StringView(g.name);
+    }
+    return id;
+}
+
 double seconds(std::chrono::milliseconds ms)
 {
     return double(ms.count()) / 1000.0;
@@ -1140,7 +1150,7 @@ TestResult CpuRun::run()
         if (s.status == Status::Ok)
             ++ok;
         else if (firstProblem.isEmpty())
-            firstProblem = QStringLiteral("%1: %2").arg(s.id, s.reason);
+            firstProblem = QStringLiteral("%1: %2").arg(groupName(s.id), s.reason);  // the display name, not the id (AP-5 L3)
     }
     if (ok == int(std::size(kGroups))) {
         r.status = Status::Ok;
