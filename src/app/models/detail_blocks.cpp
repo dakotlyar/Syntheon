@@ -20,6 +20,41 @@ QString formatMetric(const TestResult &result, const QString &key, bool withUnit
     return Units::format(std::get<double>(m->value), m->unit, withUnit);
 }
 
+QString hoverNumber(double v)
+{
+    if (!std::isfinite(v))
+        return QStringLiteral("—");
+    if (v == 0)
+        return QStringLiteral("0");
+    const int decimals = std::clamp(3 - int(std::floor(std::log10(std::abs(v)))), 0, 3);
+    QString s = QLocale(QLocale::English).toString(v, 'f', decimals);
+    if (decimals > 0) {
+        while (s.endsWith(QLatin1Char('0')))
+            s.chop(1);
+        if (s.endsWith(QLatin1Char('.')))
+            s.chop(1);
+    }
+    if (s == QLatin1String("-0"))
+        s = QStringLiteral("0");
+    return s;
+}
+
+QString hoverValue(double v, const QString &unit)
+{
+    if (unit == QLatin1String("KiB")) {
+        if (v >= 1048576)
+            return hoverNumber(v / 1048576) + QStringLiteral(" GiB");
+        if (v >= 1024)
+            return hoverNumber(v / 1024) + QStringLiteral(" MiB");
+        return hoverNumber(v) + QStringLiteral(" KiB");
+    }
+    if (unit == QLatin1String("%"))
+        return hoverNumber(v) + QLatin1Char('%');
+    if (unit.isEmpty())
+        return hoverNumber(v);
+    return hoverNumber(v) + QLatin1Char(' ') + unit;
+}
+
 QString formatCompactIops(double iops)
 {
     if (iops >= 1e6)
@@ -171,12 +206,23 @@ QVariantMap lineChart(const LineChartBlock &b, const DetailBlock &block, const T
     QVariantMap out = base(QStringLiteral("linechart"), block.title);
     QVariantList points;
     double minX = INFINITY, maxX = -INFINITY;
+    QString xUnit;
     for (const QString &key : b.seriesKeys) {
         for (const Series &s : r.series) {
             if (s.key != key)
                 continue;
+            xUnit = s.xUnit;
             for (const QPointF &p : s.points) {
-                points.append(QVariantMap{{QStringLiteral("x"), p.x()}, {QStringLiteral("y"), p.y()}});
+                double y = p.y();
+                if (b.yValue == ChartValue::PerSecondFromMs) {
+                    if (!std::isfinite(y) || y <= 0)
+                        continue;
+                    y = 1000.0 / y;
+                }
+                points.append(QVariantMap{{QStringLiteral("x"), p.x()},
+                                          {QStringLiteral("y"), y},
+                                          {QStringLiteral("label"),
+                                           hoverValue(p.x(), s.xUnit) + QStringLiteral(" · ") + hoverValue(y, b.yUnit)}});
                 minX = std::min(minX, p.x());
                 maxX = std::max(maxX, p.x());
             }
@@ -233,6 +279,7 @@ QVariantMap lineChart(const LineChartBlock &b, const DetailBlock &block, const T
     }
     out.insert(QStringLiteral("xTicks"), ticks);
     out.insert(QStringLiteral("yUnit"), b.yUnit);
+    out.insert(QStringLiteral("xUnit"), xUnit);
     out.insert(QStringLiteral("annotations"), notes);
     out.insert(QStringLiteral("colorToken"), colorToken);
     return out;

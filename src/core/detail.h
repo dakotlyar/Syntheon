@@ -90,6 +90,13 @@ struct ChartAnnotation {
     bool operator==(const ChartAnnotation &) const = default;
 };
 
+// What a chart draws for a stored y (Phase 4a D26). AsStored: the value
+// itself. PerSecondFromMs: 1000 / y, for a series of mean frame times in ms
+// (the GPU test's ft.* buckets: 1000 / a bucket's mean frame time is that
+// bucket's average FPS, frames / the time they took); a stored y <= 0 or
+// non-finite is left out.
+enum class ChartValue { AsStored, PerSecondFromMs };
+
 struct LineChartBlock {
     QStringList seriesKeys;
     ChartAxis xAxis;
@@ -115,6 +122,8 @@ struct LineChartBlock {
     // by bandwidth: on its scored full-load point, AP-5 L1). Unset: the
     // last point, as before.
     std::optional<double> filledAt;
+    // AsStored by default: every chart as before.
+    ChartValue yValue = ChartValue::AsStored;
     bool operator==(const LineChartBlock &) const = default;
 };
 

@@ -308,6 +308,83 @@ private slots:
         QVERIFY(!buildDetailBlocks(layout, r, QStringLiteral("t-ram")).first().toMap().contains(QStringLiteral("filled")));
     }
 
+    void hoverNumbers()
+    {
+        const auto n = [](double v) { return hoverNumber(v); };
+        QCOMPARE(n(12.35), QStringLiteral("12.35"));
+        QCOMPARE(n(400), QStringLiteral("400"));
+        QCOMPARE(n(1000.0 / 3), QStringLiteral("333.3"));
+        QCOMPARE(n(1000.0 / 2.4271), QStringLiteral("412"));
+        QCOMPARE(n(4812.3), QStringLiteral("4,812"));
+        QCOMPARE(n(1048576), QStringLiteral("1,048,576"));
+        QCOMPARE(n(0.8), QStringLiteral("0.8"));
+        QCOMPARE(n(0.05), QStringLiteral("0.05"));
+        QCOMPARE(n(0), QStringLiteral("0"));
+        QCOMPARE(n(-2.5), QStringLiteral("-2.5"));
+        QCOMPARE(n(9.9996), QStringLiteral("10"));
+        QCOMPARE(n(NAN), QStringLiteral("—"));
+        QCOMPARE(hoverValue(5836.8, QStringLiteral("KiB")), QStringLiteral("5.7 MiB"));
+        QCOMPARE(hoverValue(24, QStringLiteral("KiB")), QStringLiteral("24 KiB"));
+        QCOMPARE(hoverValue(1048576, QStringLiteral("KiB")), QStringLiteral("1 GiB"));
+        QCOMPARE(hoverValue(98.25, QStringLiteral("%")), QStringLiteral("98.25%"));
+        QCOMPARE(hoverValue(61.5, QStringLiteral("°C")), QStringLiteral("61.5 °C"));
+        QCOMPARE(hoverValue(3, QString()), QStringLiteral("3"));
+    }
+
+    void lineChartFpsFromFrameTimes()
+    {
+        TestResult r;
+        r.series = {{QStringLiteral("ft.vulkan.geometry"), QStringLiteral("Geometry"), QStringLiteral("Time"), QStringLiteral("s"),
+                     QStringLiteral("ms"), {{0.05, 2.5}, {0.15, 0.0}, {0.25, 3.0}, {12.35, 2.4271}}}};
+        LineChartBlock chart;
+        chart.seriesKeys = {QStringLiteral("ft.vulkan.geometry")};
+        chart.yValue = ChartValue::PerSecondFromMs;
+        chart.yUnit = QStringLiteral("fps");
+        const auto build = [&](const LineChartBlock &b) {
+            DetailLayout layout;
+            layout.blocks.append({QStringLiteral("G"), b});
+            return buildDetailBlocks(layout, r, QStringLiteral("t-gpu")).first().toMap();
+        };
+        QVariantMap m = build(chart);
+        const QVariantList pts = m.value(QStringLiteral("points")).toList();
+        QCOMPARE(pts.size(), 3);
+        QVERIFY(qFuzzyCompare(pts[0].toMap().value(QStringLiteral("y")).toDouble(), 400.0));
+        QVERIFY(qFuzzyCompare(pts[1].toMap().value(QStringLiteral("y")).toDouble(), 1000.0 / 3));
+        QVERIFY(qFuzzyCompare(pts[2].toMap().value(QStringLiteral("y")).toDouble(), 1000.0 / 2.4271));
+        QCOMPARE(pts[0].toMap().value(QStringLiteral("label")).toString(), QStringLiteral("0.05 s · 400 fps"));
+        QCOMPARE(pts[1].toMap().value(QStringLiteral("label")).toString(), QStringLiteral("0.25 s · 333.3 fps"));
+        QCOMPARE(pts[2].toMap().value(QStringLiteral("label")).toString(), QStringLiteral("12.35 s · 412 fps"));
+        QCOMPARE(m.value(QStringLiteral("xUnit")).toString(), QStringLiteral("s"));
+        chart.filledAt = 0.25;
+        chart.markers = {12.35};
+        m = build(chart);
+        QVERIFY(qFuzzyCompare(m.value(QStringLiteral("filled")).toMap().value(QStringLiteral("y")).toDouble(), 1000.0 / 3));
+        QVERIFY(qFuzzyCompare(m.value(QStringLiteral("markers")).toList().first().toMap().value(QStringLiteral("y")).toDouble(),
+                              1000.0 / 2.4271));
+        chart.seriesKeys = {QStringLiteral("nope")};
+        QCOMPARE(build(chart).value(QStringLiteral("xUnit")).toString(), QString());
+    }
+
+    void lineChartAsStoredHasLabels()
+    {
+        TestResult r;
+        r.series = {{QStringLiteral("c"), QStringLiteral("C"), {}, QStringLiteral("KiB"), QStringLiteral("ns"),
+                     {{24, 0.8}, {5836.8, 9.6}, {1048576, 74.2}}}};
+        LineChartBlock chart;
+        chart.seriesKeys = {QStringLiteral("c")};
+        chart.yUnit = QStringLiteral("ns");
+        DetailLayout layout;
+        layout.blocks.append({QStringLiteral("C"), chart});
+        const QVariantList pts =
+            buildDetailBlocks(layout, r, QStringLiteral("t-ram")).first().toMap().value(QStringLiteral("points")).toList();
+        QCOMPARE(pts.size(), 3);
+        QCOMPARE(pts[0].toMap().value(QStringLiteral("label")).toString(), QStringLiteral("24 KiB · 0.8 ns"));
+        QCOMPARE(pts[1].toMap().value(QStringLiteral("label")).toString(), QStringLiteral("5.7 MiB · 9.6 ns"));
+        QCOMPARE(pts[2].toMap().value(QStringLiteral("label")).toString(), QStringLiteral("1 GiB · 74.2 ns"));
+        QCOMPARE(pts[1].toMap().value(QStringLiteral("y")).toDouble(), 9.6);
+        QCOMPARE(LineChartBlock{}.yValue, ChartValue::AsStored);
+    }
+
     void summaryOfAStoredRun()
     {
         startRuntime();

@@ -27,6 +27,14 @@ QVariantList buildDetailBlocks(const DetailLayout &layout, const TestResult &res
 // A metric formatted for a cell: "7,012 MB/s", "AVX2", or "—" when missing.
 QString formatMetric(const TestResult &result, const QString &key, bool withUnit = true);
 
+// The chart hover readout's numbers (Phase 4a D27): 4 significant figures,
+// at most 3 decimals, en-US thousands separators, trailing zeros and a
+// trailing point dropped; "—" for a non-finite value.
+QString hoverNumber(double value);
+// hoverNumber with its unit: "KiB" scaled by 1024 to KiB / MiB / GiB, "%"
+// with no space, "" alone, anything else after a space.
+QString hoverValue(double value, const QString &unit);
+
 // Compact count for secondary IOPS text: 181000 -> "181k IOPS".
 QString formatCompactIops(double iops);
 
