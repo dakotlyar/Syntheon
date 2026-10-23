@@ -15,7 +15,8 @@
 //   1  root CBV b1  Object (task 19: the slot's objectConstants + 256 i per draw)
 //   2  root CBV b2  Lights / Post / Present (the slot's frameConstants at a 256-byte block)
 //   3  table t0-t5  SRVs (t4 the shadow map, t5 the glyph atlas; null SRVs where unused)
-//   static samplers s0 anisotropic 8 wrap, s1 linear clamp, s2 comparison LESS_EQUAL (border white)
+//   static samplers s0 anisotropic 8 wrap, s1 linear clamp, s2 comparison LESS_EQUAL (border white),
+//   s3 plain bilinear wrap (no mips; the Quads)
 
 #include "tests/gpu/worker/d3d12/d12_resources.h"
 
@@ -69,7 +70,7 @@ private:
                   bool submitted = false; };
     Context m_ctx; dxgi::Swapchain m_swap; std::array<Slot, 2> m_slots; ComPtr<ID3D12GraphicsCommandList> m_list;
     ComPtr<ID3D12QueryHeap> m_queries; ComPtr<ID3D12Resource> m_queryReadback;
-    ComPtr<ID3D12RootSignature> m_root;   // the one root signature: b0 CBV, b1 CBV (root descriptor, per-draw address), b2 CBV, t0-t5 table, s0-s2 static samplers
+    ComPtr<ID3D12RootSignature> m_root;   // the one root signature: b0 CBV, b1 CBV (root descriptor, per-draw address), b2 CBV, t0-t5 table, s0-s3 static samplers
     // The targets of §5.3 with their tracked states (d12_resources.h's Image).
     Image m_ldrA, m_headlessTarget, m_atlas;
     Image m_sceneColor, m_sceneDepth, m_hdrB, m_ldrB, m_shadow; std::array<Image, 6> m_bloom;  // task 19, made in load()

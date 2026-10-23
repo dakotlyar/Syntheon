@@ -13,7 +13,8 @@
 //          b1 Lights / Post / Present (UBO_DYNAMIC, the slot's frameConstants,
 //             range kPassRange; the dynamic offset picks the pass's block)
 //          b2 shadow map, b3 glyph atlas (sampled images)
-//          b4 s0 linear wrap aniso 8, b5 s1 linear clamp, b6 s2 comparison (immutable samplers)
+//          b4 s0 linear wrap aniso 8, b5 s1 linear clamp, b6 s2 comparison,
+//          b7 s3 plain bilinear wrap (immutable samplers)
 //   set 1: b0 Object (UBO_DYNAMIC, per-draw offset; task 11)
 //   set 2: b0-b3 textures (sampled images; the present pass's source is b0)
 
@@ -113,7 +114,7 @@ private:
 
     BackendInit m_init;
     std::array<VkDescriptorSetLayout, 3> m_setLayouts{};
-    std::array<VkSampler, 3> m_samplers{};
+    std::array<VkSampler, 4> m_samplers{};
     Image m_atlas;
     VkFormat m_presentFormat = VK_FORMAT_UNDEFINED;
     VkDescriptorPool m_loadPool{};      // load() .. unload(): descriptor sets on the render targets

@@ -99,7 +99,7 @@ std::string VulkanBackend::init(const BackendInit &init, const PresentTarget &ta
     if (m_ctx.properties.limits.minUniformBufferOffsetAlignment > kFrameBlock)
         return "uniform alignment > 256";
 
-    // The immutable samplers s0, s1, s2 (§13.1).
+    // The immutable samplers s0, s1, s2, s3 (§13.1).
     VkSamplerCreateInfo s0{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
     s0.magFilter = s0.minFilter = VK_FILTER_LINEAR;
     s0.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
@@ -123,8 +123,13 @@ std::string VulkanBackend::init(const BackendInit &init, const PresentTarget &ta
     vkGetPhysicalDeviceFormatProperties(m_ctx.physical, VK_FORMAT_D32_SFLOAT, &depthProps);
     if (!(depthProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
         s2.magFilter = s2.minFilter = VK_FILTER_NEAREST;
-    const VkSamplerCreateInfo *samplerInfo[3] = {&s0, &s1, &s2};
-    for (int i = 0; i < 3; ++i) {
+    // s3: plain bilinear wrap, no mips, no anisotropy (the Quads, §6.5; checkpoint 5 L5).
+    VkSamplerCreateInfo s3 = s1;
+    s3.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    s3.addressModeU = s3.addressModeV = s3.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    s3.maxLod = 0.0f;
+    const VkSamplerCreateInfo *samplerInfo[4] = {&s0, &s1, &s2, &s3};
+    for (int i = 0; i < 4; ++i) {
         if (const VkResult r = vkCreateSampler(d, samplerInfo[i], nullptr, &m_samplers[std::size_t(i)]); r != VK_SUCCESS)
             return failure("vkCreateSampler", r);
     }
@@ -139,6 +144,7 @@ std::string VulkanBackend::init(const BackendInit &init, const PresentTarget &ta
         {4, VK_DESCRIPTOR_TYPE_SAMPLER, 1, stages, &m_samplers[0]},
         {5, VK_DESCRIPTOR_TYPE_SAMPLER, 1, stages, &m_samplers[1]},
         {6, VK_DESCRIPTOR_TYPE_SAMPLER, 1, stages, &m_samplers[2]},
+        {7, VK_DESCRIPTOR_TYPE_SAMPLER, 1, stages, &m_samplers[3]},
     };
     const VkDescriptorSetLayoutBinding set1[] = {{0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, stages, nullptr}};
     const VkDescriptorSetLayoutBinding set2[] = {
@@ -147,7 +153,7 @@ std::string VulkanBackend::init(const BackendInit &init, const PresentTarget &ta
         {2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, stages, nullptr},
         {3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, stages, nullptr},
     };
-    const std::pair<const VkDescriptorSetLayoutBinding *, std::uint32_t> sets[3] = {{set0, 7}, {set1, 1}, {set2, 4}};
+    const std::pair<const VkDescriptorSetLayoutBinding *, std::uint32_t> sets[3] = {{set0, 8}, {set1, 1}, {set2, 4}};
     for (std::size_t i = 0; i < 3; ++i) {
         VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         ci.bindingCount = sets[i].second;
@@ -173,7 +179,7 @@ std::string VulkanBackend::init(const BackendInit &init, const PresentTarget &ta
     const VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2},
                                           {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2},
                                           {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 4},
-                                          {VK_DESCRIPTOR_TYPE_SAMPLER, 6}};
+                                          {VK_DESCRIPTOR_TYPE_SAMPLER, 8}};
     VkDescriptorPoolCreateInfo dpi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpi.maxSets = 2;
     dpi.poolSizeCount = 4;

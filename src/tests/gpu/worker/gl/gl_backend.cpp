@@ -78,7 +78,7 @@ int hardwareGpusOfVendor(std::uint32_t vendor)
 
 // The sampler object a SPIRV-Cross combined sampler's name asks for (task 7's
 // names: SPIRV_Cross_Combined<texture><sampler>): s0 linearWrap, s1
-// linearClamp, s2 shadowCompare; -1 for a Load (DummySampler).
+// linearClamp, s2 shadowCompare, s3 bilinearRepeat; -1 for a Load (DummySampler).
 int samplerOf(const std::string &name)
 {
     const auto ends = [&](const char *suffix) {
@@ -91,6 +91,8 @@ int samplerOf(const std::string &name)
         return 1;
     if (ends("shadowCompare"))
         return 2;
+    if (ends("bilinearRepeat"))
+        return 3;
     return -1;
 }
 
@@ -152,7 +154,7 @@ void GlBackend::shutdown()
             glDeleteBuffers(1, &s.objects);
         s = Slot{};
     }
-    glDeleteSamplers(3, m_samplers.data());
+    glDeleteSamplers(GLsizei(m_samplers.size()), m_samplers.data());
     m_samplers = {};
     if (m_vao)
         glDeleteVertexArrays(1, &m_vao);
@@ -353,8 +355,8 @@ std::string GlBackend::init(const BackendInit &init, const PresentTarget &target
         return "N/A: OpenGL needs anisotropic filtering (GL_ARB/EXT_texture_filter_anisotropic)";
 
     // The samplers (§13.1): s0 trilinear wrap with 8x anisotropy, s1 trilinear clamp, s2 the
-    // comparison sampler (LEQUAL, border white).
-    glGenSamplers(3, m_samplers.data());
+    // comparison sampler (LEQUAL, border white), s3 plain bilinear repeat (no mips, no anisotropy: the Quads, §6.5).
+    glGenSamplers(GLsizei(m_samplers.size()), m_samplers.data());
     glSamplerParameteri(m_samplers[0], GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glSamplerParameteri(m_samplers[0], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glSamplerParameteri(m_samplers[0], GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -375,6 +377,10 @@ std::string GlBackend::init(const BackendInit &init, const PresentTarget &target
     glSamplerParameterfv(m_samplers[2], GL_TEXTURE_BORDER_COLOR, white);
     glSamplerParameteri(m_samplers[2], GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
     glSamplerParameteri(m_samplers[2], GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glSamplerParameteri(m_samplers[3], GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glSamplerParameteri(m_samplers[3], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glSamplerParameteri(m_samplers[3], GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glSamplerParameteri(m_samplers[3], GL_TEXTURE_WRAP_T, GL_REPEAT);
 
     if (std::string e = makeProgram("present", kPresentVsGlsl, kPresentPsGlsl, &m_present); !e.empty())
         return e;

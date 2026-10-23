@@ -171,7 +171,7 @@ private:
     Image m_sceneColor, m_sceneDepth, m_hdrB, m_ldrB, m_shadow;
     std::array<Image, 6> m_bloom;
     std::unique_ptr<WorkloadState> m_work;
-    std::array<ComPtr<ID3D11SamplerState>, 3> m_samplers;  // s0 anisotropic 8 wrap, s1 linear clamp, s2 comparison
+    std::array<ComPtr<ID3D11SamplerState>, 4> m_samplers;  // s0 anisotropic 8 wrap, s1 linear clamp, s2 comparison, s3 plain bilinear wrap
     ComPtr<ID3D11Buffer> m_frameCb, m_objectCb, m_spriteCb;  // m_spriteCb: the Sprites' DYNAMIC instance buffer (Map(WRITE_DISCARD) once per frame)
     std::vector<std::uint8_t> m_frameShadow;  // the CPU side of the frame buffer
     Pipeline m_presentPipeline;

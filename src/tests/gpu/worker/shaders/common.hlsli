@@ -20,6 +20,8 @@
 //   s0        linear wrap, 8x anisotropic  (0, 4) immutable         sampler object on the texture's unit
 //   s1        linear clamp                 (0, 5) immutable         "
 //   s2        comparison (shadow)          (0, 6) immutable         "
+//   s3        plain bilinear wrap          (0, 7) immutable         "
+//             (no mips, no anisotropy; the Quads, §6.5)
 //
 // GLSL 330 has no binding= (pitfall SH-3): build.py turns each separate
 // texture + sampler pair into a combined sampler named
@@ -44,6 +46,7 @@
 #define SB_BIND_S0      SB_VK_BINDING(4, 0)
 #define SB_BIND_S1      SB_VK_BINDING(5, 0)
 #define SB_BIND_S2      SB_VK_BINDING(6, 0)
+#define SB_BIND_S3      SB_VK_BINDING(7, 0)
 
 // Per-frame constants (b0). Matrices are column-major (math.h's float[16])
 // and are applied as mul(M, v). Every member is 16-byte aligned with

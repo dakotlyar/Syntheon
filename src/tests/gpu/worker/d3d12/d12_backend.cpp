@@ -107,18 +107,20 @@ std::string D3D12Backend::init(const BackendInit &init, const PresentTarget &tar
     params[3].DescriptorTable.NumDescriptorRanges = 1;
     params[3].DescriptorTable.pDescriptorRanges = &srvs;
     params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    D3D12_STATIC_SAMPLER_DESC samplers[3] = {
+    D3D12_STATIC_SAMPLER_DESC samplers[4] = {
         staticSampler(0, D3D12_FILTER_ANISOTROPIC, D3D12_TEXTURE_ADDRESS_MODE_WRAP),
         staticSampler(1, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_CLAMP),
         staticSampler(2, D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT, D3D12_TEXTURE_ADDRESS_MODE_BORDER),
+        staticSampler(3, D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT, D3D12_TEXTURE_ADDRESS_MODE_WRAP),  // plain bilinear (Quads, L5)
     };
     samplers[0].MaxAnisotropy = 8;
     samplers[2].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
     samplers[2].MaxLOD = 0.0f;
+    samplers[3].MaxLOD = 0.0f;
     D3D12_ROOT_SIGNATURE_DESC rsd{};
     rsd.NumParameters = 4;
     rsd.pParameters = params;
-    rsd.NumStaticSamplers = 3;
+    rsd.NumStaticSamplers = 4;
     rsd.pStaticSamplers = samplers;
     rsd.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     ComPtr<ID3DBlob> blob, errors;

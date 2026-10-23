@@ -110,7 +110,7 @@ std::string Context::create(const BackendInit &init, bool debugLayer, BackendInf
     if (FAILED(heap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, kRtvCount, false, &rtvHeap)) || FAILED(heap(D3D12_DESCRIPTOR_HEAP_TYPE_DSV, kDsvCount, false, &dsvHeap))
         || FAILED(heap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, kSrvCount, true, &srvHeap)))
         return "CreateDescriptorHeap failed";
-    // samplerHeap stays empty: s0-s2 are the root signature's static samplers (§13.1).
+    // samplerHeap stays empty: s0-s3 are the root signature's static samplers (§13.1).
     rtvSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     dsvSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
     srvSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);

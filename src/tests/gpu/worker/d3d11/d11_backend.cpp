@@ -216,15 +216,18 @@ std::string D3D11Backend::init(const BackendInit &init, const PresentTarget &tar
         return e;
     ID3D11Device *d = m_device.Get();
 
-    // s0 anisotropic 8 wrap, s1 linear clamp, s2 comparison LESS_EQUAL (border white, one mip).
+    // s0 anisotropic 8 wrap, s1 linear clamp, s2 comparison LESS_EQUAL (border white, one mip), s3 plain bilinear wrap
+    // (no mips, no anisotropy: the Quads, §6.5).
     D3D11_SAMPLER_DESC s0 = samplerDesc(D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_WRAP);
     s0.MaxAnisotropy = 8;
     const D3D11_SAMPLER_DESC s1 = samplerDesc(D3D11_FILTER_MIN_MAG_MIP_LINEAR, D3D11_TEXTURE_ADDRESS_CLAMP);
     D3D11_SAMPLER_DESC s2 = samplerDesc(D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT, D3D11_TEXTURE_ADDRESS_BORDER);
     s2.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
     s2.MaxLOD = 0.0f;
-    const D3D11_SAMPLER_DESC descs[3] = {s0, s1, s2};
-    for (std::size_t i = 0; i < 3; ++i) {
+    D3D11_SAMPLER_DESC s3 = samplerDesc(D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT, D3D11_TEXTURE_ADDRESS_WRAP);
+    s3.MaxLOD = 0.0f;
+    const D3D11_SAMPLER_DESC descs[4] = {s0, s1, s2, s3};
+    for (std::size_t i = 0; i < 4; ++i) {
         if (const HRESULT hr = d->CreateSamplerState(&descs[i], &m_samplers[i]); FAILED(hr))
             return dxgi::failure("CreateSamplerState", hr);
     }
@@ -591,9 +594,9 @@ std::string D3D11Backend::waitAll()
 
 void D3D11Backend::bindCommon()
 {
-    ID3D11SamplerState *samplers[3] = {m_samplers[0].Get(), m_samplers[1].Get(), m_samplers[2].Get()};
-    m_cx->VSSetSamplers(0, 3, samplers);
-    m_cx->PSSetSamplers(0, 3, samplers);
+    ID3D11SamplerState *samplers[4] = {m_samplers[0].Get(), m_samplers[1].Get(), m_samplers[2].Get(), m_samplers[3].Get()};
+    m_cx->VSSetSamplers(0, 4, samplers);
+    m_cx->PSSetSamplers(0, 4, samplers);
     m_cx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     setConstants(0, m_frameCb.Get(), 0, kFrameBlock);
 }

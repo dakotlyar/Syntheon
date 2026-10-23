@@ -4,14 +4,14 @@
 static const char kQuadsPsGlsl[] =
 R"GLSL(#version 330
 
-uniform sampler2D SPIRV_Cross_CombinedfillTexturelinearWrap;
+uniform sampler2D SPIRV_Cross_CombinedfillTexturebilinearRepeat;
 
 in vec2 sb_v0;
 layout(location = 0) out vec4 out_var_SV_Target0;
 
 void main()
 {
-    vec4 _24 = texture(SPIRV_Cross_CombinedfillTexturelinearWrap, sb_v0);
+    vec4 _24 = texture(SPIRV_Cross_CombinedfillTexturebilinearRepeat, sb_v0);
     out_var_SV_Target0 = vec4(_24.xyz, _24.w * 0.0625);
 }
 

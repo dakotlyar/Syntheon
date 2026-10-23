@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <memory>
 
 #if defined(Q_OS_LINUX)
@@ -1127,6 +1128,8 @@ private slots:
     // D20 (task 19): every API draws the four scenes like the pinned Vulkan
     // reference (gpu_reference_signatures.h), within §5.7's tolerance. Vulkan
     // on lavapipe here (any Mesa version), DX12 and DX11 (task 20) on WARP on Windows.
+    // Checkpoint 5 (M3): the two fill workloads too, against their own pins at
+    // 160x90 and content scale 1, so Windows CI compares the D3D fills with Vulkan.
     void signaturesMatchVulkanReference_data()
     {
         QTest::addColumn<QString>("api");
@@ -1166,34 +1169,45 @@ private slots:
         }
         const QString gpu = kLavapipeId;
 #endif
-        WorkerProcess w(program,
-                        args + QStringList{QStringLiteral("--run"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), gpu, QStringLiteral("--allow-software"),
-                         QStringLiteral("--render-size"), QStringLiteral("320x180"), QStringLiteral("--content-scale"), QStringLiteral("64"),
-                         QStringLiteral("--headless"), QStringLiteral("--plan"),
-                         QStringLiteral("geometry:200:300,drawcalls:200:300,shading:200:300,particles:200:300")},
-                        env);
-        QVERIFY(w.started());
-        const int code = w.finish(120000);
-#if defined(Q_OS_WIN)
-        if (code == 5)
-            QSKIP(qPrintable(QStringLiteral("no %1 on WARP here: %2").arg(api, errors(w.events()))));
-#endif
-        QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
-        const QList<pr::ResultEvent> rs = results(w.events());
-        QCOMPARE(rs.size(), 4);
+        struct Pass {
+            const char *renderSize, *contentScale, *plan;
+            const ReferenceSignature *refs;
+            std::size_t count;
+        };
+        const Pass passes[] = {
+            {"320x180", "64", "geometry:200:300,drawcalls:200:300,shading:200:300,particles:200:300", kVulkanReference, std::size(kVulkanReference)},
+            {"160x90", "1", "quads:200:300,sprites:200:300", kVulkanFillReference, std::size(kVulkanFillReference)},
+        };
         QStringList report;
         bool allMatch = true;
-        for (const ReferenceSignature &ref : kVulkanReference) {
-            const pr::ResultEvent *r = nullptr;
-            for (const pr::ResultEvent &e : rs) {
-                if (e.workload == QLatin1StringView(ref.workload))
-                    r = &e;
+        for (const Pass &pass : passes) {
+            WorkerProcess w(program,
+                            args + QStringList{QStringLiteral("--run"), QStringLiteral("--api"), api, QStringLiteral("--gpu"), gpu, QStringLiteral("--allow-software"),
+                             QStringLiteral("--render-size"), QLatin1StringView(pass.renderSize), QStringLiteral("--content-scale"), QLatin1StringView(pass.contentScale),
+                             QStringLiteral("--headless"), QStringLiteral("--plan"), QLatin1StringView(pass.plan)},
+                            env);
+            QVERIFY(w.started());
+            const int code = w.finish(120000);
+#if defined(Q_OS_WIN)
+            if (code == 5)
+                QSKIP(qPrintable(QStringLiteral("no %1 on WARP here: %2").arg(api, errors(w.events()))));
+#endif
+            QVERIFY2(code == 0, qPrintable(QStringLiteral("exit %1: %2 %3").arg(code).arg(errors(w.events()), w.stderrText())));
+            const QList<pr::ResultEvent> rs = results(w.events());
+            QCOMPARE(std::size_t(rs.size()), pass.count);
+            for (std::size_t i = 0; i < pass.count; ++i) {
+                const ReferenceSignature &ref = pass.refs[i];
+                const pr::ResultEvent *r = nullptr;
+                for (const pr::ResultEvent &e : rs) {
+                    if (e.workload == QLatin1StringView(ref.workload))
+                        r = &e;
+                }
+                QVERIFY2(r, ref.workload);
+                const auto diff = compareSignatures(r->signature, QByteArray::fromHex(ref.hex));
+                QVERIFY2(diff, ref.workload);
+                report << QStringLiteral("%1: mean %2/255, max %3/255").arg(QLatin1StringView(ref.workload)).arg(diff->mean, 0, 'f', 2).arg(diff->max);
+                allMatch = allMatch && signaturesMatch(*diff);
             }
-            QVERIFY2(r, ref.workload);
-            const auto diff = compareSignatures(r->signature, QByteArray::fromHex(ref.hex));
-            QVERIFY2(diff, ref.workload);
-            report << QStringLiteral("%1: mean %2/255, max %3/255").arg(QLatin1StringView(ref.workload)).arg(diff->mean, 0, 'f', 2).arg(diff->max);
-            allMatch = allMatch && signaturesMatch(*diff);
         }
         qInfo("%s vs the Vulkan reference: %s", qPrintable(api), qPrintable(report.join(QStringLiteral("; "))));
         QVERIFY2(allMatch, qPrintable(report.join(QStringLiteral("; "))));

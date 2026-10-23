@@ -69,7 +69,7 @@ private:
     struct Target { std::uint32_t texture = 0, fbo = 0, width = 0, height = 0; };
     struct Slot { void *fence = nullptr; std::array<std::uint32_t, 2> queries{}; std::uint32_t frameConstants = 0, objects = 0; bool submitted = false; };
     // A linked program and, per texture unit 0-5, the sampler object index
-    // (0 s0, 1 s1, 2 s2) its combined sampler names, or -1 (none / Load).
+    // (0 s0, 1 s1, 2 s2, 3 s3) its combined sampler names, or -1 (none / Load).
     struct Program { std::uint32_t id = 0; std::array<int, 6> unitSampler{-1, -1, -1, -1, -1, -1}; };
 
     std::string makeProgram(const char *shader, const char *vs, const char *fs, Program *out);
@@ -118,7 +118,7 @@ private:
     bool m_headless = false;
     std::array<Slot, 2> m_slots;
     std::uint64_t m_frame = 0;
-    std::array<std::uint32_t, 3> m_samplers{};
+    std::array<std::uint32_t, 4> m_samplers{};
     std::uint32_t m_vao = 0, m_atlas = 0;
     Program m_present;
     Target m_ldrA, m_headlessTarget;
