@@ -254,7 +254,6 @@ private slots:
         const ScoreBreakdown b = t.score(r);
         QVERIFY(b.subScores.contains(QStringLiteral("scenes3d")));
         QCOMPARE(number(r, QStringLiteral("score.3d")), b.subScores.value(QStringLiteral("scenes3d")));
-        QCOMPARE(b.subScores.value(QStringLiteral("scenes3d")), 1000.0);  // the fake's 100 fps is the provisional anchor
         // The stub keys kept (P1): scenes3d.vulkan.fps is the geometric mean of the four scene fps.
         double logSum = 0;
         for (const char *scene : {"geometry", "drawcalls", "shading", "particles"})
@@ -296,6 +295,8 @@ private slots:
         QVERIFY2(std::fabs(*b.total - 1000.0 * std::exp(0.8 * std::log(g3) + 0.1 * std::log(gn) + 0.1 * std::log(gf))) <= 0.5 + 1e-9, qPrintable(QString::number(*b.total)));
         QCOMPARE(number(r, QStringLiteral("score.2d")), std::round(1000.0 * std::sqrt(gn * gf)));
         QCOMPARE(b.subScores.value(QStringLiteral("fill2d")), std::round(1000.0 * gf));
+        QCOMPARE(b.subScores.value(QStringLiteral("scenes3d")), std::round(1000.0 * g3));
+        QCOMPARE(b.subScores.value(QStringLiteral("native2d")), std::round(1000.0 * gn));
         QCOMPARE(ctx.holds(), (QVector<bool>{true, false}));
         QCOMPARE(ctx.parts(), (QStringList{QStringLiteral("Geometry · Vulkan"), QStringLiteral("Geometry · OpenGL"),
                                            QStringLiteral("Draw calls · Vulkan"), QStringLiteral("Draw calls · OpenGL"),

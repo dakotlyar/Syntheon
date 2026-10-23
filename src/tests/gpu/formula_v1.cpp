@@ -6,33 +6,31 @@
 namespace sb::gpu::formula_v1 {
 
 namespace {
-// TEMPORARY anchors (task 32, first commit): placeholders so the build and the tests are green. The second commit of
-// task 32 replaces every one of them with a value from a real-display run on Knowhere (Dave's decision; the design said
-// Tiamat's 5070 Ti), and task 36 freezes the final ones from Imagionationmake. Nothing may depend on these numbers.
-constexpr double kProvisionalFps = 100.0;
-constexpr double kProvisionalMops = 1.0;
-constexpr double kProvisionalGpx = 10.0;         // fill2d.quads, Gpx/s
-constexpr double kProvisionalSprites = 10.0;     // fill2d.sprites, MOps/s
+// Anchors: PROVISIONAL, Knowhere (Radeon 8060S) real-display run 2026-10-22, formula versions 0; replaced at
+// calibration on Imagionationmake (task 36). Rounded to 3 significant figures. Nothing may depend on these numbers.
+constexpr double kGeometryFps = 673, kDrawcallsFps = 265, kShadingFps = 119, kParticlesFps = 96.0;
+constexpr double kShapes = 0.0191, kText = 1.81, kBlits = 0.0130, kGradients = 0.0208;  // Qt raster, MOps/s
+constexpr double kQuadsGpx = 74.3, kSpritesMops = 33.8;
 }
 
 const QVector<GeometricGroup> &groups()
 {
     static const QVector<GeometricGroup> g = {
         {QStringLiteral("scenes3d"), 0.80,
-         {{QStringLiteral("scenes3d.geometry.fps"), kProvisionalFps, 0.20},
-          {QStringLiteral("scenes3d.drawcalls.fps"), kProvisionalFps, 0.20},
-          {QStringLiteral("scenes3d.shading.fps"), kProvisionalFps, 0.30},
-          {QStringLiteral("scenes3d.particles.fps"), kProvisionalFps, 0.30}}},
-        // §11.1: Qt raster's MOps/s (D8), 0.25 each; provisional anchors of 1 MOps/s (task 36 freezes them).
+         {{QStringLiteral("scenes3d.geometry.fps"), kGeometryFps, 0.20},
+          {QStringLiteral("scenes3d.drawcalls.fps"), kDrawcallsFps, 0.20},
+          {QStringLiteral("scenes3d.shading.fps"), kShadingFps, 0.30},
+          {QStringLiteral("scenes3d.particles.fps"), kParticlesFps, 0.30}}},
+        // §11.1: Qt raster's MOps/s (D8), 0.25 each; provisional anchors.
         {QStringLiteral("native2d"), 0.10,
-         {{QStringLiteral("native2d.shapes"), kProvisionalMops, 0.25},
-          {QStringLiteral("native2d.text"), kProvisionalMops, 0.25},
-          {QStringLiteral("native2d.blits"), kProvisionalMops, 0.25},
-          {QStringLiteral("native2d.gradients"), kProvisionalMops, 0.25}}},
+         {{QStringLiteral("native2d.shapes"), kShapes, 0.25},
+          {QStringLiteral("native2d.text"), kText, 0.25},
+          {QStringLiteral("native2d.blits"), kBlits, 0.25},
+          {QStringLiteral("native2d.gradients"), kGradients, 0.25}}},
         // §11.1: the best API's fill rates, 0.50 each.
         {QStringLiteral("fill2d"), 0.10,
-         {{QStringLiteral("fill2d.quads"), kProvisionalGpx, 0.50},
-          {QStringLiteral("fill2d.sprites"), kProvisionalSprites, 0.50}}},
+         {{QStringLiteral("fill2d.quads"), kQuadsGpx, 0.50},
+          {QStringLiteral("fill2d.sprites"), kSpritesMops, 0.50}}},
     };
     return g;
 }
