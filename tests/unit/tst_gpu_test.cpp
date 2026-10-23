@@ -6,6 +6,8 @@
 #include "core/units.h"
 #include "fake_test.h"
 #include "privileged/privileged_ops.h"
+#include "storage/database.h"
+#include "storage/run_repository.h"
 #include "tests/common/stub_clock.h"
 #include "tests/gpu/client/gpu_client.h"
 #include "tests/gpu/formula_v1.h"
@@ -13,12 +15,18 @@
 
 #include <QElapsedTimer>
 #include <QFile>
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QSqlDatabase>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QUuid>
 
+#include <algorithm>
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <thread>
 
@@ -1533,6 +1541,93 @@ private slots:
         QVERIFY(blocksOf<KpisBlock>(d).size() == blocksOf<KpisBlock>(g).size());
         // A real run (any api.<api>.status) keeps the GPU page.
         QVERIFY(indexOfTable(t.detail(windowsRun(t)), QStringLiteral("APIs")) >= 0);
+    }
+
+    // Task 35: a history of five GPU runs for tools/cpu-repeatability.py's test (tests/tools/test_cpu_repeatability.py),
+    // built the Phase 3 way: by the C++ side, so the script's re-score is compared with scores the C++ formula made. The
+    // fake worker's run is repeated with each scored metric moved by its own small factor (a CV of about 1%), then
+    // GpuTest::score() and formula_v1::score2d() give the run's score, sub-scores and score.3d / score.2d, and the
+    // app's own RunRepository stores them. The history goes to $SB_GPU_FIXTURE_DB (ctest sets it for the
+    // gpu_repeatability_fixture test, which runs only this slot), else to a temporary folder; either way it is read back.
+    void repeatabilityFixture()
+    {
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult base = scored(t, t.run(ctx, {}));
+        QCOMPARE(base.status, Status::Ok);
+        QVERIFY(base.score.has_value());
+
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString fromEnv = qEnvironmentVariable("SB_GPU_FIXTURE_DB");
+        const QString path = fromEnv.isEmpty() ? tmp.filePath(QStringLiteral("synbench.db")) : fromEnv;
+        QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
+        for (const QString &suffix : {QString(), QStringLiteral("-wal"), QStringLiteral("-shm")})
+            QFile::remove(path + suffix);
+        QVERIFY2(Database::migrate(path).ok(), "migrate");
+
+        static const char *const kScored[] = {"scenes3d.geometry.fps", "scenes3d.drawcalls.fps", "scenes3d.shading.fps", "scenes3d.particles.fps",
+                                              "native2d.shapes", "native2d.text", "native2d.blits", "native2d.gradients",
+                                              "fill2d.quads", "fill2d.sprites"};
+        const QDateTime first(QDate(2026, 10, 23), QTime(9, 0), QTimeZone::UTC);
+        QVector<QUuid> uuids;
+        QVector<double> scores;
+        const QString conn = Database::uniqueConnectionName(QStringLiteral("gpu-fixture"));
+        {
+            QSqlDatabase db = Database::openConnection(path, conn);
+            QVERIFY(db.isOpen());
+            RunRepository repo(db);
+            for (int k = 0; k < 5; ++k) {
+                TestResult r = base;
+                r.testId = QStringLiteral("gpu");
+                r.testVersion = t.info().testVersion;
+                r.formulaVersion = t.info().formulaVersion;
+                r.startedAt = first.addSecs(k * 600);
+                for (Metric &m : r.metrics) {
+                    for (int j = 0; j < int(std::size(kScored)); ++j) {
+                        if (m.key == QLatin1StringView(kScored[j]))
+                            m.value = std::get<double>(m.value) * (1.0 + 0.004 * (((k + 1) * (j + 3)) % 7 - 3));
+                    }
+                }
+                r = scored(t, r);
+                QVERIFY(r.score.has_value());
+                const ScoreBreakdown b = t.score(r);
+                const auto two = gpu::formula_v1::score2d(r);
+                QVERIFY(two.has_value() && b.subScores.contains(QStringLiteral("scenes3d")));
+                for (Metric &m : r.metrics) {
+                    if (m.key == QLatin1StringView("score.3d"))
+                        m.value = b.subScores.value(QStringLiteral("scenes3d"));
+                    else if (m.key == QLatin1StringView("score.2d"))
+                        m.value = *two;
+                }
+                RunRecord rec;
+                rec.uuid = QUuid::createUuid();
+                rec.kind = RunKind::Standard;
+                rec.status = RunStatus::Completed;
+                rec.startedAt = r.startedAt;
+                rec.finishedAt = r.startedAt.addSecs(310);
+                rec.appVersion = QStringLiteral("2026.11.0");
+                rec.appBuild = QStringLiteral("linux-x64 fixture");
+                rec.system.machineLabel = QStringLiteral("Fixture machine");
+                rec.tests = {r};
+                rec.overall = r.score;
+                const auto id = repo.saveRun(rec);
+                QVERIFY2(id.has_value(), "saveRun");
+                uuids.append(rec.uuid);
+                scores.append(*r.score);
+            }
+            // Read back through the repository: the stored scores are the C++ ones.
+            for (int k = 0; k < 5; ++k) {
+                const auto loaded = repo.load(uuids[k]);
+                QVERIFY(loaded.has_value() && loaded->tests.size() == 1);
+                QCOMPARE(loaded->tests[0].score, std::optional<double>(scores[k]));
+                QCOMPARE(loaded->tests[0].subResults.size(), 3);
+            }
+        }
+        Database::closeConnection(conn);
+        QVERIFY(scores.size() == 5 && std::adjacent_find(scores.begin(), scores.end(), std::not_equal_to<>()) != scores.end());  // the runs differ
     }
 };
 

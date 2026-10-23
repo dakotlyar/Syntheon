@@ -153,10 +153,16 @@ if(UNIX AND SYNBENCH_PYTHON3 AND TARGET Qt6::qmllint)
 endif()
 
 # tools/cpu-repeatability.py (§14.3) on small histories made with the app's
-# own migrations, in a temporary folder (never the user's history).
+# own migrations, in a temporary folder (never the user's history), and, for
+# --test gpu (Phase 4a task 35), on the history of five GPU runs that
+# tst_gpu_test's repeatabilityFixture slot writes (the gpu_repeatability_fixture
+# test, in tests/unit/CMakeLists.txt): scored by the C++ formula, so the script's
+# re-score is compared with the C++ one.
 if(SYNBENCH_PYTHON3)
     add_test(NAME cpu_repeatability_tool
-        COMMAND "${SYNBENCH_PYTHON3}" -I "${PROJECT_SOURCE_DIR}/tests/tools/test_cpu_repeatability.py" "${PROJECT_SOURCE_DIR}")
+        COMMAND "${SYNBENCH_PYTHON3}" -I "${PROJECT_SOURCE_DIR}/tests/tools/test_cpu_repeatability.py" "${PROJECT_SOURCE_DIR}"
+                "${SB_GPU_FIXTURE_DB}")
+    set_tests_properties(cpu_repeatability_tool PROPERTIES FIXTURES_REQUIRED gpu_repeatability_db)
 endif()
 
 # The GPU worker's committed SPIR-V and GLSL belong to the current shader

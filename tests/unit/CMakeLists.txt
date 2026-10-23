@@ -74,9 +74,18 @@ add_dependencies(tst_gpu_client fake-gpuworker synbench-gpu)
 target_compile_definitions(tst_gpu_client PRIVATE SB_FAKE_GPUWORKER="$<TARGET_FILE:fake-gpuworker>" SB_GPU_WORKER="$<TARGET_FILE:synbench-gpu>")
 # The GPU test (task 15) with the fake worker.
 synbench_add_unit_test(tst_gpu_formula SOURCES tst_gpu_formula.cpp LIBS synbench_test_gpu Qt6::Core)
-synbench_add_unit_test(tst_gpu_test SOURCES tst_gpu_test.cpp fake_test.h LIBS synbench_test_gpu synbench_builtin_tests Qt6::Core)
+synbench_add_unit_test(tst_gpu_test SOURCES tst_gpu_test.cpp fake_test.h LIBS synbench_test_gpu synbench_builtin_tests synbench_storage Qt6::Core)
 add_dependencies(tst_gpu_test fake-gpuworker)
 target_compile_definitions(tst_gpu_test PRIVATE SB_FAKE_GPUWORKER="$<TARGET_FILE:fake-gpuworker>")
+# Task 35: the history of five GPU runs that tests/tools/test_cpu_repeatability.py (cpu_repeatability_tool) reads, written
+# by tst_gpu_test's repeatabilityFixture slot (its own short test, so the repeatability test doesn't wait for the whole
+# binary). The full tst_gpu_test run builds the same history in a temporary folder.
+set(SB_GPU_FIXTURE_DB "${CMAKE_BINARY_DIR}/test-fixtures/gpu-repeatability/synbench.db" CACHE INTERNAL "")
+add_test(NAME gpu_repeatability_fixture COMMAND tst_gpu_test repeatabilityFixture)
+synbench_isolate_test(gpu_repeatability_fixture)
+set_property(TEST gpu_repeatability_fixture APPEND PROPERTY ENVIRONMENT "SB_GPU_FIXTURE_DB=${SB_GPU_FIXTURE_DB}")
+set_property(TEST gpu_repeatability_fixture PROPERTY FIXTURES_SETUP gpu_repeatability_db)
+set_property(TEST gpu_repeatability_fixture APPEND PROPERTY LABELS gpu)
 # The real backends on software drivers (task 10: Vulkan on lavapipe, with
 # validation): headless in-process and through the worker; tst_gpu_present
 # with a window, under xvfb-run only (A-X; it skips under offscreen).

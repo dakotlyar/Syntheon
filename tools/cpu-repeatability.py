@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""cpu-repeatability: how repeatable the CPU or RAM test is over saved runs.
+"""cpu-repeatability: how repeatable the CPU, RAM or GPU test is over saved runs.
 
-Phase 2 design §14.3 / §14.4 (D17) and Phase 3 §14.3 / §14.4 (D19): the
-validation gate asks for a CV of the test's score of at most 3% over 5 runs.
+Phase 2 design §14.3 / §14.4 (D17), Phase 3 §14.3 / §14.4 (D19) and Phase 4a
+§17.4 (task 35): the validation gate asks for a CV of the test's score of at
+most 3% over 5 runs.
 This reads a SynBench history (synbench.db, opened read-only) and prints, for
 the chosen results of one test:
 
@@ -11,17 +12,17 @@ the chosen results of one test:
     conditions it ran in (power source, power profile, background load
     before the run; CPU: the single-thread mark and the throttling flag;
     RAM: DRAM latency, all-thread read, loaded latency and the huge-page
-    coverage);
+    coverage; GPU: Geometry fps, Quads Gpx/s and the GPU's name);
   * the CV (sample standard deviation / mean) of the score, of each group
-    sub-score and (CPU) of the single-thread mark or (RAM) of every scored
-    metric, with every CV above the limit flagged. latency.l3 missing from
+    sub-score and (CPU) of the single-thread mark or (RAM, GPU) of every
+    scored metric, with every CV above the limit flagged. latency.l3 missing from
     every run (a core without an L3) is listed as not measured and doesn't
     fail the set; any other scored metric missing fails it.
 
 Usage:
-  cpu-repeatability.py <synbench.db> [--test cpu|ram] [-n N] [--runs ID,ID,...] [--limit PCT] [--anchors]
+  cpu-repeatability.py <synbench.db> [--test cpu|ram|gpu] [-n N] [--runs ID,ID,...] [--limit PCT] [--anchors]
 
-  --test T    which test's results: cpu (the default) or ram
+  --test T    which test's results: cpu (the default), ram or gpu
   -n N        the last N results of that test that have a score (default
               5), of the newest result's test and formula version
   --runs ...  these run ids instead (as the first column prints them), in
@@ -36,6 +37,17 @@ Usage:
               the median run then scores about 1,000. A re-scored CV equals
               the stored score's (anchors scale every run alike); it is
               printed as the check. Exit 1 if any gate fails.
+              GPU calibration (Phase 4a §17.4) is the same with --test gpu:
+              the gate is status ok on every run (a Partial run, such as a
+              signature outlier, doesn't count and is reported) on one
+              machine, the GPU score's CV, and each scored metric's CV
+              (reported; target 2%). The ten constants are formula_v1.cpp's
+              (kGeometryFps .. kSpritesMops), and the runs are also
+              re-scored with the constants that file has NOW: the check that
+              this script's formula is the C++ one. Those scores equal the
+              stored ones when the runs were made with the same constants;
+              a run stored under older anchors differs, which is reported
+              and doesn't fail the gate.
 
 For RAM there is no MLC cross-check (Phase 3 D19): the gate is this CV plus
 a sensible machine ranking.
@@ -96,9 +108,32 @@ TESTS = {
         # Absent from every run on a core without an L3 (Phase 3 D1).
         "optional": ("latency.l3",),
     },
+    # Phase 4a §10, §11.1: the three groups, then every scored metric (Qt raster's native numbers, the best API's fill rates).
+    "gpu": {
+        "name": "GPU",
+        "groups": [
+            ("scenes3d", "3D scenes"),
+            ("native2d", "Native 2D"),
+            ("fill2d", "2D fill-rate"),
+        ],
+        "metrics": [
+            ("scenes3d.geometry.fps", "Geometry (fps)"),
+            ("scenes3d.drawcalls.fps", "Draw calls (fps)"),
+            ("scenes3d.shading.fps", "Shading (fps)"),
+            ("scenes3d.particles.fps", "Particles (fps)"),
+            ("native2d.shapes", "Shapes (MOps/s)"),
+            ("native2d.text", "Text (MOps/s)"),
+            ("native2d.blits", "Blits (MOps/s)"),
+            ("native2d.gradients", "Gradients (MOps/s)"),
+            ("fill2d.quads", "Quads (Gpx/s)"),
+            ("fill2d.sprites", "Sprites (MOps/s)"),
+        ],
+    },
 }
 # §15.1: RAM calibration runs need at least this huge-page coverage.
 RAM_HUGE_PAGES_MIN = 90
+# Phase 4a §17.4: each scored GPU metric's CV is reported against this target (the gate is the score's CV).
+GPU_METRIC_CV_TARGET = 2.0
 
 # Formula v1 (Phase 3 §10.2, src/tests/ram/formula_v1.cpp), for --anchors:
 # group -> (weight, [(metric, weight in group, lower is better)]); the
@@ -118,6 +153,29 @@ RAM_ANCHOR_NAMES = [("kL1", "latency.l1", "ns"), ("kL2", "latency.l2", "ns"), ("
                     ("kCopy", "bandwidth.copy", "GB/s, all threads, read + written"),
                     ("kStRead", "bandwidth.st.read", "GB/s, single thread"), ("kStWrite", "bandwidth.st.write", ""),
                     ("kStCopy", "bandwidth.st.copy", ""), ("kLoaded", "loaded.latency", "ns, full load")]
+
+
+# Formula v1 (Phase 4a §11.1, src/tests/gpu/formula_v1.cpp): group -> (weight, [(metric, weight in group)]); every
+# scored metric is higher-is-better, so n = metric / anchor.
+GPU_FORMULA = [
+    ("scenes3d", 0.80, [("scenes3d.geometry.fps", 0.20), ("scenes3d.drawcalls.fps", 0.20),
+                        ("scenes3d.shading.fps", 0.30), ("scenes3d.particles.fps", 0.30)]),
+    ("native2d", 0.10, [("native2d.shapes", 0.25), ("native2d.text", 0.25), ("native2d.blits", 0.25),
+                        ("native2d.gradients", 0.25)]),
+    ("fill2d", 0.10, [("fill2d.quads", 0.50), ("fill2d.sprites", 0.50)]),
+]
+# formula_v1.cpp's anchor constants, in its order (name, metric, unit).
+GPU_ANCHOR_NAMES = [("kGeometryFps", "scenes3d.geometry.fps", "fps"), ("kDrawcallsFps", "scenes3d.drawcalls.fps", "fps"),
+                    ("kShadingFps", "scenes3d.shading.fps", "fps"), ("kParticlesFps", "scenes3d.particles.fps", "fps"),
+                    ("kShapes", "native2d.shapes", "Qt raster, MOps/s"), ("kText", "native2d.text", ""),
+                    ("kBlits", "native2d.blits", ""), ("kGradients", "native2d.gradients", ""),
+                    ("kQuadsGpx", "fill2d.quads", "Gpx/s, the best API's"), ("kSpritesMops", "fill2d.sprites", "MOps/s, the best API's")]
+# The constants formula_v1.cpp has now (PROVISIONAL, the real-display Knowhere run of 2026-10-22; task 36 replaces them).
+# tests/tools/test_cpu_repeatability.py compares this table with that file, so an edit of one without the other fails.
+GPU_CURRENT_ANCHORS = {"scenes3d.geometry.fps": 673.0, "scenes3d.drawcalls.fps": 265.0, "scenes3d.shading.fps": 119.0,
+                       "scenes3d.particles.fps": 96.0, "native2d.shapes": 0.0191, "native2d.text": 1.81,
+                       "native2d.blits": 0.0130, "native2d.gradients": 0.0208, "fill2d.quads": 74.3,
+                       "fill2d.sprites": 33.8}
 
 
 def sig3(x):
@@ -148,6 +206,42 @@ def ram_rescore(metrics, anchors):
             ln_g += v * math.log(a / r if lower else r / a)
         total += w_group * ln_g
     return round(1000.0 * math.exp(total))
+
+
+def gpu_rescore(metrics, anchors):
+    """The GPU score of one run's metrics with these anchors (formula v1, as weightedGeometricScore() builds it):
+    (total, {group: sub-score}, 2D score), each None when a metric it needs (or its anchor) is missing or not positive.
+    The total is round(1000 x exp(sum W.ln G)), a sub-score round(1000 x G), and the 2D score
+    round(1000 x sqrt(G_native x G_fill)) from the unrounded groups (formula_v1::score2d)."""
+    # std::round rounds halves away from zero, Python's round() to even: the scores here are positive.
+    def half_up(x):
+        return float(math.floor(x + 0.5))
+
+    logs, subs, complete = {}, {}, True
+    for gid, _, items in GPU_FORMULA:
+        ln_g, present = 0.0, True
+        for key, w in items:
+            r, a = metrics.get(key), anchors.get(key)
+            if not isinstance(r, (int, float)) or not r > 0 or not a or not a > 0:
+                present = False
+                break
+            ln_g += w * math.log(r / a)
+        if not present:
+            complete = False
+            continue
+        logs[gid] = ln_g
+        subs[gid] = half_up(1000.0 * math.exp(ln_g))
+    log_total = 0.0
+    for g, w, _ in GPU_FORMULA:
+        if g in logs:
+            log_total += w * logs[g]
+    total = half_up(1000.0 * math.exp(log_total)) if complete else None
+    # score2d() asks for the groups at a 1e9 scale, so rounding them costs nothing.
+    two_d = None
+    if "native2d" in logs and "fill2d" in logs:
+        native, fill = half_up(1e9 * math.exp(logs["native2d"])), half_up(1e9 * math.exp(logs["fill2d"]))
+        two_d = half_up(1000.0 * math.sqrt((native / 1e9) * (fill / 1e9)))
+    return total, subs, two_d
 
 
 def open_readonly(path):
@@ -223,7 +317,7 @@ def fmt_num(v, digits=0):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="cpu-repeatability.py",
-                                 description="CV of the CPU or RAM score, its group sub-scores and its main metrics over "
+                                 description="CV of the CPU, RAM or GPU score, its group sub-scores and its main metrics over "
                                              "saved runs.",
                                  epilog="The history is opened read-only and never modified. It is in WAL mode, so "
                                         "SQLite may leave a -shm file (and an empty -wal file) next to it when "
@@ -234,7 +328,7 @@ def main(argv=None):
     ap.add_argument("--runs", help="comma-separated run ids instead of the last N")
     ap.add_argument("--limit", type=float, default=3.0, help="CV limit in percent (default 3)")
     ap.add_argument("--anchors", action="store_true",
-                    help="RAM calibration: gate status and huge pages, print the median anchors (3 significant "
+                    help="RAM or GPU calibration: gate the runs, print the median anchors (3 significant "
                          "figures) and the runs re-scored with them")
     try:
         args = ap.parse_args(argv)
@@ -247,8 +341,8 @@ def main(argv=None):
         except ValueError:
             print("cpu-repeatability: --runs takes run ids, such as 3,4,5", file=sys.stderr)
             return 2
-    if args.anchors and args.test != "ram":
-        print("cpu-repeatability: --anchors is for --test ram", file=sys.stderr)
+    if args.anchors and args.test not in ("ram", "gpu"):
+        print("cpu-repeatability: --anchors is for --test ram or --test gpu", file=sys.stderr)
         return 2
     if args.n < 1 or not math.isfinite(args.limit) or args.limit <= 0:
         print("cpu-repeatability: -n must be at least 1 and --limit a positive number", file=sys.stderr)
@@ -279,6 +373,14 @@ def main(argv=None):
             "background": bg,
             "throttle": metric(con, tid, "throttle"),
             "huge": metric(con, tid, "pages.huge"),
+            "gpu": metric(con, tid, "gpu.name"),
+            "driver": metric(con, tid, "gpu.driver"),
+            "render": metric(con, tid, "render.size"),
+            "window": metric(con, tid, "window.size"),
+            "stored3d": metric(con, tid, "score.3d"),
+            "stored2d": metric(con, tid, "score.2d"),
+            "api_status": {k: v for k, v in con.execute(
+                "SELECT key, value_text FROM metrics WHERE test_result_id = ? AND key LIKE 'api.%.status'", (tid,))},
         })
     con.close()
 
@@ -289,12 +391,17 @@ def main(argv=None):
         extra = lambda r: [fmt_num(r["metrics"]["single.mark"])]
         tail_head = ["throttling"]
         tail = lambda r: [r["throttle"] or "—"]
-    else:
+    elif args.test == "ram":
         extra_head = ["DRAM ns", "read GB/s", "loaded ns"]
         extra = lambda r: [fmt_num(r["metrics"]["latency.dram"], 1), fmt_num(r["metrics"]["bandwidth.read"], 1),
                            fmt_num(r["metrics"]["loaded.latency"], 1)]
         tail_head = ["huge pages"]
         tail = lambda r: [f"{r['huge']:.0f}%" if isinstance(r["huge"], (int, float)) else (r["huge"] or "—")]
+    else:
+        extra_head = ["geometry fps", "quads Gpx/s"]
+        extra = lambda r: [fmt_num(r["metrics"]["scenes3d.geometry.fps"], 1), fmt_num(r["metrics"]["fill2d.quads"], 1)]
+        tail_head = ["GPU"]
+        tail = lambda r: [r["gpu"] or "—"]
     head = ["run", "started (UTC)", "status", "score"] + [label for _, label in groups] + \
            extra_head + ["power", "profile", "bg load"] + tail_head
     table = []
@@ -320,6 +427,7 @@ def main(argv=None):
              [(label, [r["subs"][g] for r in runs], False) for g, label in groups] + \
              [(label, [r["metrics"][k] for r in runs], k in spec.get("optional", ())) for k, label in spec["metrics"]]
     width = max(20, *(len(label) for label, _, _ in series))
+    gpu_metric_labels = {label for _, label in spec["metrics"]}
     for label, values, optional in series:
         used = sum(isinstance(v, (int, float)) for v in values)
         if optional and used == 0:
@@ -334,6 +442,9 @@ def main(argv=None):
             continue
         flag = "FAIL" if cv > args.limit else "ok"
         failed = failed or cv > args.limit
+        # §17.4: each scored GPU metric's CV is reported against a 2% target (the gate is the score's CV).
+        if args.test == "gpu" and flag == "ok" and label in gpu_metric_labels and cv > GPU_METRIC_CV_TARGET:
+            flag = f"ok (above the {GPU_METRIC_CV_TARGET:g}% target)"
         mean = statistics.fmean([v for v in values if isinstance(v, (int, float))])
         print(f"  {label:<{width}} {cv:5.2f}%  (n={used}, mean {mean:,.{3 if mean < 10 else 1}f})  {flag}")
 
@@ -345,6 +456,10 @@ def main(argv=None):
         notes.append("the runs are from different machines")
     if len({(r["test_version"], r["formula_version"]) for r in runs}) > 1:
         notes.append(f"the runs use different {name} test or formula versions")
+    if args.test == "gpu":
+        for what, key in (("GPUs", "gpu"), ("drivers", "driver"), ("render sizes", "render")):
+            if len({r[key] for r in runs}) > 1:
+                notes.append(f"the runs have different {what}: " + ", ".join(sorted({str(r[key]) for r in runs})))
     for r in runs:
         why = []
         if r["status"] != "ok":
@@ -357,6 +472,12 @@ def main(argv=None):
             why.append(f"throttling {r['throttle'].lower()}")
         if args.test == "ram" and isinstance(r["huge"], (int, float)) and r["huge"] < RAM_HUGE_PAGES_MIN:
             why.append(f"huge pages {r['huge']:.0f}% (calibration needs {RAM_HUGE_PAGES_MIN}%)")
+        if args.test == "gpu":
+            bad = [k.split(".")[1] for k, v in sorted(r["api_status"].items()) if v and v.startswith("Error")]
+            if bad:
+                why.append("API error: " + ", ".join(bad))
+            if isinstance(r["window"], str) and "scaled to fit" in r["window"]:
+                why.append("the window was scaled to fit the screen")
         if why:
             notes.append(f"run {r['id']}: " + ", ".join(why))
     if notes:
@@ -365,10 +486,14 @@ def main(argv=None):
         for n in notes:
             print(f"  - {n}")
 
-    # --- RAM calibration (§15.1, §10.3) ----------------------------------------------
+    # --- RAM and GPU calibration (Phase 3 §15.1, §10.3; Phase 4a §17.4) ---------------------
     if args.anchors:
+        gpu = args.test == "gpu"
         print()
-        print(f"Calibration gate (§15.1): {len(runs)} run(s), status ok, huge pages >= {RAM_HUGE_PAGES_MIN}%:")
+        if gpu:
+            print(f"Calibration gate (§17.4): {len(runs)} run(s), every one status ok (a Partial run doesn't count):")
+        else:
+            print(f"Calibration gate (§15.1): {len(runs)} run(s), status ok, huge pages >= {RAM_HUGE_PAGES_MIN}%:")
         if not run_ids and len(runs) < args.n:
             failed = True
             print(f"  only {len(runs)} of the {args.n} runs asked for  FAIL")
@@ -376,6 +501,11 @@ def main(argv=None):
             failed = True
             print("  the runs are from different machines  FAIL")
         for r in runs:
+            if gpu:
+                ok = r["status"] == "ok"
+                failed = failed or not ok
+                print(f"  run {r['id']}: status {r['status']}  {'ok' if ok else 'FAIL'}")
+                continue
             huge = r["huge"]
             ok = r["status"] == "ok" and isinstance(huge, (int, float)) and huge >= RAM_HUGE_PAGES_MIN
             failed = failed or not ok
@@ -384,19 +514,27 @@ def main(argv=None):
         anchors = {}
         print()
         print("Anchors: the median of each scored metric, 3 significant figures (formula_v1.cpp):")
-        for name, key, unit in RAM_ANCHOR_NAMES:
+        for aname, key, unit in (GPU_ANCHOR_NAMES if gpu else RAM_ANCHOR_NAMES):
             vals = [r["metrics"][key] for r in runs if isinstance(r["metrics"][key], (int, float))]
             if not vals:
-                print(f"  // {name}: {key} not measured on these runs; keep the current value")
+                print(f"  // {aname}: {key} not measured on these runs; keep the current value")
                 continue
             anchors[key] = sig3(statistics.median(vals))
             comment = f"  // {unit}" if unit else ""
-            print(f"  constexpr double {name} = {sig3_text(anchors[key])};{comment}")
-        rescored = [ram_rescore(r["metrics"], anchors) for r in runs]
+            print(f"  constexpr double {aname} = {sig3_text(anchors[key])};{comment}")
         print()
-        print("Each run re-scored with these anchors (formula v1):")
-        for r, s in zip(runs, rescored):
-            print(f"  run {r['id']}: {fmt_num(s)} (stored {fmt_num(r['score'])})")
+        if gpu:
+            rescored = [gpu_rescore(r["metrics"], anchors)[0] for r in runs]
+            print("Each run re-scored with these anchors (formula v1):")
+            for r in runs:
+                total, subs, two_d = gpu_rescore(r["metrics"], anchors)
+                parts = " · ".join(f"{label} {fmt_num(subs.get(g))}" for g, label in groups)
+                print(f"  run {r['id']}: {fmt_num(total)} (stored {fmt_num(r['score'])})  {parts} · 2D {fmt_num(two_d)}")
+        else:
+            rescored = [ram_rescore(r["metrics"], anchors) for r in runs]
+            print("Each run re-scored with these anchors (formula v1):")
+            for r, sc in zip(runs, rescored):
+                print(f"  run {r['id']}: {fmt_num(sc)} (stored {fmt_num(r['score'])})")
         cv = cv_percent(rescored)
         if cv is None:
             failed = True
@@ -404,8 +542,22 @@ def main(argv=None):
         else:
             flag = "FAIL" if cv > args.limit else "ok"
             failed = failed or cv > args.limit
-            med = statistics.median([s for s in rescored if s is not None])
+            med = statistics.median([sc for sc in rescored if sc is not None])
             print(f"  re-scored CV {cv:.2f}%  {flag}; median {med:,.0f} (about 1,000 expected)")
+        if gpu:
+            # The check that this script's formula is formula_v1.cpp's: the constants that file has now. Equal to the
+            # stored scores for runs made with them; a run stored under older anchors differs, and that is not a failure.
+            print()
+            print("Re-scored with the constants formula_v1.cpp has now (the stored score should equal this one, unless the "
+                  "run was stored under other anchors: see git log of formula_v1.cpp):")
+            for r in runs:
+                total, subs, two_d = gpu_rescore(r["metrics"], GPU_CURRENT_ANCHORS)
+                same = (total == r["score"] and all(subs.get(g) == r["subs"][g] for g, _ in groups)
+                        and (r["stored3d"] is None or subs.get("scenes3d") == r["stored3d"])
+                        and (r["stored2d"] is None or two_d == r["stored2d"]))
+                print(f"  run {r['id']}: {fmt_num(total)} (stored {fmt_num(r['score'])})  "
+                      + " · ".join(f"{label} {fmt_num(subs.get(g))} ({fmt_num(r['subs'][g])})" for g, label in groups)
+                      + f" · 2D {fmt_num(two_d)} ({fmt_num(r['stored2d'])})  " + ("equal" if same else "differs"))
     print()
     print("RESULT: " + ("FAIL (a CV is above the limit, or there is too little to compare)" if failed else "PASS"))
     return 1 if failed else 0
