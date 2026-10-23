@@ -44,8 +44,9 @@ if(SYNBENCH_DEV_HOOKS)
     target_sources(synbench_appcore PRIVATE screenshot_tour.h screenshot_tour.cpp)
 endif()
 
-# Theme.qml is a singleton (set before the module is declared).
+# Theme.qml and DetailState.qml are singletons (set before the module is declared).
 set_source_files_properties(qml/theme/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/detail/DetailState.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # The QML module lives in a library so the Qt Quick tests (tests/qml) can import
 # it; the executable only links it and starts the app.
@@ -97,6 +98,7 @@ qt_add_qml_module(synbench_ui
         qml/detail/ChartBlock.qml
         qml/detail/NoteBlock.qml
         qml/detail/NaStateBlock.qml
+        qml/detail/DetailState.qml
         qml/detail/DetailPage.qml
         qml/screens/DetailScreen.qml
         qml/dialogs/LogDialog.qml

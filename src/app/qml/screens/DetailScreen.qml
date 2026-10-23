@@ -77,6 +77,7 @@ ScreenFrame {
     DetailPage {
         objectName: "detailPage"
         Layout.fillWidth: true
+        testId: Results.detailTestId
         blocks: Results.detailBlocks
         colorToken: Results.detailColorToken
     }

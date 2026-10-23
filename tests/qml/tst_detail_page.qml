@@ -4,10 +4,9 @@ import QtQuick
 import QtTest
 import SynBench
 
-// How the Detail page groups its blocks into rows (Zeb M1): consecutive
-// tables pair up unless one is fullWidth. Every CPU table is fullWidth (Dave,
-// 2026-10-18), so each is alone on its row, and the all-threads note sits
-// right under the Single-thread table.
+// How the Detail page arranges its blocks (Phase 4a D24): the top blocks,
+// then the charts, then the tables, collapsed and remembered per test id +
+// title for the session (D25); and the chart drawing and hover.
 TestCase {
     id: test
     name: "DetailPage"
@@ -19,31 +18,140 @@ TestCase {
     Component { id: pageComponent; DetailPage { width: 900 } }
     Component { id: chartComponent; ChartBlock { width: 600; colorToken: "t-ram" } }
 
+    function init() { DetailState.clear() }
+
     function table(title, fullWidth) { return { type: "table", title: title, columns: ["A"], rows: [], fullWidth: fullWidth } }
-    function note() { return { type: "note", title: "", text: "n", tone: "warn" } }
-    function shape(rows) {
-        return rows.map(r => r.kind + ":" + r.blocks.map(b => b.title || b.type).join("+"))
+    function note(text, tone) { return { type: "note", title: "", text: text, tone: tone } }
+    function chart(t) { return { type: "linechart", title: t } }
+    function kpis() { return { type: "kpis", title: "", items: [] } }
+    function shape(s) {
+        const name = b => b.type === "note" ? "note:" + b.text : (b.title || b.type)
+        return { top: s.top.map(name),
+                 charts: s.charts.map(e => name(e.block) + e.notes.map(n => "+" + n.text).join("")),
+                 tables: s.tables.map(e => name(e.block) + e.notes.map(n => "+" + n.text).join("")) }
+    }
+    function arranged(blocks) {
+        return shape(createTemporaryObject(pageComponent, test).arrange(blocks))
+    }
+    // Every item under `item` with this objectName, in tree order.
+    function findAll(item, name) {
+        let found = []
+        for (const c of item.children) {
+            if (c.objectName === name) found.push(c)
+            found = found.concat(findAll(c, name))
+        }
+        return found
+    }
+    function visibleNotes(page) { return findAll(page, "tableNote").filter(n => n.visible) }
+
+    // Phase 4a D24, §22.3: what each page becomes.
+    function test_cpuOrder() {
+        const blocks = [kpis(), table("Sub-tests", true), note("throttled", "warn"), table("Encryption", true),
+                        note("hw", "neutral"), table("Compression", true), table("Single-thread", true),
+                        note("all threads", "neutral"), chart("Clock"), chart("Temp"), note("battery", "warn")]
+        compare(arranged(blocks), { top: ["kpis", "note:throttled", "note:battery"], charts: ["Clock", "Temp"],
+                                    tables: ["Sub-tests", "Encryption+hw", "Compression", "Single-thread+all threads"] })
     }
 
-    function test_completedUnthrottled() {
-        const page = createTemporaryObject(pageComponent, test)
-        const blocks = [{ type: "kpis", title: "", items: [] }, table("Sub-tests", true), table("Encryption", true), note(),
-                        table("Compression", true), table("Single-thread", true), note()]
-        compare(shape(page.group(blocks)), ["single:kpis", "single:Sub-tests", "single:Encryption", "single:note",
-                                            "single:Compression", "single:Single-thread", "single:note"])
+    function test_ramOrder() {
+        const blocks = [kpis(), table("Sub-tests"), chart("Lat"), table("Latency"), note("caches", "neutral"),
+                        table("Bandwidth"), note("stores", "neutral"), note("limited", "warn"), chart("Loaded"),
+                        table("Points"), note("chase", "neutral"), table("Memory"), table("Peak"), table("Modules"),
+                        note("spd", "neutral"), note("pages", "warn")]
+        compare(arranged(blocks), { top: ["kpis", "note:limited", "note:pages"], charts: ["Lat+caches", "Loaded+chase"],
+                                    tables: ["Sub-tests", "Latency", "Bandwidth+stores", "Points", "Memory", "Peak",
+                                             "Modules+spd"] })
     }
 
-    function test_stoppedOrWorkerMissing() {
-        // No Encryption table and no note: still one table per row.
-        const page = createTemporaryObject(pageComponent, test)
-        const blocks = [table("Sub-tests", true), table("Compression", true), table("Single-thread", true), note()]
-        compare(shape(page.group(blocks)), ["single:Sub-tests", "single:Compression", "single:Single-thread", "single:note"])
+    function test_gpuOrder() {
+        const blocks = [kpis(), table("Sub-tests"), table("3D"), note("each", "neutral"), chart("Geo"), table("GeoBy"),
+                        chart("DC"), table("DCBy"), note("draws", "neutral"), chart("Sh"), table("ShBy"), chart("Pa"),
+                        table("PaBy"), table("Fill"), note("fill", "neutral"), table("Native"), note("native", "neutral"),
+                        table("APIs"), table("Render"), note("scaled", "warn")]
+        compare(arranged(blocks), { top: ["kpis", "note:scaled"], charts: ["Geo", "DC+draws", "Sh", "Pa"],
+                                    tables: ["Sub-tests", "3D+each", "GeoBy", "DCBy", "ShBy", "PaBy", "Fill+fill",
+                                             "Native+native", "APIs", "Render"] })
     }
 
-    function test_partialWithoutSingleThread() {
-        const page = createTemporaryObject(pageComponent, test)
-        const blocks = [table("Sub-tests", true), table("Encryption", true), table("Compression", true), note()]
-        compare(shape(page.group(blocks)), ["single:Sub-tests", "single:Encryption", "single:Compression", "single:note"])
+    function test_genericAndNa() {
+        const generic = [kpis(), table("All metrics"), chart("s1"), chart("s2"), note("why", "na")]
+        compare(arranged(generic), { top: ["kpis", "note:why"], charts: ["s1", "s2"], tables: ["All metrics"] })
+        const page = createTemporaryObject(pageComponent, test, { blocks: [{ type: "nastate", title: "N/A", body: "" }] })
+        compare(shape(page.sections), { top: ["N/A"], charts: [], tables: [] })
+        verify(!findChild(page, "tablesBar").visible)
+    }
+
+    function test_noteRules() {
+        compare(arranged([note("lead", "neutral"), kpis()]), { top: ["note:lead", "kpis"], charts: [], tables: [] })
+        compare(arranged([table("A"), note("1", "neutral"), note("2", "neutral")]), { top: [], charts: [], tables: ["A+1+2"] })
+        compare(arranged([table("A"), note("w", "warn"), note("n", "neutral")]), { top: ["note:w"], charts: [], tables: ["A+n"] })
+    }
+
+    // Phase 4a D25: collapsed by default, remembered per test id + title.
+    function test_tablesStartCollapsedAndRemember() {
+        const a = { type: "table", title: "A", columns: ["A"], rows: [["1"]], fullWidth: false }
+        const blocks = [a, table("B", false)]
+        const page = createTemporaryObject(pageComponent, test, { testId: "gpu", blocks: blocks })
+        waitForRendering(page)
+        let tables = findAll(page, "detailTable")
+        compare(tables.length, 2)
+        verify(!tables[0].expanded)
+        verify(!tables[1].expanded)
+        mouseClick(findChild(tables[0], "tableHeader"))
+        verify(tables[0].expanded)
+        verify(!tables[1].expanded)
+        verify(DetailState.isExpanded("gpu|A|0"))
+
+        const again = createTemporaryObject(pageComponent, test, { testId: "gpu", blocks: blocks })
+        tables = findAll(again, "detailTable")
+        verify(tables[0].expanded)  // session memory
+        verify(!tables[1].expanded)
+
+        const other = createTemporaryObject(pageComponent, test, { testId: "cpu", blocks: blocks })
+        verify(!findAll(other, "detailTable")[0].expanded)
+    }
+
+    function test_expandAll() {
+        const page = createTemporaryObject(pageComponent, test, { testId: "t", blocks: [table("A"), table("B")] })
+        waitForRendering(page)
+        const button = findChild(page, "expandAll")
+        verify(findChild(page, "tablesBar").visible)
+        compare(button.text, "Expand all")
+        mouseClick(button)
+        let tables = findAll(page, "detailTable")
+        verify(tables[0].expanded && tables[1].expanded)
+        compare(button.text, "Collapse all")
+        mouseClick(button)
+        verify(!tables[0].expanded && !tables[1].expanded)
+        compare(button.text, "Expand all")
+        // Opening every table one by one also flips the button.
+        tables[0].expandRequested(true)
+        compare(button.text, "Expand all")
+        tables[1].expandRequested(true)
+        compare(button.text, "Collapse all")
+    }
+
+    function test_duplicateTitles() {
+        const page = createTemporaryObject(pageComponent, test, { testId: "t", blocks: [table("X"), table("X")] })
+        compare(page.tableKeys, ["t|X|0", "t|X|1"])
+    }
+
+    function test_tableNotesOnlyWhenOpen() {
+        const page = createTemporaryObject(pageComponent, test, { testId: "t", blocks: [table("A"), note("n", "neutral")] })
+        compare(visibleNotes(page).length, 0)
+        findAll(page, "detailTable")[0].expandRequested(true)
+        const shown = visibleNotes(page)
+        compare(shown.length, 1)
+        compare(shown[0].block.text, "n")
+    }
+
+    // A chart's notes sit under it, always shown.
+    function test_chartNotes() {
+        const page = createTemporaryObject(pageComponent, test, { blocks: [chartBlock({}), note("caches", "neutral")] })
+        const notes = findAll(page, "chartNote")
+        compare(notes.length, 1)
+        verify(notes[0].visible)
+        compare(notes[0].block.text, "caches")
     }
 
     function chartBlock(extra) {
@@ -125,20 +233,6 @@ TestCase {
             for (let px = l.x; px <= l.x + l.width; px += 1)
                 verify(l.y + l.height <= chart.curveYAt(px) + 0.5, l.text + " touches the curve at x " + px)
         }
-    }
-
-    // The RAM mockup's rows: each chart beside its table (3:2), a note
-    // ending the row; the bandwidth and modules tables full width; the
-    // SMBIOS readout beside the derived peak.
-    function test_ramMockupRows() {
-        const page = createTemporaryObject(pageComponent, test)
-        const chart = t => ({ type: "linechart", title: t })
-        const blocks = [{ type: "kpis", title: "", items: [] }, table("Sub-tests", true), chart("Latency chart"), table("Latency"), note(),
-                        table("Bandwidth", true), note(), chart("Loaded chart"), table("Points"), note(), table("Memory"),
-                        table("Peak"), table("Modules", true), note()]
-        compare(shape(page.group(blocks)), ["single:kpis", "single:Sub-tests", "split:Latency chart+Latency", "single:note",
-                                            "single:Bandwidth", "single:note", "split:Loaded chart+Points", "single:note",
-                                            "pair:Memory+Peak", "single:Modules", "single:note"])
     }
 
     // AP-5 L1: `filled` moves the filled dot off the last point.
@@ -233,10 +327,5 @@ TestCase {
         chart.hoverIndex = 2
         chart.points = [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }]
         compare(chart.hoverIndex, -1)
-    }
-
-    function test_plainTablesStillPair() {
-        const page = createTemporaryObject(pageComponent, test)
-        compare(shape(page.group([table("A"), table("B")])), ["pair:A+B"])
     }
 }

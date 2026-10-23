@@ -5,40 +5,50 @@ import QtQuick.Layouts
 import SynBench
 
 // Renders a test's DetailLayout, already turned into plain data (P6): one
-// renderer for every test. Charts sit beside the tables that follow them, and
-// consecutive tables pair up, when there is room (as in the mockup), unless
-// either is marked fullWidth.
+// renderer for every test. Phase 4a D24/D25/D28: the top blocks, then every
+// chart full width, then the tables, collapsed until opened; which tables are
+// open is remembered for the session in DetailState.
 ColumnLayout {
     id: root
 
     property var blocks: []
     property string colorToken
-    readonly property bool wide: width >= 760
+    property string testId
 
-    // Groups the blocks into rows: [{kind: "single"|"split"|"pair", blocks: [...]}].
-    function group(list) {
-        const rows = []
-        let i = 0
-        while (i < list.length) {
+    // Phase 4a D24: every page is the top blocks, then the charts, then the
+    // tables. A neutral note explains the block before it (§22.3); any other
+    // note is about the run and goes to the top.
+    function arrange(list) {
+        const top = [], charts = [], tables = []
+        const owner = new Map()  // block index -> its chart/table entry
+        for (let i = 0; i < list.length; ++i) {
             const b = list[i]
             if (b.type === "linechart") {
-                const tail = []
-                let j = i + 1
-                while (j < list.length && list[j].type === "table" && tail.length < 3) tail.push(list[j++])
-                rows.push(tail.length > 0 ? { kind: "split", blocks: [b].concat(tail) } : { kind: "single", blocks: [b] })
-                i = j
-            } else if (b.type === "table" && !b.fullWidth && i + 1 < list.length && list[i + 1].type === "table"
-                       && !list[i + 1].fullWidth) {
-                rows.push({ kind: "pair", blocks: [b, list[i + 1]] })
-                i += 2
+                const e = { block: b, notes: [] }; charts.push(e); owner.set(i, e)
+            } else if (b.type === "table") {
+                const e = { block: b, notes: [] }; tables.push(e); owner.set(i, e)
+            } else if (b.type === "note" && b.tone === "neutral") {
+                let j = i - 1
+                while (j >= 0 && list[j].type === "note") --j
+                if (j < 0 || !owner.has(j)) top.push(b)
+                else if (list[j].type === "table" && j > 0 && list[j - 1].type === "linechart") owner.get(j - 1).notes.push(b)
+                else owner.get(j).notes.push(b)
             } else {
-                rows.push({ kind: "single", blocks: [b] })
-                i += 1
+                top.push(b)
             }
         }
-        return rows
+        return { top: top, charts: charts, tables: tables }
     }
-    readonly property var rows: group(blocks)
+    readonly property var sections: arrange(blocks)
+    function tableKey(index) {
+        const title = sections.tables[index].block.title
+        let n = 0
+        for (let i = 0; i < index; ++i) if (sections.tables[i].block.title === title) ++n
+        return testId + "|" + title + "|" + n
+    }
+    readonly property var tableKeys: sections.tables.map((e, i) => tableKey(i))
+    readonly property bool allExpanded: DetailState.revision >= 0 && tableKeys.length > 0
+                                        && tableKeys.every(k => DetailState.isExpanded(k))
 
     spacing: 16
 
@@ -65,60 +75,100 @@ ColumnLayout {
         }
     }
 
+    // The top: KPIs, grids, N/A, and every note about the run.
     Repeater {
-        model: root.rows
-        delegate: Item {
-            id: rowItem
+        model: root.sections.top
+        delegate: Loader {
+            id: head
             required property var modelData
             Layout.fillWidth: true
-            implicitHeight: rowGrid.implicitHeight
+            sourceComponent: root.component(modelData.type)
+            // The loaded block's data (and a chart's colour) stay bound.
+            Binding {
+                target: head.item
+                property: "block"
+                value: head.modelData.type === "custom"
+                    ? { text: qsTr("This view isn't available in this version."), tone: "warn" } : head.modelData
+            }
+            Binding {
+                when: head.item !== null && head.item.hasOwnProperty("colorToken")
+                target: head.item
+                property: "colorToken"
+                value: root.colorToken
+            }
+        }
+    }
 
-            GridLayout {
-                id: rowGrid
-                anchors.left: parent.left
-                anchors.right: parent.right
-                columns: rowItem.modelData.kind === "single" || !root.wide ? 1 : 2
-                columnSpacing: 16
-                rowSpacing: 16
-
-                // The first block of a row (the chart, or a lone block).
-                Loader {
-                    id: head
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: rowItem.modelData.kind === "split" ? 3 : 1
-                    Layout.alignment: Qt.AlignTop
-                    sourceComponent: root.component(rowItem.modelData.blocks[0].type)
-                    // The loaded block's data (and a chart's colour) stay bound.
-                    Binding {
-                        target: head.item
-                        property: "block"
-                        value: rowItem.modelData.blocks[0].type === "custom"
-                            ? { text: qsTr("This view isn't available in this version."), tone: "warn" } : rowItem.modelData.blocks[0]
-                    }
-                    Binding {
-                        when: head.item !== null && head.item.hasOwnProperty("colorToken")
-                        target: head.item
-                        property: "colorToken"
-                        value: root.colorToken
-                    }
+    // The charts, one per row (D28), each with the notes that explain it.
+    Repeater {
+        model: root.sections.charts
+        delegate: ColumnLayout {
+            id: chartEntry
+            required property var modelData
+            Layout.fillWidth: true
+            spacing: 8
+            Loader {
+                id: chartLoader
+                Layout.fillWidth: true
+                sourceComponent: chart
+                Binding { target: chartLoader.item; property: "block"; value: chartEntry.modelData.block }
+                Binding {
+                    when: chartLoader.item !== null && chartLoader.item.hasOwnProperty("colorToken")
+                    target: chartLoader.item
+                    property: "colorToken"
+                    value: root.colorToken
                 }
-                // The rest of the row, stacked in the second column.
-                ColumnLayout {
-                    visible: rowItem.modelData.blocks.length > 1
+            }
+            Repeater {
+                model: chartEntry.modelData.notes
+                delegate: NoteBlock {
+                    required property var modelData
+                    objectName: "chartNote"
                     Layout.fillWidth: true
-                    Layout.preferredWidth: rowItem.modelData.kind === "split" ? 2 : 1
-                    Layout.alignment: Qt.AlignTop
-                    spacing: 16
-                    Repeater {
-                        model: rowItem.modelData.blocks.slice(1)
-                        delegate: Loader {
-                            id: tail
-                            required property var modelData
-                            Layout.fillWidth: true
-                            sourceComponent: root.component(modelData.type)
-                            Binding { target: tail.item; property: "block"; value: tail.modelData }
-                        }
-                    }
+                    block: modelData
+                }
+            }
+        }
+    }
+
+    RowLayout {
+        objectName: "tablesBar"
+        visible: root.sections.tables.length > 0
+        Layout.fillWidth: true
+        SbText { text: qsTr("Tables"); kind: "label"; Layout.fillWidth: true }
+        SbButton {
+            objectName: "expandAll"
+            text: root.allExpanded ? qsTr("Collapse all") : qsTr("Expand all")
+            onClicked: DetailState.setAll(root.tableKeys, !root.allExpanded)
+        }
+    }
+
+    // The tables, collapsed until opened (D25); a table's notes show only
+    // while it is open.
+    Repeater {
+        model: root.sections.tables
+        delegate: ColumnLayout {
+            id: tableEntry
+            required property var modelData
+            required property int index
+            Layout.fillWidth: true
+            spacing: 8
+            TableBlock {
+                id: tableItem
+                objectName: "detailTable"
+                Layout.fillWidth: true
+                collapsible: true
+                block: tableEntry.modelData.block
+                expanded: DetailState.revision >= 0 && DetailState.isExpanded(root.tableKeys[tableEntry.index])
+                onExpandRequested: (on) => DetailState.setExpanded(root.tableKeys[tableEntry.index], on)
+            }
+            Repeater {
+                model: tableItem.expanded ? tableEntry.modelData.notes : []
+                delegate: NoteBlock {
+                    required property var modelData
+                    objectName: "tableNote"
+                    Layout.fillWidth: true
+                    block: modelData
                 }
             }
         }
