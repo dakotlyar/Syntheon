@@ -157,6 +157,84 @@ TestCase {
         fuzzyCompare(dot.x + 4, chart.fx(66.2), 1e-6)
     }
 
+    // Phase 4a D27: the live hover readout.
+    function hoverChart(extra) {
+        return findChild(createTemporaryObject(chartComponent, test, { block: chartBlock(extra) }), "chart")
+    }
+    function test_hoverNearestByX() {
+        const chart = hoverChart({ logX: false, points: [{ x: 0, y: 1 }, { x: 10, y: 2 }, { x: 20, y: 3 }, { x: 30, y: 4 }], xTicks: [] })
+        compare(chart.nearestIndex(chart.fx(12)), 1)
+        compare(chart.nearestIndex(chart.fx(16)), 2)
+        compare(chart.nearestIndex(chart.fx(15)), 1)  // a tie goes to the earlier point
+        compare(chart.nearestIndex(-500), 0)
+    }
+    function test_hoverLogX() {
+        const chart = hoverChart({})
+        compare(chart.nearestIndex(chart.fx(5000)), 3)
+    }
+    function test_hoverSkipsFilteredPoints() {
+        const ticks = [{ y: 1, label: "1" }, { y: 10, label: "10" }]
+        const pts = [{ x: 4, y: 0.8 }, { x: 24, y: 0.9 }, { x: 64, y: 0 }, { x: 220, y: 2.6 }, { x: 5836.8, y: 9.8 }]
+        const chart = hoverChart({ logY: true, yTicks: ticks, points: pts })
+        verify(chart.shown[chart.nearestIndex(chart.fx(64))].x !== 64)
+    }
+    function test_hoverText() {
+        const chart = hoverChart({})
+        compare(chart.hoverText({ x: 12.35, y: 412, label: "12.35 s · 412 fps" }), "12.35 s · 412 fps")
+        compare(chart.hoverText({ x: 2, y: 3.5 }), "2 · 3.5 ns")
+        chart.yUnit = "%"
+        compare(chart.hoverText({ x: 2, y: 3.5 }), "2 · 3.5%")
+    }
+    function test_hoverReadoutPos() {
+        const chart = hoverChart({})
+        let p = chart.readoutPos(100, 100, 120, 20)
+        compare(p.x, 110); compare(p.y, 72)
+        p = chart.readoutPos(chart.width - 40, 100, 120, 20)
+        compare(p.x, chart.width - 40 - 10 - 120); compare(p.y, 72)
+        compare(chart.readoutPos(5, 100, 120, 20).x, 15)
+        compare(chart.readoutPos(100, 10, 120, 20).y, 20)
+    }
+    function test_hoverMouse() {
+        const chart = hoverChart({})
+        waitForRendering(chart)
+        mouseMove(chart, chart.fx(24), chart.padTop + 20)
+        tryCompare(chart, "hoverIndex", 1)
+        verify(findChild(chart, "hoverDot").visible)
+        verify(findChild(chart, "hoverGuide").visible)
+        verify(findChild(chart, "hoverReadout").visible)
+        compare(findChild(chart, "hoverText").text, chart.hoverText(chart.shown[1]))
+        mouseMove(chart, 2, chart.padTop + 20)
+        tryCompare(chart, "hoverIndex", -1)
+        verify(!findChild(chart, "hoverDot").visible)
+        verify(!findChild(chart, "hoverGuide").visible)
+        verify(!findChild(chart, "hoverReadout").visible)
+        mouseMove(chart, chart.fx(24), chart.padTop + 20)
+        tryCompare(chart, "hoverIndex", 1)
+        mouseMove(test, 1, 1)
+        tryCompare(chart, "hoverIndex", -1)
+    }
+    function test_hoverKeys() {
+        const chart = hoverChart({})
+        chart.forceActiveFocus()
+        compare(chart.shown.length, 5)
+        keyClick(Qt.Key_Right); compare(chart.hoverIndex, 0)
+        keyClick(Qt.Key_Right); compare(chart.hoverIndex, 1)
+        keyClick(Qt.Key_End); compare(chart.hoverIndex, 4)
+        keyClick(Qt.Key_Left); compare(chart.hoverIndex, 3)
+        compare(chart.Accessible.description, chart.hoverText(chart.shown[3]))
+        keyClick(Qt.Key_Home); compare(chart.hoverIndex, 0)
+        keyClick(Qt.Key_Escape); compare(chart.hoverIndex, -1)
+        keyClick(Qt.Key_Left); compare(chart.hoverIndex, 4)
+        test.forceActiveFocus()
+        compare(chart.hoverIndex, -1)
+    }
+    function test_hoverResetsOnNewPoints() {
+        const chart = hoverChart({})
+        chart.hoverIndex = 2
+        chart.points = [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }]
+        compare(chart.hoverIndex, -1)
+    }
+
     function test_plainTablesStillPair() {
         const page = createTemporaryObject(pageComponent, test)
         compare(shape(page.group([table("A"), table("B")])), ["pair:A+B"])

@@ -16,6 +16,7 @@ import SynBench
 //               axis from 0, five grid lines, as before
 //   markers     [{x, y}] open dots on the curve (the RAM test's targets)
 //   filled      {x, y} where the filled dot goes (null: the last point)
+// A point may carry a `label` (the hover readout's text, Phase 4a D27).
 // On a log y axis a point at or below 0 (a value that wasn't measured) is
 // left out rather than drawn on the floor, where it would look real.
 Item {
@@ -172,8 +173,68 @@ Item {
         return out
     }
 
+    // The hovered point: an index into `shown` (-1: none) (Phase 4a D27).
+    property int hoverIndex: -1
+    readonly property var hoverPoint: hoverIndex >= 0 && hoverIndex < shown.length ? shown[hoverIndex] : null
+    onShownChanged: hoverIndex = -1
+
+    // The point of `shown` drawn nearest to pixel x px (the earlier on a tie); -1 if none.
+    function nearestIndex(px) {
+        let best = -1, bestD = Infinity
+        for (let i = 0; i < shown.length; ++i) {
+            const d = Math.abs(fx(shown[i].x) - px)
+            if (d < bestD - 1e-6) { best = i; bestD = d }  // 1e-6: a float-rounding tie is still a tie
+        }
+        return best
+    }
+    // Over the plot (+-8 px): the nearest point; elsewhere none.
+    function hoverAt(px) {
+        hoverIndex = px >= padLeft - 8 && px <= padLeft + plotW + 8 ? nearestIndex(px) : -1
+    }
+    function hoverText(p) {
+        if (p.label !== undefined) return p.label
+        return tickText(p.x) + " · " + tickText(p.y) + (yUnit === "%" ? "%" : yUnit.length > 0 ? " " + yUnit : "")
+    }
+    // The readout's top-left for a w x h box at the dot (px, py): above right;
+    // flipped left at the right edge, never left of 0; below when there's no room above.
+    function readoutPos(px, py, w, h) {
+        let x = px + 10
+        if (x + w > width - 2) x = px - 10 - w
+        x = Math.max(0, x)
+        let y = py - 8 - h
+        if (y < 0) y = py + 10
+        return Qt.point(x, y)
+    }
+
+    HoverHandler {
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad | PointerDevice.Stylus
+        onPointChanged: if (hovered) root.hoverAt(point.position.x)
+        onHoveredChanged: if (!hovered) root.hoverIndex = -1
+    }
+    TapHandler {
+        acceptedDevices: PointerDevice.TouchScreen
+        onTapped: (eventPoint) => {
+            const i = root.nearestIndex(eventPoint.position.x)
+            root.hoverIndex = i === root.hoverIndex ? -1 : i
+        }
+    }
+    activeFocusOnTab: true
+    onActiveFocusChanged: if (!activeFocus) hoverIndex = -1
+    Keys.onPressed: (event) => {
+        const n = shown.length
+        if (n === 0) return
+        if (event.key === Qt.Key_Right) hoverIndex = Math.min(n - 1, hoverIndex + 1)
+        else if (event.key === Qt.Key_Left) hoverIndex = hoverIndex < 0 ? n - 1 : Math.max(0, hoverIndex - 1)
+        else if (event.key === Qt.Key_Home) hoverIndex = 0
+        else if (event.key === Qt.Key_End) hoverIndex = n - 1
+        else if (event.key === Qt.Key_Escape && hoverIndex >= 0) hoverIndex = -1
+        else return
+        event.accepted = true
+    }
+
     Accessible.role: Accessible.Graphic
     Accessible.name: description
+    Accessible.description: hoverPoint ? hoverText(hoverPoint) : ""
     implicitHeight: 240
 
     // Horizontal grid lines and y labels.
@@ -228,6 +289,18 @@ Item {
         }
     }
 
+    // The hover guide, under the curve.
+    Rectangle {
+        objectName: "hoverGuide"
+        visible: root.hoverPoint !== null
+        x: root.hoverPoint ? Math.round(root.fx(root.hoverPoint.x)) : 0
+        y: root.padTop
+        width: 1
+        height: root.plotH
+        color: Theme.muted
+        opacity: 0.5
+    }
+
     Shape {
         anchors.fill: parent
         preferredRendererType: Shape.CurveRenderer
@@ -278,5 +351,48 @@ Item {
             text: modelData.label
             kind: "data"; font.pixelSize: 11
         }
+    }
+    // The hovered point's dot.
+    Rectangle {
+        id: hoverDot
+        objectName: "hoverDot"
+        visible: root.hoverPoint !== null
+        width: 10; height: 10; radius: 5
+        color: root.color
+        border.color: Theme.panel
+        border.width: 2
+        x: (root.hoverPoint ? root.fx(root.hoverPoint.x) : 0) - 5
+        y: (root.hoverPoint ? root.fy(root.hoverPoint.y) : 0) - 5
+    }
+    // The readout: the point's label, above right of the dot.
+    Rectangle {
+        objectName: "hoverReadout"
+        visible: root.hoverPoint !== null
+        color: Theme.panel
+        border.color: Theme.line
+        border.width: 1
+        radius: 4
+        width: label.implicitWidth + 12
+        height: label.implicitHeight + 6
+        readonly property point at: root.readoutPos(hoverDot.x + 5, hoverDot.y + 5, width, height)
+        x: at.x
+        y: at.y
+        SbText {
+            id: label
+            objectName: "hoverText"
+            x: 6; y: 3
+            kind: "data"; font.pixelSize: 11
+            color: Theme.ink
+            text: root.hoverPoint ? root.hoverText(root.hoverPoint) : ""
+        }
+    }
+    Rectangle {
+        objectName: "focusRing"
+        anchors.fill: parent
+        color: "transparent"
+        border.color: Theme.accent
+        border.width: 1
+        radius: 4
+        visible: root.activeFocus
     }
 }
