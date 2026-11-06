@@ -964,6 +964,38 @@ private slots:
         QCOMPARE(textOf(r, QStringLiteral("render.size")), QStringLiteral("2400×1350"));
     }
 
+    // AP-5 M1: the Render line follows the API the metrics describe (the first with a `ready`), not the first one that measured:
+    // Vulkan is ready and fails Geometry, OpenGL measures the window's real plan; the log and render.* both say Vulkan's `ready`.
+    void renderLineAgreesWithMetricsWhenTheFirstApiFails()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("vk-fails-gl-on-screen")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        const QStringList renders = ctx.logs().filter(QStringLiteral("Render "));
+        QCOMPARE(renders.size(), 1);
+        QCOMPARE(renders.first(), QStringLiteral("Render 320×180 at 100%, headless"));
+        QCOMPARE(textOf(r, QStringLiteral("render.size")), QStringLiteral("320×180"));
+        QCOMPARE(textOf(r, QStringLiteral("window.size")), QStringLiteral("headless"));
+    }
+
+    // AP-5 L2: when no API measured anything, the Render line still comes, from `ready` (the post-loop fallback), as render.* do.
+    void renderLineFallsBackToReadyWhenNothingMeasured()
+    {
+        gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-all-at-geometry")});
+        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        GpuTest t;
+        probed(t);
+        Ctx ctx;
+        const TestResult r = t.run(ctx, {});
+        const QStringList renders = ctx.logs().filter(QStringLiteral("Render "));
+        QCOMPARE(renders.size(), 1);
+        QCOMPARE(renders.first(), QStringLiteral("Render 320×180 at 100%, headless"));
+        QCOMPARE(textOf(r, QStringLiteral("render.size")), QStringLiteral("320×180"));
+    }
+
     // AP-5 L3: a 3D API whose worker dies before "ready" failed "during start-up", never "in starting".
     void apiStartupFailureSaysSo()
     {

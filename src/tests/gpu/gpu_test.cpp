@@ -595,10 +595,11 @@ TestResult GpuRun::run()
         }
     }
     bool stopped = cancelled(), renderLogged = false;
-    // §15: "Render 1920×1080 at 100% in a 1920×1080 window on DP-3", once, from the first API's first result (the window's
-    // real plan, as the metrics state it), or from `ready` when nothing was measured.
+    // §15: "Render 1920×1080 at 100% in a 1920×1080 window on DP-3", once, for the API the metrics describe (the first with a
+    // `ready`, as finish() picks): from its first result (the window's real plan), or from its `ready` when it measured nothing.
     const auto logRender = [&](const ApiRun &a) {
-        if (renderLogged || !a.ready)
+        const auto first = std::find_if(m_apis.begin(), m_apis.end(), [](const ApiRun &x) { return x.ready.has_value(); });
+        if (renderLogged || first == m_apis.end() || &*first != &a)
             return;
         renderLogged = true;
         const pr::ReadyEvent e = measuredSetup(a, false);
@@ -912,8 +913,8 @@ TestResult GpuRun::finish(bool stopped)
                 r.metrics.append(text(apiStatusKey(key, u"layers"), {}, name + QStringLiteral(" layers"), a.ready->layers));
         }
     }
-    // The window: the first API that measured says, with what its result recorded (the screen
-    // the window really landed on, D1); else what `ready` said.
+    // The window: the first API with a `ready` says, with what its first result recorded (the screen
+    // the window really landed on, D1) if it measured; else what `ready` said.
     for (const ApiRun &a : m_apis) {
         if (!a.ready)
             continue;

@@ -18,6 +18,10 @@ on:
         description: "windows-x64: run only the unit tests matching this ctest -R regex (empty: all)"
         type: string
         default: ""
+      dev_hooks:
+        description: "windows-x64: also build and upload the dev-hooks portable zip (QC only, Phase 4a 16.3)"
+        type: boolean
+        default: false
   # release.yml runs the same jobs on a tag, then publishes their artifacts.
   workflow_call:
 
@@ -352,12 +356,13 @@ jobs:
         run: ctest --preset windows-x64-release -R tst_sysinfo_live -V --output-on-failure
 
       # QC only (Phase 4a §16.3): a portable, unzip-and-run tree of THIS dev-hooks build, for the checks that
-      # need a dev hook (hold vs minimised: SYNBENCH_GPU_MINIMIZE_MAIN; overlay cost: SYNBENCH_GPU_WORKER_ARGS),
+      # need a dev hook (hold vs minimized: SYNBENCH_GPU_MINIMIZE_MAIN; overlay cost: SYNBENCH_GPU_WORKER_ARGS),
       # which the *-package presets compile out. The package's install rules and deploy.ps1, plus the
-      # app-local C++ runtime (the dev preset installs none). Last in the job, so only a build that passed
-      # every step above gets one; not on a tag (release.yml): a dev build never goes near a release.
+      # app-local C++ runtime (the dev preset installs none). Last in the job, and only on a manual dispatch with
+      # dev_hooks=true (never on push or PR); if the dispatch also sets ctest_regex, the tests above were only
+      # that subset. Not on a tag (release.yml): a dev build never goes near a release.
       - name: Dev-hooks portable tree (QC only)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.dev_hooks && !startsWith(github.ref, 'refs/tags/') }}
         shell: pwsh
         run: |
           $tree = 'devhooks/SynBench-windows-x64-devhooks'
@@ -376,7 +381,7 @@ jobs:
       # builds only), and install-qt-action sets them and puts Qt's bin on PATH, which would hide a tree
       # that can't find its own DLLs, plugins or QML.
       - name: Smoke launch of the dev-hooks tree, without the runner's Qt
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.dev_hooks && !startsWith(github.ref, 'refs/tags/') }}
         timeout-minutes: 3
         shell: pwsh
         env:
@@ -391,7 +396,7 @@ jobs:
           ./packaging/checks/run-smoke.ps1 -Exe devhooks/SynBench-windows-x64-devhooks/SynBench.exe -TimeoutSeconds 150
 
       - name: Zip the dev-hooks tree (QC only)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.dev_hooks && !startsWith(github.ref, 'refs/tags/') }}
         shell: pwsh
         run: |
           $tree = 'devhooks/SynBench-windows-x64-devhooks'
@@ -409,7 +414,7 @@ jobs:
             'Unzip anywhere and run SynBench.exe from this folder. Nothing is installed.'
             ''
             'Phase 4a design 16.3:'
-            '  Hold vs minimised:  SYNBENCH_GPU_MINIMIZE_MAIN=1          (3 runs with it, 3 without)'
+            '  Hold vs minimized:  SYNBENCH_GPU_MINIMIZE_MAIN=1          (3 runs with it, 3 without)'
             '  Overlay cost:       SYNBENCH_GPU_WORKER_ARGS=--no-overlay  (3 runs with it, 3 without)'
             ''
             'SynBench.exe runs as administrator, and Windows does not hand a non-elevated shell''s variables'
@@ -417,6 +422,11 @@ jobs:
             ''
             '  $env:SYNBENCH_GPU_MINIMIZE_MAIN = "1"; .\SynBench.exe'
             '  $env:SYNBENCH_GPU_WORKER_ARGS = "--no-overlay"; .\SynBench.exe'
+            ''
+            'The variables stay set in that shell, so clear them between the with and without runs (or use a fresh'
+            'shell for each):'
+            ''
+            '  Remove-Item env:SYNBENCH_GPU_MINIMIZE_MAIN, env:SYNBENCH_GPU_WORKER_ARGS -ErrorAction SilentlyContinue'
             ''
             'Its results go into the same history as an installed SynBench (close that one first: only one'
             'runs at a time). To keep the QC runs apart, also set these before starting it:'
@@ -426,7 +436,7 @@ jobs:
           Compress-Archive -Path $tree -DestinationPath devhooks/SynBench-windows-x64-devhooks.zip
 
       - name: Upload the dev-hooks zip (QC only)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.dev_hooks && !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v6
         continue-on-error: true
         with:
