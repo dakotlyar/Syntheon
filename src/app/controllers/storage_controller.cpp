@@ -11,6 +11,15 @@
 
 namespace sb {
 
+namespace {
+
+QString legacyInUseMessage()
+{
+    return QStringLiteral("SynBench is still running with your saved runs. Close it, then start Syntheon again.");
+}
+
+} // namespace
+
 StorageController::StorageController(Storage &storage, SettingsStore &settings, QObject *parent)
     : QObject(parent), m_storage(storage), m_settings(settings)
 {
@@ -37,6 +46,10 @@ void StorageController::open()
     case Storage::OpenStatus::InUse:
         m_problem = StartupProblem::InUse;
         m_message = QStringLiteral("Syntheon is already running with this history.");
+        break;
+    case Storage::OpenStatus::LegacyInUse:
+        m_problem = StartupProblem::Failed;
+        m_message = legacyInUseMessage();
         break;
     case Storage::OpenStatus::Damaged:
         m_problem = StartupProblem::Failed;
@@ -83,6 +96,8 @@ QString StorageController::apply(const Storage::OpenResult &r)
         return QStringLiteral("The history file there is damaged or isn't a Syntheon history (%1). It was left untouched.").arg(r.error);
     if (r.status == Storage::OpenStatus::InUse)
         return QStringLiteral("That history is open in another Syntheon. Close it there first.");
+    if (r.status == Storage::OpenStatus::LegacyInUse)
+        return legacyInUseMessage();
     return r.error.isEmpty() ? QStringLiteral("That folder can't be used.") : r.error;
 }
 

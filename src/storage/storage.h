@@ -2,6 +2,7 @@
 #pragma once
 
 #include "storage/database.h"
+#include "storage/legacy_migration.h"
 
 #include <QLockFile>
 #include <QSqlDatabase>
@@ -30,6 +31,7 @@ public:
         Failed,
         Damaged,              // not a readable Syntheon history; the file was left untouched
         InUse,                // another Syntheon has this history open (single instance)
+        LegacyInUse,          // a build from before the rename has the history to copy open
     };
     struct OpenResult {
         OpenStatus status = OpenStatus::Failed;
@@ -77,6 +79,10 @@ public:
     // nothing changes.
     OpenResult switchTo(const QString &folder);
 
+    // What the last open that found no history in its folder did about the
+    // history from before the rename.
+    const legacy::AdoptResult &lastAdoption() const { return m_lastAdoption; }
+
     bool isOpen() const;
     // The UI thread's connection. Other threads open their own via
     // Database::openConnection(dbPath(), …).
@@ -104,6 +110,7 @@ private:
     // One Syntheon per history folder: held for as long as the folder is in use.
     std::unique_ptr<QLockFile> m_lock;
     QString m_lockDir;
+    legacy::AdoptResult m_lastAdoption;
     bool m_busy = false;
 };
 

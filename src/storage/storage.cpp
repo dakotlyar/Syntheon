@@ -2,16 +2,20 @@
 #include "storage/storage.h"
 
 #include "storage/instance_paths.h"
+#include "storage/legacy_names.h"
 #include "storage/run_repository.h"
 #include "storage/settings_store.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QLoggingCategory>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
 #include <QTemporaryFile>
+
+Q_LOGGING_CATEGORY(lcStorage, "syntheon.storage")
 
 namespace sb {
 
@@ -150,7 +154,29 @@ Storage::OpenResult Storage::openAt(const QString &folder, bool createFolder)
         }
     }
 
+    // A history from before the rename comes first. Both failures return here: fall
+    // through and migrate() creates an empty history, whose existence would then say
+    // the copy is done, and the old runs would stay behind for good.
     const QString path = dbFileIn(folder);
+    const QString legacyFolder = normalized(folder) == normalized(defaultDataDir()) ? legacy::defaultDataDir() : folder;
+    const QString legacyDb = QDir(legacyFolder).filePath(QString::fromLatin1(legacy::kDbFileName));
+    if (!QFileInfo::exists(path)) {
+        const legacy::AdoptResult a = legacy::adoptHistory(legacyDb, path, legacy::lockFilePath(legacyFolder));
+        if (a.status == legacy::AdoptStatus::LegacyInUse) {
+            r.status = OpenStatus::LegacyInUse;
+            r.error = a.error;
+            return r;
+        }
+        if (a.status == legacy::AdoptStatus::Failed) {
+            r.status = OpenStatus::Failed;
+            r.error = a.error;
+            return r;
+        }
+        m_lastAdoption = a;
+    } else if (QFileInfo::exists(legacyDb)) {
+        qCInfo(lcStorage) << "using" << path << "; the older" << legacyDb << "is left alone";
+    }
+
     r = fromMigrate(Database::migrate(path));
     if (!r.ok())
         return r;
@@ -251,7 +277,8 @@ bool Storage::clearHistory(QString *error)
 Storage::TargetState Storage::inspectTarget(const QString &folder, QString *error) const
 {
     const QString target = normalized(folder);
-    if (QFileInfo::exists(dbFileIn(target)))
+    // A history from before the rename is one too: opening the folder adopts it.
+    if (QFileInfo::exists(dbFileIn(target)) || QFileInfo::exists(QDir(target).filePath(QString::fromLatin1(legacy::kDbFileName))))
         return TargetState::HasDatabase;
     return isWritableDir(target, error) ? TargetState::NoDatabase : TargetState::Unusable;
 }
