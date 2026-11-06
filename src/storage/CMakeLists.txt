@@ -7,6 +7,8 @@ qt_add_library(syntheon_storage STATIC
     sqlite_run_sink.h sqlite_run_sink.cpp
     recovery.h recovery.cpp
     instance_paths.h instance_paths.cpp
+    legacy_names.h
+    legacy_migration.h legacy_migration.cpp
 )
 
 qt_add_resources(syntheon_storage "syntheon_migrations"
