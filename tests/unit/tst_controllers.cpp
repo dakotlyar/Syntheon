@@ -293,6 +293,121 @@ private slots:
         QVERIFY(!rt.startup().recoveryPending());
     }
 
+    void historyCopyProblemsReachTheFailedDialog()
+    {
+        QTemporaryDir dir;
+        const QString data = dir.filePath(QStringLiteral("data"));
+        QDir().mkpath(data);
+        QFile garbage(QDir(data).filePath(QStringLiteral("synbench.db")));
+        QVERIFY(garbage.open(QIODevice::WriteOnly));
+        garbage.write(QByteArray(8192, 'x'));
+        garbage.close();
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = data;
+        AppRuntime rt(o);
+        rt.storageController().open();
+        QCOMPARE(rt.storageController().startupKind(), QStringLiteral("failed"));
+        QVERIFY2(rt.storageController().startupMessage().contains(QStringLiteral("Your saved runs were not changed.")),
+                 qPrintable(rt.storageController().startupMessage()));
+    }
+
+    void runningOldBuildReachesTheFailedDialog()
+    {
+        QTemporaryDir dir, runtime, picked;
+#ifdef Q_OS_UNIX
+        const QByteArray realRuntime = qgetenv("XDG_RUNTIME_DIR");
+        qputenv("XDG_RUNTIME_DIR", QFile::encodeName(runtime.path()));
+        const auto restoreRuntime = qScopeGuard([&] { qputenv("XDG_RUNTIME_DIR", realRuntime); });
+        const QString lockDir = runtime.filePath(QStringLiteral("synbench"));
+#else
+        QVERIFY(legacy::defaultDataDir().contains(QLatin1StringView("qttest"), Qt::CaseInsensitive));
+        const QString lockDir = QDir(legacy::defaultDataDir()).filePath(QStringLiteral("run"));
+        const auto removeFolder = qScopeGuard([] { QDir(legacy::defaultDataDir()).removeRecursively(); });
+#endif
+        QVERIFY(QDir().mkpath(lockDir));
+        const QString data = dir.filePath(QStringLiteral("data"));
+        QDir().mkpath(data);
+        const QString oldDb = QDir(data).filePath(QStringLiteral("synbench.db"));
+        QVERIFY(Database::migrate(oldDb).ok());
+        const QString pickedDb = QDir(picked.path()).filePath(QStringLiteral("synbench.db"));
+        QVERIFY(Database::migrate(pickedDb).ok());
+
+        QLockFile oldBuild(legacy::lockFilePath(data));
+        QVERIFY(oldBuild.tryLock(0));
+        QLockFile oldBuildPicked(legacy::lockFilePath(picked.path()));
+        QVERIFY(oldBuildPicked.tryLock(0));
+
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = data;
+        AppRuntime rt(o);
+        rt.storageController().open();
+        const QString message = QStringLiteral("SynBench is still running with your saved runs. Close it, then start Syntheon again.");
+        QCOMPARE(rt.storageController().startupKind(), QStringLiteral("failed"));
+        QCOMPARE(rt.storageController().startupMessage(), message);
+        QCOMPARE(rt.storageController().openHistoryIn(picked.path()), message);  // apply()
+    }
+
+    // The real per-user settings path, in the test-mode location.
+    void oldSettingsArriveBeforeAnythingReadsThem()
+    {
+        const QString legacyIni = legacy::settingsFile(), newIni = SettingsStore().fileName();
+        QVERIFY(legacyIni.contains(QLatin1StringView("qttest")) && newIni.contains(QLatin1StringView("qttest")));
+        QFile::remove(newIni);
+        {
+            SettingsStore old(legacyIni);
+            old.setTheme(QStringLiteral("dark"));
+            QVERIFY(old.sync());
+        }
+        const auto cleanup = qScopeGuard([&] { QFile::remove(legacyIni); QFile::remove(newIni); });
+        AppRuntime rt(AppRuntime::Options{});
+        QCOMPARE(rt.settingsStore().fileName(), newIni);
+        QCOMPARE(rt.settings().theme(), QStringLiteral("dark"));
+        QVERIFY(QFile::exists(newIni));
+    }
+
+    void settingsCopyFailureFallsBackToTheOldFile()
+    {
+        const QString legacyIni = legacy::settingsFile(), newIni = SettingsStore().fileName();
+        QVERIFY(legacyIni.contains(QLatin1StringView("qttest")) && newIni.contains(QLatin1StringView("qttest")));
+        const QString newFolder = QFileInfo(newIni).path();
+        QVERIFY(QDir(newFolder).removeRecursively());
+        {
+            SettingsStore old(legacyIni);
+            old.setTheme(QStringLiteral("dark"));
+            QVERIFY(old.sync());
+        }
+        QFile blocker(newFolder);  // a file where the new folder has to go
+        QVERIFY(blocker.open(QIODevice::WriteOnly));
+        blocker.close();
+        const auto cleanup = qScopeGuard([&] { QFile::remove(legacyIni); QFile::remove(newFolder); });
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Couldn't copy the settings")));
+        AppRuntime rt(AppRuntime::Options{});
+        QCOMPARE(rt.settingsStore().fileName(), legacyIni);
+        QCOMPARE(rt.settings().theme(), QStringLiteral("dark"));
+    }
+
+    // A set settings file means tests, the tour or the dev hooks: the old location is none of their business.
+    void explicitSettingsFileNeverReadsTheOldLocation()
+    {
+        const QString legacyIni = legacy::settingsFile(), defaultIni = SettingsStore().fileName();
+        QVERIFY(legacyIni.contains(QLatin1StringView("qttest")) && defaultIni.contains(QLatin1StringView("qttest")));
+        QFile::remove(defaultIni);
+        {
+            SettingsStore old(legacyIni);
+            old.setTheme(QStringLiteral("dark"));
+            QVERIFY(old.sync());
+        }
+        const auto cleanup = qScopeGuard([&] { QFile::remove(legacyIni); });
+        QTemporaryDir dir;
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        AppRuntime rt(o);
+        QCOMPARE(rt.settings().theme(), QStringLiteral("system"));
+        QVERIFY(!QFile::exists(defaultIni));
+    }
+
     // AP-5 #4: a run earlier in the session must not switch recovery off.
     void recoveryStillRunsAfterARunThisSession()
     {
