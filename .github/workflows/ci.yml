@@ -603,6 +603,9 @@ jobs:
           code=$?
           [ "$code" -eq 124 ] || { echo "::error::Syntheon exited with $code within 15 s"; exit 1; }
 
+      - name: A first launch copies the history from before the rename
+        run: bash packaging/checks/test-migration-linux.sh "$APPIMAGE_FILE"
+
       - name: Upload the AppImage
         uses: actions/upload-artifact@v6
         continue-on-error: true
@@ -1157,7 +1160,7 @@ jobs:
         run: shellcheck packaging/checks/*.sh packaging/linux/*.sh
 
       - name: Python scripts compile
-        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py packaging/checks/qmllint-gate.py packaging/checks/crypto-symbols.py packaging/checks/simd-odr.py packaging/checks/pe-loadflags.py
+        run: python3 -m py_compile packaging/linux/make-appdir.py packaging/linux/fix-sysroot-symlinks.py packaging/checks/elf-check.py packaging/checks/make-legacy-db.py packaging/checks/qmllint-gate.py packaging/checks/crypto-symbols.py packaging/checks/simd-odr.py packaging/checks/pe-loadflags.py
 
       - name: Desktop file and AppStream metadata
         run: |
