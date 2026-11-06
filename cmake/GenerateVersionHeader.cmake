@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Run with cmake -P at configure time AND at every build (the synbench_version_header
+# Run with cmake -P at configure time AND at every build (the syntheon_version_header
 # target), so a dev build's "-dev+<sha>" follows HEAD without a reconfigure. The
 # header is only rewritten when its content changes, so an unchanged HEAD
 # recompiles nothing.
@@ -20,16 +20,16 @@ if(GIT_EXECUTABLE)
         set(_sha "${_out}")
     endif()
 endif()
-set(SYNBENCH_VERSION "${VERSION}")
-set(SYNBENCH_FILE_VERSION "${FILE_VERSION}")
-set(SYNBENCH_MSI_VERSION "${MSI_VERSION}")
-set(SYNBENCH_GIT_SHA "${_sha}")
+set(SYNTHEON_VERSION "${VERSION}")
+set(SYNTHEON_FILE_VERSION "${FILE_VERSION}")
+set(SYNTHEON_MSI_VERSION "${MSI_VERSION}")
+set(SYNTHEON_GIT_SHA "${_sha}")
 if(RELEASE_BUILD)
-    set(SYNBENCH_DISPLAY_VERSION "${VERSION}")
+    set(SYNTHEON_DISPLAY_VERSION "${VERSION}")
 else()
-    set(SYNBENCH_DISPLAY_VERSION "${VERSION}-dev+${_sha}")
+    set(SYNTHEON_DISPLAY_VERSION "${VERSION}-dev+${_sha}")
 endif()
-set(SYNBENCH_BUILD_ID "${OS}-${ARCH} ${_sha}")
+set(SYNTHEON_BUILD_ID "${OS}-${ARCH} ${_sha}")
 configure_file("${TEMPLATE}" "${OUTPUT}.tmp" @ONLY)
 execute_process(COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${OUTPUT}.tmp" "${OUTPUT}")
 file(REMOVE "${OUTPUT}.tmp")

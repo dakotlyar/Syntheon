@@ -2,8 +2,8 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
-import SynBench
-import SynBenchTest
+import Syntheon
+import SyntheonTest
 
 // The Run screen on the real controllers (stubs, probes, selection rules).
 TestCase {

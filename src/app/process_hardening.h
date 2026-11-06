@@ -7,7 +7,7 @@
 
 namespace sb {
 
-// SynBench runs elevated, so nothing it loads may come from a folder a normal
+// Syntheon runs elevated, so nothing it loads may come from a folder a normal
 // user (or malware) could write to. Called first thing in main(), before Qt
 // starts.
 

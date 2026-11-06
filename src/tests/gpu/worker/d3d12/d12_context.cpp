@@ -68,7 +68,7 @@ std::string Context::create(const BackendInit &init, bool debugLayer, BackendInf
         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
             debug->EnableDebugLayer();
         else
-            std::fprintf(stderr, "synbench-gpu: d3d12: the debug layer isn't installed; running without validation\n");
+            std::fprintf(stderr, "syntheon-gpu: d3d12: the debug layer isn't installed; running without validation\n");
     }
     if (std::string e = dxgi::findAdapter(init, &adapter, init.allowSoftware); !e.empty())
         return e;
@@ -155,7 +155,7 @@ std::string Context::validationProblem()
             if (m->Severity != D3D12_MESSAGE_SEVERITY_ERROR && m->Severity != D3D12_MESSAGE_SEVERITY_CORRUPTION)
                 continue;
             const std::string text(m->pDescription ? m->pDescription : "(no message)");
-            std::fprintf(stderr, "synbench-gpu: d3d12: %s\n", text.c_str());
+            std::fprintf(stderr, "syntheon-gpu: d3d12: %s\n", text.c_str());
             if (validationErrors.fetch_add(1) == 0)
                 firstValidationError = text;
         }

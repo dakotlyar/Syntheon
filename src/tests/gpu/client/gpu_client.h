@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-// The GPU test's side of synbench-gpu (Phase 4a design §2.2-§2.5, D12, task
+// The GPU test's side of syntheon-gpu (Phase 4a design §2.2-§2.5, D12, task
 // 14): starts the worker with QProcess, reads its JSON lines, and kills it on
 // Stop (polled every 50 ms), a timeout or a protocol error. Killing a process
 // is safe, unlike a thread; the worker also exits by itself when its stdin
-// (held open here) closes, so it never outlives SynBench.
+// (held open here) closes, so it never outlives Syntheon.
 //
 // The worker's environment is built from scratch (§2.2, §4.4), never
 // inherited: the display variables and little else, so QT_PLUGIN_PATH,
@@ -69,9 +69,9 @@ public:
     // XAUTHORITY, XDG_SESSION_TYPE, XDG_CURRENT_DESKTOP, DBUS_SESSION_BUS_ADDRESS,
     // HOME, LANG, and VK_LOADER_LAYERS_DISABLE=~implicit~. Windows: SystemRoot,
     // LOCALAPPDATA, APPDATA, USERPROFILE, TEMP, TMP, and PATH = <SystemRoot>\System32;<the worker's folder>.
-    // Dev hook SYNBENCH_GPU_WORKER_ENV ("K=V|K=V") adds to it.
+    // Dev hook SYNTHEON_GPU_WORKER_ENV ("K=V|K=V") adds to it.
     static QProcessEnvironment baseEnvironment();
-    // Dev hook SYNBENCH_GPU_WORKER_ARGS, split on spaces; appended after the usual arguments.
+    // Dev hook SYNTHEON_GPU_WORKER_ARGS, split on spaces; appended after the usual arguments.
     static QStringList extraArgs();
     // 2 x the sum of (warm-up + measure) + 30 s.
     static std::chrono::milliseconds timeoutFor(const QVector<protocol::PlanItem> &plan);
@@ -89,7 +89,7 @@ public:
     // `--probe-gl --gpu <id>` with the GL environment glEnv.
     // nullopt when no gl event arrived (a timeout, a crash, a worker that wouldn't start): the caller stores no answer (D22).
     static std::optional<protocol::GlEvent> probeGl(const GpuEntry &gpu, const QProcessEnvironment &glEnv, std::chrono::milliseconds timeout);
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     // Tests: run `program` (with `extraArgs` before the usual ones) instead of
     // the real worker; an empty program restores the real one.
     static void setWorkerForTests(const QString &program, const QStringList &extraArgs = {});
@@ -105,7 +105,7 @@ public:
     GpuSession(const GpuSession &) = delete;
     GpuSession &operator=(const GpuSession &) = delete;
 
-    // Starts `synbench-gpu --run --serve --api <api> --gpu <id>` (+ extraArgs()),
+    // Starts `syntheon-gpu --run --serve --api <api> --gpu <id>` (+ extraArgs()),
     // environment baseEnvironment() + extraEnv. Returns at once; call waitReady()
     // after starting all sessions.
     // luid (Windows, 16 hex digits): the adapter every API selects by, so they all run on the same physical GPU.

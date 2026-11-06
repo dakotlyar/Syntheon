@@ -16,7 +16,7 @@ int runSelfCheck(int argc, char *argv[])
     const LinuxHelperClient::Environment env = LinuxHelperClient::Environment::current();
     const LinuxHelperClient::LaunchPlan plan = LinuxHelperClient::planLaunch(env);
 
-    out << "SynBench self-check\n";
+    out << "Syntheon self-check\n";
     out << "  APPIMAGE = " << (env.appImage.isEmpty() ? QStringLiteral("(not set)") : env.appImage) << "\n";
     out << "  APPDIR   = " << (env.appDir.isEmpty() ? QStringLiteral("(not set)") : env.appDir) << "\n";
     out << "  binary   = " << env.applicationFilePath << "\n";

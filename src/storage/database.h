@@ -12,13 +12,13 @@ namespace sb {
 // scripts embedded as resources; PRAGMA user_version holds the version.
 namespace Database {
 
-inline constexpr const char *kFileName = "synbench.db";
-inline constexpr const char *kMigrationsDir = ":/synbench/migrations";
+inline constexpr const char *kFileName = "syntheon.db";
+inline constexpr const char *kMigrationsDir = ":/syntheon/migrations";
 
 struct MigrateResult {
     enum class Status {
         Ok,
-        NewerVersion,  // made by a newer SynBench: refused, file untouched
+        NewerVersion,  // made by a newer Syntheon: refused, file untouched
         Damaged,       // not readable as a SQLite database (or not ours): refused, file untouched
         Failed,
     };

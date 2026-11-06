@@ -70,7 +70,7 @@ int userVersion(QSqlDatabase &db, bool *ok, QString *error = nullptr)
 QString uniqueConnectionName(const QString &purpose)
 {
     static QAtomicInteger<quint64> counter;
-    return QStringLiteral("synbench-%1-%2-%3")
+    return QStringLiteral("syntheon-%1-%2-%3")
         .arg(purpose)
         .arg(reinterpret_cast<quintptr>(QThread::currentThread()), 0, 16)
         .arg(counter.fetchAndAddRelaxed(1));
@@ -256,7 +256,7 @@ MigrateResult migrate(const QString &path, const QString &migrationsDir)
     // mode), so a newer database is left exactly as it was.
     if (current > target) {
         result.status = MigrateResult::Status::NewerVersion;
-        result.error = QStringLiteral("This history was made by a newer SynBench (database version %1; this "
+        result.error = QStringLiteral("This history was made by a newer Syntheon (database version %1; this "
                                       "version supports up to %2).")
                            .arg(current)
                            .arg(target);
@@ -288,7 +288,7 @@ MigrateResult migrate(const QString &path, const QString &migrationsDir)
         }
         if (cp.value(0).toInt() != 0) {
             result.error = QStringLiteral("The history database is in use elsewhere, so it can't be backed up "
-                                          "before upgrading. Close other SynBench windows and try again.");
+                                          "before upgrading. Close other Syntheon windows and try again.");
             return result;
         }
         cp.finish();

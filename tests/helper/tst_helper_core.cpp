@@ -199,7 +199,7 @@ private slots:
         QCOMPARE(out.exitCode, helper::Core::kExitTooManyBadFrames);
     }
 
-    // --- the real synbench-helper binary, as this (non-root) user ---
+    // --- the real syntheon-helper binary, as this (non-root) user ---
 
     void binaryRefusesArgumentsAndNonPipes()
     {
@@ -236,7 +236,7 @@ private slots:
         QVERIFY(p.waitForFinished(5000));
         QCOMPARE(p.exitStatus(), QProcess::NormalExit);
         QCOMPARE(p.exitCode(), 0);
-        QVERIFY(p.readAllStandardError().contains("synbench-helper: started"));
+        QVERIFY(p.readAllStandardError().contains("syntheon-helper: started"));
     }
 
     void binaryReadSmbiosAsUserIsDenied()

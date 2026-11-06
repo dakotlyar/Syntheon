@@ -29,12 +29,12 @@ class AppRuntime : public QObject
 
 public:
     struct Options {
-        // SYNBENCH_SMOKE=1: a temporary settings file and history, no
+        // SYNTHEON_SMOKE=1: a temporary settings file and history, no
         // elevation (there is no polkit agent under xvfb), stubs at a fast
         // time scale. Used by CI.
         bool smoke = false;
         // No polkit prompt, no helper: set by the developer screenshot tour
-        // (SYNBENCH_TOUR) and by smoke runs, so neither ever asks for a password.
+        // (SYNTHEON_TOUR) and by smoke runs, so neither ever asks for a password.
         bool noElevation = false;
         // How long a start waits for a running copy to answer a focus request
         // before offering the "take over" dialog.
@@ -48,13 +48,13 @@ public:
 
     static Options optionsFromEnvironment();
 
-    // Hands the controllers to the QML singletons of module SynBench (Settings,
+    // Hands the controllers to the QML singletons of module Syntheon (Settings,
     // AppController, StorageController, RunController, Results, Startup,
     // History, Compare; declared in qml_singletons.h). Before any engine loads.
     void registerQml();
     // Opens the history and starts the gates (storage, elevation).
     // Takes the single-instance claim on the history folder: opens the history
-    // (and with it the lock). False if another SynBench has it: that copy has
+    // (and with it the lock). False if another Syntheon has it: that copy has
     // then been asked to come to the front and this one should exit with 0.
     // Idempotent; start() calls it if nobody did.
     bool claimInstance();

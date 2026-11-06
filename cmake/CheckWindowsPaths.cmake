@@ -3,7 +3,7 @@
 # fail at checkout): the characters : * ? " < > |, a component ending in a
 # dot or space, a reserved device name, or a path over MAX_LENGTH (200)
 # characters. Windows' MAX_PATH is 260 with the terminator, and a CI runner
-# checks out under D:\a\SynBench\SynBench\ (23); 200 leaves room for a
+# checks out under D:\a\Syntheon\Syntheon\ (23); 200 leaves room for a
 # deeper clone and for the build tools' own temporary names. Run as a CTest
 # test:
 #   cmake -DSOURCE_DIR=<repo> -P cmake/CheckWindowsPaths.cmake

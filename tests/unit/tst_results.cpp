@@ -751,7 +751,7 @@ private slots:
         QDir().mkpath(other);
         QUuid otherId;
         {
-            const QString path = QDir(other).filePath(QStringLiteral("synbench.db"));
+            const QString path = QDir(other).filePath(QStringLiteral("syntheon.db"));
             QVERIFY(Database::migrate(path).ok());
             Database::ScopedConnection c(path, QStringLiteral("seed"));
             RunRecord r;

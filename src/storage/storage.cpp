@@ -51,7 +51,7 @@ Storage::~Storage()
 QString Storage::defaultDataDir()
 {
     return QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
-        .filePath(QStringLiteral("SynBench"));
+        .filePath(QStringLiteral("Syntheon"));
 }
 
 QString Storage::dataDir() const
@@ -94,7 +94,7 @@ bool Storage::isWritableDir(const QString &folder, QString *error)
         return false;
     }
     // A real write probe: QFileInfo::isWritable() isn't reliable on Windows ACLs.
-    QTemporaryFile probe(QDir(folder).filePath(QStringLiteral(".synbench-write-test-XXXXXX")));
+    QTemporaryFile probe(QDir(folder).filePath(QStringLiteral(".syntheon-write-test-XXXXXX")));
     if (!probe.open()) {
         if (error)
             *error = QStringLiteral("The folder %1 isn't writable.").arg(folder);
@@ -139,7 +139,7 @@ Storage::OpenResult Storage::openAt(const QString &folder, bool createFolder)
     }
 
     // The single-instance lock comes before anything touches the database
-    // (recovery included). Staleness is by dead owner only: a live SynBench
+    // (recovery included). Staleness is by dead owner only: a live Syntheon
     // that's been open for hours must never look stale.
     std::unique_ptr<QLockFile> newLock;
     if (!(m_lock && m_lockDir == folder)) {
@@ -148,15 +148,15 @@ Storage::OpenResult Storage::openAt(const QString &folder, bool createFolder)
         const QString lockPath = instance::lockFilePath(folder);
         if (lockPath.isEmpty()) {
             r.status = OpenStatus::Failed;
-            r.error = QStringLiteral("Couldn't make a private folder for SynBench's lock file.");
+            r.error = QStringLiteral("Couldn't make a private folder for Syntheon's lock file.");
             return r;
         }
         newLock = std::make_unique<QLockFile>(lockPath);
         newLock->setStaleLockTime(0);
         if (!newLock->tryLock(0)) {
             r.status = newLock->error() == QLockFile::LockFailedError ? OpenStatus::InUse : OpenStatus::Failed;
-            r.error = r.status == OpenStatus::InUse ? QStringLiteral("SynBench is already running with this history.")
-                                                    : QStringLiteral("Couldn't take SynBench's lock (%1).").arg(lockPath);
+            r.error = r.status == OpenStatus::InUse ? QStringLiteral("Syntheon is already running with this history.")
+                                                    : QStringLiteral("Couldn't take Syntheon's lock (%1).").arg(lockPath);
             return r;
         }
     }
@@ -309,7 +309,7 @@ Storage::MoveResult Storage::moveTo(const QString &folder)
         }
     }
 
-    // 1. Checkpoint and close, so synbench.db alone holds everything.
+    // 1. Checkpoint and close, so syntheon.db alone holds everything.
     closeConnection();
     const auto restore = [&](const QString &error) {
         result.status = MoveStatus::Failed;

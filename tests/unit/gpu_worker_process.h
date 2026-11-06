@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-// Shared by the GPU backend tests (Phase 4a task 10): the built synbench-gpu
+// Shared by the GPU backend tests (Phase 4a task 10): the built syntheon-gpu
 // as a QProcess with its JSON-lines events, and the software Vulkan driver
 // (lavapipe) the tests render on.
 
@@ -20,11 +20,11 @@
 #include <variant>
 
 // A missing software driver or X server skips a test locally, but fails it where
-// the CI sets SYNBENCH_REQUIRE_SOFTWARE_GPU (Linux: lavapipe and xvfb are installed
+// the CI sets SYNTHEON_REQUIRE_SOFTWARE_GPU (Linux: lavapipe and xvfb are installed
 // there, so a skip would hide a broken test).
 #define SB_SKIP_OR_FAIL(msg)                                    \
     do {                                                        \
-        if (qEnvironmentVariableIsSet("SYNBENCH_REQUIRE_SOFTWARE_GPU")) \
+        if (qEnvironmentVariableIsSet("SYNTHEON_REQUIRE_SOFTWARE_GPU")) \
             QFAIL(msg);                                         \
         else                                                    \
             QSKIP(msg);                                         \
@@ -130,9 +130,9 @@ public:
                 if (line.isEmpty())
                     continue;
                 // Debian's and Ubuntu's xvfb-run runs its command with 2>&1, so the worker's own
-                // diagnostics ("synbench-gpu: ...", on stderr) arrive on this channel when the test
+                // diagnostics ("syntheon-gpu: ...", on stderr) arrive on this channel when the test
                 // wraps the worker in xvfb-run: they are stderr, not protocol.
-                if (line.startsWith("synbench-gpu: ")) {
+                if (line.startsWith("syntheon-gpu: ")) {
                     m_stderr += QString::fromUtf8(line) + QLatin1Char('\n');
                     continue;
                 }

@@ -2,7 +2,7 @@
 # The kernels: their own target, for their compile flags (Phase 3 design §1).
 add_subdirectory(kernels)
 
-add_library(synbench_test_ram STATIC
+add_library(syntheon_test_ram STATIC
     ram_test.h ram_test.cpp ram_detail.cpp
     # The score (§10; pure).
     formula_v1.h formula_v1.cpp
@@ -20,11 +20,11 @@ add_library(synbench_test_ram STATIC
     config/readout.h config/readout.cpp
 )
 if(WIN32)
-    target_sources(synbench_test_ram PRIVATE memory/huge_buffer_win.cpp)
+    target_sources(syntheon_test_ram PRIVATE memory/huge_buffer_win.cpp)
 else()
-    target_sources(synbench_test_ram PRIVATE memory/huge_buffer_linux.cpp)
+    target_sources(syntheon_test_ram PRIVATE memory/huge_buffer_linux.cpp)
 endif()
-target_link_libraries(synbench_test_ram PUBLIC synbench_core synbench_test_common synbench_isa synbench_ram_kernels
-                                               synbench_test_engine)
+target_link_libraries(syntheon_test_ram PUBLIC syntheon_core syntheon_test_common syntheon_isa syntheon_ram_kernels
+                                               syntheon_test_engine)
 find_package(Threads REQUIRED)
-target_link_libraries(synbench_test_ram PRIVATE Threads::Threads)
+target_link_libraries(syntheon_test_ram PRIVATE Threads::Threads)

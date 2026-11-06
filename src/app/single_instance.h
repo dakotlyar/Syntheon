@@ -8,7 +8,7 @@ class QLocalServer;
 
 namespace sb {
 
-// One SynBench per history folder. The lock itself is Storage's (a lock file
+// One Syntheon per history folder. The lock itself is Storage's (a lock file
 // in the folder); this is the other half: the running copy listens on a local
 // socket named after the folder, and a second launch asks it to come to the
 // front, then exits. Two different folders get two different names, so two

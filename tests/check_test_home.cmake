@@ -6,7 +6,7 @@
 # that, and with a private runtime folder of its own.
 #   MODE=setup  recreate <build>/test-home (its XDG cache/state folders 0700)
 #               and create the runtime folder, chosen now, at test time:
-#               mktemp -d <parent>/synbench-test-run-XXXXXX (atomic, random,
+#               mktemp -d <parent>/syntheon-test-run-XXXXXX (atomic, random,
 #               0700), where <parent> is the caller's own XDG_RUNTIME_DIR
 #               (/run/user/<uid>: private, cleared at logout), or /tmp when
 #               XDG_RUNTIME_DIR is unset. An XDG_RUNTIME_DIR that is missing,
@@ -15,7 +15,7 @@
 #               goes to <test-home>/runtime-dir, which every test binary reads
 #               (tests/support/test_isolation.cpp sets XDG_RUNTIME_DIR from it).
 #   MODE=check  after the tests: remove that runtime folder (it must still be
-#               ours and not a symlink), then fail if anything named SynBench
+#               ours and not a symlink), then fail if anything named Syntheon
 #               (any case) appeared under the test HOME outside .qttest, Qt's
 #               test-mode root, and scratch: a test (or an app it launched)
 #               resolving a real default path.
@@ -71,8 +71,8 @@ function(remove_recorded_runtime)
     endif()
     file(READ "${runtime_file}" dir)
     string(STRIP "${dir}" dir)
-    if(NOT dir MATCHES "^/.+/synbench-test-run-[A-Za-z0-9]+$")
-        message(FATAL_ERROR "${runtime_file} names '${dir}', not a synbench-test-run folder")
+    if(NOT dir MATCHES "^/.+/syntheon-test-run-[A-Za-z0-9]+$")
+        message(FATAL_ERROR "${runtime_file} names '${dir}', not a syntheon-test-run folder")
     endif()
     if(EXISTS "${dir}" OR IS_SYMLINK "${dir}")
         require_ours("${dir}" "runtime folder")
@@ -106,14 +106,14 @@ if(MODE STREQUAL "setup")
         file(MAKE_DIRECTORY "${d}")
         file(CHMOD "${d}" DIRECTORY_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
     endforeach()
-    execute_process(COMMAND mktemp -d "${parent}/synbench-test-run-XXXXXX"
+    execute_process(COMMAND mktemp -d "${parent}/syntheon-test-run-XXXXXX"
                     OUTPUT_VARIABLE runtime OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE r)
-    if(NOT r EQUAL 0 OR NOT runtime MATCHES "^/.+/synbench-test-run-[A-Za-z0-9]+$")
+    if(NOT r EQUAL 0 OR NOT runtime MATCHES "^/.+/syntheon-test-run-[A-Za-z0-9]+$")
         message(FATAL_ERROR "mktemp -d in ${parent} failed ('${runtime}')")
     endif()
     require_ours("${runtime}" "runtime folder")
     # A Unix socket path holds 104 bytes (macOS; 108 on Linux), and
-    # "<runtime>/synbench/synbench-<key>.sock" adds 36.
+    # "<runtime>/syntheon/syntheon-<key>.sock" adds 36.
     string(LENGTH "${runtime}" n)
     if(n GREATER 68)
         file(REMOVE_RECURSE "${runtime}")
@@ -127,15 +127,15 @@ elseif(MODE STREQUAL "check")
     set(bad "")
     foreach(f IN LISTS found)
         string(TOLOWER "${f}" lower)
-        if(lower MATCHES "synbench" AND NOT f MATCHES "^\\.qttest(/|$)" AND NOT f MATCHES "^scratch(/|$)")
+        if(lower MATCHES "syntheon" AND NOT f MATCHES "^\\.qttest(/|$)" AND NOT f MATCHES "^scratch(/|$)")
             list(APPEND bad "${f}")
         endif()
     endforeach()
     if(bad)
         list(JOIN bad "\n  " shown)
-        message(FATAL_ERROR "A test resolved a real (non-test-mode) SynBench path; created under the test HOME:\n  ${shown}")
+        message(FATAL_ERROR "A test resolved a real (non-test-mode) Syntheon path; created under the test HOME:\n  ${shown}")
     endif()
-    message(STATUS "test HOME clean: nothing SynBench outside .qttest and scratch")
+    message(STATUS "test HOME clean: nothing Syntheon outside .qttest and scratch")
 else()
     message(FATAL_ERROR "MODE must be setup or check")
 endif()

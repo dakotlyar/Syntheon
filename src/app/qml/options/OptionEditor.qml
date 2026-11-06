@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Dialogs
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // One option, drawn by its kind (P7): the one generic renderer. Reads the
 // OptionsModel's roles and writes through `optionsModel.setValue`.

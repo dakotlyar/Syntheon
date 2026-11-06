@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // N runs, one column each, % change against a baseline the user picks
 // (default: the newest run) (D5). A "scoring changed" marker on a row whose

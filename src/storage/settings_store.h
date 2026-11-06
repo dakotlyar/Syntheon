@@ -11,8 +11,8 @@ namespace sb {
 // Settings live in settings.ini via QSettings (IniFormat), not in the
 // database (P10): the data location is itself a setting, so it can't live
 // inside the database it points to.
-//   Windows: %APPDATA%\SynBench\settings.ini
-//   Linux:   ~/.config/SynBench/settings.ini
+//   Windows: %APPDATA%\Syntheon\settings.ini
+//   Linux:   ~/.config/Syntheon/settings.ini
 class SettingsStore
 {
 public:

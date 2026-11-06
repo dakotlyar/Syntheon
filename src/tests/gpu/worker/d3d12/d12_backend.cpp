@@ -14,7 +14,7 @@
 #include <cstring>
 
 namespace {
-// The Windows build's DXIL (worker/shaders/CMakeLists.txt, SYNBENCH_GPU_SHADER_DIR).
+// The Windows build's DXIL (worker/shaders/CMakeLists.txt, SYNTHEON_GPU_SHADER_DIR).
 #include "present_ps.dxil.inc"
 #include "present_vs.dxil.inc"
 } // namespace
@@ -327,9 +327,9 @@ std::string D3D12Backend::resume(const PresentTarget &target)
         if (!target.hwnd)
             return fail("the test window has no native window handle");
         std::string created;
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
         // Dev hook (as Vulkan's): "1" = no swapchain can be made; "later" = none after the first resume.
-        if (const char *hook = std::getenv("SYNBENCH_GPU_FAIL_SWAPCHAIN"); hook && (hook[0] == '1' || (std::strcmp(hook, "later") == 0 && m_everResumed)))
+        if (const char *hook = std::getenv("SYNTHEON_GPU_FAIL_SWAPCHAIN"); hook && (hook[0] == '1' || (std::strcmp(hook, "later") == 0 && m_everResumed)))
             created = "N/A: this GPU can't present to the test window on this display system";
 #endif
         if (created.empty())
@@ -561,7 +561,7 @@ std::string D3D12Backend::readback(double t, std::vector<std::uint8_t> *rgba8)
         rgba8);
 }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 std::string D3D12Backend::readbackPresented(std::vector<std::uint8_t> *rgba8)
 {
     if (!m_headless || !m_resumed || m_frame == 0)

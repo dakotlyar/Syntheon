@@ -294,18 +294,18 @@ private slots:
     {
         tests::setStubTimeScale(0.02);  // 5 s -> 100 ms, 20 s -> 400 ms
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("ok")});
-        qunsetenv("SYNBENCH_GPU_FAKE_APIS");
-        qunsetenv("SYNBENCH_GPU_WORKER_ENV");
-        qunsetenv("SYNBENCH_GPU_MIN_FRAMES");
+        qunsetenv("SYNTHEON_GPU_FAKE_APIS");
+        qunsetenv("SYNTHEON_GPU_WORKER_ENV");
+        qunsetenv("SYNTHEON_GPU_MIN_FRAMES");
     }
     void cleanup()
     {
         gpu::GpuClient::setWorkerForTests({});
-        qunsetenv("SYNBENCH_GPU_FAKE_APIS");
-        qunsetenv("SYNBENCH_GPU_WORKER_ENV");
-        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
-        qunsetenv("SYNBENCH_GPU_MIN_FRAMES");
-        qunsetenv("SYNBENCH_GPU_WORKER_ARGS");
+        qunsetenv("SYNTHEON_GPU_FAKE_APIS");
+        qunsetenv("SYNTHEON_GPU_WORKER_ENV");
+        qunsetenv("SYNTHEON_GPU_FAKE_D2D");
+        qunsetenv("SYNTHEON_GPU_MIN_FRAMES");
+        qunsetenv("SYNTHEON_GPU_WORKER_ARGS");
         tests::setStubTimeScale(0.02);
     }
 
@@ -558,8 +558,8 @@ private slots:
     {
         QTemporaryDir dir;
         const QString log = dir.filePath(QStringLiteral("commands.txt"));
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
-        qputenv("SYNBENCH_GPU_WORKER_ENV", ("SB_FAKE_LOG=" + log).toUtf8());
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_WORKER_ENV", ("SB_FAKE_LOG=" + log).toUtf8());
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -582,7 +582,7 @@ private slots:
     void secondApiCrashes()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-at-shading")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -612,7 +612,7 @@ private slots:
     void fillSignatureMismatch()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("mismatch-fill")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -640,7 +640,7 @@ private slots:
     void fillCrashIsPartial()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-at-quads")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -661,7 +661,7 @@ private slots:
     void mismatchingApiIsNeverBest()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("mismatch")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -689,7 +689,7 @@ private slots:
     void fillReasonWhenEveryApiDiedIn3d()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-all-at-shading")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -706,13 +706,13 @@ private slots:
     // (max(1, ceil(n / scale)): 2 layers and 1,563 sprites at 64), not the full 128 and 100,000.
     void fillRatesFollowTheContentScale()
     {
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
-        qputenv("SYNBENCH_GPU_WORKER_ARGS", "--allow-software --content-scale 64");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_WORKER_ARGS", "--allow-software --content-scale 64");
         GpuTest t;
         probed(t);
         Ctx ctx;
         const TestResult r = t.run(ctx, {});
-        qunsetenv("SYNBENCH_GPU_WORKER_ARGS");
+        qunsetenv("SYNTHEON_GPU_WORKER_ARGS");
         QCOMPARE(r.status, Status::Ok);
         // The fake's 20 frames in 0.2 s at 320x180.
         QVERIFY(std::fabs(number(r, QStringLiteral("fill2d.vulkan")) - 2.0 * 320.0 * 180.0 * 100.0 / 1e9) < 1e-12);
@@ -724,7 +724,7 @@ private slots:
     void tooFewFramesIsAnApiError()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("few-frames")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -744,7 +744,7 @@ private slots:
         QCOMPARE(r.subResults[2].status, Status::Ok);
         QVERIFY(!t.score(r).total);
         // The CI smoke's dev hook lowers the floor (never in a packaged build): the same 19 frames are then accepted.
-        qputenv("SYNBENCH_GPU_MIN_FRAMES", "10");
+        qputenv("SYNTHEON_GPU_MIN_FRAMES", "10");
         Ctx ctx2;
         const TestResult lowered = t.run(ctx2, {});
         QCOMPARE(lowered.status, Status::Ok);
@@ -769,7 +769,7 @@ private slots:
         QFETCH(QString, key);
         QFETCH(int, errorSub);
         gpu::GpuClient::setWorkerForTests(kFake, {mode});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -787,7 +787,7 @@ private slots:
     void implausibleGpuTimeIsDroppedWithAWarning()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("bad-gpu-time")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -807,7 +807,7 @@ private slots:
     void qtRasterIsTheScoredNativePath()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("d2d-fast")});
-        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        qputenv("SYNTHEON_GPU_FAKE_D2D", "1");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -822,14 +822,14 @@ private slots:
         const QStringList parts = ctx.parts();
         QVERIFY(parts.indexOf(QStringLiteral("Native 2D · Direct2D")) > parts.indexOf(QStringLiteral("Particles + post · OpenGL")));
         QCOMPARE(parts.indexOf(QStringLiteral("Native 2D · Qt raster")), parts.indexOf(QStringLiteral("Native 2D · Direct2D")) + 1);
-        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+        qunsetenv("SYNTHEON_GPU_FAKE_D2D");
     }
 
     // D23 a: a Direct2D crash is a warning note and its own status; the test's status and the native2d sub-result are untouched.
     void direct2dCrashIsOnlyAWarning()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-d2d")});
-        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        qputenv("SYNTHEON_GPU_FAKE_D2D", "1");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -846,14 +846,14 @@ private slots:
         QCOMPARE(r.status, Status::Ok);  // Direct2D isn't scored: the result keeps its score
         QVERIFY(r.statusReason.isEmpty());
         QVERIFY(t.score(r).total.has_value());
-        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+        qunsetenv("SYNTHEON_GPU_FAKE_D2D");
     }
 
     // A worker's `warning` event (Direct2D's font fallback) reaches the result as the D2D note, and stays a warning.
     void direct2dWarningEventIsANote()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("warn-d2d")});
-        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        qputenv("SYNTHEON_GPU_FAKE_D2D", "1");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -861,14 +861,14 @@ private slots:
         QCOMPARE(textOf(r, QStringLiteral("api.d2d.status")), QStringLiteral("OK"));
         QVERIFY2(textOf(r, QStringLiteral("api.d2d.note")).contains(QLatin1StringView("Segoe UI")), qPrintable(textOf(r, QStringLiteral("api.d2d.note"))));
         QCOMPARE(r.subResults[1].status, Status::Ok);
-        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+        qunsetenv("SYNTHEON_GPU_FAKE_D2D");
     }
 
     // L2: all four results delivered, then a bad exit: the numbers stand, with a note (Qt raster stays Ok; Direct2D only a note).
     void exitAfterFinishingKeepsTheResults()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("exit-after-finish")});
-        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        qputenv("SYNTHEON_GPU_FAKE_D2D", "1");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -880,7 +880,7 @@ private slots:
         QVERIFY(textOf(r, QStringLiteral("api.d2d.note")).contains(QLatin1StringView("the Direct2D worker exited with code 1 after finishing")));
         QVERIFY(r.metric(QStringLiteral("native2d.text")));
         QVERIFY(r.metric(QStringLiteral("native2d.d2d.text")));
-        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+        qunsetenv("SYNTHEON_GPU_FAKE_D2D");
     }
 
     // A worker that dies before any result: "during start-up", not a workload name.
@@ -933,7 +933,7 @@ private slots:
     void failureLogLines()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-at-shading")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -969,7 +969,7 @@ private slots:
     void renderLineAgreesWithMetricsWhenTheFirstApiFails()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("vk-fails-gl-on-screen")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -985,7 +985,7 @@ private slots:
     void renderLineFallsBackToReadyWhenNothingMeasured()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-all-at-geometry")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -1000,7 +1000,7 @@ private slots:
     void apiStartupFailureSaysSo()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-start-gl")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -1036,7 +1036,7 @@ private slots:
     void everyErroredApiKeepsItsWorkload()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-all-at-shading")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -1092,7 +1092,7 @@ private slots:
     void implausibleDirect2dRateIsOnlyAWarning()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("implausible-d2d")});
-        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        qputenv("SYNTHEON_GPU_FAKE_D2D", "1");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -1106,14 +1106,14 @@ private slots:
         QCOMPARE(r.status, Status::Ok);
         QVERIFY(r.statusReason.isEmpty());
         QVERIFY(t.score(r).total.has_value());
-        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+        qunsetenv("SYNTHEON_GPU_FAKE_D2D");
     }
 
     // The 20-frame floor does not apply to native 2D: 5 frames per workload is accepted.
     void fewNativeFramesAreAccepted()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("few-native")});
-        qputenv("SYNBENCH_GPU_FAKE_D2D", "1");
+        qputenv("SYNTHEON_GPU_FAKE_D2D", "1");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -1127,7 +1127,7 @@ private slots:
             QVERIFY(r.metric(QStringLiteral("native2d.d2d.%1").arg(QLatin1String(w))));
         }
         QVERIFY(r.metric(QStringLiteral("native2d.text")));
-        qunsetenv("SYNBENCH_GPU_FAKE_D2D");
+        qunsetenv("SYNTHEON_GPU_FAKE_D2D");
     }
 
     // A Qt raster crash is the native2d sub-test's Error, so the test is Partial with no score.
@@ -1152,7 +1152,7 @@ private slots:
     // L6: Stop with two APIs running still returns within 250 ms.
     void stopWithTwoApis()
     {
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -1274,7 +1274,7 @@ private slots:
     // Linux, two APIs (a real run through the fake worker): no DX columns, the N/A rows, every referenced metric present.
     void detailLinuxTwoApis()
     {
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -1305,7 +1305,7 @@ private slots:
     // The Render setup rows for the remaining §10 keys, and the hybrid note (Windows stores gpu.display and gpu.hags).
     void detailContextKeys()
     {
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -1355,7 +1355,7 @@ private slots:
     void detailPartialApiError()
     {
         gpu::GpuClient::setWorkerForTests(kFake, {QStringLiteral("crash-at-shading")});
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -1519,12 +1519,12 @@ private slots:
         QCOMPARE(n->text, QStringLiteral("No GPU score: the worker could not be started."));
         QVERIFY(indexOfTable(e, QStringLiteral("Sub-tests")) >= 0);  // the GPU page's own layout
 
-        TestResult closed = TestResult::interrupted(QStringLiteral("SynBench closed before this test finished"));
+        TestResult closed = TestResult::interrupted(QStringLiteral("Syntheon closed before this test finished"));
         closed.testId = QStringLiteral("gpu");
         const DetailLayout cd = t.detail(closed);
         const NoteBlock *c = noteContaining(cd, QStringLiteral("No GPU score"));
         QVERIFY(c && c->tone == Tone::Warn);
-        QCOMPARE(c->text, QStringLiteral("No GPU score: SynBench closed before this test finished."));
+        QCOMPARE(c->text, QStringLiteral("No GPU score: Syntheon closed before this test finished."));
 
         // A stub run (metrics, but no gpu.name and no api status) stays generic even when it is not Ok.
         TestResult stub;
@@ -1624,7 +1624,7 @@ private slots:
     // gpu_repeatability_fixture test, which runs only this slot), else to a temporary folder; either way it is read back.
     void repeatabilityFixture()
     {
-        qputenv("SYNBENCH_GPU_FAKE_APIS", "vulkan,opengl");
+        qputenv("SYNTHEON_GPU_FAKE_APIS", "vulkan,opengl");
         GpuTest t;
         probed(t);
         Ctx ctx;
@@ -1635,7 +1635,7 @@ private slots:
         QTemporaryDir tmp;
         QVERIFY(tmp.isValid());
         const QString fromEnv = qEnvironmentVariable("SB_GPU_FIXTURE_DB");
-        const QString path = fromEnv.isEmpty() ? tmp.filePath(QStringLiteral("synbench.db")) : fromEnv;
+        const QString path = fromEnv.isEmpty() ? tmp.filePath(QStringLiteral("syntheon.db")) : fromEnv;
         QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
         for (const QString &suffix : {QString(), QStringLiteral("-wal"), QStringLiteral("-shm")})
             QFile::remove(path + suffix);

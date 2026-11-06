@@ -20,7 +20,7 @@
 #include <cstring>
 
 namespace {
-// The Windows build's DXBC (worker/shaders/CMakeLists.txt, SYNBENCH_GPU_SHADER_DIR).
+// The Windows build's DXBC (worker/shaders/CMakeLists.txt, SYNTHEON_GPU_SHADER_DIR).
 #include "depth_only_vs.dxbc.inc"
 #include "drawcalls_ps.dxbc.inc"
 #include "drawcalls_vs.dxbc.inc"

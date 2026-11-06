@@ -588,7 +588,7 @@ private slots:
         const QProcessEnvironment soft = glEnvironmentFor(lvp, false, exists);
         QVERIFY(!soft.contains(QStringLiteral("DRI_PRIME")));
         QCOMPARE(soft.value(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME")), QStringLiteral("mesa"));
-        // Windows: nothing (SynBench never writes the GPU preference).
+        // Windows: nothing (Syntheon never writes the GPU preference).
         QVERIFY(glEnvironmentFor(gpus[1], true, exists).isEmpty());
     }
 

@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // Renders a test's DetailLayout, already turned into plain data (P6): one
 // renderer for every test. Phase 4a D24/D25/D28: the top blocks, then every

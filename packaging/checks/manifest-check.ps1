@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The built SynBench.exe must carry exactly one manifest, and it must be ours:
+# The built Syntheon.exe must carry exactly one manifest, and it must be ours:
 # requireAdministrator (P12/D1), PerMonitorV2 and long-path awareness, and no
 # asInvoker left over from the linker's default. Prints the embedded manifest.
 #
@@ -9,7 +9,7 @@
 # ARM64 exe from an x64 machine. (mt.exe -inputresource:...;#1 failed on a
 # manifest that was there: it looks for the neutral language only.)
 #
-#   pwsh packaging/checks/manifest-check.ps1 -Exe <SynBench.exe>
+#   pwsh packaging/checks/manifest-check.ps1 -Exe <Syntheon.exe>
 param([Parameter(Mandatory = $true)][string]$Exe)
 $ErrorActionPreference = 'Stop'
 $Exe = (Resolve-Path $Exe).Path
@@ -72,7 +72,7 @@ public static class ManifestReader
 
 $found = [ManifestReader]::Read($Exe)
 Write-Host "RT_MANIFEST resource ids in ${Exe}: $(if ($found.Count) { ($found.Keys | Sort-Object) -join ', ' } else { '(none)' })"
-if ($found.Count -eq 0) { throw "$Exe has no manifest resource at all: the linker did not embed SynBench.manifest" }
+if ($found.Count -eq 0) { throw "$Exe has no manifest resource at all: the linker did not embed Syntheon.manifest" }
 if ($found.Count -gt 1) { throw "$Exe has $($found.Count) manifest resources; there must be exactly one" }
 $text = $found.Values | Select-Object -First 1
 Write-Host $text

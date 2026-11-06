@@ -13,10 +13,10 @@ namespace sb {
 
 class SettingsStore;
 
-// Owns the history location and the UI thread's connection to synbench.db.
+// Owns the history location and the UI thread's connection to syntheon.db.
 //
-// Data location (P24): QStandardPaths::GenericDataLocation + "/SynBench"
-// (%LOCALAPPDATA%\SynBench, ~/.local/share/SynBench) unless settings.ini says
+// Data location (P24): QStandardPaths::GenericDataLocation + "/Syntheon"
+// (%LOCALAPPDATA%\Syntheon, ~/.local/share/Syntheon) unless settings.ini says
 // otherwise. Changing it moves the history, never merges it (D7). It can't be
 // changed, and history can't be cleared, while a run is active or a recovery
 // is pending (setBusy).
@@ -25,11 +25,11 @@ class Storage
 public:
     enum class OpenStatus {
         Ok,
-        NewerVersion,         // made by a newer SynBench: Choose another location / Quit
+        NewerVersion,         // made by a newer Syntheon: Choose another location / Quit
         LocationUnavailable,  // missing or unwritable (removed USB drive): default / Choose… / Quit
         Failed,
-        Damaged,              // not a readable SynBench history; the file was left untouched
-        InUse,                // another SynBench has this history open (single instance)
+        Damaged,              // not a readable Syntheon history; the file was left untouched
+        InUse,                // another Syntheon has this history open (single instance)
     };
     struct OpenResult {
         OpenStatus status = OpenStatus::Failed;
@@ -88,7 +88,7 @@ public:
     bool clearHistory(QString *error = nullptr);
 
     TargetState inspectTarget(const QString &folder, QString *error = nullptr) const;
-    // D7: checkpoint + close, copy synbench.db to `folder`, verify the copy
+    // D7: checkpoint + close, copy syntheon.db to `folder`, verify the copy
     // (integrity_check + run count), save the setting, delete the old file.
     MoveResult moveTo(const QString &folder);
 
@@ -101,7 +101,7 @@ private:
     SettingsStore &m_settings;
     QString m_dataDir;
     QString m_connectionName;
-    // One SynBench per history folder: held for as long as the folder is in use.
+    // One Syntheon per history folder: held for as long as the folder is in use.
     std::unique_ptr<QLockFile> m_lock;
     QString m_lockDir;
     bool m_busy = false;

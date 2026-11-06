@@ -25,7 +25,7 @@ public:
     std::uint32_t lastFrameDraws() const override { return m_draws; }
     void setRenderSize(std::uint32_t w, std::uint32_t h) override { m_width = w, m_height = h; }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     int suspendCount() const { return m_suspends; }
     int resumeCount() const { return m_resumes; }
 #endif

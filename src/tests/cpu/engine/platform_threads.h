@@ -35,7 +35,7 @@ long currentThreadId();
 bool spreadOverProcessorGroups(int index, int count);
 
 // Windows (P5): the calling thread asks not to be power-throttled (EcoQoS),
-// so an unfocused SynBench isn't moved onto E-cores. Elsewhere, nothing.
+// so an unfocused Syntheon isn't moved onto E-cores. Elsewhere, nothing.
 void optOutOfPowerThrottlingForThisThread();
 
 // Windows: the calling thread runs at THREAD_PRIORITY_HIGHEST while this

@@ -11,39 +11,39 @@
 #         SHA-256 of the GitHub archive of that tag, computed on 2026-10-21
 #   glad  2.0.8                 pip glad2==2.0.8
 #
-# Targets for the rest of the build:   synbench::volk   synbench::glad
+# Targets for the rest of the build:   syntheon::volk   syntheon::glad
 include_guard(GLOBAL)
 include(FetchContent)
 include(ThirdPartyNotices)
 
-set(SYNBENCH_VOLK_VERSION 1.4.304)
-set(SYNBENCH_GLAD_VERSION 2.0.8)
+set(SYNTHEON_VOLK_VERSION 1.4.304)
+set(SYNTHEON_GLAD_VERSION 2.0.8)
 
 # volk's own CMakeLists is not used (SOURCE_SUBDIR names a folder that isn't
 # there): its volk.c and volk.h are built by the target below.
-FetchContent_Declare(synbench_volk
-    URL "https://github.com/zeux/volk/archive/refs/tags/vulkan-sdk-${SYNBENCH_VOLK_VERSION}.0.tar.gz"
+FetchContent_Declare(syntheon_volk
+    URL "https://github.com/zeux/volk/archive/refs/tags/vulkan-sdk-${SYNTHEON_VOLK_VERSION}.0.tar.gz"
     URL_HASH SHA256=2a563c9dd926c804d91d7b84c59516678ccb32d039038049fc20eb22547c88fb
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    SOURCE_SUBDIR synbench_not_a_cmake_project
+    SOURCE_SUBDIR syntheon_not_a_cmake_project
     SYSTEM)
-FetchContent_MakeAvailable(synbench_volk)
+FetchContent_MakeAvailable(syntheon_volk)
 
 # Vulkan::Headers comes from src/sysinfo (added later; the name is resolved at generate time).
-add_library(synbench_volk STATIC "${synbench_volk_SOURCE_DIR}/volk.c")
-target_include_directories(synbench_volk SYSTEM PUBLIC "${synbench_volk_SOURCE_DIR}")
-target_compile_definitions(synbench_volk PUBLIC VK_NO_PROTOTYPES)
-target_link_libraries(synbench_volk PUBLIC Vulkan::Headers ${CMAKE_DL_LIBS})
-add_library(synbench::volk ALIAS synbench_volk)
+add_library(syntheon_volk STATIC "${syntheon_volk_SOURCE_DIR}/volk.c")
+target_include_directories(syntheon_volk SYSTEM PUBLIC "${syntheon_volk_SOURCE_DIR}")
+target_compile_definitions(syntheon_volk PUBLIC VK_NO_PROTOTYPES)
+target_link_libraries(syntheon_volk PUBLIC Vulkan::Headers ${CMAKE_DL_LIBS})
+add_library(syntheon::volk ALIAS syntheon_volk)
 
 set(_glad_dir "${PROJECT_SOURCE_DIR}/src/tests/gpu/worker/gl/glad")
-add_library(synbench_glad STATIC "${_glad_dir}/src/gl.c")
-target_include_directories(synbench_glad SYSTEM PUBLIC "${_glad_dir}/include")
-target_link_libraries(synbench_glad PUBLIC ${CMAKE_DL_LIBS})
-add_library(synbench::glad ALIAS synbench_glad)
+add_library(syntheon_glad STATIC "${_glad_dir}/src/gl.c")
+target_include_directories(syntheon_glad SYSTEM PUBLIC "${_glad_dir}/include")
+target_link_libraries(syntheon_glad PUBLIC ${CMAKE_DL_LIBS})
+add_library(syntheon::glad ALIAS syntheon_glad)
 
 # Third-party code: no warnings (the same rule as the libraries of ThirdParty.cmake).
-foreach(_tgt synbench_volk synbench_glad)
+foreach(_tgt syntheon_volk syntheon_glad)
     if(MSVC)
         target_compile_options(${_tgt} PRIVATE /w)
     else()
@@ -52,19 +52,19 @@ foreach(_tgt synbench_volk synbench_glad)
 endforeach()
 
 # Their licences, for THIRD-PARTY-NOTICES.txt.
-synbench_add_notice(NAME "volk" VERSION ${SYNBENCH_VOLK_VERSION} LICENCE "MIT"
-    FILE "${synbench_volk_SOURCE_DIR}/LICENSE.md")
-synbench_add_notice(NAME "glad (OpenGL loader)" VERSION ${SYNBENCH_GLAD_VERSION} LICENCE "CC0-1.0"
+syntheon_add_notice(NAME "volk" VERSION ${SYNTHEON_VOLK_VERSION} LICENCE "MIT"
+    FILE "${syntheon_volk_SOURCE_DIR}/LICENSE.md")
+syntheon_add_notice(NAME "glad (OpenGL loader)" VERSION ${SYNTHEON_GLAD_VERSION} LICENCE "CC0-1.0"
     FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/spdx/CC0-1.0.txt"
-    NOTE "The loader glad generated is under (WTFPL OR CC0-1.0); SynBench uses it under CC0-1.0.")
-synbench_add_notice(NAME "Khronos platform header (KHR/khrplatform.h, in glad's loader)" LICENCE "MIT"
+    NOTE "The loader glad generated is under (WTFPL OR CC0-1.0); Syntheon uses it under CC0-1.0.")
+syntheon_add_notice(NAME "Khronos platform header (KHR/khrplatform.h, in glad's loader)" LICENCE "MIT"
     FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/khrplatform-MIT.txt")
-synbench_add_notice(NAME "FXAA 3.11 (NVIDIA, Timothy Lottes)" LICENCE "NVIDIA FXAA 3.11 licence"
+syntheon_add_notice(NAME "FXAA 3.11 (NVIDIA, Timothy Lottes)" LICENCE "NVIDIA FXAA 3.11 licence"
     FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/fxaa3_11.txt"
     NOTE "The GPU test's post_fxaa.hlsl is a transliteration of the quality path of Fxaa3_11.h.")
-synbench_add_notice(NAME "misc-fixed 5x7 font (X.Org font-misc-misc)" VERSION 1.1.3 LICENCE "Public domain"
+syntheon_add_notice(NAME "misc-fixed 5x7 font (X.Org font-misc-misc)" VERSION 1.1.3 LICENCE "Public domain"
     FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/misc-fixed-5x7.txt"
     NOTE "The overlay's bitmap font (tools/gpu-shaders/font5x7.py converts it into src/tests/gpu/worker/scene/bitmap_font.inc).")
-synbench_add_notice(NAME "Khronos OpenGL registry (in glad's loader)" LICENCE "Apache-2.0"
+syntheon_add_notice(NAME "Khronos OpenGL registry (in glad's loader)" LICENCE "Apache-2.0"
     FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/spdx/Apache-2.0.txt"
     NOTE "glad's output carries parts of the Khronos OpenGL registry (Apache-2.0).")

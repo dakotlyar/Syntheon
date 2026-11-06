@@ -5,7 +5,7 @@
   qmllint-gate.py <report.json> [<report.json> ...]
 
 Each report is qmllint's --json output (the all_qmllint_json target writes
-<build>/synbench_ui_qmllint.json; CI writes one for tests/qml). Every finding
+<build>/syntheon_ui_qmllint.json; CI writes one for tests/qml). Every finding
 of type warning or worse is printed as file:line:col and fails the gate, and
 so does a file qmllint marked unsuccessful. Info-level findings are printed
 but don't fail, except the categories in FAILING_IDS (unused imports, which

@@ -2,9 +2,9 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
-// What SynBench found on this machine; the same snapshot is saved with every
+// What Syntheon found on this machine; the same snapshot is saved with every
 // run. No serial numbers, UUIDs or MAC addresses are ever collected. The AI
 // runtimes panel arrives with the AI test in Phase 6.
 ScreenFrame {

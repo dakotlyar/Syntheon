@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Fails if THIRD-PARTY-NOTICES.txt lacks a component SynBench ships, or a
+# Fails if THIRD-PARTY-NOTICES.txt lacks a component Syntheon ships, or a
 # component's licence text. Run as a CTest test:
 #   cmake -DNOTICES=<build>/THIRD-PARTY-NOTICES.txt "-DEXPECT=<title>|<phrase>;..." -P cmake/CheckThirdPartyNotices.cmake
 # Each EXPECT entry is a section title and a phrase that must follow it (from

@@ -3,7 +3,7 @@
 
 // The GPU test (Phase 4a design): four 3D scenes on every graphics API, run
 // scene by scene across the APIs (D12) in a worker process per API
-// (synbench-gpu), with the main window held still while they draw. Task 24:
+// (syntheon-gpu), with the main window held still while they draw. Task 24:
 // every API the probe found (Vulkan, DirectX 12 and 11, OpenGL) runs, with the
 // cross-API signature check (D20); task 28 added native 2D and task 32
 // fill-rate (Quads and Sprites on every API), which completes formula v1.

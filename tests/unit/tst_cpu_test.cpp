@@ -347,7 +347,7 @@ private slots:
     // because of it (it comes from the rates).
     void injectedThrottle()
     {
-        qputenv("SYNBENCH_CPU_FAKE_THROTTLE", "xz compress");
+        qputenv("SYNTHEON_CPU_FAKE_THROTTLE", "xz compress");
         // 5% of real time: xz's repetitions (80 ms) then always hold a
         // telemetry sample (every 50 ms), even on a loaded machine; at 1% a
         // repetition could go unsampled, and a real drift elsewhere won.
@@ -355,7 +355,7 @@ private slots:
         tests::CpuTest t;
         FakeRunContext ctx;
         const TestResult r = t.run(ctx, {});
-        qunsetenv("SYNBENCH_CPU_FAKE_THROTTLE");
+        qunsetenv("SYNTHEON_CPU_FAKE_THROTTLE");
         QCOMPARE(r.status, Status::Ok);
         QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle"))->value), QStringLiteral("Detected"));
         const QString detail = std::get<QString>(r.metric(QStringLiteral("throttle.detail"))->value);
@@ -400,7 +400,7 @@ private slots:
     // Error; the others run; the test is Partial with no score.
     void failingGroupIsPartial()
     {
-        cpu::CryptoClient::setWorkerForTests(QStringLiteral("/nonexistent/synbench-cpucrypto"));
+        cpu::CryptoClient::setWorkerForTests(QStringLiteral("/nonexistent/syntheon-cpucrypto"));
         tests::CpuTest t;
         FakeRunContext ctx;
         const TestResult r = t.run(ctx, {});
@@ -580,11 +580,11 @@ private slots:
     // mark is missing); the groups and the CPU score are unaffected.
     void singleThreadPartFails()
     {
-        qputenv("SYNBENCH_CPU_FAIL", "Single-thread floating point");
+        qputenv("SYNTHEON_CPU_FAIL", "Single-thread floating point");
         tests::CpuTest t;
         FakeRunContext ctx;
         const TestResult r = t.run(ctx, {});
-        qunsetenv("SYNBENCH_CPU_FAIL");
+        qunsetenv("SYNTHEON_CPU_FAIL");
         QCOMPARE(r.status, Status::Partial);
         QVERIFY2(r.statusReason.startsWith(QStringLiteral("single-thread mark incomplete: Single-thread floating point: ")),
                  qPrintable(r.statusReason));
@@ -604,11 +604,11 @@ private slots:
     // a warning).
     void softwareWrongResultIsAnError()
     {
-        qputenv("SYNBENCH_CPU_FAIL", "SHA-256 (software path)");
+        qputenv("SYNTHEON_CPU_FAIL", "SHA-256 (software path)");
         tests::CpuTest t;
         FakeRunContext ctx;
         const TestResult r = t.run(ctx, {});
-        qunsetenv("SYNBENCH_CPU_FAIL");
+        qunsetenv("SYNTHEON_CPU_FAIL");
         QCOMPARE(r.status, Status::Partial);
         for (const SubResult &s : r.subResults)
             QCOMPARE(s.status, s.id == QLatin1StringView("crypto") ? Status::Error : Status::Ok);
@@ -662,7 +662,7 @@ private slots:
     void forcedPinningAndCounters()
     {
         tests::CpuTest t;
-        qputenv("SYNBENCH_CPU_FORCE_PIN", "none");
+        qputenv("SYNTHEON_CPU_FORCE_PIN", "none");
         FakeRunContext a;
         TestResult r = t.run(a, {});
         QCOMPARE(std::get<QString>(r.metric(QStringLiteral("single.cpu"))->value),
@@ -671,10 +671,10 @@ private slots:
         for (const DetailBlock &b : t.detail(r).blocks)
             unpinnedTitle = unpinnedTitle || b.title == QStringLiteral("Single-thread part (one core on purpose) · unpinned");
         QVERIFY(unpinnedTitle);
-        qputenv("SYNBENCH_CPU_FORCE_PIN", "fail");
+        qputenv("SYNTHEON_CPU_FORCE_PIN", "fail");
         FakeRunContext b;
         r = t.run(b, {});
-        qunsetenv("SYNBENCH_CPU_FORCE_PIN");
+        qunsetenv("SYNTHEON_CPU_FORCE_PIN");
         QCOMPARE(std::get<QString>(r.metric(QStringLiteral("single.cpu"))->value), QStringLiteral("unpinned (pinning failed)"));
         bool failedTitle = false;
         for (const DetailBlock &blk : t.detail(r).blocks)
@@ -685,10 +685,10 @@ private slots:
         QCOMPARE(b.count(QStringLiteral("couldn't move to the quietest core")), 0);
         QCOMPARE(b.count(QStringLiteral("CPU -1")), 0);
         QCOMPARE(b.count(QStringLiteral(" on CPU ")), 0);
-        qputenv("SYNBENCH_CPU_FAKE_THROTTLE", "counters");
+        qputenv("SYNTHEON_CPU_FAKE_THROTTLE", "counters");
         FakeRunContext c;
         r = t.run(c, {});
-        qunsetenv("SYNBENCH_CPU_FAKE_THROTTLE");
+        qunsetenv("SYNTHEON_CPU_FAKE_THROTTLE");
         QCOMPARE(std::get<QString>(r.metric(QStringLiteral("throttle"))->value), QStringLiteral("Detected"));
         // The counters always show in the detail; at 1% of real time a rate
         // dip in some window can fire rule 3 as well, which then leads it

@@ -52,7 +52,7 @@ public:
     std::string frame(double t) override;
     const char *overlayName() const override { return "Qt raster"; }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     // Dev hook (task 26's overlay test): the image the last frame() presented (the one the backing store flushes), at
     // the window's physical size: the content scaled to the window with the overlay on top. Headless dev builds compose
     // it too, at the render size.

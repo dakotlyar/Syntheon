@@ -382,13 +382,13 @@ private slots:
         // loaded latency N/A and skip its paths; the load shares the core
         // there instead (a dev hook; checkpoint 3 CI). It changes nothing
         // where the load has a core of its own.
-        qputenv("SYNBENCH_RAM_LOAD_SHARES_CORE", "1");
+        qputenv("SYNTHEON_RAM_LOAD_SHARES_CORE", "1");
     }
     void cleanup()
     {
         tests::setStubTimeScale(0);
-        qunsetenv("SYNBENCH_RAM_FAIL");
-        qunsetenv("SYNBENCH_RAM_LOAD_SHARES_CORE");
+        qunsetenv("SYNTHEON_RAM_FAIL");
+        qunsetenv("SYNTHEON_RAM_LOAD_SHARES_CORE");
     }
 
     // One physical core (this thread's affinity cut to the first allowed
@@ -408,7 +408,7 @@ private slots:
 #else
         QFETCH(bool, hook);
         if (!hook)
-            qunsetenv("SYNBENCH_RAM_LOAD_SHARES_CORE");
+            qunsetenv("SYNTHEON_RAM_LOAD_SHARES_CORE");
         cpu_set_t saved;
         QVERIFY(sched_getaffinity(0, sizeof(saved), &saved) == 0);
         const std::vector<isa::CoreChoice> allowed = isa::allowedLogicalCpus();
@@ -435,11 +435,11 @@ private slots:
         QVERIFY(loaded);
         if (hook) {
             QVERIFY2(loaded->status == Status::Ok, qPrintable(loaded->reason + QStringLiteral("\n") + ctx.allLogs()));
-            QVERIFY(ctx.logged(QStringLiteral("SYNBENCH_RAM_LOAD_SHARES_CORE")));
+            QVERIFY(ctx.logged(QStringLiteral("SYNTHEON_RAM_LOAD_SHARES_CORE")));
         } else {
             QCOMPARE(loaded->status, Status::NotAvailable);
             QCOMPARE(loaded->reason, QStringLiteral("needs at least two cores"));
-            QVERIFY(!ctx.logged(QStringLiteral("SYNBENCH_RAM_LOAD_SHARES_CORE")));
+            QVERIFY(!ctx.logged(QStringLiteral("SYNTHEON_RAM_LOAD_SHARES_CORE")));
         }
         QCOMPARE(ram::LoadGenerator::liveThreads(), 0);
         QCOMPARE(cpu::WorkerPool::liveThreads(), 0);
@@ -868,7 +868,7 @@ private slots:
                         QStringLiteral("The DRAM latency chase runs on CPU 4 while 30 load threads on the other CPUs (not CPU 4's SMT "
                                        "sibling) stream reads, pausing after every 4 KiB for the level's delay. Only full load is "
                                        "scored."),
-                        QStringLiteral("As reported by the firmware (SMBIOS). SynBench doesn't read SPD, so timings aren't shown.")}));
+                        QStringLiteral("As reported by the firmware (SMBIOS). Syntheon doesn't read SPD, so timings aren't shown.")}));
     }
 
     // The mockup's variants: no L3 (Snapdragon X), ARM64 bandwidth, 4 KiB
@@ -1100,8 +1100,8 @@ private slots:
                               "config.peak", "config.efficiency", "background.load"})
             QVERIFY2(std::isfinite(numberOf(r, k)), k);
         // The load leaves the chased core out; on a one-CPU runner the test
-        // hook puts it on that CPU too (SYNBENCH_RAM_LOAD_SHARES_CORE).
-        const bool shared = ctx.logged(QStringLiteral("SYNBENCH_RAM_LOAD_SHARES_CORE"));
+        // hook puts it on that CPU too (SYNTHEON_RAM_LOAD_SHARES_CORE).
+        const bool shared = ctx.logged(QStringLiteral("SYNTHEON_RAM_LOAD_SHARES_CORE"));
         QVERIFY(numberOf(r, "loaded.threads") >= 1);
         QVERIFY(numberOf(r, "loaded.threads") < numberOf(r, "threads") || (shared && numberOf(r, "threads") == 1));
         // The series: the latency curve ascending, never a zero (a log axis),
@@ -1223,7 +1223,7 @@ private slots:
     {
         QFETCH(QString, stage);
         QFETCH(QString, part);
-        qputenv("SYNBENCH_RAM_FAIL", stage.toUtf8());
+        qputenv("SYNTHEON_RAM_FAIL", stage.toUtf8());
         tests::RamTest t;
         FakeRunContext ctx;
         const TestResult r = t.run(ctx, {});

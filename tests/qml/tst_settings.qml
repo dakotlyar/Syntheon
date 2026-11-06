@@ -2,8 +2,8 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
-import SynBench
-import SynBenchTest
+import Syntheon
+import SyntheonTest
 
 // The Settings screen on real controllers: layout and theme apply right away
 // and persist; Licences shows the notices; Clear history asks first and then
@@ -70,7 +70,7 @@ TestCase {
 
     function test_showsTheHistoryLocation() {
         const screen = createTemporaryObject(screenComponent, test)
-        verify(findChild(screen, "dataPath").text.endsWith("synbench.db"))
+        verify(findChild(screen, "dataPath").text.endsWith("syntheon.db"))
         verify(findChild(screen, "historyHint").text.indexOf("saved run") >= 0)
     }
 

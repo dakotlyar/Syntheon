@@ -77,11 +77,11 @@ class TestCpuCrypto : public QObject
 private slots:
     void initTestCase()
     {
-        QVERIFY2(!CryptoClient::workerPath().isEmpty(), "synbench-cpucrypto is not next to the test");
-        // Planted for every test below: SynBench's own environment points
+        QVERIFY2(!CryptoClient::workerPath().isEmpty(), "syntheon-cpucrypto is not next to the test");
+        // Planted for every test below: Syntheon's own environment points
         // OpenSSL at a configuration file that doesn't exist (and would fail
         // the load if anything read it).
-        qputenv("OPENSSL_CONF", "/nonexistent/synbench-planted.cnf");
+        qputenv("OPENSSL_CONF", "/nonexistent/syntheon-planted.cnf");
         qputenv("OPENSSL_MODULES", "/nonexistent");
         qputenv("OPENSSL_ENGINES", "/nonexistent");
     }
@@ -93,7 +93,7 @@ private slots:
         QCOMPARE(o.openssl, QStringLiteral("3.5.9"));
     }
 
-    // P17: nothing of SynBench's environment reaches the worker.
+    // P17: nothing of Syntheon's environment reaches the worker.
     void environmentFromScratch()
     {
         const QProcessEnvironment hw = CryptoClient::environment(false);
@@ -169,7 +169,7 @@ private slots:
         s.threads = 0;  // the worker refuses it
         const CryptoOutcome o = CryptoClient::run(s, [] { return false; });
         QCOMPARE(o.status, CryptoOutcome::Status::Failed);
-        QVERIFY2(o.error.startsWith(QLatin1StringView("synbench-cpucrypto: bad --threads")), qPrintable(o.error));
+        QVERIFY2(o.error.startsWith(QLatin1StringView("syntheon-cpucrypto: bad --threads")), qPrintable(o.error));
     }
 
     // AP-5 L6: a run's output must have the right shape, and a runaway line
@@ -224,7 +224,7 @@ private slots:
         QVERIFY2(crash.error.contains(QLatin1StringView("crashed (signal ")), qPrintable(crash.error));
 #endif
         // The real worker is back.
-        QCOMPARE(QFileInfo(CryptoClient::workerPath()).completeBaseName(), QStringLiteral("synbench-cpucrypto"));
+        QCOMPARE(QFileInfo(CryptoClient::workerPath()).completeBaseName(), QStringLiteral("syntheon-cpucrypto"));
     }
 
     void plausibilityCeiling()
@@ -275,7 +275,7 @@ private slots:
         QVERIFY(!processAlive(o.pid));
     }
 
-    // The worker exits by itself when its stdin closes (SynBench is gone).
+    // The worker exits by itself when its stdin closes (Syntheon is gone).
     void stdinEofEndsTheWorker()
     {
         QProcess p;

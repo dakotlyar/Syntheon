@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
-import SynBench
+import Syntheon
 
 // A panel with the mockup's border and radius.
 Rectangle {

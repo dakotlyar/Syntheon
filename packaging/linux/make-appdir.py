@@ -12,10 +12,10 @@ anything from the target.
                  [--cross-prefix aarch64-linux-gnu-] [--sysroot <sysroot>]
 
 Layout produced:
-  AppDir/AppRun                       (dispatches --synbench-helper)
-  AppDir/<app-id>.desktop, synbench.png, .DirIcon
-  AppDir/usr/bin/SynBench (+ qt.conf), usr/libexec/synbench-helper
-  AppDir/usr/libexec/synbench-cpucrypto, synbench-gpu (+ qt.conf: the GPU worker is a Qt program)
+  AppDir/AppRun                       (dispatches --syntheon-helper)
+  AppDir/<app-id>.desktop, syntheon.png, .DirIcon
+  AppDir/usr/bin/Syntheon (+ qt.conf), usr/libexec/syntheon-helper
+  AppDir/usr/libexec/syntheon-cpucrypto, syntheon-gpu (+ qt.conf: the GPU worker is a Qt program)
   AppDir/usr/lib       bundled libraries (Qt and whatever Qt needs, minus the exclude list)
 
 The bundling rule, the same for both architectures (one exclude list):
@@ -42,9 +42,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-APP_ID = "io.github.dakotlyar.SynBench"
+APP_ID = "io.github.dakotlyar.Syntheon"
 
-# Qt plugin folders that SynBench can use. (tls, sqldrivers other than sqlite,
+# Qt plugin folders that Syntheon can use. (tls, sqldrivers other than sqlite,
 # designer, ... are left out on purpose.)
 PLUGIN_DIRS = {
     # xcb (X11, also the XWayland fallback) and wayland (native; Qt 6.12 has ONE
@@ -64,7 +64,7 @@ PLUGIN_DIRS = {
 }
 
 
-# Pieces of the QML modules the scanner returns that SynBench never loads
+# Pieces of the QML modules the scanner returns that Syntheon never loads
 # (it uses the Basic style only). Pruned BEFORE the library walk, so the Qt
 # libraries only they needed are not bundled either.
 PRUNE_QML = [
@@ -145,7 +145,7 @@ class Deployer:
         if self.appdir.exists():
             shutil.rmtree(self.appdir)
         self.copy_tree(a.install_tree, self.usr)
-        app = self.usr / "bin" / "SynBench"
+        app = self.usr / "bin" / "Syntheon"
         if not app.exists():
             sys.exit(f"{app} is missing: run cmake --install first")
 
@@ -203,17 +203,17 @@ class Deployer:
         run_script.write_text(
             "#!/bin/sh\n"
             "# SPDX-License-Identifier: GPL-3.0-or-later\n"
-            "# pkexec runs `<this AppImage> --synbench-helper` as root (design 6).\n"
+            "# pkexec runs `<this AppImage> --syntheon-helper` as root (design 6).\n"
             'HERE="$(dirname "$(readlink -f "$0")")"\n'
             'case "${1:-}" in\n'
-            '    --synbench-helper) shift; exec "$HERE/usr/libexec/synbench-helper" "$@" ;;\n'
+            '    --syntheon-helper) shift; exec "$HERE/usr/libexec/syntheon-helper" "$@" ;;\n'
             "esac\n"
-            'exec "$HERE/usr/bin/SynBench" "$@"\n')
+            'exec "$HERE/usr/bin/Syntheon" "$@"\n')
         run_script.chmod(run_script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         share = self.usr / "share"
         shutil.copy2(share / "applications" / f"{APP_ID}.desktop", self.appdir / f"{APP_ID}.desktop")
-        icon = share / "icons" / "hicolor" / "256x256" / "apps" / "synbench.png"
-        shutil.copy2(icon, self.appdir / "synbench.png")
+        icon = share / "icons" / "hicolor" / "256x256" / "apps" / "syntheon.png"
+        shutil.copy2(icon, self.appdir / "syntheon.png")
         diricon = self.appdir / ".DirIcon"
         if diricon.exists() or diricon.is_symlink():
             diricon.unlink()

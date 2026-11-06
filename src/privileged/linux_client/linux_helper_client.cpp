@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "privileged/linux_client/linux_helper_client.h"
 
-#include "synbench_version.h"
+#include "syntheon_version.h"
 
 #include <QCoreApplication>
 #include <QDeadlineTimer>
@@ -14,7 +14,7 @@
 #include <QTimer>
 #include <QWaitCondition>
 
-Q_LOGGING_CATEGORY(lcHelper, "synbench.helper")
+Q_LOGGING_CATEGORY(lcHelper, "syntheon.helper")
 
 namespace sb {
 
@@ -149,14 +149,14 @@ LinuxHelperClient::LaunchPlan LinuxHelperClient::planLaunch(const Environment &e
             const MountCheck check = verifyAppImageMount(env.mountInfo, appDir, plan.imagePath);
             plan.mountDetail = check.detail;
             if (!check.ok) {
-                plan.message = QStringLiteral("The AppImage's mount could not be verified (%1). SynBench won't ask for "
+                plan.message = QStringLiteral("The AppImage's mount could not be verified (%1). Syntheon won't ask for "
                                               "administrator access from an image it can't verify.")
                                    .arg(check.reason);
                 return plan;
             }
             plan.mountVerified = true;
             // In an AppImage the helper is started by AppRun from the image itself.
-            plan.helperPath = QDir(appDir).filePath(QStringLiteral("usr/libexec/synbench-helper"));
+            plan.helperPath = QDir(appDir).filePath(QStringLiteral("usr/libexec/syntheon-helper"));
             plan.message = QStringLiteral("AppImage %1 verified").arg(plan.imagePath);
             return plan;
         }
@@ -166,8 +166,8 @@ LinuxHelperClient::LaunchPlan LinuxHelperClient::planLaunch(const Environment &e
     // ../libexec (the install layout). Canonical, executable.
     plan.kind = LaunchPlan::Kind::Dev;
     const QDir dir = QFileInfo(binary).dir();
-    const QStringList candidates{dir.filePath(QStringLiteral("synbench-helper")),
-                                 dir.filePath(QStringLiteral("../libexec/synbench-helper"))};
+    const QStringList candidates{dir.filePath(QStringLiteral("syntheon-helper")),
+                                 dir.filePath(QStringLiteral("../libexec/syntheon-helper"))};
     for (const QString &c : candidates) {
         const QString canonical = QFileInfo(c).canonicalFilePath();
         if (!canonical.isEmpty() && QFileInfo(canonical).isExecutable()) {
@@ -176,7 +176,7 @@ LinuxHelperClient::LaunchPlan LinuxHelperClient::planLaunch(const Environment &e
             return plan;
         }
     }
-    plan.message = QStringLiteral("The privileged helper (synbench-helper) was not found. Looked in: %1.")
+    plan.message = QStringLiteral("The privileged helper (syntheon-helper) was not found. Looked in: %1.")
                        .arg(QDir::toNativeSeparators(candidates.join(QStringLiteral(", "))));
     return plan;
 }
@@ -213,7 +213,7 @@ std::optional<LinuxHelperClient::Launch> LinuxHelperClient::defaultLaunch(const 
         // the pinned runtime), and as root that is a directory another local user
         // could prepare. If root can't enter the FUSE mount, elevation fails with a
         // clear error instead (R2 passed on the real pkexec here).
-        return Launch{{pkexec, {plan.imagePath, QStringLiteral("--synbench-helper")}}, std::nullopt};
+        return Launch{{pkexec, {plan.imagePath, QStringLiteral("--syntheon-helper")}}, std::nullopt};
     }
     if (plan.helperPath.isEmpty()) {
         if (error)
@@ -225,7 +225,7 @@ std::optional<LinuxHelperClient::Launch> LinuxHelperClient::defaultLaunch(const 
 
 QString LinuxHelperClient::thisBuildId()
 {
-    return QStringLiteral(SYNBENCH_DISPLAY_VERSION " " SYNBENCH_BUILD_ID);
+    return QStringLiteral(SYNTHEON_DISPLAY_VERSION " " SYNTHEON_BUILD_ID);
 }
 
 LinuxHelperClient::LinuxHelperClient(Options options, QObject *parent) : QObject(parent), m_options(std::move(options))
@@ -242,7 +242,7 @@ LinuxHelperClient::~LinuxHelperClient()
         // A root helper can't be killed from here; EOF makes it exit.
         m_process->waitForFinished(2000);
     }
-    failAllPending(QStringLiteral("SynBench is closing"));
+    failAllPending(QStringLiteral("Syntheon is closing"));
 }
 
 void LinuxHelperClient::setState(State s)
@@ -341,7 +341,7 @@ void LinuxHelperClient::collectStderr()
         if (line.trimmed().isEmpty())
             continue;
         qCInfo(lcHelper, "%s", line.constData());
-        if (line.startsWith("synbench-helper: started"))
+        if (line.startsWith("syntheon-helper: started"))
             m_helperStarted = true;
     }
     m_stderr = (m_stderr + data).right(4096);
@@ -401,9 +401,9 @@ void LinuxHelperClient::shutdown()
         QMutexLocker lock(&m_mutex);
         m_state = State::Failed;
         m_failure = Failure::Exited;
-        m_failureMessage = QStringLiteral("SynBench is closing");
+        m_failureMessage = QStringLiteral("Syntheon is closing");
     }
-    failAllPending(QStringLiteral("SynBench is closing"));
+    failAllPending(QStringLiteral("Syntheon is closing"));
     stop();
 }
 
@@ -531,7 +531,7 @@ void LinuxHelperClient::handleHello(const Frame &frame)
     const QString buildId = QString::fromStdString(hello->buildId);
     if (!m_options.expectedBuildId.isEmpty() && buildId != m_options.expectedBuildId) {
         fail(Failure::BuildMismatch,
-             QStringLiteral("The privileged helper is from a different SynBench build (%1).").arg(buildId));
+             QStringLiteral("The privileged helper is from a different Syntheon build (%1).").arg(buildId));
         return;
     }
     if (m_options.requireRoot && hello->euid != 0) {

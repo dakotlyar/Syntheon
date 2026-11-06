@@ -21,7 +21,7 @@ QByteArray sample()
 {
     QByteArray data;
     data.reserve(256 * 1024);
-    const QByteArray phrase("SynBench compresses the same block on every machine. ");
+    const QByteArray phrase("Syntheon compresses the same block on every machine. ");
     while (data.size() < 192 * 1024)
         data.append(phrase);
     std::uint64_t x = 0x9E3779B97F4A7C15ull;

@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Fails if a test-only binary ended up in a tree that ships (install
-# prefix, AppDir, deploy folder). In particular synbench-helper-test reads
+# prefix, AppDir, deploy folder). In particular syntheon-helper-test reads
 # SMBIOS from paths on its command line, so it must never sit where pkexec
 # could be pointed at it.
-# fake-gpuworker (tests/unit) stands in for synbench-gpu in the tests.
+# fake-gpuworker (tests/unit) stands in for syntheon-gpu in the tests.
 #
 #   packaging/checks/no-test-binaries.sh <tree> [<tree>...]
 set -euo pipefail
@@ -16,7 +16,7 @@ for tree in "$@"; do
     while IFS= read -r -d '' f; do
         echo "test-only binary in a shipping tree: $f" >&2
         found=1
-    done < <(find "$tree" \( -iname 'synbench-helper-test*' -o -iname 'test_helper*' -o -iname 'tst_*' -o -iname 'fake-*' \) -print0)
+    done < <(find "$tree" \( -iname 'syntheon-helper-test*' -o -iname 'test_helper*' -o -iname 'tst_*' -o -iname 'fake-*' \) -print0)
 done
 if [[ $found -ne 0 ]]; then
     exit 1

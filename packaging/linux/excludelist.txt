@@ -2,7 +2,7 @@
 # (glibc and its friends, the graphics/windowing stack the driver must match).
 # One soname prefix per line ("libX11.so" matches libX11.so.6). Shared by the
 # x64 and ARM64 builds (R4). Based on the AppImage project's excludelist,
-# trimmed to what SynBench's binaries and Qt's plugins can pull in.
+# trimmed to what Syntheon's binaries and Qt's plugins can pull in.
 #
 # glibc and the loader
 ld-linux

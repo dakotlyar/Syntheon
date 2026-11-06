@@ -11,11 +11,11 @@ namespace sb {
 
 class AppRuntime;
 
-// Developer tool, not a feature: SYNBENCH_TOUR=<folder> walks the sections in
+// Developer tool, not a feature: SYNTHEON_TOUR=<folder> walks the sections in
 // light and dark and saves a PNG of the window for each ("01-run-light.png"),
 // then quits. Works on the offscreen platform, so no one has to click through
 // the app to see that every screen renders. The sections come from
-// SYNBENCH_TOUR_SECTIONS (comma separated, default: all).
+// SYNTHEON_TOUR_SECTIONS (comma separated, default: all).
 class ScreenshotTour : public QObject
 {
     Q_OBJECT

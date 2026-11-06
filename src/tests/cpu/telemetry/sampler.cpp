@@ -34,7 +34,7 @@ struct Abandoned {
     std::mutex mutex;
     std::vector<std::thread> threads;
     // At exit, detach instead of joining: a sensor read that never returns
-    // (a hung EC) must not hang SynBench's exit (AP-5 L6). The threads own
+    // (a hung EC) must not hang Syntheon's exit (AP-5 L6). The threads own
     // their state, so detaching them is safe.
     ~Abandoned()
     {

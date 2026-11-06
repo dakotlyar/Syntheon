@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-qt_add_library(synbench_core STATIC
+qt_add_library(syntheon_core STATIC
     enums.h enums.cpp
     result.h result.cpp
     scoring.h scoring.cpp
@@ -20,9 +20,9 @@ qt_add_library(synbench_core STATIC
 )
 
 # P21: core links QtCore only, so a headless Phase 9 CLI can reuse it.
-# synbench_privileged is QtCore-only too: the PrivilegedOps interface tests
+# syntheon_privileged is QtCore-only too: the PrivilegedOps interface tests
 # reach through their contexts (§2.7).
-target_link_libraries(synbench_core PUBLIC Qt6::Core synbench_privileged)
-target_include_directories(synbench_core PUBLIC "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(syntheon_core PUBLIC Qt6::Core syntheon_privileged)
+target_include_directories(syntheon_core PUBLIC "${PROJECT_SOURCE_DIR}/src")
 
 add_subdirectory(power)

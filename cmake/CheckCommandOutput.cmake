@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # A command's standard output must equal a committed file, byte for byte
-# (the encryption worker's golden table: synbench-cpucrypto --print-golden
+# (the encryption worker's golden table: syntheon-cpucrypto --print-golden
 # against src/tests/cpu/golden/crypto.inc).
 #   cmake -DCOMMAND=<program> [-DARGS=<arg>|<arg>...] -DEXPECTED=<file> -P CheckCommandOutput.cmake
 # Run with cmake -P: the policies of the project's minimum (a script gets

@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
-import SynBench
+import Syntheon
 
 // The mockup's select. `items` = [{value, label, enabled?, disabledReason?, detail?}];
 // the chosen item's value is `current`.

@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // The live run: one row per planned test, the log, Stop and "View results so
 // far" (§3, D3). After the run it stays as a summary until the next one.
@@ -36,11 +36,11 @@ ScreenFrame {
         Layout.fillWidth: true
         tone: "bad"
         text: RunController.needsRestart
-              ? qsTr("A test stopped responding, so the run was saved as interrupted. Restart SynBench to run tests again.")
+              ? qsTr("A test stopped responding, so the run was saved as interrupted. Restart Syntheon to run tests again.")
               : ""
     }
 
-    // Dev hook SYNBENCH_GPU_MINIMIZE_MAIN=1: minimise the main window while held.
+    // Dev hook SYNTHEON_GPU_MINIMIZE_MAIN=1: minimise the main window while held.
     Connections {
         target: RunController
         function onInterfaceHeldChanged() {

@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // KPI cards: label, value, unit (the mockup's .kpis).
 GridLayout {

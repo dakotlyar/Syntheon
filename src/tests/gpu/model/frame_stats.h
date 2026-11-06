@@ -41,7 +41,7 @@ struct Plausibility {
     QString error;  // empty: plausible
     bool dropGpu = false;
 };
-// minFrames: the n floor (0 = no floor, as for the native 2D paths, which only get the first rule), kMinFrames except under the GPU test's dev hook for the CI smoke (SYNBENCH_GPU_MIN_FRAMES).
+// minFrames: the n floor (0 = no floor, as for the native 2D paths, which only get the first rule), kMinFrames except under the GPU test's dev hook for the CI smoke (SYNTHEON_GPU_MIN_FRAMES).
 Plausibility plausibility(int frames, double fps, std::optional<double> minFrameMs, double p50Ms, std::optional<double> gpuMs,
                           int minFrames = kMinFrames);
 

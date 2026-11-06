@@ -12,7 +12,7 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "SYNBENCH_QT_VERSION": "6.12.0",
+        "SYNTHEON_QT_VERSION": "6.12.0",
         "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}"
       }
     },
@@ -32,7 +32,7 @@
       "inherits": "linux-x64",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "SYNBENCH_DEV_HOOKS": "ON"
+        "SYNTHEON_DEV_HOOKS": "ON"
       }
     },
     {
@@ -41,7 +41,7 @@
       "inherits": "linux-x64",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "SYNBENCH_DEV_HOOKS": "ON"
+        "SYNTHEON_DEV_HOOKS": "ON"
       }
     },
     {
@@ -60,7 +60,7 @@
       "inherits": "windows-x64",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "SYNBENCH_DEV_HOOKS": "ON"
+        "SYNTHEON_DEV_HOOKS": "ON"
       }
     },
     {
@@ -69,7 +69,7 @@
       "inherits": "windows-x64",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "SYNBENCH_DEV_HOOKS": "ON"
+        "SYNTHEON_DEV_HOOKS": "ON"
       }
     },
     {
@@ -78,9 +78,9 @@
       "inherits": "linux-x64",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "SYNBENCH_DEV_HOOKS": "OFF",
-        "SYNBENCH_BUILD_TESTS": "OFF",
-        "SYNBENCH_RELEASE_BUILD": "ON"
+        "SYNTHEON_DEV_HOOKS": "OFF",
+        "SYNTHEON_BUILD_TESTS": "OFF",
+        "SYNTHEON_RELEASE_BUILD": "ON"
       }
     },
     {
@@ -89,9 +89,9 @@
       "inherits": "windows-x64",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "SYNBENCH_DEV_HOOKS": "OFF",
-        "SYNBENCH_BUILD_TESTS": "OFF",
-        "SYNBENCH_RELEASE_BUILD": "ON"
+        "SYNTHEON_DEV_HOOKS": "OFF",
+        "SYNTHEON_BUILD_TESTS": "OFF",
+        "SYNTHEON_RELEASE_BUILD": "ON"
       }
     },
     {
@@ -106,9 +106,9 @@
       "toolchainFile": "${sourceDir}/cmake/toolchains/aarch64-linux-gnu.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "SYNBENCH_DEV_HOOKS": "OFF",
-        "SYNBENCH_BUILD_TESTS": "OFF",
-        "SYNBENCH_RELEASE_BUILD": "ON"
+        "SYNTHEON_DEV_HOOKS": "OFF",
+        "SYNTHEON_BUILD_TESTS": "OFF",
+        "SYNTHEON_RELEASE_BUILD": "ON"
       }
     },
     {
@@ -123,9 +123,9 @@
       "toolchainFile": "${sourceDir}/cmake/toolchains/windows-arm64.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "SYNBENCH_DEV_HOOKS": "OFF",
-        "SYNBENCH_BUILD_TESTS": "OFF",
-        "SYNBENCH_RELEASE_BUILD": "ON"
+        "SYNTHEON_DEV_HOOKS": "OFF",
+        "SYNTHEON_BUILD_TESTS": "OFF",
+        "SYNTHEON_RELEASE_BUILD": "ON"
       }
     }
   ],

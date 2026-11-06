@@ -2,7 +2,7 @@
 #
 # Prints ONE folder holding the TARGET architecture's VC++ runtime and
 # Universal CRT DLLs (copied there, machine type checked from each PE header),
-# for -DSYNBENCH_CRT_DIRS=... (P16: the CRT
+# for -DSYNTHEON_CRT_DIRS=... (P16: the CRT
 # ships app-local, so neither installer needs a redistributable step). Asking
 # for the target architecture explicitly is the only reliable way to get the
 # ARM64 files in an x64 -> ARM64 cross build.
@@ -96,7 +96,7 @@ if (-not $ucrt) {
     [Console]::Error.WriteLine("warning: no $Arch UCRT redistributable under $kits; relying on the UCRT that ships with Windows 10")
 }
 
-$out = Join-Path ($(if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() })) "synbench-crt-$Arch"
+$out = Join-Path ($(if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() })) "syntheon-crt-$Arch"
 Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $out | Out-Null
 foreach ($folder in @($crt.FullName, $ucrt) | Where-Object { $_ }) {

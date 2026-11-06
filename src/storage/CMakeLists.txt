@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-qt_add_library(synbench_storage STATIC
+qt_add_library(syntheon_storage STATIC
     database.h database.cpp
     run_repository.h run_repository.cpp
     settings_store.h settings_store.cpp
@@ -9,10 +9,10 @@ qt_add_library(synbench_storage STATIC
     instance_paths.h instance_paths.cpp
 )
 
-qt_add_resources(synbench_storage "synbench_migrations"
-    PREFIX "/synbench"
+qt_add_resources(syntheon_storage "syntheon_migrations"
+    PREFIX "/syntheon"
     FILES
         migrations/0001_init.sql
 )
 
-target_link_libraries(synbench_storage PUBLIC synbench_core Qt6::Sql)
+target_link_libraries(syntheon_storage PUBLIC syntheon_core Qt6::Sql)

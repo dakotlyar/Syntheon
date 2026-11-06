@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // The left rail of sections (the default layout).
 Rectangle {

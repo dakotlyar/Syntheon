@@ -4,7 +4,7 @@
 #include <QFontDatabase>
 #include <QLoggingCategory>
 
-Q_LOGGING_CATEGORY(lcFonts, "synbench.fonts")
+Q_LOGGING_CATEGORY(lcFonts, "syntheon.fonts")
 
 namespace sb {
 
@@ -13,7 +13,7 @@ bool loadBundledFonts()
     bool ok = true;
     for (const char *file : {"Archivo-Variable.ttf", "IBMPlexSans-Variable.ttf", "IBMPlexMono-Regular.ttf",
                              "IBMPlexMono-Medium.ttf"}) {
-        const int id = QFontDatabase::addApplicationFont(QStringLiteral(":/synbench/fonts/") + QLatin1StringView(file));
+        const int id = QFontDatabase::addApplicationFont(QStringLiteral(":/syntheon/fonts/") + QLatin1StringView(file));
         if (id < 0) {
             qCWarning(lcFonts) << "couldn't load the bundled font" << file;
             ok = false;

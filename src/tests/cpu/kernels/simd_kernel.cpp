@@ -24,9 +24,9 @@ constexpr std::size_t kXSize = kDotLength;
 constexpr std::size_t kYSize = std::size_t(kDotLength) + kDotShifts;
 
 #if defined(SB_SIMD_SVE)
-static_assert(isa::kSveInBuild, "the SVE TU is built exactly where synbench_isa expects it");
+static_assert(isa::kSveInBuild, "the SVE TU is built exactly where syntheon_isa expects it");
 #else
-static_assert(!isa::kSveInBuild, "the SVE TU is built exactly where synbench_isa expects it");
+static_assert(!isa::kSveInBuild, "the SVE TU is built exactly where syntheon_isa expects it");
 #endif
 
 } // namespace

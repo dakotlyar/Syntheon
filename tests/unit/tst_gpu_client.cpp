@@ -49,12 +49,12 @@ private slots:
     void cleanup()
     {
         GpuClient::setWorkerForTests({});
-        qunsetenv("SYNBENCH_GPU_WORKER_ARGS");
+        qunsetenv("SYNTHEON_GPU_WORKER_ARGS");
     }
 
     void realWorkerOnTheNullBackend()
     {
-        qputenv("SYNBENCH_GPU_WORKER_ARGS", "--api null --headless");
+        qputenv("SYNTHEON_GPU_WORKER_ARGS", "--api null --headless");
         GpuClient::setWorkerForTests(kWorker);
         QList<pr::Event> seen;
         const ClientOutcome o = GpuClient::run(spec(QStringLiteral("geometry:100:300")), {}, [&](const pr::Event &e) { seen.append(e); });
@@ -144,7 +144,7 @@ private slots:
 
     void environmentIsFromScratch()
     {
-        qunsetenv("SYNBENCH_GPU_WORKER_ENV");  // the test run's own hook (software drivers) adds on purpose
+        qunsetenv("SYNTHEON_GPU_WORKER_ENV");  // the test run's own hook (software drivers) adds on purpose
         qputenv("LD_LIBRARY_PATH", "/tmp/planted");
         qputenv("QT_PLUGIN_PATH", "/tmp/planted");
         qputenv("VK_DRIVER_FILES", "/tmp/planted");
@@ -169,18 +169,18 @@ private slots:
 
     void workerEnvHook()
     {
-        qputenv("SYNBENCH_GPU_WORKER_ENV", "A=1|VK_DRIVER_FILES=/x/y");
+        qputenv("SYNTHEON_GPU_WORKER_ENV", "A=1|VK_DRIVER_FILES=/x/y");
         const QProcessEnvironment env = GpuClient::baseEnvironment();
         QCOMPARE(env.value(QStringLiteral("A")), QStringLiteral("1"));
         QCOMPARE(env.value(QStringLiteral("VK_DRIVER_FILES")), QStringLiteral("/x/y"));
-        qunsetenv("SYNBENCH_GPU_WORKER_ENV");
+        qunsetenv("SYNTHEON_GPU_WORKER_ENV");
     }
 
     // --- GpuSession (D12) ---
 
     void twoNullSessions()
     {
-        qputenv("SYNBENCH_GPU_WORKER_ARGS", "--api null --headless");
+        qputenv("SYNTHEON_GPU_WORKER_ARGS", "--api null --headless");
         GpuClient::setWorkerForTests(kWorker);
         GpuSession a, b;
         QString err;

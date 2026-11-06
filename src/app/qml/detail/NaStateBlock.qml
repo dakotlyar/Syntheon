@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // The "not available" page: a pill, the headline, why. Every N/A test's
 // Detail page is this block (withNotAvailableState in core/detail.cpp).

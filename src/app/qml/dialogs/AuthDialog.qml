@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
-// D1: SynBench needs administrator access. Blocking: there is no limited mode,
+// D1: Syntheon needs administrator access. Blocking: there is no limited mode,
 // so the only ways out are Retry (prompt again) and Quit. While the prompt is
 // open ("authorising") only Quit is offered; it also times out after two
 // minutes into the failed state.
@@ -16,7 +16,7 @@ SbDialog {
     signal quitClicked()
 
     width: Math.min(parent ? parent.width - 48 : 480, 480)
-    title: authorising ? qsTr("Waiting for administrator approval") : qsTr("SynBench needs administrator access")
+    title: authorising ? qsTr("Waiting for administrator approval") : qsTr("Syntheon needs administrator access")
 
     contentItem: ColumnLayout {
         spacing: 10
@@ -24,8 +24,8 @@ SbDialog {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             text: dialog.authorising
-                  ? qsTr("Approve the administrator prompt to continue. SynBench reads hardware details and runs its tests with administrator rights.")
-                  : qsTr("SynBench reads hardware details and runs its tests with administrator rights. It asks once each time it starts.")
+                  ? qsTr("Approve the administrator prompt to continue. Syntheon reads hardware details and runs its tests with administrator rights.")
+                  : qsTr("Syntheon reads hardware details and runs its tests with administrator rights. It asks once each time it starts.")
         }
         SbText {
             Layout.fillWidth: true

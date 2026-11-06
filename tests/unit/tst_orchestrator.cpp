@@ -518,7 +518,7 @@ private slots:
     void progressiveCommitsToSqlite()
     {
         QTemporaryDir dir;
-        const QString db = dir.filePath(QStringLiteral("synbench.db"));
+        const QString db = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(db).ok());
         SqliteRunSink sqlite(db);
         Fixture f;
@@ -566,7 +566,7 @@ private slots:
     void stopSavesStoppedRun()
     {
         QTemporaryDir dir;
-        const QString db = dir.filePath(QStringLiteral("synbench.db"));
+        const QString db = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(db).ok());
         SqliteRunSink sqlite(db);
         Fixture f;
@@ -645,7 +645,7 @@ private slots:
         const RunRecord run = finishedRun(finished);
         QCOMPARE(run.status, RunStatus::Interrupted);
         QCOMPARE(statuses(run), (QStringList{QStringLiteral("cpu=interrupted"), QStringLiteral("ram=not_run")}));
-        QCOMPARE(run.tests[0].statusReason, QStringLiteral("Did not respond, restart SynBench"));
+        QCOMPARE(run.tests[0].statusReason, QStringLiteral("Did not respond, restart Syntheon"));
         QCOMPARE(o.state(), Orchestrator::State::Abandoned);
         QCOMPARE(sink.finished.status, RunStatus::Interrupted);
         QCOMPARE(sink.commits.size(), 2);
@@ -776,7 +776,7 @@ private slots:
     void nonFiniteMetricIsError()
     {
         QTemporaryDir dir;
-        const QString db = dir.filePath(QStringLiteral("synbench.db"));
+        const QString db = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(db).ok());
         SqliteRunSink sqlite(db);
         Fixture f;
@@ -1129,7 +1129,7 @@ private slots:
     void checkpointsReachSqlite()
     {
         QTemporaryDir dir;
-        const QString db = dir.filePath(QStringLiteral("synbench.db"));
+        const QString db = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(db).ok());
         SqliteRunSink sqlite(db);
         Fixture f;
@@ -1207,7 +1207,7 @@ private slots:
     void sinkNeverCreatesMissingDatabase()
     {
         QTemporaryDir dir;
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         SqliteRunSink sink(path);
         RunRecord r;
         r.uuid = QUuid::createUuid();

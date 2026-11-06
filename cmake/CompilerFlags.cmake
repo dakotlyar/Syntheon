@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Compiler flags shared by every SynBench target.
+# Compiler flags shared by every Syntheon target.
 #
 # Baseline (D11, P17): x86-64-v2 is set explicitly. A CachyOS (or other
 # distro) compiler may default to x86-64-v3, and the result then SIGILLs on

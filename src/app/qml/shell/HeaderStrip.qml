@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // D18: the OS draws the title bar; this slim strip inside the window carries
 // the brand, the machine and the power state.
@@ -22,7 +22,7 @@ Rectangle {
         anchors.rightMargin: 14
         spacing: 8
 
-        // The speedometer mark from assets/synbench.svg.
+        // The speedometer mark from assets/syntheon.svg.
         Item {
             Layout.preferredWidth: 20
             Layout.preferredHeight: 20
@@ -47,7 +47,7 @@ Rectangle {
                 color: Theme.accent
             }
         }
-        SbText { text: qsTr("SynBench"); kind: "display"; font.pixelSize: 15 }
+        SbText { text: qsTr("Syntheon"); kind: "display"; font.pixelSize: 15 }
         SbText {
             objectName: "headerMachine"
             Layout.fillWidth: true

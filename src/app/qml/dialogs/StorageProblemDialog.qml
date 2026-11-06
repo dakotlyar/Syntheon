@@ -3,10 +3,10 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // §4: the saved runs can't be opened at launch (a removed drive, or a history
-// from a newer SynBench). Use the default location, choose another, or quit.
+// from a newer Syntheon). Use the default location, choose another, or quit.
 // Nothing is ever downgraded or overwritten.
 SbDialog {
     id: dialog
@@ -19,7 +19,7 @@ SbDialog {
     signal quitClicked()
 
     width: Math.min(parent ? parent.width - 48 : 520, 520)
-    title: newerVersion ? qsTr("These saved runs are from a newer SynBench") : qsTr("Your saved runs aren't available")
+    title: newerVersion ? qsTr("These saved runs are from a newer Syntheon") : qsTr("Your saved runs aren't available")
 
     FolderDialog {
         id: picker

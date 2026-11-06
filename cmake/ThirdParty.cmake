@@ -3,7 +3,7 @@
 # tarballs, each checked against its SHA-256, built from source by CMake as
 # static libraries, so every platform runs identical code. Their own
 # programs, tests, shared libraries and install rules are off; they build with
-# SynBench's -march baseline but with warnings off, and their headers are
+# Syntheon's -march baseline but with warnings off, and their headers are
 # SYSTEM headers.
 #
 # Pins (changing one changes measured results: bump the CPU testVersion):
@@ -20,44 +20,44 @@
 #
 # The sources land in the build tree (_deps/); set FETCHCONTENT_BASE_DIR to
 # keep them elsewhere. Targets for the rest of the build:
-#   synbench::zlib  synbench::zstd  synbench::lz4  synbench::lzma
+#   syntheon::zlib  syntheon::zstd  syntheon::lz4  syntheon::lzma
 include_guard(GLOBAL)
 include(FetchContent)
 include(ThirdPartyNotices)
 
-set(SYNBENCH_ZLIB_VERSION 1.3.2)
-set(SYNBENCH_ZSTD_VERSION 1.5.7)
-set(SYNBENCH_LZ4_VERSION 1.10.0)
-set(SYNBENCH_XZ_VERSION 5.8.4)
-if(SYNBENCH_XZ_VERSION MATCHES "^5\\.6\\.[01]$")
-    message(FATAL_ERROR "xz ${SYNBENCH_XZ_VERSION} is the backdoored release (CVE-2024-3094)")
+set(SYNTHEON_ZLIB_VERSION 1.3.2)
+set(SYNTHEON_ZSTD_VERSION 1.5.7)
+set(SYNTHEON_LZ4_VERSION 1.10.0)
+set(SYNTHEON_XZ_VERSION 5.8.4)
+if(SYNTHEON_XZ_VERSION MATCHES "^5\\.6\\.[01]$")
+    message(FATAL_ERROR "xz ${SYNTHEON_XZ_VERSION} is the backdoored release (CVE-2024-3094)")
 endif()
 
-FetchContent_Declare(synbench_zlib
-    URL "https://github.com/madler/zlib/releases/download/v${SYNBENCH_ZLIB_VERSION}/zlib-${SYNBENCH_ZLIB_VERSION}.tar.gz"
+FetchContent_Declare(syntheon_zlib
+    URL "https://github.com/madler/zlib/releases/download/v${SYNTHEON_ZLIB_VERSION}/zlib-${SYNTHEON_ZLIB_VERSION}.tar.gz"
     URL_HASH SHA256=bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     SYSTEM)
-FetchContent_Declare(synbench_zstd
-    URL "https://github.com/facebook/zstd/releases/download/v${SYNBENCH_ZSTD_VERSION}/zstd-${SYNBENCH_ZSTD_VERSION}.tar.gz"
+FetchContent_Declare(syntheon_zstd
+    URL "https://github.com/facebook/zstd/releases/download/v${SYNTHEON_ZSTD_VERSION}/zstd-${SYNTHEON_ZSTD_VERSION}.tar.gz"
     URL_HASH SHA256=eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     SOURCE_SUBDIR build/cmake
     SYSTEM)
-FetchContent_Declare(synbench_lz4
-    URL "https://github.com/lz4/lz4/releases/download/v${SYNBENCH_LZ4_VERSION}/lz4-${SYNBENCH_LZ4_VERSION}.tar.gz"
+FetchContent_Declare(syntheon_lz4
+    URL "https://github.com/lz4/lz4/releases/download/v${SYNTHEON_LZ4_VERSION}/lz4-${SYNTHEON_LZ4_VERSION}.tar.gz"
     URL_HASH SHA256=537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     SOURCE_SUBDIR build/cmake
     SYSTEM)
-FetchContent_Declare(synbench_xz
-    URL "https://github.com/tukaani-project/xz/releases/download/v${SYNBENCH_XZ_VERSION}/xz-${SYNBENCH_XZ_VERSION}.tar.gz"
+FetchContent_Declare(syntheon_xz
+    URL "https://github.com/tukaani-project/xz/releases/download/v${SYNTHEON_XZ_VERSION}/xz-${SYNTHEON_XZ_VERSION}.tar.gz"
     URL_HASH SHA256=0014c7886930454fe8bd4228665b51af55eeae560ea135c9c4cd33f55b2591d9
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     SYSTEM)
 
 # A function, so the option variables below stay out of the rest of the build.
-function(synbench_add_third_party)
+function(syntheon_add_third_party)
     # Each library's own switches: the static library only.
     set(BUILD_SHARED_LIBS OFF)
     set(BUILD_TESTING OFF)
@@ -71,7 +71,7 @@ function(synbench_add_third_party)
     set(ZSTD_BUILD_TESTS OFF)
     set(ZSTD_BUILD_CONTRIB OFF)
     set(ZSTD_LEGACY_SUPPORT OFF)       # no pre-v0.8 frame formats
-    set(ZSTD_MULTITHREAD_SUPPORT OFF)  # SynBench does its own threading (§5.4)
+    set(ZSTD_MULTITHREAD_SUPPORT OFF)  # Syntheon does its own threading (§5.4)
     set(LZ4_BUILD_CLI OFF)             # the CLI is GPL-2.0; the library is BSD-2-Clause
     set(LZ4_BUILD_LEGACY_LZ4C OFF)
     set(XZ_THREADS no)                 # our own threading again
@@ -87,16 +87,16 @@ function(synbench_add_third_party)
     # with 3.10's policies (CMake 4.0+ reads this; older ones just warn).
     set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
 
-    FetchContent_MakeAvailable(synbench_zlib synbench_zstd synbench_lz4 synbench_xz)
+    FetchContent_MakeAvailable(syntheon_zlib syntheon_zstd syntheon_lz4 syntheon_xz)
 
-    # Only what SynBench links gets built, and none of it is installed.
-    foreach(dep synbench_zlib synbench_zstd synbench_lz4 synbench_xz)
+    # Only what Syntheon links gets built, and none of it is installed.
+    foreach(dep syntheon_zlib syntheon_zstd syntheon_lz4 syntheon_xz)
         FetchContent_GetProperties(${dep} SOURCE_DIR _src BINARY_DIR _bin)
         set_property(DIRECTORY "${_bin}" PROPERTY EXCLUDE_FROM_ALL ON)
         set(${dep}_SOURCE_DIR "${_src}" PARENT_SCOPE)
     endforeach()
 endfunction()
-synbench_add_third_party()
+syntheon_add_third_party()
 
 # Warnings off for the library targets: their options start as this
 # directory's (our -W/ /W4 set plus the -march baseline from
@@ -125,22 +125,22 @@ endforeach()
 # consumer found lzma.h only where the system has one (Linux): the system's
 # header with the pinned library, and no header at all on Windows. The build
 # interface is added here (SYSTEM, like the other libraries' headers).
-target_include_directories(liblzma SYSTEM INTERFACE "$<BUILD_INTERFACE:${synbench_xz_SOURCE_DIR}/src/liblzma/api>")
+target_include_directories(liblzma SYSTEM INTERFACE "$<BUILD_INTERFACE:${syntheon_xz_SOURCE_DIR}/src/liblzma/api>")
 
-add_library(synbench::zlib ALIAS zlibstatic)
-add_library(synbench::zstd ALIAS libzstd_static)
-add_library(synbench::lz4 ALIAS lz4_static)
-add_library(synbench::lzma ALIAS liblzma)
+add_library(syntheon::zlib ALIAS zlibstatic)
+add_library(syntheon::zstd ALIAS libzstd_static)
+add_library(syntheon::lz4 ALIAS lz4_static)
+add_library(syntheon::lzma ALIAS liblzma)
 
 # Their licences, for THIRD-PARTY-NOTICES.txt.
-synbench_add_notice(NAME "zlib" VERSION ${SYNBENCH_ZLIB_VERSION} LICENCE "Zlib"
-    FILE "${synbench_zlib_SOURCE_DIR}/LICENSE")
-synbench_add_notice(NAME "Zstandard (zstd)" VERSION ${SYNBENCH_ZSTD_VERSION} LICENCE "BSD-3-Clause"
-    FILE "${synbench_zstd_SOURCE_DIR}/LICENSE"
-    NOTE "zstd is dual-licensed (BSD-3-Clause or GPL-2.0-only). SynBench uses it under BSD-3-Clause.")
-synbench_add_notice(NAME "LZ4 (library)" VERSION ${SYNBENCH_LZ4_VERSION} LICENCE "BSD-2-Clause"
-    FILE "${synbench_lz4_SOURCE_DIR}/lib/LICENSE"
+syntheon_add_notice(NAME "zlib" VERSION ${SYNTHEON_ZLIB_VERSION} LICENCE "Zlib"
+    FILE "${syntheon_zlib_SOURCE_DIR}/LICENSE")
+syntheon_add_notice(NAME "Zstandard (zstd)" VERSION ${SYNTHEON_ZSTD_VERSION} LICENCE "BSD-3-Clause"
+    FILE "${syntheon_zstd_SOURCE_DIR}/LICENSE"
+    NOTE "zstd is dual-licensed (BSD-3-Clause or GPL-2.0-only). Syntheon uses it under BSD-3-Clause.")
+syntheon_add_notice(NAME "LZ4 (library)" VERSION ${SYNTHEON_LZ4_VERSION} LICENCE "BSD-2-Clause"
+    FILE "${syntheon_lz4_SOURCE_DIR}/lib/LICENSE"
     NOTE "Only the LZ4 library (lib/) is used. The LZ4 command-line program, which is GPL-2.0, is not built.")
-synbench_add_notice(NAME "XZ Utils (liblzma)" VERSION ${SYNBENCH_XZ_VERSION} LICENCE "0BSD"
-    FILE "${synbench_xz_SOURCE_DIR}/COPYING.0BSD"
+syntheon_add_notice(NAME "XZ Utils (liblzma)" VERSION ${SYNTHEON_XZ_VERSION} LICENCE "0BSD"
+    FILE "${syntheon_xz_SOURCE_DIR}/COPYING.0BSD"
     NOTE "Only liblzma is used. The xz tools and scripts are not built.")

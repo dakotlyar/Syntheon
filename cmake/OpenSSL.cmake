@@ -2,7 +2,7 @@
 # OpenSSL 3.5.9 LTS, libcrypto only, static (Phase 2 design §11, D4, D5, P16,
 # P17). OpenSSL builds with its own Perl Configure + make/nmake, so CMake
 # drives it as an ExternalProject; the result is the imported target
-# synbench::crypto, for the encryption worker (synbench-cpucrypto, task 11).
+# syntheon::crypto, for the encryption worker (syntheon-cpucrypto, task 11).
 #
 # Pin: openssl-3.5.9.tar.gz, SHA-256 603f5602..., verified 2026-10-16 against
 # the OpenSSL release signature (.asc; signing subkey C46E D3F2 ... CCE7 1CB2
@@ -21,7 +21,7 @@
 # cmake/openssl/patch-win-armcap.cmake) and the uninitialised registry handle
 # in get_windows_regdirs (AP-5 L9, cmake/openssl/patch-win-defaults.cmake).
 #
-# The build is installed into SYNBENCH_OPENSSL_ROOT (default <build>/openssl)
+# The build is installed into SYNTHEON_OPENSSL_ROOT (default <build>/openssl)
 # with a stamp file naming everything that went into it. A configure that
 # finds a root whose stamp matches uses it as it is and builds nothing: CI
 # caches that folder (the Windows builds take 10-15 minutes, R8). A root with
@@ -29,9 +29,9 @@
 include_guard(GLOBAL)
 include(ExternalProject)
 
-set(SYNBENCH_OPENSSL_VERSION 3.5.9)
-set(SYNBENCH_OPENSSL_SHA256 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a)
-set(SYNBENCH_OPENSSL_ROOT "${CMAKE_BINARY_DIR}/openssl" CACHE PATH
+set(SYNTHEON_OPENSSL_VERSION 3.5.9)
+set(SYNTHEON_OPENSSL_SHA256 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a)
+set(SYNTHEON_OPENSSL_ROOT "${CMAKE_BINARY_DIR}/openssl" CACHE PATH
     "Where the OpenSSL build is installed (and found again; CI caches it)")
 
 # --- target and tools -------------------------------------------------------
@@ -41,49 +41,49 @@ set(_ossl_args no-shared no-module no-dso no-engine no-apps no-tests no-docs no-
 if(WIN32)
     # A Windows-native Perl (Strawberry, on the runners); MSYS/Git perl gives
     # Unix paths, which OpenSSL's Windows build refuses.
-    find_program(SYNBENCH_PERL perl HINTS "C:/Strawberry/perl/bin" NO_CACHE REQUIRED)
-    find_program(SYNBENCH_NMAKE nmake REQUIRED)
-    set(_ossl_make "${SYNBENCH_NMAKE}")
+    find_program(SYNTHEON_PERL perl HINTS "C:/Strawberry/perl/bin" NO_CACHE REQUIRED)
+    find_program(SYNTHEON_NMAKE nmake REQUIRED)
+    set(_ossl_make "${SYNTHEON_NMAKE}")
     # The assemblers are run by name from PATH (OpenSSL's makefile doesn't
     # quote them, and their usual folders have spaces).
     if(_ossl_cpu MATCHES "^(amd64|x86_64|x64)$")
         set(_ossl_target VC-WIN64A)
-        find_program(SYNBENCH_NASM nasm NO_CACHE)
-        if(NOT SYNBENCH_NASM)
+        find_program(SYNTHEON_NASM nasm NO_CACHE)
+        if(NOT SYNTHEON_NASM)
             message(FATAL_ERROR "OpenSSL for Windows x64 needs NASM on PATH (its AES-NI/SHA-NI code is NASM source)")
         endif()
-        set(_ossl_tool_version_cmd "${SYNBENCH_NASM}" -v)
+        set(_ossl_tool_version_cmd "${SYNTHEON_NASM}" -v)
     elseif(_ossl_cpu MATCHES "^(arm64|aarch64)$")
         set(_ossl_target VC-WIN64-CLANGASM-ARM)
-        find_program(SYNBENCH_CLANG_CL clang-cl NO_CACHE)
-        if(NOT SYNBENCH_CLANG_CL)
+        find_program(SYNTHEON_CLANG_CL clang-cl NO_CACHE)
+        if(NOT SYNTHEON_CLANG_CL)
             message(FATAL_ERROR "OpenSSL for Windows ARM64 needs clang-cl on PATH as its assembler: Visual Studio's "
                                 "\"C++ Clang tools\" (<VS>/VC/Tools/Llvm/x64/bin) or LLVM")
         endif()
-        set(_ossl_tool_version_cmd "${SYNBENCH_CLANG_CL}" --version)
+        set(_ossl_tool_version_cmd "${SYNTHEON_CLANG_CL}" --version)
     else()
         message(FATAL_ERROR "OpenSSL: no Windows target for processor '${CMAKE_SYSTEM_PROCESSOR}'")
     endif()
-    set(_ossl_lib "${SYNBENCH_OPENSSL_ROOT}/lib/libcrypto.lib")
+    set(_ossl_lib "${SYNTHEON_OPENSSL_ROOT}/lib/libcrypto.lib")
     set(_ossl_build_cmd "${_ossl_make}" build_libs)
     set(_ossl_makefile makefile)
     set(_ossl_optimised /O2)
     # M4: the prefix (and OPENSSLDIR, MODULESDIR, ENGINESDIR under it) that is
     # compiled into libcrypto. Nothing is ever loaded from there (P17), and it
     # is a folder a standard user can't create; the real files are installed
-    # with DESTDIR and copied into SYNBENCH_OPENSSL_ROOT.
-    set(_ossl_baked "C:/Windows/System32/SynBench-no-OpenSSL-files")
+    # with DESTDIR and copied into SYNTHEON_OPENSSL_ROOT.
+    set(_ossl_baked "C:/Windows/System32/Syntheon-no-OpenSSL-files")
     # That path is only safe while Windows is on C:. OSSL_WINCTX (OpenSSL 3.4+,
     # crypto/defaults.c in 3.5.9) makes libcrypto take OPENSSLDIR, ENGINESDIR
-    # and MODULESDIR from HKLM\SOFTWARE\WOW6432Node\OpenSSL-3.5-SynBench
+    # and MODULESDIR from HKLM\SOFTWARE\WOW6432Node\OpenSSL-3.5-Syntheon
     # instead, an admin-only key nobody creates: the directories are then NULL
     # and nothing can be loaded from any folder (NOTES-WINDOWS.md: "returns
     # errors on module/conf load"). The baked path stays as the build default.
-    set(SYNBENCH_OPENSSL_WINCTX SynBench)
-    list(APPEND _ossl_args "-DOSSL_WINCTX=${SYNBENCH_OPENSSL_WINCTX}")
+    set(SYNTHEON_OPENSSL_WINCTX Syntheon)
+    list(APPEND _ossl_args "-DOSSL_WINCTX=${SYNTHEON_OPENSSL_WINCTX}")
 else()
-    find_program(SYNBENCH_PERL perl NO_CACHE REQUIRED)
-    find_program(SYNBENCH_MAKE NAMES make gmake NO_CACHE REQUIRED)
+    find_program(SYNTHEON_PERL perl NO_CACHE REQUIRED)
+    find_program(SYNTHEON_MAKE NAMES make gmake NO_CACHE REQUIRED)
     cmake_host_system_information(RESULT _ossl_jobs QUERY NUMBER_OF_LOGICAL_CORES)
     if(_ossl_cpu MATCHES "^(x86_64|amd64)$")
         set(_ossl_target linux-x86_64)
@@ -111,19 +111,19 @@ else()
     else()
         list(APPEND _ossl_env "CC=${CMAKE_C_COMPILER}")
     endif()
-    set(_ossl_lib "${SYNBENCH_OPENSSL_ROOT}/lib/libcrypto.a")
-    set(_ossl_build_cmd "${SYNBENCH_MAKE}" -j${_ossl_jobs} build_libs)
-    set(_ossl_make "${SYNBENCH_MAKE}")
+    set(_ossl_lib "${SYNTHEON_OPENSSL_ROOT}/lib/libcrypto.a")
+    set(_ossl_build_cmd "${SYNTHEON_MAKE}" -j${_ossl_jobs} build_libs)
+    set(_ossl_make "${SYNTHEON_MAKE}")
     set(_ossl_makefile Makefile)
     set(_ossl_optimised -O3)
     # M4 (see the Windows branch): /nonexistent can't be created by a user.
-    set(_ossl_baked "/nonexistent/synbench-openssl")
+    set(_ossl_baked "/nonexistent/syntheon-openssl")
 endif()
 
 # --- the stamp: everything that decides the build --------------------------
 file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-armcap.cmake" _ossl_patch_armcap)
 file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-defaults.cmake" _ossl_patch_defaults)
-# check-cflags.cmake writes the root's synbench-openssl-cflags.txt: a new
+# check-cflags.cmake writes the root's syntheon-openssl-cflags.txt: a new
 # version must rebuild, or an old root lacks what it records.
 file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/openssl/check-cflags.cmake" _ossl_cflags_check)
 set(_ossl_patch_sha "${_ossl_patch_armcap} ${_ossl_patch_defaults} ${_ossl_cflags_check}")
@@ -134,7 +134,7 @@ if(_ossl_tool_version_cmd)
     string(REGEX REPLACE "\n.*" "" _ossl_tool "${_ossl_tool}")
 endif()
 string(JOIN "\n" _ossl_stamp
-    "openssl ${SYNBENCH_OPENSSL_VERSION} ${SYNBENCH_OPENSSL_SHA256}"
+    "openssl ${SYNTHEON_OPENSSL_VERSION} ${SYNTHEON_OPENSSL_SHA256}"
     "target ${_ossl_target}"
     "args ${_ossl_args}"
     "env ${_ossl_env}"
@@ -143,8 +143,8 @@ string(JOIN "\n" _ossl_stamp
     "patch ${_ossl_patch_sha}"
     "baked ${_ossl_baked}")
 string(SHA256 _ossl_stamp_id "${_ossl_stamp}")
-set(_ossl_stamp_file "${SYNBENCH_OPENSSL_ROOT}/synbench-openssl.stamp")
-file(WRITE "${CMAKE_BINARY_DIR}/synbench-openssl.stamp.new" "${_ossl_stamp}\n")
+set(_ossl_stamp_file "${SYNTHEON_OPENSSL_ROOT}/syntheon-openssl.stamp")
+file(WRITE "${CMAKE_BINARY_DIR}/syntheon-openssl.stamp.new" "${_ossl_stamp}\n")
 
 set(_ossl_reuse OFF)
 if(EXISTS "${_ossl_stamp_file}" AND EXISTS "${_ossl_lib}")
@@ -154,24 +154,24 @@ if(EXISTS "${_ossl_stamp_file}" AND EXISTS "${_ossl_lib}")
         set(_ossl_reuse ON)
     endif()
 endif()
-set(SYNBENCH_OPENSSL_STAMP_ID "${_ossl_stamp_id}" CACHE INTERNAL "")
+set(SYNTHEON_OPENSSL_STAMP_ID "${_ossl_stamp_id}" CACHE INTERNAL "")
 
 if(_ossl_reuse)
-    message(STATUS "OpenSSL ${SYNBENCH_OPENSSL_VERSION} (${_ossl_target}): using the build in ${SYNBENCH_OPENSSL_ROOT}")
-    add_custom_target(synbench_openssl)
+    message(STATUS "OpenSSL ${SYNTHEON_OPENSSL_VERSION} (${_ossl_target}): using the build in ${SYNTHEON_OPENSSL_ROOT}")
+    add_custom_target(syntheon_openssl)
 else()
-    message(STATUS "OpenSSL ${SYNBENCH_OPENSSL_VERSION} (${_ossl_target}): building into ${SYNBENCH_OPENSSL_ROOT}")
+    message(STATUS "OpenSSL ${SYNTHEON_OPENSSL_VERSION} (${_ossl_target}): building into ${SYNTHEON_OPENSSL_ROOT}")
     # A root with another build's files must not mix with this one. Only a
     # root this file made (it has the stamp, or the "building" marker of a
     # build that hasn't finished yet) or an empty one is cleared.
-    set(_ossl_building "${SYNBENCH_OPENSSL_ROOT}/synbench-openssl.building")
-    if(EXISTS "${SYNBENCH_OPENSSL_ROOT}")
-        file(GLOB _ossl_any "${SYNBENCH_OPENSSL_ROOT}/*")
+    set(_ossl_building "${SYNTHEON_OPENSSL_ROOT}/syntheon-openssl.building")
+    if(EXISTS "${SYNTHEON_OPENSSL_ROOT}")
+        file(GLOB _ossl_any "${SYNTHEON_OPENSSL_ROOT}/*")
         if(_ossl_any AND NOT EXISTS "${_ossl_stamp_file}" AND NOT EXISTS "${_ossl_building}")
-            message(FATAL_ERROR "SYNBENCH_OPENSSL_ROOT=${SYNBENCH_OPENSSL_ROOT} isn't empty and wasn't made by this build "
-                                "(no synbench-openssl.stamp); refusing to clear it")
+            message(FATAL_ERROR "SYNTHEON_OPENSSL_ROOT=${SYNTHEON_OPENSSL_ROOT} isn't empty and wasn't made by this build "
+                                "(no syntheon-openssl.stamp); refusing to clear it")
         endif()
-        file(REMOVE_RECURSE "${SYNBENCH_OPENSSL_ROOT}")
+        file(REMOVE_RECURSE "${SYNTHEON_OPENSSL_ROOT}")
     endif()
     file(WRITE "${_ossl_building}" "${_ossl_stamp}\n")
     # The unpacked (and patched) source and the build tree belong to one stamp:
@@ -180,35 +180,35 @@ else()
     set(_ossl_prefix "${CMAKE_BINARY_DIR}/_deps/openssl")
     if(EXISTS "${_ossl_prefix}")
         set(_ossl_prev "")
-        if(EXISTS "${_ossl_prefix}/synbench-openssl.id")
-            file(READ "${_ossl_prefix}/synbench-openssl.id" _ossl_prev)
+        if(EXISTS "${_ossl_prefix}/syntheon-openssl.id")
+            file(READ "${_ossl_prefix}/syntheon-openssl.id" _ossl_prev)
         endif()
         if(NOT _ossl_prev STREQUAL _ossl_stamp_id)
             file(REMOVE_RECURSE "${_ossl_prefix}")
         endif()
     endif()
-    file(WRITE "${_ossl_prefix}/synbench-openssl.id" "${_ossl_stamp_id}")
+    file(WRITE "${_ossl_prefix}/syntheon-openssl.id" "${_ossl_stamp_id}")
     # install_dev goes into <build>/stage + the baked prefix (DESTDIR); that
     # tree is copied into the root.
     string(REGEX REPLACE "^[A-Za-z]:" "" _ossl_baked_nodrive "${_ossl_baked}")
     set(_ossl_stage "<BINARY_DIR>/stage")
-    ExternalProject_Add(synbench_openssl
-        URL "https://github.com/openssl/openssl/releases/download/openssl-${SYNBENCH_OPENSSL_VERSION}/openssl-${SYNBENCH_OPENSSL_VERSION}.tar.gz"
-        URL_HASH SHA256=${SYNBENCH_OPENSSL_SHA256}
+    ExternalProject_Add(syntheon_openssl
+        URL "https://github.com/openssl/openssl/releases/download/openssl-${SYNTHEON_OPENSSL_VERSION}/openssl-${SYNTHEON_OPENSSL_VERSION}.tar.gz"
+        URL_HASH SHA256=${SYNTHEON_OPENSSL_SHA256}
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         PREFIX "${_ossl_prefix}"
         PATCH_COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=<SOURCE_DIR> -P "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-armcap.cmake"
             COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=<SOURCE_DIR> -P "${CMAKE_CURRENT_LIST_DIR}/openssl/patch-win-defaults.cmake"
         CONFIGURE_COMMAND "${CMAKE_COMMAND}" -E env ${_ossl_env}
-            "${SYNBENCH_PERL}" <SOURCE_DIR>/Configure ${_ossl_target} ${_ossl_args}
+            "${SYNTHEON_PERL}" <SOURCE_DIR>/Configure ${_ossl_target} ${_ossl_args}
             "--prefix=${_ossl_baked}" "--openssldir=${_ossl_baked}/ssl" --libdir=lib
             COMMAND "${CMAKE_COMMAND}" -DMAKEFILE=<BINARY_DIR>/${_ossl_makefile} -DWANT=${_ossl_optimised}
-                    -DOUT=<BINARY_DIR>/synbench-openssl-cflags.txt -P "${CMAKE_CURRENT_LIST_DIR}/openssl/check-cflags.cmake"
+                    -DOUT=<BINARY_DIR>/syntheon-openssl-cflags.txt -P "${CMAKE_CURRENT_LIST_DIR}/openssl/check-cflags.cmake"
         BUILD_COMMAND ${_ossl_build_cmd}
         INSTALL_COMMAND ${_ossl_make} install_dev "DESTDIR=${_ossl_stage}"
-            COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_ossl_stage}${_ossl_baked_nodrive}" "${SYNBENCH_OPENSSL_ROOT}"
-            COMMAND "${CMAKE_COMMAND}" -E copy "<BINARY_DIR>/synbench-openssl-cflags.txt" "${SYNBENCH_OPENSSL_ROOT}/"
-            COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_BINARY_DIR}/synbench-openssl.stamp.new" "${_ossl_stamp_file}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_ossl_stage}${_ossl_baked_nodrive}" "${SYNTHEON_OPENSSL_ROOT}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "<BINARY_DIR>/syntheon-openssl-cflags.txt" "${SYNTHEON_OPENSSL_ROOT}/"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_BINARY_DIR}/syntheon-openssl.stamp.new" "${_ossl_stamp_file}"
             COMMAND "${CMAKE_COMMAND}" -E rm -f "${_ossl_building}"
         BUILD_BYPRODUCTS "${_ossl_lib}"
         LOG_CONFIGURE ON
@@ -218,24 +218,24 @@ else()
 endif()
 
 # --- the imported library ---------------------------------------------------
-file(MAKE_DIRECTORY "${SYNBENCH_OPENSSL_ROOT}/include")
-add_library(synbench_crypto STATIC IMPORTED GLOBAL)
-set_target_properties(synbench_crypto PROPERTIES
+file(MAKE_DIRECTORY "${SYNTHEON_OPENSSL_ROOT}/include")
+add_library(syntheon_crypto STATIC IMPORTED GLOBAL)
+set_target_properties(syntheon_crypto PROPERTIES
     IMPORTED_LOCATION "${_ossl_lib}"
-    INTERFACE_INCLUDE_DIRECTORIES "${SYNBENCH_OPENSSL_ROOT}/include")
-add_dependencies(synbench_crypto synbench_openssl)
+    INTERFACE_INCLUDE_DIRECTORIES "${SYNTHEON_OPENSSL_ROOT}/include")
+add_dependencies(syntheon_crypto syntheon_openssl)
 if(WIN32)
-    set_property(TARGET synbench_crypto PROPERTY INTERFACE_LINK_LIBRARIES ws2_32 crypt32 advapi32 user32)
+    set_property(TARGET syntheon_crypto PROPERTY INTERFACE_LINK_LIBRARIES ws2_32 crypt32 advapi32 user32)
 else()
     find_package(Threads REQUIRED)
-    set_property(TARGET synbench_crypto PROPERTY INTERFACE_LINK_LIBRARIES Threads::Threads)
+    set_property(TARGET syntheon_crypto PROPERTY INTERFACE_LINK_LIBRARIES Threads::Threads)
 endif()
-add_library(synbench::crypto ALIAS synbench_crypto)
-set(SYNBENCH_OPENSSL_LIBRARY "${_ossl_lib}")
-set(SYNBENCH_OPENSSL_BAKED_PREFIX "${_ossl_baked}")
+add_library(syntheon::crypto ALIAS syntheon_crypto)
+set(SYNTHEON_OPENSSL_LIBRARY "${_ossl_lib}")
+set(SYNTHEON_OPENSSL_BAKED_PREFIX "${_ossl_baked}")
 
 # The licence text: LICENSE.txt of the verified 3.5.9 tarball, kept here because
 # the source only arrives at build time and the notices are written at configure.
-synbench_add_notice(NAME "OpenSSL (libcrypto)" VERSION ${SYNBENCH_OPENSSL_VERSION} LICENCE "Apache-2.0"
+syntheon_add_notice(NAME "OpenSSL (libcrypto)" VERSION ${SYNTHEON_OPENSSL_VERSION} LICENCE "Apache-2.0"
     FILE "${CMAKE_CURRENT_LIST_DIR}/openssl/LICENSE-OpenSSL-3.txt"
-    NOTE "Only libcrypto is used, linked statically into synbench-cpucrypto.\nModified (Apache-2.0 section 4(b)): SynBench's build applies two small patches to Windows-only code: OPENSSL_armcap honoured on Windows ARM64 (cmake/openssl/patch-win-armcap.cmake) and an uninitialised registry handle set to NULL in get_windows_regdirs (cmake/openssl/patch-win-defaults.cmake).")
+    NOTE "Only libcrypto is used, linked statically into syntheon-cpucrypto.\nModified (Apache-2.0 section 4(b)): Syntheon's build applies two small patches to Windows-only code: OPENSSL_armcap honoured on Windows ARM64 (cmake/openssl/patch-win-armcap.cmake) and an uninitialised registry handle set to NULL in get_windows_regdirs (cmake/openssl/patch-win-defaults.cmake).")

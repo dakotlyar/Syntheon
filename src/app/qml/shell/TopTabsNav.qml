@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // The same sections as a strip across the top (Settings toggle, or a narrow
 // window).

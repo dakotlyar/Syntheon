@@ -8,7 +8,7 @@
 
 namespace sb {
 
-// The root-only operations SynBench may perform (§6). Every op is a fixed,
+// The root-only operations Syntheon may perform (§6). Every op is a fixed,
 // reviewed function; a new one (Phase 3 READ_SPD, Phase 8 backlight) is a
 // deliberate change here, in the protocol and in the helper.
 enum class PrivOp {
@@ -33,7 +33,7 @@ struct SmbiosTables {
     QByteArray table;          // the structure table
 };
 
-// Linux: LinuxHelperClient talks to synbench-helper (root, via pkexec).
+// Linux: LinuxHelperClient talks to syntheon-helper (root, via pkexec).
 // Windows: WindowsInProcessOps calls the APIs directly (the app is elevated).
 // Calls block and are safe from any thread. Results are raw bytes; parsing
 // happens in the unprivileged code (sysinfo), never in root.

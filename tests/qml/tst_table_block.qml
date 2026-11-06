@@ -2,8 +2,8 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
-import SynBench
-import SynBenchTest
+import Syntheon
+import SyntheonTest
 
 // The Detail page's table: columns sized to their content (Dave, 2026-10-18).
 // Wide: nothing wraps and the first column takes the spare room. Narrow (the

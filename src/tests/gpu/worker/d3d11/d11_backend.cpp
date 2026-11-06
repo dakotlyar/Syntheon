@@ -17,7 +17,7 @@
 #include <utility>
 
 namespace {
-// The Windows build's DXBC (worker/shaders/CMakeLists.txt, SYNBENCH_GPU_SHADER_DIR).
+// The Windows build's DXBC (worker/shaders/CMakeLists.txt, SYNTHEON_GPU_SHADER_DIR).
 #include "present_ps.dxbc.inc"
 #include "present_vs.dxbc.inc"
 } // namespace
@@ -175,7 +175,7 @@ std::string D3D11Backend::createDevice(const BackendInit &init, BackendInfo *inf
     HRESULT hr = D3D11CreateDevice(m_adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, flags, levels, 2, D3D11_SDK_VERSION, &device, &level, &context);
     if (hr == DXGI_ERROR_SDK_COMPONENT_MISSING && (flags & D3D11_CREATE_DEVICE_DEBUG)) {
         // --validation: the debug layer when it is installed (Windows' "Graphics Tools").
-        std::fprintf(stderr, "synbench-gpu: d3d11: the debug layer isn't installed; running without validation\n");
+        std::fprintf(stderr, "syntheon-gpu: d3d11: the debug layer isn't installed; running without validation\n");
         flags = 0;
         hr = D3D11CreateDevice(m_adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, flags, levels, 2, D3D11_SDK_VERSION, &device, &level, &context);
     }
@@ -284,7 +284,7 @@ std::string D3D11Backend::validationProblem()
             if (m->Severity != D3D11_MESSAGE_SEVERITY_ERROR && m->Severity != D3D11_MESSAGE_SEVERITY_CORRUPTION && !hazard)
                 continue;
             const std::string text(m->pDescription ? m->pDescription : "(no message)");
-            std::fprintf(stderr, "synbench-gpu: d3d11: %s\n", text.c_str());
+            std::fprintf(stderr, "syntheon-gpu: d3d11: %s\n", text.c_str());
             if (m_validationErrors++ == 0)
                 m_firstValidationError = text;
         }
@@ -507,9 +507,9 @@ std::string D3D11Backend::resume(const PresentTarget &target)
         if (!target.hwnd)
             return fail("the test window has no native window handle");
         std::string created;
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
         // Dev hook (as Vulkan's): "1" = no swapchain can be made; "later" = none after the first resume.
-        if (const char *hook = std::getenv("SYNBENCH_GPU_FAIL_SWAPCHAIN"); hook && (hook[0] == '1' || (std::strcmp(hook, "later") == 0 && m_everResumed)))
+        if (const char *hook = std::getenv("SYNTHEON_GPU_FAIL_SWAPCHAIN"); hook && (hook[0] == '1' || (std::strcmp(hook, "later") == 0 && m_everResumed)))
             created = "N/A: this GPU can't present to the test window on this display system";
 #endif
         if (created.empty())
@@ -790,7 +790,7 @@ std::string D3D11Backend::readback(double t, std::vector<std::uint8_t> *rgba8)
     return readImage(target, rgba8);
 }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 std::string D3D11Backend::readbackPresented(std::vector<std::uint8_t> *rgba8)
 {
     if (!m_headless || !m_resumed || m_frame == 0)

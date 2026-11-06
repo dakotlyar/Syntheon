@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
-import SynBench
+import Syntheon
 
 // The first-run dialog (hardware check + data location) and the one-time
 // recovery notice.

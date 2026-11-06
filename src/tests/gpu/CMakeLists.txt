@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # The GPU test's pure model: ids, metric keys, frame statistics (Phase 4a design §1).
 # No GUI and no GPU, so it builds and tests everywhere.
-add_library(synbench_gpu_model STATIC
+add_library(syntheon_gpu_model STATIC
     model/ids.h model/ids.cpp
     model/frame_stats.h model/frame_stats.cpp
     model/best_of.h model/best_of.cpp
@@ -13,13 +13,13 @@ add_library(synbench_gpu_model STATIC
     model/gl_env.h model/gl_env.cpp
     model/hags.h model/hags.cpp
 )
-target_link_libraries(synbench_gpu_model PUBLIC synbench_core Qt6::Core)
+target_link_libraries(syntheon_gpu_model PUBLIC syntheon_core Qt6::Core)
 if(WIN32)
-    target_link_libraries(synbench_gpu_model PRIVATE advapi32)  # RegGetValueW: gpu.hags (hags.cpp)
+    target_link_libraries(syntheon_gpu_model PRIVATE advapi32)  # RegGetValueW: gpu.hags (hags.cpp)
 endif()
 
-add_library(synbench_test_gpu STATIC gpu_test.h gpu_test.cpp gpu_detail.cpp formula_v1.h formula_v1.cpp client/gpu_client.h client/gpu_client.cpp)
-target_link_libraries(synbench_test_gpu PUBLIC synbench_core synbench_test_common synbench_gpu_model synbench_test_engine synbench_sysinfo Qt6::Core Qt6::Gui)
+add_library(syntheon_test_gpu STATIC gpu_test.h gpu_test.cpp gpu_detail.cpp formula_v1.h formula_v1.cpp client/gpu_client.h client/gpu_client.cpp)
+target_link_libraries(syntheon_test_gpu PUBLIC syntheon_core syntheon_test_common syntheon_gpu_model syntheon_test_engine syntheon_sysinfo Qt6::Core Qt6::Gui)
 
 # The worker's shaders: the Windows build's DXIL and DXBC (§13.1).
 add_subdirectory(worker/shaders)
@@ -30,10 +30,10 @@ set(_stamp_file "${CMAKE_CURRENT_SOURCE_DIR}/worker/shaders/generated/STAMP")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_stamp_file}")
 file(STRINGS "${_stamp_file}" _stamp LIMIT_COUNT 1)
 string(SUBSTRING "${_stamp}" 0 4 _stamp4)
-target_compile_definitions(synbench_test_gpu PRIVATE SYNBENCH_GPU_SHADER_STAMP="${_stamp4}")
+target_compile_definitions(syntheon_test_gpu PRIVATE SYNTHEON_GPU_SHADER_STAMP="${_stamp4}")
 if(WIN32)
-    target_compile_definitions(synbench_test_gpu PRIVATE
-        SYNBENCH_GPU_DXC_VERSION="${SYNBENCH_GPU_DXC_VERSION}" SYNBENCH_GPU_FXC_VERSION="${SYNBENCH_GPU_FXC_VERSION}")
+    target_compile_definitions(syntheon_test_gpu PRIVATE
+        SYNTHEON_GPU_DXC_VERSION="${SYNTHEON_GPU_DXC_VERSION}" SYNTHEON_GPU_FXC_VERSION="${SYNTHEON_GPU_FXC_VERSION}")
 endif()
 
 # The scene content: pure C++, no Qt.

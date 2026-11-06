@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The SIMD kernel's NEON path (Phase 2 design §5.3, P9): the armv8-a
-// baseline every SynBench ARM64 build assumes, so no extra arch flags. Kept to
+// baseline every Syntheon ARM64 build assumes, so no extra arch flags. Kept to
 // the same shape as the wide paths (simd_common.h): <arm_neon.h> and
 // simd_common.h only, code in sb::cpu::simd_neon, one entry point.
 #include "tests/cpu/kernels/simd/simd_common.h"

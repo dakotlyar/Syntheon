@@ -45,12 +45,12 @@ constexpr int kDefaultApis = 2;  // Vulkan and OpenGL
 
 const char *const kApiKeys[] = {"vulkan", "dx12", "dx11", "opengl"};
 
-#if defined(SYNBENCH_DEV_HOOKS)
-// Dev hook: SYNBENCH_GPU_FAKE_APIS=vulkan,opengl treats those APIs as available on any GPU
+#if defined(SYNTHEON_DEV_HOOKS)
+// Dev hook: SYNTHEON_GPU_FAKE_APIS=vulkan,opengl treats those APIs as available on any GPU
 // (the tests serve them all with the null backend).
 bool fakeApi(ApiId id)
 {
-    return qEnvironmentVariable("SYNBENCH_GPU_FAKE_APIS").split(QLatin1Char(','), Qt::SkipEmptyParts).contains(apiKey(id));
+    return qEnvironmentVariable("SYNTHEON_GPU_FAKE_APIS").split(QLatin1Char(','), Qt::SkipEmptyParts).contains(apiKey(id));
 }
 #else
 bool fakeApi(ApiId) { return false; }
@@ -87,9 +87,9 @@ std::chrono::milliseconds scaled(int ms)
 // DXIL and the DXBC. The CMake file defines the pieces.
 QString shadersText()
 {
-    QString t = QStringLiteral("SPIR-V/GLSL stamp %1\u2026").arg(QStringLiteral(SYNBENCH_GPU_SHADER_STAMP));
+    QString t = QStringLiteral("SPIR-V/GLSL stamp %1\u2026").arg(QStringLiteral(SYNTHEON_GPU_SHADER_STAMP));
 #if defined(Q_OS_WIN)
-    t += QStringLiteral("; DXIL dxc %1; DXBC fxc %2").arg(QStringLiteral(SYNBENCH_GPU_DXC_VERSION), QStringLiteral(SYNBENCH_GPU_FXC_VERSION));
+    t += QStringLiteral("; DXIL dxc %1; DXBC fxc %2").arg(QStringLiteral(SYNTHEON_GPU_DXC_VERSION), QStringLiteral(SYNTHEON_GPU_FXC_VERSION));
 #endif
     return t;
 }
@@ -192,14 +192,14 @@ struct NativeRun {
     std::map<NativeWorkload, pr::ResultEvent> results;
 };
 
-// §9's frame floor (n >= 20). Dev hook SYNBENCH_GPU_MIN_FRAMES=<n >= 1> lowers it for the CI smoke only, whose windows are
-// 0.03 x the real ones (SYNBENCH_SMOKE): 600 ms of Geometry on a CI runner's lavapipe is about 20 frames, so the real floor
+// §9's frame floor (n >= 20). Dev hook SYNTHEON_GPU_MIN_FRAMES=<n >= 1> lowers it for the CI smoke only, whose windows are
+// 0.03 x the real ones (SYNTHEON_SMOKE): 600 ms of Geometry on a CI runner's lavapipe is about 20 frames, so the real floor
 // there would test the runner's speed, not the GPU path. A packaged build always uses 20.
 int minFrames()
 {
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     bool ok = false;
-    const int n = qEnvironmentVariableIntValue("SYNBENCH_GPU_MIN_FRAMES", &ok);
+    const int n = qEnvironmentVariableIntValue("SYNTHEON_GPU_MIN_FRAMES", &ok);
     if (ok && n >= 1)
         return n;
 #endif
@@ -207,7 +207,7 @@ int minFrames()
 }
 
 // The fill workloads' real per-frame counts (L3): 128 layers and 100,000 sprites, divided as the worker's scenes divide
-// them (max(1, ceil(n / scale)), scenes.cpp) when the dev hook SYNBENCH_GPU_WORKER_ARGS passes --content-scale (smoke, CI).
+// them (max(1, ceil(n / scale)), scenes.cpp) when the dev hook SYNTHEON_GPU_WORKER_ARGS passes --content-scale (smoke, CI).
 // A packaged build has no worker arguments: the full counts.
 double fillCount(FillId f)
 {
@@ -221,11 +221,11 @@ double fillCount(FillId f)
     return std::max(1.0, std::ceil(n / scale));
 }
 
-// Dev hook: SYNBENCH_GPU_FAKE_D2D=1 runs the Direct2D path on any OS (the tests serve it with the fake worker).
+// Dev hook: SYNTHEON_GPU_FAKE_D2D=1 runs the Direct2D path on any OS (the tests serve it with the fake worker).
 bool fakeD2d()
 {
-#if defined(SYNBENCH_DEV_HOOKS)
-    return qEnvironmentVariable("SYNBENCH_GPU_FAKE_D2D") == QLatin1StringView("1");
+#if defined(SYNTHEON_DEV_HOOKS)
+    return qEnvironmentVariable("SYNTHEON_GPU_FAKE_D2D") == QLatin1StringView("1");
 #else
     return false;
 #endif

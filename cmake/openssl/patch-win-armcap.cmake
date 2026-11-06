@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # OpenSSL's Windows ARM64 cpuid setup ignores OPENSSL_armcap (Phase 2 design
-# N5, D5: the same in 3.5.9, 4.0.3 and master), so SynBench couldn't force
+# N5, D5: the same in 3.5.9, 4.0.3 and master), so Syntheon couldn't force
 # the software path on a Snapdragon. This adds the override the other
 # platforms already have (crypto/armcap.c's non-Windows OPENSSL_cpuid_setup:
 # the value replaces the detected capabilities). To be offered upstream.
@@ -19,13 +19,13 @@ file(READ "${file}" text)
 # version of the script is an error, not "already applied".
 file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" script_sha)
 string(SUBSTRING "${script_sha}" 0 16 script_sha)
-set(marker "SynBench (Phase 2 D5, patch ${script_sha})")
+set(marker "Syntheon (Phase 2 D5, patch ${script_sha})")
 string(FIND "${text}" "${marker}" already)
 if(NOT already EQUAL -1)
     message(STATUS "armcap patch: already applied")
     return()
 endif()
-string(FIND "${text}" "SynBench (Phase 2 D5" other)
+string(FIND "${text}" "Syntheon (Phase 2 D5" other)
 if(NOT other EQUAL -1)
     message(FATAL_ERROR "armcap patch: ${file} was patched by another version of this script; "
                         "delete the OpenSSL source tree so it is extracted again")

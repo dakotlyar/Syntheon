@@ -6,7 +6,7 @@
 // acceleration 1), xz preset 6 with the dictionary capped at the 256 KiB
 // block size (a few MiB of encoder state per thread instead of 94 MiB). zstd
 // and liblzma are built without their own threading (cmake/ThirdParty.cmake);
-// SynBench does its own.
+// Syntheon does its own.
 //
 // One CodecContext per thread and codec, reused for every block (deflateReset,
 // one ZSTD_CCtx / ZSTD_DCtx, one lzma_stream re-initialised in place).

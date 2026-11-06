@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// A fake synbench-gpu for tst_gpu_client (through GpuClient::setWorkerForTests):
+// A fake syntheon-gpu for tst_gpu_client (through GpuClient::setWorkerForTests):
 // it speaks the worker's JSON lines, or a planted defect. No Qt, no GPU.
 //   fake-gpuworker <mode> <the worker's usual arguments>
 //     ok                 ready, then (plan) a result per item, done; (serve) a result and idle per `run`
@@ -29,7 +29,7 @@
 // Every result is 20 frames in 0.2 s (100 fps, p50 10 ms, fastest frame 9 ms) unless a mode says otherwise:
 // §9 needs at least 20 frames.
 // --probe answers one fake GPU (Vulkan and OpenGL OK, DirectX Windows only) and done, in every mode.
-// SB_FAKE_LOG=<file> (through SYNBENCH_GPU_WORKER_ENV): "<api> <workload>" appended per `run` command.
+// SB_FAKE_LOG=<file> (through SYNTHEON_GPU_WORKER_ENV): "<api> <workload>" appended per `run` command.
 // "stop" on stdin ends it with exit 4 (not in `hang`), "quit" with exit 0, EOF with exit 3.
 #include <atomic>
 #include <chrono>

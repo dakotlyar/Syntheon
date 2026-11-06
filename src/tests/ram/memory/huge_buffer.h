@@ -2,7 +2,7 @@
 #pragma once
 
 // The RAM test's buffers, on huge / large pages where the system already
-// allows them (Phase 3 design §6, P7, D9, D10). SynBench never changes a
+// allows them (Phase 3 design §6, P7, D9, D10). Syntheon never changes a
 // system setting: no writes to /sys or /proc/sys, no hugetlbfs, no
 // privilege granted.
 //

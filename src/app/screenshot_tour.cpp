@@ -20,7 +20,7 @@ namespace sb {
 ScreenshotTour::ScreenshotTour(QQuickWindow *window, AppRuntime &runtime, QString folder, QObject *parent)
     : QObject(parent), m_window(window), m_runtime(runtime), m_folder(std::move(folder))
 {
-    const QString wanted = qEnvironmentVariable("SYNBENCH_TOUR_SECTIONS");
+    const QString wanted = qEnvironmentVariable("SYNTHEON_TOUR_SECTIONS");
     // Section names end up in file names: only the known ones are accepted,
     // so nothing here can name a path ("../x").
     const QStringList known{QStringLiteral("run"),     QStringLiteral("progress"), QStringLiteral("results"), QStringLiteral("history"),
@@ -39,60 +39,60 @@ void ScreenshotTour::start()
     QTimer::singleShot(1500, this, &ScreenshotTour::prepare);  // let the first frame, system info and fonts settle
 }
 
-// SYNBENCH_TOUR_SELECT=cpu,battery ticks those tests first; SYNBENCH_TOUR_TAB
+// SYNTHEON_TOUR_SELECT=cpu,battery ticks those tests first; SYNTHEON_TOUR_TAB
 // picks the option tab to show.
 void ScreenshotTour::prepare()
 {
-    // SYNBENCH_TOUR_SIZE=1100x2600 resizes the window first, so a whole
+    // SYNTHEON_TOUR_SIZE=1100x2600 resizes the window first, so a whole
     // Detail page fits in one image (a mockup comparison).
-    if (const QStringList size = qEnvironmentVariable("SYNBENCH_TOUR_SIZE").split(QLatin1Char('x')); size.size() == 2) {
+    if (const QStringList size = qEnvironmentVariable("SYNTHEON_TOUR_SIZE").split(QLatin1Char('x')); size.size() == 2) {
         bool okW = false, okH = false;
         const int w = size[0].toInt(&okW), h = size[1].toInt(&okH);
         if (okW && okH && w >= 640 && h >= 480 && w <= 4000 && h <= 8000)
             m_window->resize(w, h);
     }
-    // The first-run dialog covers every screen; SYNBENCH_TOUR_SECTIONS=firstrun
+    // The first-run dialog covers every screen; SYNTHEON_TOUR_SECTIONS=firstrun
     // leaves it up (the tour then shows the Run screen behind it).
-    if (qEnvironmentVariable("SYNBENCH_TOUR_FIRSTRUN").isEmpty())
+    if (qEnvironmentVariable("SYNTHEON_TOUR_FIRSTRUN").isEmpty())
         m_runtime.settings().setFirstRunDone(true);
-    for (const QString &id : qEnvironmentVariable("SYNBENCH_TOUR_SELECT").split(QLatin1Char(','), Qt::SkipEmptyParts))
+    for (const QString &id : qEnvironmentVariable("SYNTHEON_TOUR_SELECT").split(QLatin1Char(','), Qt::SkipEmptyParts))
         m_runtime.run().selection().setSelected(id, true);
-    const QString tab = qEnvironmentVariable("SYNBENCH_TOUR_TAB");
+    const QString tab = qEnvironmentVariable("SYNTHEON_TOUR_TAB");
     if (!tab.isEmpty())
         m_runtime.run().setActiveTab(tab);
-    // SYNBENCH_TOUR_SEED=N adds N made-up saved runs (History / Compare
+    // SYNTHEON_TOUR_SEED=N adds N made-up saved runs (History / Compare
     // screenshots); the newest N are ticked for Compare.
-    if (const int n = qEnvironmentVariableIntValue("SYNBENCH_TOUR_SEED"); n > 0)
+    if (const int n = qEnvironmentVariableIntValue("SYNTHEON_TOUR_SEED"); n > 0)
         seedRuns(n);
-    // SYNBENCH_TOUR_SIMULATE=cpu=error,ram=na sets those stubs' Simulate
+    // SYNTHEON_TOUR_SIMULATE=cpu=error,ram=na sets those stubs' Simulate
     // option (Error / N/A outcomes on Progress and Results).
-    for (const QString &pair : qEnvironmentVariable("SYNBENCH_TOUR_SIMULATE").split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+    for (const QString &pair : qEnvironmentVariable("SYNTHEON_TOUR_SIMULATE").split(QLatin1Char(','), Qt::SkipEmptyParts)) {
         const QStringList kv = pair.split(QLatin1Char('='));
         if (kv.size() == 2)
             m_runtime.run().setOption(kv[0], QStringLiteral("simulate"), kv[1]);
     }
-    // SYNBENCH_TOUR_SEED_BATTERY=1 adds a made-up Battery run, the newest.
-    if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_SEED_BATTERY") != 0)
+    // SYNTHEON_TOUR_SEED_BATTERY=1 adds a made-up Battery run, the newest.
+    if (qEnvironmentVariableIntValue("SYNTHEON_TOUR_SEED_BATTERY") != 0)
         seedBatteryRun();
-    // SYNBENCH_TOUR_BASELINE=oldest makes the oldest compared run the baseline.
-    if (qEnvironmentVariable("SYNBENCH_TOUR_BASELINE") == QLatin1StringView("oldest")) {
+    // SYNTHEON_TOUR_BASELINE=oldest makes the oldest compared run the baseline.
+    if (qEnvironmentVariable("SYNTHEON_TOUR_BASELINE") == QLatin1StringView("oldest")) {
         const QVariantList runs = m_runtime.compare().runs();
         if (!runs.isEmpty())
             m_runtime.compare().setBaseline(runs.last().toMap().value(QStringLiteral("uuid")).toString());
     }
-    // SYNBENCH_TOUR_BANNER=1 shows a notice banner across the top.
-    if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_BANNER") != 0)
-        m_runtime.startup().setInstanceWarning(QStringLiteral("A second SynBench can't ask this one to come to the front (sample notice)."));
-    // SYNBENCH_TOUR_RUN=1 starts the ticked tests; screenshots then wait
-    // SYNBENCH_TOUR_DELAY ms (default 600) so a run can get under way, or finish.
-    if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_RUN") != 0)
+    // SYNTHEON_TOUR_BANNER=1 shows a notice banner across the top.
+    if (qEnvironmentVariableIntValue("SYNTHEON_TOUR_BANNER") != 0)
+        m_runtime.startup().setInstanceWarning(QStringLiteral("A second Syntheon can't ask this one to come to the front (sample notice)."));
+    // SYNTHEON_TOUR_RUN=1 starts the ticked tests; screenshots then wait
+    // SYNTHEON_TOUR_DELAY ms (default 600) so a run can get under way, or finish.
+    if (qEnvironmentVariableIntValue("SYNTHEON_TOUR_RUN") != 0)
         m_runtime.run().start();
-    // SYNBENCH_TOUR_DIALOG=<name> opens one of the app's dialogs over every
+    // SYNTHEON_TOUR_DIALOG=<name> opens one of the app's dialogs over every
     // screenshot, with sample text (only the dialogs listed here).
-    if (const QString dialog = qEnvironmentVariable("SYNBENCH_TOUR_DIALOG"); !dialog.isEmpty())
+    if (const QString dialog = qEnvironmentVariable("SYNTHEON_TOUR_DIALOG"); !dialog.isEmpty())
         openDialog(dialog);
     bool ok = false;
-    const int delay = qEnvironmentVariable("SYNBENCH_TOUR_DELAY").toInt(&ok);
+    const int delay = qEnvironmentVariable("SYNTHEON_TOUR_DELAY").toInt(&ok);
     QTimer::singleShot(ok ? delay : 600, this, &ScreenshotTour::step);
 }
 
@@ -100,12 +100,12 @@ void ScreenshotTour::openDialog(const QString &name)
 {
     static const QHash<QString, QPair<QString, QVariantMap>> known{
         {QStringLiteral("storage"), {QStringLiteral("StorageProblemDialog"),
-                                     {{QStringLiteral("message"), QStringLiteral("The history file at /home/you/.local/share/SynBench/synbench.db "
-                                                                                  "is damaged or isn't a SynBench history (file is not a database). "
+                                     {{QStringLiteral("message"), QStringLiteral("The history file at /home/you/.local/share/Syntheon/syntheon.db "
+                                                                                  "is damaged or isn't a Syntheon history (file is not a database). "
                                                                                   "It was left untouched.")}}}},
         {QStringLiteral("newer"), {QStringLiteral("StorageProblemDialog"),
                                    {{QStringLiteral("newerVersion"), true},
-                                    {QStringLiteral("message"), QStringLiteral("The saved runs in /home/you/.local/share/SynBench were made by a newer SynBench.")}}}},
+                                    {QStringLiteral("message"), QStringLiteral("The saved runs in /home/you/.local/share/Syntheon were made by a newer Syntheon.")}}}},
         {QStringLiteral("auth"), {QStringLiteral("AuthDialog"), {{QStringLiteral("message"), QStringLiteral("The administrator prompt was dismissed.")}}}},
         {QStringLiteral("inuse"), {QStringLiteral("InUseDialog"), {}}},
         {QStringLiteral("recovery"), {QStringLiteral("RecoveryNoticeDialog"), {{QStringLiteral("message"), QStringLiteral("The run from 14:02 was interrupted")}}}},
@@ -117,7 +117,7 @@ void ScreenshotTour::openDialog(const QString &name)
         qWarning("screenshot tour: unknown dialog '%s'", qPrintable(name));
         return;
     }
-    QQmlComponent component(engine, QStringLiteral("SynBench"), it->first);
+    QQmlComponent component(engine, QStringLiteral("Syntheon"), it->first);
     QVariantMap props = it->second;
     props.insert(QStringLiteral("parent"), QVariant::fromValue(static_cast<QObject *>(m_window->contentItem())));
     QObject *dialog = component.createWithInitialProperties(props);
@@ -164,22 +164,22 @@ void ScreenshotTour::seedRuns(int n)
 }
 
 // Per screenshot, once the section is showing:
-//   SYNBENCH_TOUR_LOG=1           opens the Results screen's log dialog
-//   SYNBENCH_TOUR_SCROLL=end      scrolls the visible screen to its end
-//   SYNBENCH_TOUR_POPUP=<name>    opens the popup of the combo box <name>
+//   SYNTHEON_TOUR_LOG=1           opens the Results screen's log dialog
+//   SYNTHEON_TOUR_SCROLL=end      scrolls the visible screen to its end
+//   SYNTHEON_TOUR_POPUP=<name>    opens the popup of the combo box <name>
 void ScreenshotTour::stage()
 {
     // From the window: items declared in Main.qml are its QObject children
     // (the content item is only their visual parent).
     QObject *root = m_window;
-    if (qEnvironmentVariableIntValue("SYNBENCH_TOUR_LOG") != 0) {
+    if (qEnvironmentVariableIntValue("SYNTHEON_TOUR_LOG") != 0) {
         QObject *log = root->findChild<QObject *>(QStringLiteral("logDialog"));
         if (!log)
             qWarning("screenshot tour: no log dialog on this screen");
         else if (!log->property("opened").toBool())
             QMetaObject::invokeMethod(log, "openLog");
     }
-    if (qEnvironmentVariable("SYNBENCH_TOUR_SCROLL") == QLatin1StringView("end")) {
+    if (qEnvironmentVariable("SYNTHEON_TOUR_SCROLL") == QLatin1StringView("end")) {
         for (QQuickItem *f : root->findChildren<QQuickItem *>(QStringLiteral("screenScroll"))) {
             if (!f->isVisible())
                 continue;
@@ -188,7 +188,7 @@ void ScreenshotTour::stage()
             f->setProperty("contentY", qMax<qreal>(0, end));
         }
     }
-    if (const QString name = qEnvironmentVariable("SYNBENCH_TOUR_POPUP"); !name.isEmpty()) {
+    if (const QString name = qEnvironmentVariable("SYNTHEON_TOUR_POPUP"); !name.isEmpty()) {
         for (QQuickItem *combo : root->findChildren<QQuickItem *>(name)) {
             if (!combo->isVisible())
                 continue;
@@ -242,7 +242,7 @@ void ScreenshotTour::step()
     const bool dark = (m_index % perSection) == 1;
     m_runtime.app().setSection(section);
     if (section == QLatin1StringView("results")) {
-        const QString detail = qEnvironmentVariable("SYNBENCH_TOUR_DETAIL");
+        const QString detail = qEnvironmentVariable("SYNTHEON_TOUR_DETAIL");
         m_runtime.results().openCurrent();
         if (!detail.isEmpty())
             m_runtime.results().showDetail(detail);

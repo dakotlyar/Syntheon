@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // The generic option tab of one test: every option row from its schema, then
 // (Battery) the pre-start checks.

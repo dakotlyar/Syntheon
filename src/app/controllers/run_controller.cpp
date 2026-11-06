@@ -10,7 +10,7 @@
 #include "storage/storage.h"
 #include "tests/builtin_tests.h"
 
-#include "synbench_version.h"
+#include "syntheon_version.h"
 
 #include <QCoreApplication>
 #include <QLoggingCategory>
@@ -20,7 +20,7 @@
 #include <cmath>
 #include <utility>
 
-Q_LOGGING_CATEGORY(lcRun, "synbench.run")
+Q_LOGGING_CATEGORY(lcRun, "syntheon.run")
 
 namespace sb {
 
@@ -228,7 +228,7 @@ void RunController::connectOrchestrator()
         if (m_orchestrator.state() != Orchestrator::State::Abandoned)
             m_storageController.setLocked(false);
         else
-            m_storageController.setLocked(true, tr("A test stopped responding. Restart SynBench first."));
+            m_storageController.setLocked(true, tr("A test stopped responding. Restart Syntheon first."));
         m_stage.clear();
         m_etaText.clear();
         emit currentChanged();
@@ -295,8 +295,8 @@ void RunController::setHeld(bool held, bool replayProgress)
 
 bool RunController::minimizeOnHold() const
 {
-#if defined(SYNBENCH_DEV_HOOKS)
-    return qEnvironmentVariable("SYNBENCH_GPU_MINIMIZE_MAIN") == QLatin1StringView("1");
+#if defined(SYNTHEON_DEV_HOOKS)
+    return qEnvironmentVariable("SYNTHEON_GPU_MINIMIZE_MAIN") == QLatin1StringView("1");
 #else
     return false;
 #endif
@@ -666,7 +666,7 @@ QStringList RunController::problems() const
     if (!m_storage.isOpen())
         out.append(tr("The history isn't open."));
     if (needsRestart())
-        out.append(tr("A test stopped responding. Restart SynBench to run tests again."));
+        out.append(tr("A test stopped responding. Restart Syntheon to run tests again."));
     else if (running())
         out.append(tr("A run is already in progress."));
     out += validationErrors();
@@ -731,7 +731,7 @@ bool RunController::start()
     // Recovery treats every 'running' row as a leftover: never start (and so
     // write one) until it has finished.
     if (m_storageController.lockedBy(QStringLiteral("recovery"))) {
-        m_startErrors = {tr("SynBench is still checking earlier runs. Try again in a moment.")};
+        m_startErrors = {tr("Syntheon is still checking earlier runs. Try again in a moment.")};
         emit startErrorsChanged();
         emit startRefused(m_startErrors);
         return false;
@@ -740,8 +740,8 @@ bool RunController::start()
     for (const QString &id : m_selection.selectedIds())
         plan.append({id, valuesFor(id)});
     RunMeta meta;
-    meta.appVersion = QStringLiteral(SYNBENCH_DISPLAY_VERSION);
-    meta.appBuild = QStringLiteral(SYNBENCH_BUILD_ID);
+    meta.appVersion = QStringLiteral(SYNTHEON_DISPLAY_VERSION);
+    meta.appBuild = QStringLiteral(SYNTHEON_BUILD_ID);
     meta.system = m_app.snapshotForRun();
     const auto result = m_orchestrator.start(plan, meta);
     if (!result.ok) {

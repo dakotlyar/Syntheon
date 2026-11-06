@@ -11,7 +11,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $checks = Join-Path $PSScriptRoot 'windows-static-checks.ps1'
-$work = Join-Path ([IO.Path]::GetTempPath()) "synbench-negative-control-$Arch"
+$work = Join-Path ([IO.Path]::GetTempPath()) "syntheon-negative-control-$Arch"
 
 function Fresh-Copy {
     Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
@@ -32,17 +32,17 @@ try {
 
     # 1. a developer hook name inside a binary (8-bit and UTF-16)
     Fresh-Copy
-    [IO.File]::AppendAllText((Join-Path $work 'SynBench.exe'), 'SYNBENCH_SMOKE', [Text.Encoding]::ASCII)
-    Assert-Fails 'a SYNBENCH_ string (8-bit) in SynBench.exe'
+    [IO.File]::AppendAllText((Join-Path $work 'Syntheon.exe'), 'SYNTHEON_SMOKE', [Text.Encoding]::ASCII)
+    Assert-Fails 'a SYNTHEON_ string (8-bit) in Syntheon.exe'
     Fresh-Copy
-    $bytes = [Text.Encoding]::Unicode.GetBytes('SYNBENCH_TOUR')
-    $fs = [IO.File]::Open((Join-Path $work 'SynBench.exe'), 'Append'); $fs.Write($bytes, 0, $bytes.Length); $fs.Close()
-    Assert-Fails 'a SYNBENCH_ string (UTF-16) in SynBench.exe'
+    $bytes = [Text.Encoding]::Unicode.GetBytes('SYNTHEON_TOUR')
+    $fs = [IO.File]::Open((Join-Path $work 'Syntheon.exe'), 'Append'); $fs.Write($bytes, 0, $bytes.Length); $fs.Close()
+    Assert-Fails 'a SYNTHEON_ string (UTF-16) in Syntheon.exe'
 
     # 2. a test-only binary
     Fresh-Copy
-    Set-Content (Join-Path $work 'synbench-helper-test.exe') 'x'
-    Assert-Fails 'a synbench-helper-test binary'
+    Set-Content (Join-Path $work 'syntheon-helper-test.exe') 'x'
+    Assert-Fails 'a syntheon-helper-test binary'
 
     # 3. a DLL of the wrong architecture
     Fresh-Copy
@@ -63,8 +63,8 @@ try {
 
     # 6. the encryption worker is gone (Phase 2 §11.3)
     Fresh-Copy
-    Remove-Item (Join-Path $work 'synbench-cpucrypto.exe')
-    Assert-Fails 'synbench-cpucrypto.exe removed'
+    Remove-Item (Join-Path $work 'syntheon-cpucrypto.exe')
+    Assert-Fails 'syntheon-cpucrypto.exe removed'
 
     # 6a. the GPU worker's offscreen platform plugin is gone (checkpoints 5 and 6 shipped without it)
     Fresh-Copy
@@ -78,8 +78,8 @@ try {
     # 7. an encryption worker of the wrong architecture
     if ($Arch -eq 'arm64') {
         Fresh-Copy
-        Copy-Item (Join-Path $env:SystemRoot 'System32\whoami.exe') (Join-Path $work 'synbench-cpucrypto.exe') -Force
-        Assert-Fails 'an x64 synbench-cpucrypto.exe in the ARM64 tree'
+        Copy-Item (Join-Path $env:SystemRoot 'System32\whoami.exe') (Join-Path $work 'syntheon-cpucrypto.exe') -Force
+        Assert-Fails 'an x64 syntheon-cpucrypto.exe in the ARM64 tree'
     } else { Write-Host 'skip: no arm64 executable is available on this runner to plant in the x64 tree' }
 
     Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue

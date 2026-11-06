@@ -51,7 +51,7 @@ bool removeLinkItself(const QString &path)
 
 QString scratchRunFolderName(const QUuid &runUuid)
 {
-    return QStringLiteral("synbench-%1").arg(runUuid.toString(QUuid::WithoutBraces));
+    return QStringLiteral("syntheon-%1").arg(runUuid.toString(QUuid::WithoutBraces));
 }
 
 bool removeTreeNoFollow(const QString &path)

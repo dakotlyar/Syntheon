@@ -31,7 +31,7 @@ class TestGpuPresent : public QObject
     QString m_xvfbRun;
     QString m_vulkanSkip;  // why the Vulkan (xvfb) cases can't run here, or ""
 
-    // xvfb-run -a -s "-screen 0 1920x1080x24" synbench-gpu --run --api vulkan ... (A-X's screen).
+    // xvfb-run -a -s "-screen 0 1920x1080x24" syntheon-gpu --run --api vulkan ... (A-X's screen).
     static QStringList vulkanArgs()
     {
         return {QStringLiteral("-a"), QStringLiteral("-s"), QStringLiteral("-screen 0 1920x1080x24"), kWorker,
@@ -101,7 +101,7 @@ private slots:
     }
 
     // Before each case: the Vulkan cases need xvfb and lavapipe (a CI failure
-    // on Linux when SYNBENCH_REQUIRE_SOFTWARE_GPU is set, task 16).
+    // on Linux when SYNTHEON_REQUIRE_SOFTWARE_GPU is set, task 16).
     void init()
     {
         const QLatin1StringView current(QTest::currentTestFunction());
@@ -215,7 +215,7 @@ private slots:
     void windowFollowsTheScreenItLandsOn()
     {
         QProcessEnvironment env = m_env;
-        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_SCREEN"), QStringLiteral("3440x1400@1"));
+        env.insert(QStringLiteral("SYNTHEON_GPU_FAKE_SCREEN"), QStringLiteral("3440x1400@1"));
         WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:200:500"), env);
         QVERIFY(w.started());
         const int code = w.finish();
@@ -234,7 +234,7 @@ private slots:
     void swapchainFailureIsNotAvailable()
     {
         QProcessEnvironment env = m_env;
-        env.insert(QStringLiteral("SYNBENCH_GPU_FAIL_SWAPCHAIN"), QStringLiteral("1"));
+        env.insert(QStringLiteral("SYNTHEON_GPU_FAIL_SWAPCHAIN"), QStringLiteral("1"));
         WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:100:300"), env);
         QVERIFY(w.started());
         QCOMPARE(w.finish(), 5);
@@ -253,7 +253,7 @@ private slots:
     void tooSmallAfterReplanIsNotAvailable()
     {
         QProcessEnvironment env = m_env;
-        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_SCREEN"), QStringLiteral("500x300@1"));
+        env.insert(QStringLiteral("SYNTHEON_GPU_FAKE_SCREEN"), QStringLiteral("500x300@1"));
         WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--serve"), env);
         QVERIFY(w.started());
         QVERIFY2(w.waitFor([](const pr::Event &e) { return is<pr::ReadyEvent>(e); }), qPrintable(w.problem()));
@@ -276,7 +276,7 @@ private slots:
     void laterSwapchainFailureIsAnError()
     {
         QProcessEnvironment env = m_env;
-        env.insert(QStringLiteral("SYNBENCH_GPU_FAIL_SWAPCHAIN"), QStringLiteral("later"));
+        env.insert(QStringLiteral("SYNTHEON_GPU_FAIL_SWAPCHAIN"), QStringLiteral("later"));
         WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--serve"), env);
         QVERIFY(w.started());
         QVERIFY2(w.waitFor([](const pr::Event &e) { return is<pr::ReadyEvent>(e); }), qPrintable(w.problem()));
@@ -298,11 +298,11 @@ private slots:
         QCOMPARE(errors, 1);
     }
     // Under xvfb-run (which merges stderr into stdout on Debian/Ubuntu) the old-layer note must not
-    // break the protocol reading: the harness takes "synbench-gpu: ..." lines as stderr.
+    // break the protocol reading: the harness takes "syntheon-gpu: ..." lines as stderr.
     void oldLayerNoteDoesNotBreakTheProtocol()
     {
         QProcessEnvironment env = m_env;
-        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_LAYER_SPEC"), QStringLiteral("1.3.204"));
+        env.insert(QStringLiteral("SYNTHEON_GPU_FAKE_LAYER_SPEC"), QStringLiteral("1.3.204"));
         WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:100:300"), env);
         QVERIFY(w.started());
         QCOMPARE(w.finish(), 0);
@@ -316,7 +316,7 @@ private slots:
     void screenChangeDuringWarmupReplans()
     {
         QProcessEnvironment env = m_env;
-        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_SCREEN"), QStringLiteral("1280x800@1;3440x1400@1.25"));
+        env.insert(QStringLiteral("SYNTHEON_GPU_FAKE_SCREEN"), QStringLiteral("1280x800@1;3440x1400@1.25"));
         WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:300:500"), env);
         QVERIFY(w.started());
         const int code = w.finish();
@@ -335,7 +335,7 @@ private slots:
     void moveDuringMeasurementIsReportedAsMoved()
     {
         QProcessEnvironment env = m_env;
-        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_MOVE"), QStringLiteral("measure"));
+        env.insert(QStringLiteral("SYNTHEON_GPU_FAKE_MOVE"), QStringLiteral("measure"));
         WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:100:500"), env);
         QVERIFY(w.started());
         QCOMPARE(w.finish(), 1);
@@ -347,7 +347,7 @@ private slots:
     void windowThatKeepsMovingIsAnError()
     {
         QProcessEnvironment env = m_env;
-        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_SCREEN"),
+        env.insert(QStringLiteral("SYNTHEON_GPU_FAKE_SCREEN"),
                    QStringLiteral("1280x800@1;1281x800@1;1282x800@1;1283x800@1;1284x800@1"));
         WorkerProcess w(m_xvfbRun, vulkanArgs() << QStringLiteral("--plan") << QStringLiteral("geometry:300:500"), env);
         QVERIFY(w.started());

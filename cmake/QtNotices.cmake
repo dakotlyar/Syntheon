@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # The parts of THIRD-PARTY-NOTICES.txt (D11) that come with Qt's deployment
 # (AP-5 M3): the third-party code compiled into the Qt libraries and plugins
-# SynBench ships (PCRE2, HarfBuzz, libpng, libjpeg, md4c, double-conversion,
+# Syntheon ships (PCRE2, HarfBuzz, libpng, libjpeg, md4c, double-conversion,
 # the FreeType-derived rasteriser, …), read from Qt's own SBOM
 # (<Qt prefix>/sbom/<module>-<version>.spdx.json) for the modules the packages
 # deploy, with the full text of each licence; and, on Linux, ICU, whose
 # libraries the AppImage carries.
 #
-#   synbench_add_qt_deployment_notices()   # after find_package(Qt6), before
-#                                          # synbench_write_third_party_notices()
+#   syntheon_add_qt_deployment_notices()   # after find_package(Qt6), before
+#                                          # syntheon_write_third_party_notices()
 #
 # The licence texts are in packaging/licenses/spdx (SPDX's own texts, see the
 # README there); a licence Qt's SBOM names that has no text there is a
@@ -17,7 +17,7 @@
 include_guard(GLOBAL)
 include(ThirdPartyNotices)
 
-function(synbench_add_qt_deployment_notices)
+function(syntheon_add_qt_deployment_notices)
     set(prefix "${QT6_INSTALL_PREFIX}")
     if(NOT prefix)
         get_target_property(_core_location Qt6::Core LOCATION)
@@ -107,7 +107,7 @@ function(synbench_add_qt_deployment_notices)
             string(REPLACE "\t" " " copyright "${copyright}")
             list(APPEND components "${shown}\t${version}\t${licence}\t${copyright}")
             # The licences to reproduce: of "A OR B" the first is the one used
-            # (SynBench takes FTL for the FreeType rasteriser, AFL-2.1 for the
+            # (Syntheon takes FTL for the FreeType rasteriser, AFL-2.1 for the
             # D-Bus headers); every licence of "A AND B" and its exception.
             string(REGEX REPLACE " OR .*" "" chosen "${licence}")
             string(REGEX REPLACE "[()]" " " chosen "${chosen}")
@@ -127,7 +127,7 @@ function(synbench_add_qt_deployment_notices)
     list(SORT components CASE INSENSITIVE)
     list(SORT licences CASE INSENSITIVE)
     list(JOIN found_modules ", " module_list)
-    string(CONCAT out "These components are compiled into the Qt libraries and plugins SynBench ships, as\n"
+    string(CONCAT out "These components are compiled into the Qt libraries and plugins Syntheon ships, as\n"
                       "Qt's SBOM lists them for ${module_list}. Where Qt offers a choice of\n"
                       "licences, the first one named is the one used.\n\n")
     foreach(entry IN LISTS components)
@@ -175,7 +175,7 @@ function(synbench_add_qt_deployment_notices)
     endforeach()
     set(path "${PROJECT_BINARY_DIR}/notices/qt-bundled.txt")
     file(WRITE "${path}" "${out}")
-    synbench_add_notice(NAME "Third-party code inside Qt" VERSION ${Qt6_VERSION} LICENCE "various, listed below"
+    syntheon_add_notice(NAME "Third-party code inside Qt" VERSION ${Qt6_VERSION} LICENCE "various, listed below"
         FILE "${path}")
 
     # ICU: the Linux Qt links it, and the AppImage carries its libraries.
@@ -183,9 +183,9 @@ function(synbench_add_qt_deployment_notices)
         if(NOT icu_version MATCHES "^73\\.")
             message(FATAL_ERROR "Qt's ICU is ${icu_version}; packaging/licenses/ICU-73.txt is ICU 73's licence: replace it")
         endif()
-        synbench_add_notice(NAME "ICU" VERSION ${icu_version} LICENCE "Unicode-DFS-2016 (ICU 73 licence)"
+        syntheon_add_notice(NAME "ICU" VERSION ${icu_version} LICENCE "Unicode-DFS-2016 (ICU 73 licence)"
             FILE "${PROJECT_SOURCE_DIR}/packaging/licenses/ICU-73.txt"
             NOTE "The ICU libraries (libicu*.so.73) ship inside the AppImage with Qt.")
     endif()
-    set(SYNBENCH_QT_NOTICE_ICU "${icu_version}" PARENT_SCOPE)
+    set(SYNTHEON_QT_NOTICE_ICU "${icu_version}" PARENT_SCOPE)
 endfunction()

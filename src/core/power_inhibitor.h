@@ -31,7 +31,7 @@ public:
 };
 
 // The platform's inhibitor: logind over D-Bus on Linux,
-// SetThreadExecutionState on Windows. Defined in synbench_power.
+// SetThreadExecutionState on Windows. Defined in syntheon_power.
 std::unique_ptr<PowerInhibitor> createSystemPowerInhibitor();
 
 } // namespace sb

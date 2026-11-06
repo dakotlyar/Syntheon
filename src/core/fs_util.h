@@ -19,10 +19,10 @@ bool isLinkOrReparsePoint(const QString &path);
 // then rmdir() for a Windows directory link), never what it points to.
 bool removeLinkItself(const QString &path);
 
-// A test's scratch folder is <scratch root>/synbench-<run uuid>/<test id>.
+// A test's scratch folder is <scratch root>/syntheon-<run uuid>/<test id>.
 // True only if `path` is exactly that shape: its parent not a link, and the
 // parent's canonical path equal to the scratch root's canonical path +
-// "/synbench-<uuid>". With allowLinkAtPath false (the default) `path` itself
+// "/syntheon-<uuid>". With allowLinkAtPath false (the default) `path` itself
 // must not be a link either; true lets a link sit at that exact place (so it
 // can be removed as a link). Anything else must never be touched.
 bool isSafeScratchPath(const QString &path, const QString &scratchRoot, const QUuid &runUuid,

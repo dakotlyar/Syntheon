@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
-import SynBench
+import Syntheon
 
 // D1: the administrator gate offers Retry and Quit, nothing else.
 TestCase {

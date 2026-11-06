@@ -80,7 +80,7 @@ public:
 
     Storage &storage() { return m_storage; }
 
-    // "database" if the folder already holds a synbench.db (offer to open it,
+    // "database" if the folder already holds a syntheon.db (offer to open it,
     // D7), "empty" if the history can be moved there, else "unusable".
     Q_INVOKABLE QString inspectFolder(const QString &folder);
     // Move the history to `folder` (D7): "" on success, "warning:<text>" if it

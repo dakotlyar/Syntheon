@@ -17,7 +17,7 @@
 
 namespace sb {
 
-// Linux PrivilegedOps (§6, P11): starts synbench-helper as root with pkexec
+// Linux PrivilegedOps (§6, P11): starts syntheon-helper as root with pkexec
 // (one polkit prompt per launch), checks its HELLO, then sends requests over
 // the child's stdin/stdout. Lives on the GUI thread; readSmbios() and ping()
 // may be called from any thread and block until the answer, a timeout, or
@@ -91,7 +91,7 @@ public:
     static MountCheck verifyAppImageMount(const QString &mountInfoPath, const QString &appDir, const QString &imagePath);
 
     // What defaultLaunch() decided and why, without needing pkexec: used by the
-    // launch itself and by `SynBench --synbench-selfcheck`.
+    // launch itself and by `Syntheon --syntheon-selfcheck`.
     struct LaunchPlan {
         enum class Kind { Dev, AppImage };
         Kind kind = Kind::Dev;
@@ -115,7 +115,7 @@ public:
     void start(const Launch &launch);
     // Closes the helper's stdin; it exits on EOF.
     void stop();
-    // Final: marks the client Failed ("SynBench is closing"), failing every
+    // Final: marks the client Failed ("Syntheon is closing"), failing every
     // pending request now. For destructors that must not wait on requests.
     void shutdown();
 

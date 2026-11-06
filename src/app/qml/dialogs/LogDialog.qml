@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // A stored run's log (D16), filterable by test and level, with Copy. Works for
 // any run in History, including Stopped, Interrupted and Recovered ones.

@@ -33,7 +33,7 @@ class StorageController;
 // preconditions, estimate, run bar) and the live run behind the Progress
 // screen (queue, log, Stop, ETA). Owns the registry, the selection, one
 // OptionValues per test and the Orchestrator.
-// The smoke run's verdict on one test's result (SYNBENCH_SMOKE, CI): Ok
+// The smoke run's verdict on one test's result (SYNTHEON_SMOKE, CI): Ok
 // passes; so does a RAM result that is Partial only because loaded latency
 // is N/A "needs at least two cores" (a one-core runner, §5.4; the release
 // build has no hook to share the core). Anything else fails.
@@ -117,7 +117,7 @@ public:
     bool interfaceHeld() const { return m_held; }
     QString heldPart() const { return m_heldPart; }
     QString heldTestName() const { return m_heldTestName; }
-    // True only with the dev hook SYNBENCH_GPU_MINIMIZE_MAIN=1: the Progress
+    // True only with the dev hook SYNTHEON_GPU_MINIMIZE_MAIN=1: the Progress
     // screen then minimises the main window while the interface is held.
     Q_INVOKABLE bool minimizeOnHold() const;
 
@@ -145,7 +145,7 @@ public:
     // "~24 s" / "~2 min" for a picker row, from the test's own estimate.
     Q_INVOKABLE QString estimateOf(const QString &testId);
 
-    // SYNBENCH_SMOKE=1 (§10): runs every available stub, then Battery with
+    // SYNTHEON_SMOKE=1 (§10): runs every available stub, then Battery with
     // its preconditions overridden, and exits 0 if all of it worked.
     void runSmoke();
 

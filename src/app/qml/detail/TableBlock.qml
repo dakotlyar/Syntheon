@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
-import SynBench
+import Syntheon
 
 // A table of already-formatted cells; the first column (and any leftColumns)
 // left in the body font, the rest right in the data font. Columns are sized to

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// synbench-helper: the Linux root helper (§6, P11). Started once per GUI
+// syntheon-helper: the Linux root helper (§6, P11). Started once per GUI
 // launch with pkexec; talks to its parent over stdin/stdout only; lives
 // exactly as long as the GUI (exits on EOF); never daemonises. No Qt, no
 // plugins, no dlopen, no exec/system: every op is a fixed function in
@@ -8,7 +8,7 @@
 
 #include "helper/helper_core.h"
 
-#include "synbench_version.h"
+#include "syntheon_version.h"
 
 #include <cerrno>
 #include <csignal>
@@ -61,11 +61,11 @@ int main(int argc, char **)
     closeFdsAbove2();
 
     if (argc != 1) {
-        std::fputs("synbench-helper: takes no arguments\n", stderr);
+        std::fputs("syntheon-helper: takes no arguments\n", stderr);
         return 2;
     }
     if (!isPipe(0) || !isPipe(1)) {
-        std::fputs("synbench-helper: stdin and stdout must be pipes from SynBench\n", stderr);
+        std::fputs("syntheon-helper: stdin and stdout must be pipes from Syntheon\n", stderr);
         return 11;
     }
 
@@ -73,10 +73,10 @@ int main(int argc, char **)
     const char *pkexecUid = std::getenv("PKEXEC_UID");
     const std::string requester = pkexecUid ? pkexecUid : "unknown";
     clearenv();
-    std::fprintf(stderr, "synbench-helper: started (euid %u) for uid %s\n", unsigned(geteuid()), requester.c_str());
+    std::fprintf(stderr, "syntheon-helper: started (euid %u) for uid %s\n", unsigned(geteuid()), requester.c_str());
 
     sb::helper::Config config;
-    config.buildId = std::string(SYNBENCH_DISPLAY_VERSION) + " " + SYNBENCH_BUILD_ID;
+    config.buildId = std::string(SYNTHEON_DISPLAY_VERSION) + " " + SYNTHEON_BUILD_ID;
     config.euid = geteuid();
     sb::helper::Core core(config);
 

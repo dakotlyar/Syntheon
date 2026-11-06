@@ -86,7 +86,7 @@ def main():
             # The GPU worker opens the Vulkan loader (volk) and the OpenGL driver (glad) at run
             # time, so a machine without one still starts it (Phase 4a task 16). The GLVND
             # dispatch libraries Qt itself links (libGLX, libOpenGL) are fine.
-            if p.name == "synbench-gpu" and re.match(r"lib(vulkan|GL|EGL)\.so", soname):
+            if p.name == "syntheon-gpu" and re.match(r"lib(vulkan|GL|EGL)\.so", soname):
                 problems.append(f"{rel}: links {soname}; the worker must load it at run time")
             if soname in bundled or any(soname.startswith(x) for x in allow):
                 continue

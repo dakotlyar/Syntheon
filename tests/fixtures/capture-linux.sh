@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Captures the files SynBench's Linux system-info parsers read into a fixture
+# Captures the files Syntheon's Linux system-info parsers read into a fixture
 # tree, for tests/unit/tst_sysinfo_linux.cpp:
 #
 #   tests/fixtures/capture-linux.sh tests/fixtures/linux/<machine>
@@ -157,7 +157,7 @@ encode_tree() {  # encode_tree <src> <dst>
 encode_tree "$out" "$final"
 
 # A Windows checkout can't hold long paths (MAX_PATH 260 with the runner's
-# D:\a\SynBench\SynBench\ prefix): the windows_safe_paths test fails any
+# D:\a\Syntheon\Syntheon\ prefix): the windows_safe_paths test fails any
 # tracked path over 200 characters, so say so here, before it's committed.
 limit=200
 prefix=$(git -C "$final" rev-parse --show-prefix 2>/dev/null || true)

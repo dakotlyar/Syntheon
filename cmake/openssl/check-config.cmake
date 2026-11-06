@@ -3,7 +3,7 @@
 # config autoload, no DSO / engine loading), still has its assembly, was
 # compiled optimised, and points its compiled-in directories (OPENSSLDIR,
 # MODULESDIR, ENGINESDIR) at the fixed dummy, not at the build machine.
-#   cmake -DROOT=<SYNBENCH_OPENSSL_ROOT> -DLIBRARY=<libcrypto> -DBAKED=<dummy prefix> [-DWINCTX=<ctx>] -P check-config.cmake
+#   cmake -DROOT=<SYNTHEON_OPENSSL_ROOT> -DLIBRARY=<libcrypto> -DBAKED=<dummy prefix> [-DWINCTX=<ctx>] -P check-config.cmake
 # (Windows, WINCTX: the library must carry OSSL_WINCTX instead.)
 # Run with cmake -P: the policies of the project's minimum (a script gets
 # none from the project, and CMake 3.x would run it with OLD ones).
@@ -20,14 +20,14 @@ if(text MATCHES "define OPENSSL_NO_ASM[\r\n]")
     list(APPEND problems "OPENSSL_NO_ASM is defined: no hardware AES/SHA path")
 endif()
 
-if(EXISTS "${ROOT}/synbench-openssl-cflags.txt")
-    file(READ "${ROOT}/synbench-openssl-cflags.txt" cflags)
+if(EXISTS "${ROOT}/syntheon-openssl-cflags.txt")
+    file(READ "${ROOT}/syntheon-openssl-cflags.txt" cflags)
     # A flag starts the line's value (CFLAGS=-O3 ...) or follows a space.
     if(NOT cflags MATCHES "(^|[ =])(-O3|/O2)( |\n|$)")
         list(APPEND problems "built without -O3 / /O2: ${cflags}")
     endif()
 else()
-    list(APPEND problems "no synbench-openssl-cflags.txt in ${ROOT}")
+    list(APPEND problems "no syntheon-openssl-cflags.txt in ${ROOT}")
 endif()
 
 if(LIBRARY AND WINCTX)
@@ -101,8 +101,8 @@ if(LIBRARY AND WINCTX)
         # defined there.
         file(STRINGS "${LIBRARY}" seen REGEX "OSSL_WINCTX|compiler: |^${WINCTX}$|^Undefined$")
         set(recorded "")
-        if(EXISTS "${ROOT}/synbench-openssl-cflags.txt")
-            file(READ "${ROOT}/synbench-openssl-cflags.txt" recorded)
+        if(EXISTS "${ROOT}/syntheon-openssl-cflags.txt")
+            file(READ "${ROOT}/syntheon-openssl-cflags.txt" recorded)
         endif()
         list(APPEND problems "${LIBRARY} has no registry key ...\\${key} as UTF-16LE at any offset (OSSL_WINCTX=${WINCTX})"
                              "  as ASCII at byte offsets: ${at8}"

@@ -2,7 +2,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // The common screen layout: title, a muted subtitle, optional actions on the
 // right, and scrolling content below.

@@ -556,7 +556,7 @@ private slots:
             SB_SKIP_OR_FAIL("lavapipe (the software Vulkan driver) isn't installed");
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         addSoftwareVulkan(env);
-        env.insert(QStringLiteral("SYNBENCH_GPU_FAKE_LAYER_SPEC"), QStringLiteral("1.3.204"));
+        env.insert(QStringLiteral("SYNTHEON_GPU_FAKE_LAYER_SPEC"), QStringLiteral("1.3.204"));
         WorkerProcess w(kWorker,
                         {QStringLiteral("--run"), QStringLiteral("--api"), QStringLiteral("vulkan"), QStringLiteral("--gpu"), kLavapipeId,
                          QStringLiteral("--allow-software"), QStringLiteral("--render-size"), QStringLiteral("320x180"),

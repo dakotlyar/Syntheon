@@ -13,7 +13,7 @@
 # mmdebstrap runs as root (through sudo, when we are not root). Its rootless
 # "unshare" mode cannot create a target folder inside a CI workspace
 # ("E: cannot create ...: Permission denied"); as root it can, and the result
-# is then handed back to the invoking user. SYNBENCH_SUDO overrides the
+# is then handed back to the invoking user. SYNTHEON_SUDO overrides the
 # privilege command (empty = run mmdebstrap directly, e.g. when already root
 # or in the test).
 set -euo pipefail
@@ -21,8 +21,8 @@ out=${1:?usage: make-sysroot.sh <output-dir>}
 here=$(cd "$(dirname "$0")" && pwd)
 packages=$(grep -v '^[[:space:]]*#' "$here/linux-arm64-sysroot.txt" | grep -v '^[[:space:]]*$' | paste -sd, -)
 
-if [[ -n ${SYNBENCH_SUDO+x} ]]; then
-    priv=$SYNBENCH_SUDO
+if [[ -n ${SYNTHEON_SUDO+x} ]]; then
+    priv=$SYNTHEON_SUDO
 elif [[ $EUID -eq 0 ]]; then
     priv=
 else

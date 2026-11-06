@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-// SynBench's own PRNG (Phase 2 design P10): splitmix64 to expand a seed,
+// Syntheon's own PRNG (Phase 2 design P10): splitmix64 to expand a seed,
 // xoshiro256** to generate (both by Vigna, public domain). Integer-only and
 // fully specified, so every OS, compiler and CPU produces the same stream;
 // the standard library's engines and distributions are not used anywhere in

@@ -16,7 +16,7 @@
 #include <cstring>
 
 namespace {
-// The Windows build's DXIL (worker/shaders/CMakeLists.txt, SYNBENCH_GPU_SHADER_DIR).
+// The Windows build's DXIL (worker/shaders/CMakeLists.txt, SYNTHEON_GPU_SHADER_DIR).
 #include "depth_only_vs.dxil.inc"
 #include "drawcalls_ps.dxil.inc"
 #include "drawcalls_vs.dxil.inc"

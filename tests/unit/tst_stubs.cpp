@@ -86,8 +86,8 @@ private slots:
         qRegisterMetaType<LogLine>();
         tests::setStubTimeScale(0.02);
         registerBuiltinTests(m_registry);
-        QVERIFY(Database::migrate(m_dir.filePath(QStringLiteral("synbench.db"))).ok());
-        m_sink = std::make_unique<SqliteRunSink>(m_dir.filePath(QStringLiteral("synbench.db")));
+        QVERIFY(Database::migrate(m_dir.filePath(QStringLiteral("syntheon.db"))).ok());
+        m_sink = std::make_unique<SqliteRunSink>(m_dir.filePath(QStringLiteral("syntheon.db")));
     }
 
     void cleanupTestCase()
@@ -260,7 +260,7 @@ private slots:
         QVERIFY(finished.wait(30000));
         const RunRecord run = finished.last().at(0).value<RunRecord>();
         QCOMPARE(run.status, RunStatus::Interrupted);
-        QCOMPARE(run.tests[0].statusReason, QStringLiteral("Did not respond, restart SynBench"));
+        QCOMPARE(run.tests[0].statusReason, QStringLiteral("Did not respond, restart Syntheon"));
         QCOMPARE(o.state(), Orchestrator::State::Abandoned);
         tests::releaseStubHangs();  // let the hung stub finish so it can be joined
         QVERIFY(o.waitForWorkerExit(10s));
@@ -439,7 +439,7 @@ private slots:
         QVERIFY(!run.overall);  // Battery's overall contribution is a Phase 8 decision
 
         // The checkpoints reached the database.
-        Database::ScopedConnection c(m_dir.filePath(QStringLiteral("synbench.db")), QStringLiteral("t"));
+        Database::ScopedConnection c(m_dir.filePath(QStringLiteral("syntheon.db")), QStringLiteral("t"));
         RunRepository repo(c.db());
         QCOMPARE(repo.loadCheckpoints(*repo.runId(run.uuid), QStringLiteral("battery")).size(), 25);
 

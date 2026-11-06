@@ -2,8 +2,8 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
-import SynBench
-import SynBenchTest
+import Syntheon
+import SyntheonTest
 
 // §10: every option editor kind renders and writes its value (P7).
 TestCase {

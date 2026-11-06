@@ -42,7 +42,7 @@ QString lastLine(const QByteArray &text)
     return {};
 }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 QString g_testProgram;
 QStringList g_testArgs;
 #endif
@@ -65,18 +65,18 @@ CryptoOutcome runWorker(QStringList args, const std::optional<Expect> &expect, s
     CryptoOutcome out;
     const bool software = expect && expect->software;
     const QString program = CryptoClient::workerPath();
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     if (!g_testProgram.isEmpty())
         args = g_testArgs + args;
 #endif
     if (program.isEmpty()) {
-        out.error = QStringLiteral("The encryption worker (synbench-cpucrypto) is missing next to SynBench");
+        out.error = QStringLiteral("The encryption worker (syntheon-cpucrypto) is missing next to Syntheon");
         return out;
     }
     QProcess p;
     p.setProgram(program);
     p.setArguments(args);
-    // Its own folder, not wherever SynBench was started from (AP-5 L3).
+    // Its own folder, not wherever Syntheon was started from (AP-5 L3).
     p.setWorkingDirectory(QFileInfo(program).absolutePath());
     p.setProcessEnvironment(CryptoClient::environment(software));
     // stdin stays open (a pipe) while we run: the worker exits when it closes.
@@ -194,14 +194,14 @@ CryptoOutcome runWorker(QStringList args, const std::optional<Expect> &expect, s
 
 QString CryptoClient::workerPath()
 {
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     if (!g_testProgram.isEmpty())
         return g_testProgram;
 #endif
 #if defined(Q_OS_WIN)
-    const QString name = QStringLiteral("synbench-cpucrypto.exe");
+    const QString name = QStringLiteral("syntheon-cpucrypto.exe");
 #else
-    const QString name = QStringLiteral("synbench-cpucrypto");
+    const QString name = QStringLiteral("syntheon-cpucrypto");
 #endif
     const QDir dir(QCoreApplication::applicationDirPath());
     for (const QString &candidate : {dir.filePath(name), dir.filePath(QStringLiteral("../libexec/") + name)}) {
@@ -314,7 +314,7 @@ QString CryptoClient::resultProblem(const CryptoOutcome &o, CryptoAlg alg, int t
     return {};
 }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 void CryptoClient::setWorkerForTests(const QString &program, const QStringList &extraArgs)
 {
     g_testProgram = program;

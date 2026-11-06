@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
-import SynBench
+import Syntheon
 
 // A short note with a coloured edge ("Scene contents are decided in Phase 5").
 Item {

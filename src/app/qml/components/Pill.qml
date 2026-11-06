@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
-import SynBench
+import Syntheon
 
 // A small status pill. Colour is never the only signal: the text always says it.
 //   tone: "" | "good" | "warn" | "bad" | "na" | "acc"

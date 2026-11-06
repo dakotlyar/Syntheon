@@ -80,7 +80,7 @@ StubSpec makeSpec()
         note.key = QStringLiteral("note");
         note.label = QStringLiteral("Note");
         note.kind = OptionKind::Info;
-        note.infoValue = QStringLiteral("Runs on its own until the machine shuts down; recovered next time SynBench opens.");
+        note.infoValue = QStringLiteral("Runs on its own until the machine shuts down; recovered next time Syntheon opens.");
         o.options.append(note);
         return o;
     };
@@ -171,7 +171,7 @@ StubSpec makeSpec()
         for (const QCborMap &c : ctx.checkpoints())
             samples.append({c.value(QStringLiteral("t")).toDouble(), c.value(QStringLiteral("charge")).toDouble()});
         if (samples.isEmpty())
-            return TestResult::interrupted(QStringLiteral("SynBench closed before the first sample"));
+            return TestResult::interrupted(QStringLiteral("Syntheon closed before the first sample"));
         TestResult r;
         const double health = snapshotNumber(ctx.system(), "battery", "health_pct", 94.0);
         const double design = snapshotNumber(ctx.system(), "battery", "design_wh", 90.0);

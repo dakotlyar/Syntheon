@@ -14,12 +14,12 @@
 #endif
 #endif
 
-Q_LOGGING_CATEGORY(lcInstance, "synbench.instance")
+Q_LOGGING_CATEGORY(lcInstance, "syntheon.instance")
 
 namespace sb {
 
 namespace {
-constexpr char kRequest[] = "SYNBENCH-RAISE 1";
+constexpr char kRequest[] = "SYNTHEON-RAISE 1";
 constexpr char kAnswer[] = "OK";
 } // namespace
 
@@ -40,7 +40,7 @@ bool SingleInstance::listen(const QString &dataDir)
     m_error.clear();
     const QString name = nameFor(dataDir);
     if (name.isEmpty()) {
-        m_error = tr("No private folder is available for SynBench's runtime files.");
+        m_error = tr("No private folder is available for Syntheon's runtime files.");
         qCWarning(lcInstance) << m_error;
         return false;
     }
@@ -50,7 +50,7 @@ bool SingleInstance::listen(const QString &dataDir)
     // (and it is in our own 0700 directory: nobody else can have put it there).
     QLocalServer::removeServer(name);
     if (!m_server->listen(name)) {
-        m_error = tr("Can't listen for a second launch (%1). Opening SynBench again won't bring this window forward.")
+        m_error = tr("Can't listen for a second launch (%1). Opening Syntheon again won't bring this window forward.")
                       .arg(m_server->errorString());
         qCWarning(lcInstance) << m_error;
         return false;

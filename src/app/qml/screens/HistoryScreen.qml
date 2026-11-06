@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // Every saved run, newest first (pages of 200). Tick two or more to compare;
 // Open shows a run's results.

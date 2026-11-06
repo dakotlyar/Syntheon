@@ -76,8 +76,8 @@ VulkanInfo probeVulkan()
 
     VkApplicationInfo app{};
     app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app.pApplicationName = "SynBench";
-    app.pEngineName = "SynBench";
+    app.pApplicationName = "Syntheon";
+    app.pEngineName = "Syntheon";
     app.apiVersion = std::min<uint32_t>(instanceVersion, VK_API_VERSION_1_3);
     VkInstanceCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;

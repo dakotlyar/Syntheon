@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The SIMD kernel's SSE4.2 path (Phase 2 design §5.3, P9): the x86-64-v2
-// baseline every SynBench x64 build already assumes, so no extra arch flags.
+// baseline every Syntheon x64 build already assumes, so no extra arch flags.
 // It uses SSE/SSE2 instructions only (multiply + add, no FMA). Kept to the
 // same shape as the wide paths (simd_common.h): <immintrin.h> and
 // simd_common.h only, code in sb::cpu::simd_sse42, one entry point.

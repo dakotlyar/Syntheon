@@ -2,11 +2,11 @@
 #pragma once
 
 // The CPU test's side of the encryption worker (Phase 2 design §5.5, D6, D7,
-// P17): starts synbench-cpucrypto with QProcess, reads its JSON lines, and
+// P17): starts syntheon-cpucrypto with QProcess, reads its JSON lines, and
 // kills it on Stop (polled every 50 ms) or at 2 x the expected time + 10 s.
 // Killing a process is safe, unlike a thread; the worker also exits by
 // itself when its stdin (held open here) closes, so it never outlives
-// SynBench.
+// Syntheon.
 //
 // The worker's environment is built from scratch, never inherited (P17):
 //   Linux    empty; a software run adds the mask
@@ -14,8 +14,8 @@
 //            copies PATH from the parent into an environment that lacks it);
 //            a software run adds the mask
 // So OPENSSL_CONF, OPENSSL_MODULES, OPENSSL_ENGINES and anything else in
-// SynBench's environment never reach it.
-// It runs in its own folder (not wherever SynBench was started), and on
+// Syntheon's environment never reach it.
+// It runs in its own folder (not wherever Syntheon was started), and on
 // Windows its imports load from System32 and that folder only
 // (/DEPENDENTLOADFLAG:0xA00). A run's output must have the right shape
 // (shapeProblem) and no line may exceed kMaxOutputLine.
@@ -112,7 +112,7 @@ public:
     // with the worker's per-thread bytes per cycle (AES-GCM 16, SHA-256 8)
     // at 7 GHz x 1.5 x threads. A worker past it isn't measuring.
     static double ceilingMbps(CryptoAlg alg, int threads);
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     // Tests: run `program` (with `extraArgs` before the usual ones) instead
     // of the real worker; an empty program restores the real one.
     static void setWorkerForTests(const QString &program, const QStringList &extraArgs = {});

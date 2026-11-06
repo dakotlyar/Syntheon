@@ -34,7 +34,7 @@ StubSpec makeSpec()
         d.subtitle = QStringLiteral("Not available on this machine");
         const QString why = r.statusReason.isEmpty() ? QStringLiteral("No supported NPU found") : r.statusReason;
         d.blocks.append({{}, NaStateBlock{QStringLiteral("No supported NPU found"),
-                                          QStringLiteral("SynBench looks for Intel AI Boost, AMD XDNA (Ryzen AI) and Qualcomm "
+                                          QStringLiteral("Syntheon looks for Intel AI Boost, AMD XDNA (Ryzen AI) and Qualcomm "
                                                          "Hexagon. %1. The NPU test has no CPU fallback.")
                                               .arg(why)}});
         return d;

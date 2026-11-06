@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
-import SynBench
+import Syntheon
 
 // How the Detail page arranges its blocks (Phase 4a D24): the top blocks,
 // then the charts, then the tables, collapsed and remembered per test id +

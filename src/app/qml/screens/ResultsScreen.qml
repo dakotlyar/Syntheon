@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // The run summary: the overall dial, one score row per test, the run's status
 // (Stopped / Interrupted / Recovered, with a "partial" marker on the overall,

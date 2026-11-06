@@ -14,7 +14,7 @@ const QString kFirstRunDone = QStringLiteral("app/firstRunDone");
 } // namespace
 
 SettingsStore::SettingsStore()
-    : m_settings(std::make_unique<QSettings>(QSettings::IniFormat, QSettings::UserScope, QStringLiteral("SynBench"),
+    : m_settings(std::make_unique<QSettings>(QSettings::IniFormat, QSettings::UserScope, QStringLiteral("Syntheon"),
                                              QStringLiteral("settings")))
 {
 }

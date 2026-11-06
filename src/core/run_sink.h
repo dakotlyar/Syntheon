@@ -13,7 +13,7 @@ namespace sb {
 
 // Where the orchestrator writes a run as it goes (§3 "Persistence while
 // running"). core can't depend on storage (storage depends on core), so the
-// orchestrator talks to this interface and synbench_storage implements it on
+// orchestrator talks to this interface and syntheon_storage implements it on
 // SQLite (SqliteRunSink).
 //
 // Calls normally come from the run worker thread. The one exception: when a

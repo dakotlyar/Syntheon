@@ -1,5 +1,5 @@
 # Packages unpacked into the Linux ARM64 sysroot (P26): the -dev packages Qt
-# and SynBench link against, plus the runtime libraries Qt's plugins NEED
+# and Syntheon link against, plus the runtime libraries Qt's plugins NEED
 # (so the AppDir builder can find and bundle them). Ubuntu 24.04 (noble): the
 # sysroot IS the Linux ARM64 floor, glibc 2.39 (Dave, 2026-10-16: the official
 # Qt gcc_arm64 build needs glibc 2.38 and libstdc++ 3.4.32, so it can't link

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-// The Vulkan side of `synbench-gpu --probe` (Phase 4a design §4.1, task 13):
+// The Vulkan side of `syntheon-gpu --probe` (Phase 4a design §4.1, task 13):
 // every physical device the loader shows, with the facts the GPU list needs.
 // Qt-free; main.cpp converts the records for model/linux_gpus.
 

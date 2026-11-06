@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- P12/D1: SynBench needs administrator rights (SMBIOS, later SPD and backlight).
+<!-- P12/D1: Syntheon needs administrator rights (SMBIOS, later SPD and backlight).
      A declined UAC prompt means the app does not start. -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="SynBench.SynBench" version="1.0.0.0" processorArchitecture="*"/>
-  <description>SynBench</description>
+  <assemblyIdentity type="win32" name="Syntheon.Syntheon" version="1.0.0.0" processorArchitecture="*"/>
+  <description>Syntheon</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>

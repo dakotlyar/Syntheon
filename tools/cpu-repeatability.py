@@ -5,7 +5,7 @@
 Phase 2 design §14.3 / §14.4 (D17), Phase 3 §14.3 / §14.4 (D19) and Phase 4a
 §17.4 (task 35): the validation gate asks for a CV of the test's score of at
 most 3% over 5 runs.
-This reads a SynBench history (synbench.db, opened read-only) and prints, for
+This reads a Syntheon history (syntheon.db, opened read-only) and prints, for
 the chosen results of one test:
 
   * per run: its id, start time, score, the group sub-scores, and the
@@ -20,7 +20,7 @@ the chosen results of one test:
     fail the set; any other scored metric missing fails it.
 
 Usage:
-  cpu-repeatability.py <synbench.db> [--test cpu|ram|gpu] [-n N] [--runs ID,ID,...] [--limit PCT] [--anchors]
+  cpu-repeatability.py <syntheon.db> [--test cpu|ram|gpu] [-n N] [--runs ID,ID,...] [--limit PCT] [--anchors]
 
   --test T    which test's results: cpu (the default), ram or gpu
   -n N        the last N results of that test that have a score (default
@@ -61,9 +61,9 @@ than 2 values could be compared), 2 for a usage or database problem. With
 --test gpu only the score's CV gates (with every run Ok, on one machine).
 
 Standard library only; it never modifies the history and never touches the
-network. The database is opened read-only, but SynBench's history is in WAL
+network. The database is opened read-only, but Syntheon's history is in WAL
 mode, so SQLite may leave a -shm file (and an empty -wal file) next to it
-when SynBench isn't running; they hold no data and SynBench reuses them.
+when Syntheon isn't running; they hold no data and Syntheon reuses them.
 """
 import argparse
 import math
@@ -261,7 +261,7 @@ def open_readonly(path):
         con.execute("SELECT 1 FROM runs LIMIT 1")
         con.execute("SELECT 1 FROM test_results LIMIT 1")
     except sqlite3.Error as e:
-        raise SystemExit(f"cpu-repeatability: {path} isn't a readable SynBench history ({e})")
+        raise SystemExit(f"cpu-repeatability: {path} isn't a readable Syntheon history ({e})")
     return con
 
 
@@ -329,8 +329,8 @@ def main(argv=None):
                                              "saved runs.",
                                  epilog="The history is opened read-only and never modified. It is in WAL mode, so "
                                         "SQLite may leave a -shm file (and an empty -wal file) next to it when "
-                                        "SynBench isn't running; they hold no data.")
-    ap.add_argument("db", help="path to synbench.db (opened read-only)")
+                                        "Syntheon isn't running; they hold no data.")
+    ap.add_argument("db", help="path to syntheon.db (opened read-only)")
     ap.add_argument("--test", choices=sorted(TESTS), default="cpu", help="which test's results (default cpu)")
     ap.add_argument("-n", type=int, default=5, help="the last N scored results (default 5)")
     ap.add_argument("--runs", help="comma-separated run ids instead of the last N")

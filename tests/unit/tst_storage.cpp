@@ -159,7 +159,7 @@ private slots:
                   "CREATE TRIGGER bump AFTER INSERT ON [a b] BEGIN\n"
                   "  UPDATE [a b] SET `n;` = new.x * 2 WHERE rowid = new.rowid;\n"
                   "END;\n");
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         const auto m = Database::migrate(path, scripts.path());
         QVERIFY2(m.ok(), qPrintable(m.error));
         Database::ScopedConnection c(path, QStringLiteral("t"));
@@ -174,7 +174,7 @@ private slots:
     void migrateFromEmpty()
     {
         QTemporaryDir dir;
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         const auto m = Database::migrate(path);
         QVERIFY2(m.ok(), qPrintable(m.error));
         QCOMPARE(m.fromVersion, 0);
@@ -202,7 +202,7 @@ private slots:
     void refuseNewerVersion()
     {
         QTemporaryDir dir;
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         {
             Database::ScopedConnection c(path, QStringLiteral("t"));
             QSqlQuery(c.db()).exec(QStringLiteral("PRAGMA user_version = 99"));
@@ -221,7 +221,7 @@ private slots:
     {
         QTemporaryDir dir, scripts;
         writeFile(scripts.filePath(QStringLiteral("0001_init.sql")), "CREATE TABLE a (x INTEGER);");
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(path, scripts.path()).ok());
         {
             Database::ScopedConnection c(path, QStringLiteral("t"));
@@ -253,7 +253,7 @@ private slots:
     {
         QTemporaryDir dir, scripts;
         writeFile(scripts.filePath(QStringLiteral("0001_init.sql")), "CREATE TABLE a (x INTEGER);");
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(path, scripts.path()).ok());
 
         Database::ScopedConnection writer(path, QStringLiteral("w"));
@@ -285,7 +285,7 @@ private slots:
     {
         QTemporaryDir dir, scripts;
         writeFile(scripts.filePath(QStringLiteral("0001_init.sql")), "CREATE TABLE a (x INTEGER);");
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(path, scripts.path()).ok());
         writeFile(scripts.filePath(QStringLiteral("0002_bad.sql")),
                   "CREATE TABLE half (x INTEGER); THIS IS NOT SQL;");
@@ -302,14 +302,14 @@ private slots:
     {
         QTemporaryDir dir, scripts;
         writeFile(scripts.filePath(QStringLiteral("0002_gap.sql")), "CREATE TABLE a (x INTEGER);");
-        const auto m = Database::migrate(dir.filePath(QStringLiteral("synbench.db")), scripts.path());
+        const auto m = Database::migrate(dir.filePath(QStringLiteral("syntheon.db")), scripts.path());
         QCOMPARE(m.status, Database::MigrateResult::Status::Failed);
     }
 
     void runRecordRoundTrip()
     {
         QTemporaryDir dir;
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(path).ok());
         Database::ScopedConnection c(path, QStringLiteral("t"));
         RunRepository repo(c.db());
@@ -344,7 +344,7 @@ private slots:
     void progressiveWrites()
     {
         QTemporaryDir dir;
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(path).ok());
         Database::ScopedConnection c(path, QStringLiteral("t"));
         RunRepository repo(c.db());
@@ -391,7 +391,7 @@ private slots:
     void nonFiniteMetricsStoredAsText()
     {
         QTemporaryDir dir;
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(path).ok());
         Database::ScopedConnection c(path, QStringLiteral("t"));
         RunRepository repo(c.db());
@@ -418,7 +418,7 @@ private slots:
     void nonFiniteScoresStoredAsNull()
     {
         QTemporaryDir dir;
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(path).ok());
         Database::ScopedConnection c(path, QStringLiteral("t"));
         RunRepository repo(c.db());
@@ -437,7 +437,7 @@ private slots:
     void runLog()
     {
         QTemporaryDir dir;
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(path).ok());
         Database::ScopedConnection c(path, QStringLiteral("t"));
         RunRepository repo(c.db());
@@ -489,7 +489,7 @@ private slots:
     void walReaderDuringWriter()
     {
         QTemporaryDir dir;
-        const QString path = dir.filePath(QStringLiteral("synbench.db"));
+        const QString path = dir.filePath(QStringLiteral("syntheon.db"));
         QVERIFY(Database::migrate(path).ok());
         Database::ScopedConnection writer(path, QStringLiteral("w"));
         Database::ScopedConnection reader(path, QStringLiteral("r"));
@@ -517,7 +517,7 @@ private slots:
             QVERIFY(!s.firstRunDone());
             s.setLayout(QStringLiteral("tabs"));
             s.setTheme(QStringLiteral("dark"));
-            s.setDataLocation(QStringLiteral("/mnt/usb/SynBench"));
+            s.setDataLocation(QStringLiteral("/mnt/usb/Syntheon"));
             s.setFirstRunDone(true);
             QVERIFY(s.sync());
         }
@@ -525,7 +525,7 @@ private slots:
         SettingsStore s(ini);
         QCOMPARE(s.layout(), QStringLiteral("tabs"));
         QCOMPARE(s.theme(), QStringLiteral("dark"));
-        QCOMPARE(s.dataLocation(), QStringLiteral("/mnt/usb/SynBench"));
+        QCOMPARE(s.dataLocation(), QStringLiteral("/mnt/usb/Syntheon"));
         QVERIFY(s.firstRunDone());
 
         s.setTheme(QStringLiteral("purple"));
@@ -537,7 +537,7 @@ private slots:
     void defaultSettingsFile()
     {
         const SettingsStore s;
-        QVERIFY(s.fileName().endsWith(QLatin1StringView("SynBench/settings.ini")));
+        QVERIFY(s.fileName().endsWith(QLatin1StringView("Syntheon/settings.ini")));
     }
 
     void defaultLocationCreated()
@@ -545,7 +545,7 @@ private slots:
         QTemporaryDir dir;
         SettingsStore settings(dir.filePath(QStringLiteral("settings.ini")));
         Storage storage(settings);
-        QVERIFY(Storage::defaultDataDir().endsWith(QLatin1StringView("/SynBench")));
+        QVERIFY(Storage::defaultDataDir().endsWith(QLatin1StringView("/Syntheon")));
         QDir(Storage::defaultDataDir()).removeRecursively();  // test-mode location
         const auto r = storage.open();
         QVERIFY2(r.ok(), qPrintable(r.error));
@@ -575,7 +575,7 @@ private slots:
     {
         QTemporaryDir dir;
         {
-            Database::ScopedConnection c(dir.filePath(QStringLiteral("synbench.db")), QStringLiteral("t"));
+            Database::ScopedConnection c(dir.filePath(QStringLiteral("syntheon.db")), QStringLiteral("t"));
             QSqlQuery(c.db()).exec(QStringLiteral("PRAGMA user_version = 5"));
         }
         SettingsStore settings(dir.filePath(QStringLiteral("settings.ini")));
@@ -648,7 +648,7 @@ private slots:
         QCOMPARE(storage.dataDir(), QDir::cleanPath(bDir.path()));
         QCOMPARE(settings.dataLocation(), QDir::cleanPath(bDir.path()));
         QCOMPARE(RunRepository(storage.connection()).runCount(), 1);  // B's own history, unmerged
-        QVERIFY(QFile::exists(QDir(aDir.path()).filePath(QStringLiteral("synbench.db"))));  // A left in place
+        QVERIFY(QFile::exists(QDir(aDir.path()).filePath(QStringLiteral("syntheon.db"))));  // A left in place
     }
 
     void moveFailureKeepsOldLocation()
@@ -738,7 +738,7 @@ private slots:
         auto m = storage.moveTo(newDir.path());
         QCOMPARE(m.status, Storage::MoveStatus::Failed);
         QCOMPARE(storage.dataDir(), QDir::cleanPath(oldDir.path()));
-        QVERIFY(!QFile::exists(QDir(newDir.path()).filePath(QStringLiteral("synbench.db"))));
+        QVERIFY(!QFile::exists(QDir(newDir.path()).filePath(QStringLiteral("syntheon.db"))));
         QCOMPARE(RunRepository(storage.connection()).runCount(), 1);
 
         setWritable(cfg, ini, true);
@@ -766,7 +766,7 @@ private slots:
         QCOMPARE(storage.moveTo(newDir.path()).status, Storage::MoveStatus::Refused);
         QVERIFY(!storage.switchTo(newDir.path()).ok());
         QCOMPARE(storage.dataDir(), QDir::cleanPath(oldDir.path()));
-        QVERIFY(!QFile::exists(QDir(newDir.path()).filePath(QStringLiteral("synbench.db"))));
+        QVERIFY(!QFile::exists(QDir(newDir.path()).filePath(QStringLiteral("syntheon.db"))));
     }
 };
 

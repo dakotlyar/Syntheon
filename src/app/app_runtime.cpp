@@ -8,7 +8,7 @@
 #include <QThread>
 #include <QLoggingCategory>
 
-Q_LOGGING_CATEGORY(lcRuntime, "synbench.runtime")
+Q_LOGGING_CATEGORY(lcRuntime, "syntheon.runtime")
 #include <QtQml>
 
 namespace sb {
@@ -16,14 +16,14 @@ namespace sb {
 AppRuntime::Options AppRuntime::optionsFromEnvironment()
 {
     Options o;
-#ifdef SYNBENCH_DEV_HOOKS
+#ifdef SYNTHEON_DEV_HOOKS
     // Developer hooks only; a packaged build reads none of these.
-    o.smoke = qEnvironmentVariableIntValue("SYNBENCH_SMOKE") != 0;
-    o.noElevation = o.smoke || !qEnvironmentVariable("SYNBENCH_TOUR").isEmpty();
+    o.smoke = qEnvironmentVariableIntValue("SYNTHEON_SMOKE") != 0;
+    o.noElevation = o.smoke || !qEnvironmentVariable("SYNTHEON_TOUR").isEmpty();
     // Developer hooks for tests that start the real executable.
-    o.settingsFile = qEnvironmentVariable("SYNBENCH_SETTINGS_FILE");
-    o.dataFolder = qEnvironmentVariable("SYNBENCH_DATA_DIR");
-    if (qEnvironmentVariableIntValue("SYNBENCH_NO_ELEVATION") != 0)
+    o.settingsFile = qEnvironmentVariable("SYNTHEON_SETTINGS_FILE");
+    o.dataFolder = qEnvironmentVariable("SYNTHEON_DATA_DIR");
+    if (qEnvironmentVariableIntValue("SYNTHEON_NO_ELEVATION") != 0)
         o.noElevation = true;
 #endif
     return o;
@@ -101,7 +101,7 @@ bool AppRuntime::claimInstance()
         do {
             if (SingleInstance::requestFocus(m_storage->dataDir(), 300)) {
                 m_redirected = true;
-                qCInfo(lcRuntime) << "another SynBench has this history and answered; this copy exits";
+                qCInfo(lcRuntime) << "another Syntheon has this history and answered; this copy exits";
                 return false;
             }
             QThread::msleep(100);

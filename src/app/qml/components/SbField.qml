@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
 import QtQuick.Controls.Basic
-import SynBench
+import Syntheon
 
 // A single-line text field in the mockup's look.
 TextField {

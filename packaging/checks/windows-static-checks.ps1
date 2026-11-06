@@ -33,17 +33,17 @@ $missing = $crt | Where-Object { -not (Test-Path (Join-Path $Tree $_)) }
 if ($missing) { throw "the app-local VC++ runtime is missing from the tree: $($missing -join ', ')" }
 Write-Host "ok: the VC++ runtime is in the tree ($($crt -join ', '))"
 
-# The CPU test's encryption worker ships next to SynBench.exe (Phase 2 §11.3);
+# The CPU test's encryption worker ships next to Syntheon.exe (Phase 2 §11.3);
 # pe-check.ps1 above has checked its architecture and dependencies.
-if (-not (Test-Path (Join-Path $Tree 'synbench-cpucrypto.exe'))) { throw 'synbench-cpucrypto.exe (the encryption worker) is missing from the tree' }
+if (-not (Test-Path (Join-Path $Tree 'syntheon-cpucrypto.exe'))) { throw 'syntheon-cpucrypto.exe (the encryption worker) is missing from the tree' }
 # The GPU test's worker, likewise (Phase 4a §2.2).
-if (-not (Test-Path (Join-Path $Tree 'synbench-gpu.exe'))) { throw 'synbench-gpu.exe (the GPU worker) is missing from the tree' }
+if (-not (Test-Path (Join-Path $Tree 'syntheon-gpu.exe'))) { throw 'syntheon-gpu.exe (the GPU worker) is missing from the tree' }
 # The GPU worker links Qt (Gui) and loads it from its own folder only (/DEPENDENTLOADFLAG:0xA00), so it
-# must sit in the same folder as the Qt DLLs and the platform plugins, as SynBench.exe does. Its probe and
+# must sit in the same folder as the Qt DLLs and the platform plugins, as Syntheon.exe does. Its probe and
 # its headless mode use the offscreen platform, which windeployqt doesn't deploy (deploy.ps1 copies it):
 # without it the probe fails and the GPU test is N/A on every machine.
 foreach ($f in 'Qt6Core.dll', 'Qt6Gui.dll', 'platforms\qwindows.dll', 'platforms\qoffscreen.dll') {
-    if (-not (Test-Path (Join-Path $Tree $f))) { throw "$f is not next to synbench-gpu.exe: the GPU worker would not start" }
+    if (-not (Test-Path (Join-Path $Tree $f))) { throw "$f is not next to syntheon-gpu.exe: the GPU worker would not start" }
 }
 # D11: the licence and the third-party notices go into every package.
 foreach ($f in 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt') {

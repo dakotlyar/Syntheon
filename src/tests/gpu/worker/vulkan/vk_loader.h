@@ -9,7 +9,7 @@
 namespace sb::gpu::vk {
 
 // vkGetInstanceProcAddr of System32's vulkan-1.dll, opened by full system
-// path (never the current folder, PATH or the app folder: SynBench runs
+// path (never the current folder, PATH or the app folder: Syntheon runs
 // elevated; the vulkan_probe.cpp rule); null when there is none.
 PFN_vkGetInstanceProcAddr systemVulkanLoader();
 

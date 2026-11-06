@@ -56,7 +56,7 @@ public:
     void shutdown();
     int validationErrors() const { return m_validationErrors.load(); }
     std::string firstValidationError() const { return m_firstValidationError; }
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     // Dev hook, headless only (task 21's overlay test, as Vulkan's): the last
     // frame's present-pass output (render size, RGBA8, top row first), after drain().
     std::string readbackPresented(std::vector<std::uint8_t> *rgba8);

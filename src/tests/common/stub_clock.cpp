@@ -27,17 +27,17 @@ std::atomic<double> &override()
     return value;
 }
 
-// The default scale: real time. Developer hooks only: SYNBENCH_STUB_SCALE (a
+// The default scale: real time. Developer hooks only: SYNTHEON_STUB_SCALE (a
 // plain finite number in (0, 100]; anything else, including inf, NaN, huge or
-// negative, is ignored) and SYNBENCH_SMOKE (0.03). A packaged build compiles
+// negative, is ignored) and SYNTHEON_SMOKE (0.03). A packaged build compiles
 // these out.
 double fromEnvironment()
 {
-#ifdef SYNBENCH_DEV_HOOKS
+#ifdef SYNTHEON_DEV_HOOKS
     static const double v = [] {
-        if (const auto s = parseStubScale(qEnvironmentVariable("SYNBENCH_STUB_SCALE")))
+        if (const auto s = parseStubScale(qEnvironmentVariable("SYNTHEON_STUB_SCALE")))
             return *s;
-        return qEnvironmentVariableIntValue("SYNBENCH_SMOKE") != 0 ? 0.03 : 1.0;
+        return qEnvironmentVariableIntValue("SYNTHEON_SMOKE") != 0 ? 0.03 : 1.0;
     }();
     return v;
 #else

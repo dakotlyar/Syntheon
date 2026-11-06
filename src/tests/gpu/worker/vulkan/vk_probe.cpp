@@ -40,8 +40,8 @@ std::vector<VkDeviceRecordStd> probeVulkanDevices(std::string *error)
     if (vkEnumerateInstanceVersion)
         vkEnumerateInstanceVersion(&instanceVersion);
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app.pApplicationName = "SynBench";
-    app.pEngineName = "SynBench";
+    app.pApplicationName = "Syntheon";
+    app.pEngineName = "Syntheon";
     app.apiVersion = std::min<std::uint32_t>(instanceVersion, VK_API_VERSION_1_3);
     VkInstanceCreateInfo ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ci.pApplicationInfo = &app;

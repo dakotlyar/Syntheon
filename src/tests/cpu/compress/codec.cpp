@@ -67,7 +67,7 @@ const char *codecLabel(Codec c)
 
 bool codecsOptimised()
 {
-    return SYNBENCH_THIRD_PARTY_OPTIMISED != 0;
+    return SYNTHEON_THIRD_PARTY_OPTIMISED != 0;
 }
 
 struct CodecContext::Impl {

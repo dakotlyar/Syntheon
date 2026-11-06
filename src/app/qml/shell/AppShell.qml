@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // Navigation plus the persistent content. Only the nav Loader swaps when the
 // layout changes (rail <-> top tabs), so the StackLayout, and with it every

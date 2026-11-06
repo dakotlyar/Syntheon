@@ -19,12 +19,12 @@ $ErrorActionPreference = 'Stop'
 # stop with a clear message instead of hanging.
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw 'run this from an elevated (administrator) shell: the installers and SynBench.exe need it, and a UAC prompt would hang an unattended run'
+    throw 'run this from an elevated (administrator) shell: the installers and Syntheon.exe need it, and a UAC prompt would hang an unattended run'
 }
 
 # A user's machine has no Qt development environment. The CI job's Qt install
 # (install-qt-action) exports QT_PLUGIN_PATH and QML2_IMPORT_PATH, through which
-# the installed SynBench and its GPU worker would find plugins and QML modules the
+# the installed Syntheon and its GPU worker would find plugins and QML modules the
 # package lacks, and pass. Cleared for everything this script starts.
 foreach ($name in 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH', 'QML_IMPORT_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QT_QPA_PLATFORM', 'QT_FORCE_STDERR_LOGGING') {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
@@ -35,10 +35,10 @@ $Inno = (Resolve-Path $Inno).Path
 $Msi = (Resolve-Path $Msi).Path
 if ($OldInstaller) { $OldInstaller = (Resolve-Path $OldInstaller).Path }
 
-$app = Join-Path $env:ProgramFiles 'SynBench'
-$exe = Join-Path $app 'SynBench.exe'
-$worker = Join-Path $app 'synbench-cpucrypto.exe'
-$gpuWorker = Join-Path $app 'synbench-gpu.exe'
+$app = Join-Path $env:ProgramFiles 'Syntheon'
+$exe = Join-Path $app 'Syntheon.exe'
+$worker = Join-Path $app 'syntheon-cpucrypto.exe'
+$gpuWorker = Join-Path $app 'syntheon-gpu.exe'
 $notices = Join-Path $app 'THIRD-PARTY-NOTICES.txt'
 $tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
 $logs = Join-Path $tempRoot 'install-logs'
@@ -80,7 +80,7 @@ function Run([string]$file, [string[]]$arguments) {
 
 # Starts the installed app and checks it keeps running (a packaged build has no
 # smoke switch), reports its window, then closes it.
-# The app runs the GPU worker's probe at start-up (synbench-gpu.exe --probe), which
+# The app runs the GPU worker's probe at start-up (syntheon-gpu.exe --probe), which
 # opens no window: a worker with a visible window during these 10 s is a dialog
 # (checkpoints 5 and 6: Qt's "no Qt platform plugin could be initialized" box)
 # and fails the test.
@@ -90,27 +90,27 @@ function Test-Launch {
     $dialog = $null
     $sawWorker = $false
     while (-not $dialog -and (Get-Date) -lt $deadline) {
-        foreach ($w in @(Get-Process -Name 'synbench-gpu' -ErrorAction SilentlyContinue)) {
+        foreach ($w in @(Get-Process -Name 'syntheon-gpu' -ErrorAction SilentlyContinue)) {
             $sawWorker = $true
             if ($w.MainWindowHandle -ne [IntPtr]::Zero) { $dialog = "pid $($w.Id), window '$($w.MainWindowTitle)'" }
         }
         Start-Sleep -Milliseconds 200
     }
     if ($dialog) {
-        Get-Process -Name 'synbench-gpu' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Get-Process -Name 'syntheon-gpu' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         if (-not $p.HasExited) { $p | Stop-Process -Force -ErrorAction SilentlyContinue }
         throw "the GPU worker showed a window during the app's start-up probe ($dialog): a dialog"
     }
     Write-Host "start-up GPU probe: $(if ($sawWorker) { 'the worker ran, no window' } else { 'the worker was not seen (it may have finished between polls)' })"
-    if ($p.HasExited) { throw "SynBench exited with code $($p.ExitCode) right after launch" }
+    if ($p.HasExited) { throw "Syntheon exited with code $($p.ExitCode) right after launch" }
     $p.Refresh()
-    Write-Host "SynBench is running: pid $($p.Id), window handle $($p.MainWindowHandle), responding $($p.Responding)"
-    if (-not $p.Responding) { throw 'SynBench is not responding 10 s after launch' }
+    Write-Host "Syntheon is running: pid $($p.Id), window handle $($p.MainWindowHandle), responding $($p.Responding)"
+    if (-not $p.Responding) { throw 'Syntheon is not responding 10 s after launch' }
     $p | Stop-Process -Force
     $p.WaitForExit()
 }
 
-# The INSTALLED GPU worker's probe, run directly, started as SynBench starts it:
+# The INSTALLED GPU worker's probe, run directly, started as Syntheon starts it:
 # without a console (QProcess uses CREATE_NO_WINDOW), the case where Qt shows a
 # message box for a fatal error. It must start Qt on the offscreen platform and
 # answer in the protocol (src/tests/gpu/model/protocol.h: one JSON object per
@@ -132,7 +132,7 @@ function Test-GpuProbe {
     $stderr = $p.StandardError.ReadToEndAsync()
     if (-not $p.WaitForExit(30 * 1000)) {
         & taskkill.exe /PID $p.Id /T /F | Out-Null
-        throw 'synbench-gpu.exe --probe did not finish within 30 s (a modal dialog nobody can click?)'
+        throw 'syntheon-gpu.exe --probe did not finish within 30 s (a modal dialog nobody can click?)'
     }
     $code = $p.ExitCode
     $out = $stdout.Result   # waits for the end of each stream
@@ -140,8 +140,8 @@ function Test-GpuProbe {
     Set-Content -Path (Join-Path $logs 'gpu-probe.txt') -Value "exit code $code`n--- stdout`n$out`n--- stderr`n$err"
     $events = @()
     foreach ($line in ($out -split "`r?`n" | Where-Object { $_.Trim() })) {
-        try { $o = $line | ConvertFrom-Json } catch { throw "synbench-gpu.exe --probe wrote a line that isn't JSON: $line" }
-        if (-not $o.ev) { throw "synbench-gpu.exe --probe wrote a line without an event: $line" }
+        try { $o = $line | ConvertFrom-Json } catch { throw "syntheon-gpu.exe --probe wrote a line that isn't JSON: $line" }
+        if (-not $o.ev) { throw "syntheon-gpu.exe --probe wrote a line without an event: $line" }
         $events += $o
     }
     if ($code -eq 0) {
@@ -159,7 +159,7 @@ function Test-GpuProbe {
         Write-Host "GPU probe ran, Qt started; no usable GPU on this machine: $($events[0].reason)"
         return
     }
-    throw "synbench-gpu.exe --probe exited with $code; stdout: $out; stderr: $err"
+    throw "syntheon-gpu.exe --probe exited with $code; stdout: $out; stderr: $err"
 }
 
 # The Inno uninstaller hands over to a copy of itself in %TEMP% and returns at
@@ -185,9 +185,9 @@ try {
     # 1. Inno: install, launch, uninstall
     Step 'Inno: install / launch / uninstall'
     Run $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-install.log")
-    if (-not (Test-Path $exe)) { throw 'SynBench.exe missing after the Inno install' }
-    if (-not (Test-Path $worker)) { throw 'synbench-cpucrypto.exe missing after the Inno install' }
-    if (-not (Test-Path $gpuWorker)) { throw 'synbench-gpu.exe missing after the Inno install' }
+    if (-not (Test-Path $exe)) { throw 'Syntheon.exe missing after the Inno install' }
+    if (-not (Test-Path $worker)) { throw 'syntheon-cpucrypto.exe missing after the Inno install' }
+    if (-not (Test-Path $gpuWorker)) { throw 'syntheon-gpu.exe missing after the Inno install' }
     if (-not (Test-Path $notices)) { throw 'THIRD-PARTY-NOTICES.txt missing after the Inno install' }
     Test-GpuProbe
     Assert-Version
@@ -199,9 +199,9 @@ try {
     # 2. MSI: install, launch, uninstall (msiexec returns when it is done)
     Step 'MSI: install / launch / uninstall'
     Run 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-install.log")
-    if (-not (Test-Path $exe)) { throw 'SynBench.exe missing after the MSI install' }
-    if (-not (Test-Path $worker)) { throw 'synbench-cpucrypto.exe missing after the MSI install' }
-    if (-not (Test-Path $gpuWorker)) { throw 'synbench-gpu.exe missing after the MSI install' }
+    if (-not (Test-Path $exe)) { throw 'Syntheon.exe missing after the MSI install' }
+    if (-not (Test-Path $worker)) { throw 'syntheon-cpucrypto.exe missing after the MSI install' }
+    if (-not (Test-Path $gpuWorker)) { throw 'syntheon-gpu.exe missing after the MSI install' }
     if (-not (Test-Path $notices)) { throw 'THIRD-PARTY-NOTICES.txt missing after the MSI install' }
     Test-GpuProbe
     Test-Launch
@@ -231,7 +231,7 @@ try {
     if ($code -eq 0) { throw 'the x64 setup went over an ARM64 install' }
     $code = Start-Waited 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-otherarch.log")
     if ($code -eq 0) { throw 'the x64 MSI went over an ARM64 install' }
-    if (Test-Path $exe) { throw 'a refused install still put SynBench.exe in place' }
+    if (Test-Path $exe) { throw 'a refused install still put Syntheon.exe in place' }
     Remove-Item -Path $key -Recurse -Force
     EndStep
 
@@ -245,7 +245,7 @@ try {
     $code = Start-Waited 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', '/l*v', "$logs\msi-oldpython.log")
     Remove-Item -Path $oldKey -Recurse -Force
     if ($code -eq 0) { throw 'the MSI installed over the old Python SynBench' }
-    if (Test-Path $exe) { throw 'a refused MSI still put SynBench.exe in place' }
+    if (Test-Path $exe) { throw 'a refused MSI still put Syntheon.exe in place' }
     EndStep
 
     # 3b. The install folder is locked to Program Files (Dave): a custom folder is refused
@@ -253,11 +253,11 @@ try {
     $custom = Join-Path $tempRoot 'custom-install-dir'
     $code = Start-Waited $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$custom", "/LOG=$logs\inno-dir.log")
     if ($code -eq 0) { throw '/DIR= was accepted by the Inno installer' }
-    if (Test-Path (Join-Path $custom 'SynBench.exe')) { throw "the Inno installer installed into $custom" }
+    if (Test-Path (Join-Path $custom 'Syntheon.exe')) { throw "the Inno installer installed into $custom" }
     if (Test-Path $exe) { throw 'a refused /DIR= install still installed into Program Files' }
     # MSI: INSTALLFOLDER is not a public property any more; the install goes to Program Files regardless.
     Run 'msiexec.exe' @('/i', $Msi, '/qn', '/norestart', "INSTALLFOLDER=$custom", "InstallFolder=$custom", '/l*v', "$logs\msi-dir.log")
-    if (Test-Path (Join-Path $custom 'SynBench.exe')) { throw "the MSI installed into $custom" }
+    if (Test-Path (Join-Path $custom 'Syntheon.exe')) { throw "the MSI installed into $custom" }
     if (-not (Test-Path $exe)) { throw 'the MSI did not install into Program Files' }
     Run 'msiexec.exe' @('/x', $Msi, '/qn', '/norestart')
     Wait-Gone

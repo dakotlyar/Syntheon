@@ -25,7 +25,7 @@ bool defaultFileExists(const QString &path);
 // __EGL_VENDOR_LIBRARY_FILENAMES=.../50_mesa.json when that file exists. Linux, NVIDIA
 // proprietary (kernel driver nvidia): __NV_PRIME_RENDER_OFFLOAD=1,
 // __GLX_VENDOR_LIBRARY_NAME=nvidia and the 10_nvidia.json. Windows: nothing (Windows picks the
-// GPU itself; SynBench never writes the per-app GPU preference).
+// GPU itself; Syntheon never writes the per-app GPU preference).
 QProcessEnvironment glEnvironment(const GpuEntry &gpu, const std::function<bool(const QString &)> &fileExists = defaultFileExists);
 // The same for a given OS (tests): windows = true gives an empty environment.
 QProcessEnvironment glEnvironmentFor(const GpuEntry &gpu, bool windows, const std::function<bool(const QString &)> &fileExists);

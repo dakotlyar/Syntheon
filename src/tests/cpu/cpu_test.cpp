@@ -138,10 +138,10 @@ Metric textMetric(const QString &key, const QString &sub, const QString &label, 
     return {key, sub, label, value, {}, Direction::Neutral, false};
 }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 // The dev telemetry-injection hook (§14.3, dev builds only):
-// SYNBENCH_CPU_FAKE_THROTTLE=counters makes only the Intel throttle counters
-// rise. SYNBENCH_CPU_FAKE_THROTTLE=<stage> (e.g. "xz compress") makes the clock
+// SYNTHEON_CPU_FAKE_THROTTLE=counters makes only the Intel throttle counters
+// rise. SYNTHEON_CPU_FAKE_THROTTLE=<stage> (e.g. "xz compress") makes the clock
 // fall 8% per repetition in that measurement (repetition 5: -32%, well past
 // any real drift) at 95 °C,
 // so the throttling flag, its log line and the Detail note can be seen
@@ -172,7 +172,7 @@ public:
         return m_active ? std::optional<double>(95.0) : t;
     }
     std::string temperatureLabel() const override { return m_inner->temperatureLabel(); }
-    // SYNBENCH_CPU_FAKE_THROTTLE=counters: only the Intel counters rise (by
+    // SYNTHEON_CPU_FAKE_THROTTLE=counters: only the Intel counters rise (by
     // 12, between the run's first and last reading); the clock is real.
     std::optional<std::uint64_t> throttleCount() override
     {
@@ -194,8 +194,8 @@ private:
 
 std::shared_ptr<tel::Source> makeSource()
 {
-#if defined(SYNBENCH_DEV_HOOKS)
-    const QString stage = qEnvironmentVariable("SYNBENCH_CPU_FAKE_THROTTLE");
+#if defined(SYNTHEON_DEV_HOOKS)
+    const QString stage = qEnvironmentVariable("SYNTHEON_CPU_FAKE_THROTTLE");
     if (!stage.isEmpty())
         return std::make_shared<InjectingSource>(tel::makeSystemSource(), stage);
 #endif
@@ -363,7 +363,7 @@ bool CpuRun::stopRequested()
 
 void CpuRun::enterWindow(const QString &stage, int window, int reps, double budgetAt, double length)
 {
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     if (auto *inject = dynamic_cast<InjectingSource *>(m_source.get()))
         inject->setPhase(stage, window);
 #endif
@@ -401,11 +401,11 @@ CpuRun::Step CpuRun::measure(WorkerPool &pool, const cpu::Kernel &kernel, const 
         });
     s.end = m_sampler.now();
     m_budgetDone = base + budget(specIn, single);
-#if defined(SYNBENCH_DEV_HOOKS)
-    // Tests: SYNBENCH_CPU_FAIL=<stage> makes that measurement a wrong result.
-    if (s.m.ok() && qEnvironmentVariable("SYNBENCH_CPU_FAIL") == stage) {
+#if defined(SYNTHEON_DEV_HOOKS)
+    // Tests: SYNTHEON_CPU_FAIL=<stage> makes that measurement a wrong result.
+    if (s.m.ok() && qEnvironmentVariable("SYNTHEON_CPU_FAIL") == stage) {
         s.m.outcome = Measurement::Outcome::WrongResult;
-        s.m.error = "forced wrong result (SYNBENCH_CPU_FAIL)";
+        s.m.error = "forced wrong result (SYNTHEON_CPU_FAIL)";
     }
 #endif
     if (s.m.outcome == Measurement::Outcome::Cancelled)
@@ -438,11 +438,11 @@ CpuRun::Step CpuRun::crypto(cpu::CryptoAlg alg, bool software, const WindowSpec 
     });
     s.end = m_sampler.now();
     m_budgetDone = base + budget(specIn, false);
-#if defined(SYNBENCH_DEV_HOOKS)
-    if (out.ok() && qEnvironmentVariable("SYNBENCH_CPU_FAIL") == stage) {
+#if defined(SYNTHEON_DEV_HOOKS)
+    if (out.ok() && qEnvironmentVariable("SYNTHEON_CPU_FAIL") == stage) {
         out.status = cpu::CryptoOutcome::Status::Failed;
         out.wrongResult = true;
-        out.error = QStringLiteral("forced wrong result (SYNBENCH_CPU_FAIL)");
+        out.error = QStringLiteral("forced wrong result (SYNTHEON_CPU_FAIL)");
     }
 #endif
     if (out.status == cpu::CryptoOutcome::Status::Cancelled)
@@ -615,10 +615,10 @@ void CpuRun::singleThread()
     m_ctx.setPart(QStringLiteral("Single-thread mark"));
     WorkerPool::Options o = WorkerPool::singleThreadOptions();
     o.sampleFor = m_sampleFor;
-#if defined(SYNBENCH_DEV_HOOKS)
-    // Tests: SYNBENCH_CPU_FORCE_PIN=none behaves as a machine without a core
+#if defined(SYNTHEON_DEV_HOOKS)
+    // Tests: SYNTHEON_CPU_FORCE_PIN=none behaves as a machine without a core
     // ranking; =fail as one whose pinning fails (a CPU number no platform has).
-    if (const QString force = qEnvironmentVariable("SYNBENCH_CPU_FORCE_PIN"); force == QLatin1StringView("none")) {
+    if (const QString force = qEnvironmentVariable("SYNTHEON_CPU_FORCE_PIN"); force == QLatin1StringView("none")) {
         o.pickFrom.clear();
         o.pinTo = {};
     } else if (force == QLatin1StringView("fail")) {
@@ -903,7 +903,7 @@ void CpuRun::encryption()
 {
     groupBegin(4);
     if (cpu::CryptoClient::workerPath().isEmpty()) {
-        const QString reason = QStringLiteral("The encryption worker (synbench-cpucrypto) is missing");
+        const QString reason = QStringLiteral("The encryption worker (syntheon-cpucrypto) is missing");
         m_ctx.log(LogLevel::Error, QStringLiteral("Encryption: %1").arg(reason));
         m_budgetDone += 2 * budget(kCryptoHw, false) + 2 * budget(kCryptoSw, false) + 1;
         groupEnd(4, Status::NotAvailable, reason);
@@ -1231,7 +1231,7 @@ Availability CpuTest::probe(const ProbeContext &) const
     // Encryption needs its worker, and the worker must pass its self-test.
     QString cryptoProblem;
     if (cpu::CryptoClient::workerPath().isEmpty()) {
-        cryptoProblem = QStringLiteral("The encryption worker (synbench-cpucrypto) is missing");
+        cryptoProblem = QStringLiteral("The encryption worker (syntheon-cpucrypto) is missing");
     } else {
         const cpu::CryptoOutcome self = cpu::CryptoClient::selfTest([] { return false; });
         if (!self.ok())

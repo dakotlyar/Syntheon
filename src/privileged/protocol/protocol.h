@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-// The GUI <-> synbench-helper wire protocol (§6). Plain C++20, no Qt: it is
+// The GUI <-> syntheon-helper wire protocol (§6). Plain C++20, no Qt: it is
 // compiled into the root helper, which links nothing but libc/libstdc++.
 //
 // Frame (all integers little-endian):

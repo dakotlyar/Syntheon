@@ -29,7 +29,7 @@ second run changes nothing. A change to `versions.json` changes `STAMP` too,
 so rerun the script after editing it.
 
 Linux x64 only. The first run downloads the pinned tools into
-`~/.cache/synbench/tools/` (checked against the SHA-256 in `versions.json`)
+`~/.cache/syntheon/tools/` (checked against the SHA-256 in `versions.json`)
 and builds SPIRV-Cross there with CMake (a C++ compiler is needed, about half
 a minute); later runs take a few seconds. Nothing from them ships.
 
@@ -38,7 +38,7 @@ a minute); later runs take a few seconds. Nothing from them ships.
 1. `src/tests/gpu/worker/shaders/<name>.hlsl`, with `VSMain` and `PSMain`
    (a post pass's `VSMain` returns `fullscreenTriangle(id)`), resources on
    the slots of `common.hlsli`'s binding table with its `SB_BIND_*` macros.
-2. `synbench_gpu_shader(NAME <name>)` in `shaders/CMakeLists.txt` (Windows).
+2. `syntheon_gpu_shader(NAME <name>)` in `shaders/CMakeLists.txt` (Windows).
 3. `build.py`, then commit.
 
 Rules (the design's pitfalls):

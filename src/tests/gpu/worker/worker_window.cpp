@@ -22,7 +22,7 @@ WorkerWindow::WorkerWindow(QSurface::SurfaceType type, const sb::gpu::WindowPlan
         const QRect avail = screen->availableGeometry();
         setPosition(avail.x() + (avail.width() - size.width()) / 2, avail.y() + (avail.height() - size.height()) / 2);
     }
-    setTitle(QStringLiteral("SynBench GPU test"));
+    setTitle(QStringLiteral("Syntheon GPU test"));
 }
 
 WorkerWindow::~WorkerWindow()
@@ -63,7 +63,7 @@ QString WorkerWindow::problem() const
     static const bool wayland = QGuiApplication::platformName().startsWith(QLatin1StringView("wayland"));
     if (!m_armed || windowStates().testFlag(Qt::WindowMinimized) || (!wayland && !isExposed()))
         return QStringLiteral("the test window was hidden or minimised during the measurement");
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     if (m_fakeMoved)
         return QStringLiteral("the test window moved to another screen during the measurement");
 #endif
@@ -95,7 +95,7 @@ void WorkerWindow::rebase()
 
 void WorkerWindow::setWorkloadTitle(const QString &api, const QString &workload)
 {
-    setTitle(QStringLiteral("SynBench GPU test · %1 · %2").arg(api, workload));
+    setTitle(QStringLiteral("Syntheon GPU test · %1 · %2").arg(api, workload));
 }
 
 void WorkerWindow::keyPressEvent(QKeyEvent *e)

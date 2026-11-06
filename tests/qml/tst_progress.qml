@@ -2,8 +2,8 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
-import SynBench
-import SynBenchTest
+import Syntheon
+import SyntheonTest
 
 // The Progress screen on a real (fast) stub run.
 TestCase {

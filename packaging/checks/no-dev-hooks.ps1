@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Windows counterpart of no-dev-hooks.sh: no .exe/.dll in the tree may contain
-# the text "SYNBENCH_" (8-bit or UTF-16, which is how QStringLiteral is stored).
+# the text "SYNTHEON_" (8-bit or UTF-16, which is how QStringLiteral is stored).
 #
 #   pwsh packaging/checks/no-dev-hooks.ps1 -Tree <folder>
 param([Parameter(Mandatory = $true)][string]$Tree)
 $ErrorActionPreference = 'Stop'
-$ascii = [Text.Encoding]::ASCII.GetBytes('SYNBENCH_')
-$utf16 = [Text.Encoding]::Unicode.GetBytes('SYNBENCH_')
+$ascii = [Text.Encoding]::ASCII.GetBytes('SYNTHEON_')
+$utf16 = [Text.Encoding]::Unicode.GetBytes('SYNTHEON_')
 
 function Test-Contains([byte[]]$bytes, [byte[]]$needle) {
     $limit = $bytes.Length - $needle.Length

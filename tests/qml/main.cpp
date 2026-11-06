@@ -49,7 +49,7 @@ public slots:
         Fixtures::app = &m_runtime->app();
         Fixtures::run = &m_runtime->run();
         // Stubs at a fast time scale; probes and the (elevation-free) gate.
-        qputenv("SYNBENCH_STUB_SCALE", "0.02");
+        qputenv("SYNTHEON_STUB_SCALE", "0.02");
         m_runtime->app().start();
         m_runtime->run().refreshProbes();
     }
@@ -71,6 +71,6 @@ private:
     std::unique_ptr<sb::AppRuntime> m_runtime;
 };
 
-QUICK_TEST_MAIN_WITH_SETUP(synbench, Setup)
+QUICK_TEST_MAIN_WITH_SETUP(syntheon, Setup)
 
 #include "main.moc"

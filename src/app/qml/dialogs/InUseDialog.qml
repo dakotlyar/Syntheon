@@ -2,9 +2,9 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
-// The history is locked, but no running SynBench answered. Either a copy is
+// The history is locked, but no running Syntheon answered. Either a copy is
 // open and unresponsive, or an earlier run ended abnormally and left its lock.
 SbDialog {
     id: dialog
@@ -14,14 +14,14 @@ SbDialog {
     signal quitClicked()
 
     width: Math.min(parent ? parent.width - 48 : 500, 500)
-    title: qsTr("SynBench may already be open")
+    title: qsTr("Syntheon may already be open")
 
     contentItem: ColumnLayout {
         spacing: 10
         SbText {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: qsTr("SynBench may already be open, or a previous run ended abnormally. If another SynBench window is open, quit and use that one. Otherwise take over.")
+            text: qsTr("Syntheon may already be open, or a previous run ended abnormally. If another Syntheon window is open, quit and use that one. Otherwise take over.")
         }
         SbText {
             objectName: "inUseError"

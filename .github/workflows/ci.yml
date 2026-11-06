@@ -81,15 +81,15 @@ jobs:
           key: openssl-linux-x86_64-gcc${{ steps.cc.outputs.version }}-${{ hashFiles('cmake/OpenSSL.cmake', 'cmake/openssl/**') }}
 
       - name: Configure
-        run: cmake --preset linux-x64-release "-DSYNBENCH_OPENSSL_ROOT=$GITHUB_WORKSPACE/openssl-root"
+        run: cmake --preset linux-x64-release "-DSYNTHEON_OPENSSL_ROOT=$GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset linux-x64-release
 
       # qmllint with the build's module (§13): all_qmllint_json lints the
-      # SynBench module's own files with its qmldir and C++ types, so imports,
+      # Syntheon module's own files with its qmldir and C++ types, so imports,
       # components and the C++ singletons resolve; the Qt Quick tests are linted
-      # against the built SynBench and SynBenchTest modules. ANY warning fails
+      # against the built Syntheon and SyntheonTest modules. ANY warning fails
       # (qmllint-gate.py reads the JSON reports: qmllint's text output leaves
       # some counted warnings out). A missing report fails too.
       - name: QML (qmllint, module-aware; any warning fails)
@@ -98,7 +98,7 @@ jobs:
           "$QT_ROOT_DIR/bin/qmllint" -I build/linux-x64-release/src/app -I build/linux-x64-release/tests/qml \
             -I "$QT_ROOT_DIR/qml" --json build/linux-x64-release/tests_qml_qmllint.json tests/qml/*.qml || true
           python3 packaging/checks/qmllint-gate.py \
-            build/linux-x64-release/synbench_ui_qmllint.json build/linux-x64-release/tests_qml_qmllint.json
+            build/linux-x64-release/syntheon_ui_qmllint.json build/linux-x64-release/tests_qml_qmllint.json
 
       # AP5-R2-4: test-only binaries never ship. Install rules arrive with
       # packaging (task 19); until then the install tree is empty.
@@ -117,7 +117,7 @@ jobs:
       # Tiamat's newer layers keep the full check, so run the GPU tests there before a checkpoint.
       - name: Unit tests
         env:
-          SYNBENCH_REQUIRE_SOFTWARE_GPU: "1"
+          SYNTHEON_REQUIRE_SOFTWARE_GPU: "1"
         run: xvfb-run -a -s "-screen 0 1920x1080x24" ctest --preset linux-x64-release --output-on-failure
 
       # ctest hides the output of passing tests, so which GPU cases ran and which skipped (the lavapipe and
@@ -143,25 +143,25 @@ jobs:
         run: |
           cmake -S . -B build/clang-golden -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
-          cmake --build build/clang-golden --target synbench-cpu-golden
-          build/clang-golden/bin/synbench-cpu-golden --check src/tests/cpu/golden
+          cmake --build build/clang-golden --target syntheon-cpu-golden
+          build/clang-golden/bin/syntheon-cpu-golden --check src/tests/cpu/golden
 
       # §10 smoke launch: loads the UI, runs every stub fast against a
       # temporary history (no elevation) and exits 0.
       - name: Smoke launch
         timeout-minutes: 3
         env:
-          SYNBENCH_SMOKE: "1"
+          SYNTHEON_SMOKE: "1"
           QT_QPA_PLATFORM: offscreen
           # The GPU test runs for real on lavapipe (the worker's windows on xvfb).
-          SYNBENCH_GPU_WORKER_ARGS: "--allow-software --render-size 320x180 --content-scale 64"
+          SYNTHEON_GPU_WORKER_ARGS: "--allow-software --render-size 320x180 --content-scale 64"
           # §9's 20-frame floor would test the runner's speed in the smoke's 0.03x windows (about 20-30 Geometry frames
           # on lavapipe): this dev hook lowers it to 1 here only; the unit tests check the real floor.
-          SYNBENCH_GPU_MIN_FRAMES: "1"
+          SYNTHEON_GPU_MIN_FRAMES: "1"
           # VK_ICD_FILENAMES as well: ubuntu-22.04's Vulkan loader (1.3.204) predates VK_DRIVER_FILES (1.3.207),
           # and ignores VK_LOADER_LAYERS_DISABLE (1.3.234), so a stray implicit layer is not switched off there.
-          SYNBENCH_GPU_WORKER_ENV: "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json|VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json|LIBGL_ALWAYS_SOFTWARE=1|__GLX_VENDOR_LIBRARY_NAME=mesa|__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json"
-        run: xvfb-run -a build/linux-x64-release/bin/SynBench
+          SYNTHEON_GPU_WORKER_ENV: "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json|VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json|LIBGL_ALWAYS_SOFTWARE=1|__GLX_VENDOR_LIBRARY_NAME=mesa|__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json"
+        run: xvfb-run -a build/linux-x64-release/bin/Syntheon
 
       # A failing (or crashing) test must leave something to read: the tail of
       # every test log, the failed tests re-run verbosely, and the logs as an
@@ -254,19 +254,19 @@ jobs:
 
       - name: Configure
         shell: pwsh
-        run: cmake --preset windows-x64-release "-DSYNBENCH_OPENSSL_ROOT=$env:GITHUB_WORKSPACE/openssl-root"
+        run: cmake --preset windows-x64-release "-DSYNTHEON_OPENSSL_ROOT=$env:GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset windows-x64-release
 
       # For diagnosis when the manifest check below fails: the real link command.
-      - name: Show how SynBench.exe was linked
+      - name: Show how Syntheon.exe was linked
         shell: pwsh
-        run: ninja -C build/windows-x64-release -t commands bin/SynBench.exe | Select-Object -Last 1
+        run: ninja -C build/windows-x64-release -t commands bin/Syntheon.exe | Select-Object -Last 1
 
       - name: The exe has exactly one manifest, requesting administrator rights
         shell: pwsh
-        run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-x64-release/bin/SynBench.exe
+        run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-x64-release/bin/Syntheon.exe
 
       # AP5-R2-4: test-only binaries never ship. Install rules arrive with
       # packaging (task 19); until then the install tree is empty.
@@ -313,10 +313,10 @@ jobs:
         shell: pwsh
         env:
           # The GPU test on the software renderer (WARP) once its DirectX backends exist (tasks 18, 20).
-          SYNBENCH_GPU_WORKER_ARGS: "--allow-software --render-size 320x180 --content-scale 64"
+          SYNTHEON_GPU_WORKER_ARGS: "--allow-software --render-size 320x180 --content-scale 64"
           # As on Linux: §9's 20-frame floor is lowered to 1 for the smoke's 0.03x windows only (dev hook).
-          SYNBENCH_GPU_MIN_FRAMES: "1"
-        run: ./packaging/checks/run-smoke.ps1 -Exe build/windows-x64-release/bin/SynBench.exe -TimeoutSeconds 150
+          SYNTHEON_GPU_MIN_FRAMES: "1"
+        run: ./packaging/checks/run-smoke.ps1 -Exe build/windows-x64-release/bin/Syntheon.exe -TimeoutSeconds 150
 
       # A failing (or crashing) test must leave something to read: the tail of
       # every test log, the failed tests re-run verbosely, and the logs as an
@@ -356,7 +356,7 @@ jobs:
         run: ctest --preset windows-x64-release -R tst_sysinfo_live -V --output-on-failure
 
       # QC only (Phase 4a §16.3): a portable, unzip-and-run tree of THIS dev-hooks build, for the checks that
-      # need a dev hook (hold vs minimized: SYNBENCH_GPU_MINIMIZE_MAIN; overlay cost: SYNBENCH_GPU_WORKER_ARGS),
+      # need a dev hook (hold vs minimized: SYNTHEON_GPU_MINIMIZE_MAIN; overlay cost: SYNTHEON_GPU_WORKER_ARGS),
       # which the *-package presets compile out. The package's install rules and deploy.ps1, plus the
       # app-local C++ runtime (the dev preset installs none). Last in the job, and only on a manual dispatch with
       # dev_hooks=true (never on push or PR); if the dispatch also sets ctest_regex, the tests above were only
@@ -365,7 +365,7 @@ jobs:
         if: ${{ inputs.dev_hooks && !startsWith(github.ref, 'refs/tags/') }}
         shell: pwsh
         run: |
-          $tree = 'devhooks/SynBench-windows-x64-devhooks'
+          $tree = 'devhooks/Syntheon-windows-x64-devhooks'
           cmake --install build/windows-x64-release --prefix $tree
           if ($LASTEXITCODE -ne 0) { throw "cmake --install failed ($LASTEXITCODE)" }
           ./packaging/windows/deploy.ps1 -Stage $tree -HostQt $env:QT_ROOT_DIR
@@ -385,55 +385,55 @@ jobs:
         timeout-minutes: 3
         shell: pwsh
         env:
-          SYNBENCH_GPU_WORKER_ARGS: "--allow-software --render-size 320x180 --content-scale 64"
-          SYNBENCH_GPU_MIN_FRAMES: "1"
+          SYNTHEON_GPU_WORKER_ARGS: "--allow-software --render-size 320x180 --content-scale 64"
+          SYNTHEON_GPU_MIN_FRAMES: "1"
         run: |
           $qt = (Resolve-Path $env:QT_ROOT_DIR).Path.TrimEnd('\')
           $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -and -not ($_ -replace '/', '\').StartsWith($qt, [StringComparison]::OrdinalIgnoreCase) }) -join ';'
           foreach ($v in 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QML2_IMPORT_PATH', 'QML_IMPORT_PATH') {
             Remove-Item "env:$v" -ErrorAction SilentlyContinue
           }
-          ./packaging/checks/run-smoke.ps1 -Exe devhooks/SynBench-windows-x64-devhooks/SynBench.exe -TimeoutSeconds 150
+          ./packaging/checks/run-smoke.ps1 -Exe devhooks/Syntheon-windows-x64-devhooks/Syntheon.exe -TimeoutSeconds 150
 
       - name: Zip the dev-hooks tree (QC only)
         if: ${{ inputs.dev_hooks && !startsWith(github.ref, 'refs/tags/') }}
         shell: pwsh
         run: |
-          $tree = 'devhooks/SynBench-windows-x64-devhooks'
+          $tree = 'devhooks/Syntheon-windows-x64-devhooks'
           $version = (Get-Content VERSION -Raw).Trim()
           $sha = (git rev-parse --short HEAD).Trim()
           @(
-            "SynBench $version-dev+$sha, Windows x64"
+            "Syntheon $version-dev+$sha, Windows x64"
             ''
             'DEV-HOOKS build for QC only, not for scoring/validation.'
             ''
-            "CI run $env:GITHUB_RUN_ID, the windows-x64-release preset (SYNBENCH_DEV_HOOKS=ON). It reads developer"
+            "CI run $env:GITHUB_RUN_ID, the windows-x64-release preset (SYNTHEON_DEV_HOOKS=ON). It reads developer"
             'environment variables that a packaged build ignores, so its results are not comparable with a'
             "packaged build's and must not go into a calibration or validation set."
             ''
-            'Unzip anywhere and run SynBench.exe from this folder. Nothing is installed.'
+            'Unzip anywhere and run Syntheon.exe from this folder. Nothing is installed.'
             ''
             'Phase 4a design 16.3:'
-            '  Hold vs minimized:  SYNBENCH_GPU_MINIMIZE_MAIN=1          (3 runs with it, 3 without)'
-            '  Overlay cost:       SYNBENCH_GPU_WORKER_ARGS=--no-overlay  (3 runs with it, 3 without)'
+            '  Hold vs minimized:  SYNTHEON_GPU_MINIMIZE_MAIN=1          (3 runs with it, 3 without)'
+            '  Overlay cost:       SYNTHEON_GPU_WORKER_ARGS=--no-overlay  (3 runs with it, 3 without)'
             ''
-            'SynBench.exe runs as administrator, and Windows does not hand a non-elevated shell''s variables'
-            'to an elevated program. Set them in an ADMINISTRATOR PowerShell and start SynBench.exe from it:'
+            'Syntheon.exe runs as administrator, and Windows does not hand a non-elevated shell''s variables'
+            'to an elevated program. Set them in an ADMINISTRATOR PowerShell and start Syntheon.exe from it:'
             ''
-            '  $env:SYNBENCH_GPU_MINIMIZE_MAIN = "1"; .\SynBench.exe'
-            '  $env:SYNBENCH_GPU_WORKER_ARGS = "--no-overlay"; .\SynBench.exe'
+            '  $env:SYNTHEON_GPU_MINIMIZE_MAIN = "1"; .\Syntheon.exe'
+            '  $env:SYNTHEON_GPU_WORKER_ARGS = "--no-overlay"; .\Syntheon.exe'
             ''
             'The variables stay set in that shell, so clear them between the with and without runs (or use a fresh'
             'shell for each):'
             ''
-            '  Remove-Item env:SYNBENCH_GPU_MINIMIZE_MAIN, env:SYNBENCH_GPU_WORKER_ARGS -ErrorAction SilentlyContinue'
+            '  Remove-Item env:SYNTHEON_GPU_MINIMIZE_MAIN, env:SYNTHEON_GPU_WORKER_ARGS -ErrorAction SilentlyContinue'
             ''
-            'Its results go into the same history as an installed SynBench (close that one first: only one'
+            'Its results go into the same history as an installed Syntheon (close that one first: only one'
             'runs at a time). To keep the QC runs apart, also set these before starting it:'
             ''
-            '  $env:SYNBENCH_DATA_DIR = "C:\SynBench-QC\data"; $env:SYNBENCH_SETTINGS_FILE = "C:\SynBench-QC\settings.ini"'
+            '  $env:SYNTHEON_DATA_DIR = "C:\Syntheon-QC\data"; $env:SYNTHEON_SETTINGS_FILE = "C:\Syntheon-QC\settings.ini"'
           ) | Set-Content -Encoding utf8 (Join-Path $tree 'README.txt')
-          Compress-Archive -Path $tree -DestinationPath devhooks/SynBench-windows-x64-devhooks.zip
+          Compress-Archive -Path $tree -DestinationPath devhooks/Syntheon-windows-x64-devhooks.zip
 
       - name: Upload the dev-hooks zip (QC only)
         if: ${{ inputs.dev_hooks && !startsWith(github.ref, 'refs/tags/') }}
@@ -441,13 +441,13 @@ jobs:
         continue-on-error: true
         with:
           retention-days: 3
-          name: SynBench-windows-x64-devhooks
-          path: devhooks/SynBench-windows-x64-devhooks.zip
+          name: Syntheon-windows-x64-devhooks
+          path: devhooks/Syntheon-windows-x64-devhooks.zip
           if-no-files-found: error
 
   # ---------------------------------------------------------------- packaging
   # The packaged builds use the *-package presets: no developer hooks, no
-  # tests. Each job proves that (no SYNBENCH_ names in the binaries) before it
+  # tests. Each job proves that (no SYNTHEON_ names in the binaries) before it
   # makes an installer.
 
   package-linux-x64:
@@ -492,7 +492,7 @@ jobs:
           key: openssl-linux-x86_64-gcc${{ steps.cc.outputs.version }}-${{ hashFiles('cmake/OpenSSL.cmake', 'cmake/openssl/**') }}
 
       - name: Configure (packaging preset)
-        run: cmake --preset linux-x64-package "-DSYNBENCH_OPENSSL_ROOT=$GITHUB_WORKSPACE/openssl-root"
+        run: cmake --preset linux-x64-package "-DSYNTHEON_OPENSSL_ROOT=$GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset linux-x64-package
@@ -504,7 +504,7 @@ jobs:
       - name: libcrypto has the hardware crypto path (AES-NI, SHA-NI)
         run: |
           python3 packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.a --arch x86_64
-          python3 packaging/checks/crypto-symbols.py build/linux-x64-package/_deps/synbench_zlib-build/libz.a --arch x86_64 --expect-missing all
+          python3 packaging/checks/crypto-symbols.py build/linux-x64-package/_deps/syntheon_zlib-build/libz.a --arch x86_64 --expect-missing all
 
       - name: Install
         run: cmake --install build/linux-x64-package --prefix stage
@@ -515,9 +515,9 @@ jobs:
       # its known-answer tests and golden table natively here.
       - name: The encryption worker is installed, with the hardware crypto path, and passes its self-test
         run: |
-          test -x stage/libexec/synbench-cpucrypto || { echo "::error::stage/libexec/synbench-cpucrypto is missing"; exit 1; }
-          python3 packaging/checks/crypto-symbols.py stage/libexec/synbench-cpucrypto --arch x86_64
-          env -i stage/libexec/synbench-cpucrypto --self-test
+          test -x stage/libexec/syntheon-cpucrypto || { echo "::error::stage/libexec/syntheon-cpucrypto is missing"; exit 1; }
+          python3 packaging/checks/crypto-symbols.py stage/libexec/syntheon-cpucrypto --arch x86_64
+          env -i stage/libexec/syntheon-cpucrypto --self-test
 
       - name: The packaged binaries carry no developer hooks and no test binaries
         run: |
@@ -533,31 +533,31 @@ jobs:
       - name: Static checks on the AppDir (architecture, libraries, glibc 2.35 floor)
         run: |
           python3 packaging/checks/elf-check.py AppDir --arch x86_64
-          test -x AppDir/usr/libexec/synbench-cpucrypto || { echo "::error::the encryption worker is not in the AppDir"; exit 1; }
-          test -x AppDir/usr/libexec/synbench-gpu || { echo "::error::the GPU worker is not in the AppDir"; exit 1; }
+          test -x AppDir/usr/libexec/syntheon-cpucrypto || { echo "::error::the encryption worker is not in the AppDir"; exit 1; }
+          test -x AppDir/usr/libexec/syntheon-gpu || { echo "::error::the GPU worker is not in the AppDir"; exit 1; }
           test -f AppDir/usr/libexec/qt.conf || { echo "::error::the GPU worker's qt.conf is not in the AppDir"; exit 1; }
           # D11: the licence and the third-party notices.
-          for f in LICENSE.txt THIRD-PARTY-NOTICES.txt; do test -f "AppDir/usr/share/doc/synbench/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
+          for f in LICENSE.txt THIRD-PARTY-NOTICES.txt; do test -f "AppDir/usr/share/doc/syntheon/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
           # Both Qt platform plugins: native Wayland and xcb (the X11/XWayland fallback); and offscreen, the GPU worker's probe's.
           for f in libqwayland.so libqxcb.so libqoffscreen.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
           test -n "$(find AppDir/usr/plugins/wayland-shell-integration -name 'libxdg-shell.so')"
           bash packaging/checks/no-dev-hooks.sh AppDir
           bash packaging/checks/no-test-binaries.sh AppDir
           bash packaging/checks/test-elf-check.sh
-          desktop-file-validate AppDir/io.github.dakotlyar.SynBench.desktop
+          desktop-file-validate AppDir/io.github.dakotlyar.Syntheon.desktop
 
       - name: Build the AppImage
         run: |
           version=$(tr -d '[:space:]' < VERSION)
-          bash packaging/linux/make-appimage.sh AppDir "SynBench-$version-x86_64.AppImage" x86_64 appimage-tools
-          echo "APPIMAGE_FILE=SynBench-$version-x86_64.AppImage" >> "$GITHUB_ENV"
+          bash packaging/linux/make-appimage.sh AppDir "Syntheon-$version-x86_64.AppImage" x86_64 appimage-tools
+          echo "APPIMAGE_FILE=Syntheon-$version-x86_64.AppImage" >> "$GITHUB_ENV"
 
       # The helper trust check (linux_helper_client.cpp) believes $APPDIR only if
       # the kernel's mount table shows a fuse.<image name> mount whose source is
       # the image name. Prove the real runtime still reports exactly that.
       - name: The real AppImage mount matches what the helper launch check expects
         run: |
-          # The packaged app checks itself with --synbench-selfcheck (the same C++ the real
+          # The packaged app checks itself with --syntheon-selfcheck (the same C++ the real
           # launch uses; a text check of mountinfo once passed while the real check failed
           # on every AppImage); the raw mountinfo line is checked as well.
           # The kernel octal-escapes space, #, backslash and tab in mountinfo fields
@@ -569,7 +569,7 @@ jobs:
             # THE check: the packaged app's own C++ launch decision, run on the live
             # mount (read-only, no root, no polkit, no window). It must pass.
             local report
-            report=$(./"$launcher" --synbench-selfcheck) || { echo "$report"; echo "::error::--synbench-selfcheck failed for '$launcher'"; exit 1; }
+            report=$(./"$launcher" --syntheon-selfcheck) || { echo "$report"; echo "::error::--syntheon-selfcheck failed for '$launcher'"; exit 1; }
             echo "$report"
             grep -q '^PASS: AppImage ' <<<"$report" || { echo "::error::selfcheck did not report a verified AppImage"; exit 1; }
             ./"$launcher" --appimage-mount > mount.txt &
@@ -588,10 +588,10 @@ jobs:
             esac
           }
           check_mount "$APPIMAGE_FILE" "$APPIMAGE_FILE"
-          cp "$APPIMAGE_FILE" "SynBench test (1).AppImage"
-          check_mount "SynBench test (1).AppImage" "SynBench test (1).AppImage"
-          ln -s "SynBench test (1).AppImage" link-to-it.AppImage
-          check_mount "link-to-it.AppImage" "SynBench test (1).AppImage"
+          cp "$APPIMAGE_FILE" "Syntheon test (1).AppImage"
+          check_mount "Syntheon test (1).AppImage" "Syntheon test (1).AppImage"
+          ln -s "Syntheon test (1).AppImage" link-to-it.AppImage
+          check_mount "link-to-it.AppImage" "Syntheon test (1).AppImage"
 
       # No smoke switch in a packaged build: it must start with its bundled
       # libraries and stay up (the administrator prompt then fails: no polkit
@@ -601,14 +601,14 @@ jobs:
           set +e
           QT_QPA_PLATFORM=offscreen timeout 15 ./"$APPIMAGE_FILE"
           code=$?
-          [ "$code" -eq 124 ] || { echo "::error::SynBench exited with $code within 15 s"; exit 1; }
+          [ "$code" -eq 124 ] || { echo "::error::Syntheon exited with $code within 15 s"; exit 1; }
 
       - name: Upload the AppImage
         uses: actions/upload-artifact@v6
         continue-on-error: true
         with:
           retention-days: 3
-          name: SynBench-linux-x86_64-AppImage
+          name: Syntheon-linux-x86_64-AppImage
           path: ${{ env.APPIMAGE_FILE }}
           if-no-files-found: error
 
@@ -637,7 +637,7 @@ jobs:
         shell: pwsh
         run: |
           $crt = ./packaging/windows/find-crt.ps1 -Arch x64
-          "SYNBENCH_CRT_DIRS=$crt" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SYNTHEON_CRT_DIRS=$crt" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # OpenSSL's x64 AES-NI / SHA-NI / VAES code is NASM source (§11.2). nasm.us
       # publishes no checksums or signatures; this SHA-256 is the one winget's
@@ -671,7 +671,7 @@ jobs:
 
       - name: Configure (packaging preset)
         shell: pwsh
-        run: cmake --preset windows-x64-package "-DSYNBENCH_CRT_DIRS=$env:SYNBENCH_CRT_DIRS" "-DSYNBENCH_OPENSSL_ROOT=$env:GITHUB_WORKSPACE/openssl-root"
+        run: cmake --preset windows-x64-package "-DSYNTHEON_CRT_DIRS=$env:SYNTHEON_CRT_DIRS" "-DSYNTHEON_OPENSSL_ROOT=$env:GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset windows-x64-package
@@ -691,17 +691,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the hardware crypto check failed" }
           # zlib 1.3.2's static library is zs.lib. Both parts missing and the
           # file read (exit 0 here; 2 would mean nothing was checked).
-          python packaging/checks/crypto-symbols.py build/windows-x64-package/_deps/synbench_zlib-build/zs.lib --arch x86_64 --nm $nm --objdump $objdump --expect-missing all
+          python packaging/checks/crypto-symbols.py build/windows-x64-package/_deps/syntheon_zlib-build/zs.lib --arch x86_64 --nm $nm --objdump $objdump --expect-missing all
           if ($LASTEXITCODE -ne 0) { throw "the negative control on zlib did not fail as it must" }
 
       # For diagnosis when the manifest check below fails: the real link command.
-      - name: Show how SynBench.exe was linked
+      - name: Show how Syntheon.exe was linked
         shell: pwsh
-        run: ninja -C build/windows-x64-package -t commands bin/SynBench.exe | Select-Object -Last 1
+        run: ninja -C build/windows-x64-package -t commands bin/Syntheon.exe | Select-Object -Last 1
 
       - name: The exe has exactly one manifest, requesting administrator rights
         shell: pwsh
-        run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-x64-package/bin/SynBench.exe
+        run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-x64-package/bin/Syntheon.exe
 
       - name: Install and deploy Qt
         shell: pwsh
@@ -718,8 +718,8 @@ jobs:
       - name: The packaged encryption worker passes its self-test
         shell: pwsh
         run: |
-          & stage/synbench-cpucrypto.exe --self-test
-          if ($LASTEXITCODE -ne 0) { throw "synbench-cpucrypto --self-test failed ($LASTEXITCODE)" }
+          & stage/syntheon-cpucrypto.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "syntheon-cpucrypto --self-test failed ($LASTEXITCODE)" }
 
       # A check that cannot fail proves nothing: plant defects in a copy and
       # require the checks to reject each one.
@@ -728,14 +728,14 @@ jobs:
         run: ./packaging/checks/test-windows-static-checks.ps1 -Tree stage -Arch x64
 
       # AP-5 L3: the elevated executables load their imports from System32 and
-      # their own folder only (/DEPENDENTLOADFLAG:0xA00: SynBench.exe's since
+      # their own folder only (/DEPENDENTLOADFLAG:0xA00: Syntheon.exe's since
       # Phase 1, packaged builds only). The check's negative control is the
       # pe_loadflags_rejects_planted CTest (windows-x64 job): a planted exe
       # linked without the flag.
       - name: The elevated executables' DLL search is System32 + their folder
         shell: pwsh
         run: |
-          foreach ($exe in 'stage/synbench-cpucrypto.exe', 'stage/synbench-gpu.exe', 'stage/SynBench.exe') {
+          foreach ($exe in 'stage/syntheon-cpucrypto.exe', 'stage/syntheon-gpu.exe', 'stage/Syntheon.exe') {
             python packaging/checks/pe-loadflags.py $exe --expect 0xA00
             if ($LASTEXITCODE -ne 0) { throw "$exe lacks DependentLoadFlags 0xA00" }
           }
@@ -746,8 +746,8 @@ jobs:
           $v = (Get-Content VERSION -Raw).Trim()
           $p = $v.Split('.')
           $msi = "$($p[0].Substring(2)).$($p[1]).$($p[2])"
-          "SYNBENCH_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "SYNBENCH_MSI_VERSION=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SYNTHEON_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SYNTHEON_MSI_VERSION=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # Trust: Inno Setup is normally preinstalled on the runner image; otherwise it
       # comes from Chocolatey, whose package carries the installer's checksum and
@@ -765,16 +765,16 @@ jobs:
       - name: Build the Inno installer
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\windows\synbench.iss `
-            "/DAppVersion=$env:SYNBENCH_VERSION" /DArch=x64 "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\out"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\windows\syntheon.iss `
+            "/DAppVersion=$env:SYNTHEON_VERSION" /DArch=x64 "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\out"
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
       - name: Build the MSI
         shell: pwsh
         run: |
-          wix build -arch x64 -d "Version=$env:SYNBENCH_MSI_VERSION" -d "SourceDir=$PWD\stage" -d "Arch=x64" -d "IconPath=$PWD\assets\synbench.ico" `
+          wix build -arch x64 -d "Version=$env:SYNTHEON_MSI_VERSION" -d "SourceDir=$PWD\stage" -d "Arch=x64" -d "IconPath=$PWD\assets\syntheon.ico" `
             -d "UpgradeCode={5E2C6D1B-8B1A-4C3E-9F55-0A6B2D7E4C11}" `
-            -o "out\SynBench-$env:SYNBENCH_VERSION-windows-x64.msi" packaging\windows\wix\Package.wxs
+            -o "out\Syntheon-$env:SYNTHEON_VERSION-windows-x64.msi" packaging\windows\wix\Package.wxs
           if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
 
       # D10: the real Python v0.2.3 installer, to upgrade over.
@@ -793,9 +793,9 @@ jobs:
         timeout-minutes: 10
         run: |
           ./packaging/windows/test-install.ps1 `
-            -Inno "out\SynBench-$env:SYNBENCH_VERSION-windows-x64-setup.exe" `
-            -Msi "out\SynBench-$env:SYNBENCH_VERSION-windows-x64.msi" `
-            -OldInstaller old\SynBench-Setup.exe -Version $env:SYNBENCH_VERSION
+            -Inno "out\Syntheon-$env:SYNTHEON_VERSION-windows-x64-setup.exe" `
+            -Msi "out\Syntheon-$env:SYNTHEON_VERSION-windows-x64.msi" `
+            -OldInstaller old\SynBench-Setup.exe -Version $env:SYNTHEON_VERSION
 
       - name: Upload install logs
         if: failure()
@@ -812,7 +812,7 @@ jobs:
         continue-on-error: true
         with:
           retention-days: 3
-          name: SynBench-windows-x64-installers
+          name: Syntheon-windows-x64-installers
           path: out/*
           if-no-files-found: error
 
@@ -874,7 +874,7 @@ jobs:
         shell: pwsh
         run: |
           $crt = ./packaging/windows/find-crt.ps1 -Arch arm64
-          "SYNBENCH_CRT_DIRS=$crt" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SYNTHEON_CRT_DIRS=$crt" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # OpenSSL (§11, R8): its build is cached, keyed on everything that goes into
       # it; cmake/OpenSSL.cmake checks the stamp in the folder and rebuilds on
@@ -889,7 +889,7 @@ jobs:
         shell: pwsh
         run: |
           cmake --preset windows-arm64-cross "-DQT_HOST_PATH=$env:HOST_QT" "-DCMAKE_PREFIX_PATH=$env:TARGET_QT" `
-            "-DSYNBENCH_CRT_DIRS=$env:SYNBENCH_CRT_DIRS" "-DSYNBENCH_OPENSSL_ROOT=$env:GITHUB_WORKSPACE/openssl-root"
+            "-DSYNTHEON_CRT_DIRS=$env:SYNTHEON_CRT_DIRS" "-DSYNTHEON_OPENSSL_ROOT=$env:GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset windows-arm64-cross
@@ -909,17 +909,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the hardware crypto check failed" }
           # zlib 1.3.2's static library is zs.lib. Both parts missing and the
           # file read (exit 0 here; 2 would mean nothing was checked).
-          python packaging/checks/crypto-symbols.py build/windows-arm64-cross/_deps/synbench_zlib-build/zs.lib --arch aarch64 --nm $nm --objdump $objdump --expect-missing all
+          python packaging/checks/crypto-symbols.py build/windows-arm64-cross/_deps/syntheon_zlib-build/zs.lib --arch aarch64 --nm $nm --objdump $objdump --expect-missing all
           if ($LASTEXITCODE -ne 0) { throw "the negative control on zlib did not fail as it must" }
 
       # For diagnosis when the manifest check below fails: the real link command.
-      - name: Show how SynBench.exe was linked
+      - name: Show how Syntheon.exe was linked
         shell: pwsh
-        run: ninja -C build/windows-arm64-cross -t commands bin/SynBench.exe | Select-Object -Last 1
+        run: ninja -C build/windows-arm64-cross -t commands bin/Syntheon.exe | Select-Object -Last 1
 
       - name: The exe has exactly one manifest, requesting administrator rights
         shell: pwsh
-        run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-arm64-cross/bin/SynBench.exe
+        run: ./packaging/checks/manifest-check.ps1 -Exe build/windows-arm64-cross/bin/Syntheon.exe
 
       - name: Install and deploy Qt (host tool, target Qt)
         shell: pwsh
@@ -936,14 +936,14 @@ jobs:
         run: ./packaging/checks/test-windows-static-checks.ps1 -Tree stage -Arch arm64
 
       # AP-5 L3: the elevated executables load their imports from System32 and
-      # their own folder only (/DEPENDENTLOADFLAG:0xA00: SynBench.exe's since
+      # their own folder only (/DEPENDENTLOADFLAG:0xA00: Syntheon.exe's since
       # Phase 1, packaged builds only). The check's negative control is the
       # pe_loadflags_rejects_planted CTest (windows-x64 job): a planted exe
       # linked without the flag.
       - name: The elevated executables' DLL search is System32 + their folder
         shell: pwsh
         run: |
-          foreach ($exe in 'stage/synbench-cpucrypto.exe', 'stage/synbench-gpu.exe', 'stage/SynBench.exe') {
+          foreach ($exe in 'stage/syntheon-cpucrypto.exe', 'stage/syntheon-gpu.exe', 'stage/Syntheon.exe') {
             python packaging/checks/pe-loadflags.py $exe --expect 0xA00
             if ($LASTEXITCODE -ne 0) { throw "$exe lacks DependentLoadFlags 0xA00" }
           }
@@ -953,8 +953,8 @@ jobs:
         run: |
           $v = (Get-Content VERSION -Raw).Trim()
           $p = $v.Split('.')
-          "SYNBENCH_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "SYNBENCH_MSI_VERSION=$($p[0].Substring(2)).$($p[1]).$($p[2])" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SYNTHEON_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SYNTHEON_MSI_VERSION=$($p[0].Substring(2)).$($p[1]).$($p[2])" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # Trust: Inno Setup is normally preinstalled on the runner image; otherwise it
       # comes from Chocolatey, whose package carries the installer's checksum and
@@ -973,12 +973,12 @@ jobs:
       - name: Build the ARM64 Inno installer and MSI
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\windows\synbench.iss `
-            "/DAppVersion=$env:SYNBENCH_VERSION" /DArch=arm64 "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\out"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\windows\syntheon.iss `
+            "/DAppVersion=$env:SYNTHEON_VERSION" /DArch=arm64 "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\out"
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
-          wix build -arch arm64 -d "Version=$env:SYNBENCH_MSI_VERSION" -d "SourceDir=$PWD\stage" -d "Arch=arm64" -d "IconPath=$PWD\assets\synbench.ico" `
+          wix build -arch arm64 -d "Version=$env:SYNTHEON_MSI_VERSION" -d "SourceDir=$PWD\stage" -d "Arch=arm64" -d "IconPath=$PWD\assets\syntheon.ico" `
             -d "UpgradeCode={A3D49B72-6E0F-4F1D-B6A8-7C1E5F90D2B4}" `
-            -o "out\SynBench-$env:SYNBENCH_VERSION-windows-arm64.msi" packaging\windows\wix\Package.wxs
+            -o "out\Syntheon-$env:SYNTHEON_VERSION-windows-arm64.msi" packaging\windows\wix\Package.wxs
           if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
 
       - name: Upload the installers
@@ -986,7 +986,7 @@ jobs:
         continue-on-error: true
         with:
           retention-days: 3
-          name: SynBench-windows-arm64-installers
+          name: Syntheon-windows-arm64-installers
           path: out/*
           if-no-files-found: error
 
@@ -1052,9 +1052,9 @@ jobs:
       - name: Configure (cross)
         run: |
           cmake --preset linux-arm64-cross \
-            -DSYNBENCH_SYSROOT="$SYSROOT" -DSYNBENCH_TARGET_QT="$TARGET_QT" \
+            -DSYNTHEON_SYSROOT="$SYSROOT" -DSYNTHEON_TARGET_QT="$TARGET_QT" \
             -DQT_HOST_PATH="$HOST_QT" -DCMAKE_PREFIX_PATH="$TARGET_QT" \
-            -DSYNBENCH_OPENSSL_ROOT="$GITHUB_WORKSPACE/openssl-root"
+            -DSYNTHEON_OPENSSL_ROOT="$GITHUB_WORKSPACE/openssl-root"
 
       - name: Build
         run: cmake --build --preset linux-arm64-cross
@@ -1074,7 +1074,7 @@ jobs:
       - name: libcrypto has the hardware crypto path (ARMv8 Crypto)
         run: |
           python3 packaging/checks/crypto-symbols.py openssl-root/lib/libcrypto.a --arch aarch64 --nm aarch64-linux-gnu-nm
-          python3 packaging/checks/crypto-symbols.py build/linux-arm64-cross/_deps/synbench_zlib-build/libz.a --arch aarch64 \
+          python3 packaging/checks/crypto-symbols.py build/linux-arm64-cross/_deps/syntheon_zlib-build/libz.a --arch aarch64 \
             --nm aarch64-linux-gnu-nm --expect-missing all
 
       - name: Install
@@ -1084,8 +1084,8 @@ jobs:
       # code has the ARMv8 Crypto AES and SHA-256 paths (nothing runs here).
       - name: The encryption worker is installed, with the hardware crypto path
         run: |
-          test -x stage/libexec/synbench-cpucrypto || { echo "::error::stage/libexec/synbench-cpucrypto is missing"; exit 1; }
-          python3 packaging/checks/crypto-symbols.py stage/libexec/synbench-cpucrypto --arch aarch64 --nm aarch64-linux-gnu-nm
+          test -x stage/libexec/syntheon-cpucrypto || { echo "::error::stage/libexec/syntheon-cpucrypto is missing"; exit 1; }
+          python3 packaging/checks/crypto-symbols.py stage/libexec/syntheon-cpucrypto --arch aarch64 --nm aarch64-linux-gnu-nm
 
       - name: The packaged binaries carry no developer hooks and no test binaries
         run: |
@@ -1102,11 +1102,11 @@ jobs:
       - name: Static checks (P27, the aarch64 floor is glibc 2.39)
         run: |
           python3 packaging/checks/elf-check.py AppDir --arch aarch64 --cross-prefix aarch64-linux-gnu-
-          test -x AppDir/usr/libexec/synbench-cpucrypto || { echo "::error::the encryption worker is not in the AppDir"; exit 1; }
-          test -x AppDir/usr/libexec/synbench-gpu || { echo "::error::the GPU worker is not in the AppDir"; exit 1; }
+          test -x AppDir/usr/libexec/syntheon-cpucrypto || { echo "::error::the encryption worker is not in the AppDir"; exit 1; }
+          test -x AppDir/usr/libexec/syntheon-gpu || { echo "::error::the GPU worker is not in the AppDir"; exit 1; }
           test -f AppDir/usr/libexec/qt.conf || { echo "::error::the GPU worker's qt.conf is not in the AppDir"; exit 1; }
           # D11: the licence and the third-party notices.
-          for f in LICENSE.txt THIRD-PARTY-NOTICES.txt; do test -f "AppDir/usr/share/doc/synbench/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
+          for f in LICENSE.txt THIRD-PARTY-NOTICES.txt; do test -f "AppDir/usr/share/doc/syntheon/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
           for f in libqwayland.so libqxcb.so libqoffscreen.so; do test -f "AppDir/usr/plugins/platforms/$f" || { echo "::error::$f is not in the AppDir"; exit 1; }; done
           test -n "$(find AppDir/usr/plugins/wayland-shell-integration -name 'libxdg-shell.so')"
           bash packaging/checks/no-dev-hooks.sh AppDir
@@ -1120,8 +1120,8 @@ jobs:
       - name: Build the AppImage (x86_64 appimagetool, aarch64 runtime)
         run: |
           version=$(tr -d '[:space:]' < VERSION)
-          bash packaging/linux/make-appimage.sh AppDir "SynBench-$version-aarch64.AppImage" aarch64 appimage-tools
-          echo "APPIMAGE_FILE=SynBench-$version-aarch64.AppImage" >> "$GITHUB_ENV"
+          bash packaging/linux/make-appimage.sh AppDir "Syntheon-$version-aarch64.AppImage" aarch64 appimage-tools
+          echo "APPIMAGE_FILE=Syntheon-$version-aarch64.AppImage" >> "$GITHUB_ENV"
 
       # N1: a CI artifact only; it is never run, so it stays out of Releases.
       - name: Upload the AppImage (artifact only)
@@ -1129,7 +1129,7 @@ jobs:
         continue-on-error: true
         with:
           retention-days: 3
-          name: SynBench-linux-aarch64-AppImage
+          name: Syntheon-linux-aarch64-AppImage
           path: ${{ env.APPIMAGE_FILE }}
           if-no-files-found: error
 
@@ -1160,7 +1160,7 @@ jobs:
 
       - name: Desktop file and AppStream metadata
         run: |
-          desktop-file-validate packaging/linux/io.github.dakotlyar.SynBench.desktop
-          sed "s/@SYNBENCH_VERSION@/$(tr -d '[:space:]' < VERSION)/; s/@SYNBENCH_RELEASE_DATE@/$(date -u +%F)/" \
-            packaging/linux/io.github.dakotlyar.SynBench.metainfo.xml.in > metainfo-check.xml
+          desktop-file-validate packaging/linux/io.github.dakotlyar.Syntheon.desktop
+          sed "s/@SYNTHEON_VERSION@/$(tr -d '[:space:]' < VERSION)/; s/@SYNTHEON_RELEASE_DATE@/$(date -u +%F)/" \
+            packaging/linux/io.github.dakotlyar.Syntheon.metainfo.xml.in > metainfo-check.xml
           appstreamcli validate --no-net metainfo-check.xml

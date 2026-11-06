@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """CTest for tools/cpu-repeatability.py.
 
-Builds small histories with SynBench's own schema (src/storage/migrations/*.sql,
+Builds small histories with Syntheon's own schema (src/storage/migrations/*.sql,
 applied in order, as the app does) in a temporary folder, then runs the script
 on them:
   * five steady runs: every CV within 3%, exit 0, and the CVs the script prints
@@ -13,7 +13,7 @@ on them:
   * the conditions are reported: battery, throttling, background load;
   * the database is opened read-only: its bytes don't change, and a read-only
     file works; with a rollback journal nothing is left behind, and with WAL
-    (SynBench's own mode) only a -shm file and an empty -wal file are;
+    (Syntheon's own mode) only a -shm file and an empty -wal file are;
   * usage and database problems exit 2;
   * --test ram (Phase 3 §14.3): the RAM score, its three groups and every
     scored metric; a metric no run has (latency.l3 without an L3) is "not
@@ -36,7 +36,7 @@ on them:
     the default selection (no --runs), and fewer than N Ok runs fail; only the
     score's CV gates under --test gpu (a noisy metric is reported).
 
-  test_cpu_repeatability.py <source dir> <GPU fixture synbench.db>   (both required; the fixture is not optional)
+  test_cpu_repeatability.py <source dir> <GPU fixture syntheon.db>   (both required; the fixture is not optional)
 """
 import hashlib
 import importlib.util
@@ -52,7 +52,7 @@ import tempfile
 
 if len(sys.argv) != 3 or not sys.argv[1].strip() or not sys.argv[2].strip():
     # An empty argument would resolve to the current directory: refuse it instead of testing the wrong thing.
-    print("usage: test_cpu_repeatability.py <source dir> <GPU fixture synbench.db> (neither may be empty)", file=sys.stderr)
+    print("usage: test_cpu_repeatability.py <source dir> <GPU fixture syntheon.db> (neither may be empty)", file=sys.stderr)
     sys.exit(2)
 SRC = pathlib.Path(sys.argv[1]).resolve()
 GPU_FIXTURE = pathlib.Path(sys.argv[2]).resolve()
@@ -330,27 +330,27 @@ with tempfile.TemporaryDirectory() as tmp:
     check(rc == 0, "a read-only database file works")
     os.chmod(good, 0o644)
 
-    # 1b. A WAL-mode history, as SynBench writes it, with the app closed (its
+    # 1b. A WAL-mode history, as Syntheon writes it, with the app closed (its
     # -wal checkpointed away). A read-only connection may create a -shm file and
     # an empty -wal file (which ones depends on the SQLite version; SQLite
     # 3.54 leaves both); the history itself must not change.
     waldir = tmp / "wal"
     waldir.mkdir()
-    waldb = waldir / "synbench.db"
+    waldb = waldir / "syntheon.db"
     make_db(waldb, [steady(k) for k in (0, 2, -1, 3, -2)], wal=True)
     probe = sqlite3.connect(waldb)
     check(probe.execute("PRAGMA journal_mode").fetchone()[0] == "wal", "WAL fixture: the history is in WAL mode")
     probe.close()
-    check(sorted(p.name for p in waldir.iterdir()) == ["synbench.db"], "WAL fixture: only the database before the run")
+    check(sorted(p.name for p in waldir.iterdir()) == ["syntheon.db"], "WAL fixture: only the database before the run")
     before = hashlib.sha256(waldb.read_bytes()).hexdigest()
     rc, out, err = run(waldb)
     check(rc == 0 and "RESULT: PASS" in out, "WAL history: read, PASS")
     check(hashlib.sha256(waldb.read_bytes()).hexdigest() == before, "WAL history: the database's bytes are unchanged")
     left = sorted(p.name for p in waldir.iterdir())
-    check(set(left) <= {"synbench.db", "synbench.db-shm", "synbench.db-wal"}, f"WAL history: nothing but -shm/-wal left beside it ({left})")
-    wal = waldir / "synbench.db-wal"
+    check(set(left) <= {"syntheon.db", "syntheon.db-shm", "syntheon.db-wal"}, f"WAL history: nothing but -shm/-wal left beside it ({left})")
+    wal = waldir / "syntheon.db-wal"
     check(not wal.exists() or wal.stat().st_size == 0, "WAL history: any -wal left behind is empty (nothing was written)")
-    check("synbench.db" in left, "WAL history: the database is still there")
+    check("syntheon.db" in left, "WAL history: the database is still there")
 
     # 2. One run 10% low: the score's CV is above 3%.
     bad = tmp / "bad.db"

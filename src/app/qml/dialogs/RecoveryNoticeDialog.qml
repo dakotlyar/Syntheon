@@ -2,7 +2,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // One-time notice after a run was cut short last time (design 3): "The run
 // from 14:02 was interrupted" or "Battery run recovered: 6 h 42 m".

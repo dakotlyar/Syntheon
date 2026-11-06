@@ -29,18 +29,18 @@ QString key(const QString &folder)
 QString stateDir()
 {
 #ifdef Q_OS_WIN
-    // %LOCALAPPDATA%\SynBench\run, spelled out like the history folder is
+    // %LOCALAPPDATA%\Syntheon\run, spelled out like the history folder is
     // (AppLocalDataLocation would use whatever the application/organisation
     // names happen to be, which differ in tests and tools).
     const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
     if (base.isEmpty())
         return {};
-    const QString dir = QDir(base).filePath(QStringLiteral("SynBench/run"));
+    const QString dir = QDir(base).filePath(QStringLiteral("Syntheon/run"));
 #else
     const QString base = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
     if (base.isEmpty())
         return {};
-    const QString dir = QDir(base).filePath(QStringLiteral("synbench"));
+    const QString dir = QDir(base).filePath(QStringLiteral("syntheon"));
 #endif
     if (!QDir().mkpath(dir))
         return {};
@@ -57,7 +57,7 @@ QString stateDir()
 QString lockFilePath(const QString &folder)
 {
     const QString dir = stateDir();
-    return dir.isEmpty() ? QString() : QDir(dir).filePath(QStringLiteral("synbench-%1.lock").arg(key(folder)));
+    return dir.isEmpty() ? QString() : QDir(dir).filePath(QStringLiteral("syntheon-%1.lock").arg(key(folder)));
 }
 
 QString socketName(const QString &folder)
@@ -65,10 +65,10 @@ QString socketName(const QString &folder)
 #ifdef Q_OS_WIN
     const QByteArray h = QCryptographicHash::hash((qEnvironmentVariable("USERNAME") + QLatin1Char('|') + key(folder)).toUtf8(),
                                                   QCryptographicHash::Sha1).toHex();
-    return QStringLiteral("synbench-") + QString::fromLatin1(h.left(16));
+    return QStringLiteral("syntheon-") + QString::fromLatin1(h.left(16));
 #else
     const QString dir = stateDir();
-    return dir.isEmpty() ? QString() : QDir(dir).filePath(QStringLiteral("synbench-%1.sock").arg(key(folder)));
+    return dir.isEmpty() ? QString() : QDir(dir).filePath(QStringLiteral("syntheon-%1.sock").arg(key(folder)));
 #endif
 }
 

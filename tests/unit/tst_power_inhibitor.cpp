@@ -14,8 +14,8 @@ using namespace sb;
 namespace {
 
 #ifdef Q_OS_LINUX
-// logind's own view: is there a sleep/block lock held by "SynBench" from us?
-bool logindShowsSynBenchLock()
+// logind's own view: is there a sleep/block lock held by "Syntheon" from us?
+bool logindShowsSyntheonLock()
 {
     const QDBusMessage call =
         QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.login1"), QStringLiteral("/org/freedesktop/login1"),
@@ -33,7 +33,7 @@ bool logindShowsSynBenchLock()
         arg.beginStructure();
         arg >> what >> who >> why >> mode >> uid >> pid;
         arg.endStructure();
-        if (who == QLatin1StringView("SynBench") && what.contains(QLatin1StringView("sleep"))
+        if (who == QLatin1StringView("Syntheon") && what.contains(QLatin1StringView("sleep"))
             && mode == QLatin1StringView("block") && pid == uint(QCoreApplication::applicationPid()))
             found = true;
     }
@@ -57,15 +57,15 @@ private slots:
         auto inhibitor = createSystemPowerInhibitor();
         QVERIFY(inhibitor);
         QString error;
-        if (!inhibitor->acquire(QStringLiteral("SynBench unit test"), &error))
+        if (!inhibitor->acquire(QStringLiteral("Syntheon unit test"), &error))
             QSKIP(qPrintable(QStringLiteral("system sleep lock unavailable here: %1").arg(error)));
         QVERIFY(inhibitor->acquire(QStringLiteral("again"), &error));  // already held
 #ifdef Q_OS_LINUX
-        QVERIFY(logindShowsSynBenchLock());
+        QVERIFY(logindShowsSyntheonLock());
 #endif
         inhibitor->release();
 #ifdef Q_OS_LINUX
-        QTRY_VERIFY(!logindShowsSynBenchLock());
+        QTRY_VERIFY(!logindShowsSyntheonLock());
 #endif
         inhibitor->release();  // idempotent
         QVERIFY(inhibitor->acquire(QStringLiteral("re-acquire"), &error));

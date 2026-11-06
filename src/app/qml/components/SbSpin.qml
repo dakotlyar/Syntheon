@@ -2,7 +2,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // A number field with the unit beside it (durations and the like). Values
 // are real numbers; the controller clamps them to the schema's range again.

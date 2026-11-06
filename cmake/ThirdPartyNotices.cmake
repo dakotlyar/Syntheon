@@ -1,47 +1,47 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # THIRD-PARTY-NOTICES.txt (Phase 2 design §11.3, D11): one file with the
-# licence of everything SynBench ships that isn't its own, generated at
+# licence of everything Syntheon ships that isn't its own, generated at
 # configure time from the licence files of the pinned sources (and, for Qt
 # and the fonts, from the texts kept in this repository). It is written to
 # <build>/THIRD-PARTY-NOTICES.txt; the packages install it beside LICENSE.txt.
 #
-#   synbench_add_notice(NAME <name> [VERSION <v>] LICENCE <spdx> FILE <file> [NOTE <text>])
-#   synbench_write_third_party_notices()   # once, after every notice is added
+#   syntheon_add_notice(NAME <name> [VERSION <v>] LICENCE <spdx> FILE <file> [NOTE <text>])
+#   syntheon_write_third_party_notices()   # once, after every notice is added
 include_guard(GLOBAL)
 
-function(synbench_add_notice)
+function(syntheon_add_notice)
     cmake_parse_arguments(ARG "" "NAME;VERSION;LICENCE;FILE;NOTE" "" ${ARGN})
     if(NOT ARG_NAME OR NOT ARG_LICENCE OR NOT ARG_FILE)
-        message(FATAL_ERROR "synbench_add_notice needs NAME, LICENCE and FILE")
+        message(FATAL_ERROR "syntheon_add_notice needs NAME, LICENCE and FILE")
     endif()
     if(NOT EXISTS "${ARG_FILE}")
         message(FATAL_ERROR "Licence file for ${ARG_NAME} not found: ${ARG_FILE}")
     endif()
     # One property per field: names and notes may contain ';', which a single
     # list entry could not hold.
-    get_property(index GLOBAL PROPERTY SYNBENCH_NOTICE_COUNT)
+    get_property(index GLOBAL PROPERTY SYNTHEON_NOTICE_COUNT)
     if("${index}" STREQUAL "")  # an unset property leaves the variable undefined
         set(index 0)
     endif()
     foreach(field NAME VERSION LICENCE FILE NOTE)
-        set_property(GLOBAL PROPERTY SYNBENCH_NOTICE_${index}_${field} "${ARG_${field}}")
+        set_property(GLOBAL PROPERTY SYNTHEON_NOTICE_${index}_${field} "${ARG_${field}}")
     endforeach()
     math(EXPR count "${index} + 1")
-    set_property(GLOBAL PROPERTY SYNBENCH_NOTICE_COUNT "${count}")
+    set_property(GLOBAL PROPERTY SYNTHEON_NOTICE_COUNT "${count}")
 endfunction()
 
-function(synbench_write_third_party_notices)
-    get_property(n GLOBAL PROPERTY SYNBENCH_NOTICE_COUNT)
+function(syntheon_write_third_party_notices)
+    get_property(n GLOBAL PROPERTY SYNTHEON_NOTICE_COUNT)
     set(rule "================================================================================")
-    set(out "SynBench third-party notices\n${rule}\n\n")
-    string(APPEND out "SynBench is free software under the GNU General Public License, version 3 or\n"
+    set(out "Syntheon third-party notices\n${rule}\n\n")
+    string(APPEND out "Syntheon is free software under the GNU General Public License, version 3 or\n"
                       "later (LICENSE.txt). It includes or uses the third-party software below, each\n"
                       "under its own licence, reproduced in full.\n\n")
     set(sections "")
     math(EXPR last "${n} - 1")
     foreach(i RANGE ${last})
         foreach(field NAME VERSION LICENCE FILE NOTE)
-            get_property(${field} GLOBAL PROPERTY SYNBENCH_NOTICE_${i}_${field})
+            get_property(${field} GLOBAL PROPERTY SYNTHEON_NOTICE_${i}_${field})
         endforeach()
         set(title "${NAME}")
         if(VERSION)

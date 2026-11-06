@@ -15,7 +15,7 @@ namespace sb {
 
 class RunRepository;
 
-// RunSink on synbench.db: one connection per calling thread (normally the run
+// RunSink on syntheon.db: one connection per calling thread (normally the run
 // worker), opened on first use and closed by threadFinished(). Uses
 // synchronous = NORMAL, switched to FULL by setDurable(true) while a
 // recoverable test runs (§3).

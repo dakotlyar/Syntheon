@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// synbench-gpu: the GPU test's worker (Phase 4a design §2, D1, D12). One
+// syntheon-gpu: the GPU test's worker (Phase 4a design §2, D1, D12). One
 // process per API: a driver crash, a GPU hang or a stuck present kills this
-// process, never SynBench.
+// process, never Syntheon.
 //
-//   synbench-gpu --run --serve --api vulkan|dx12|dx11|opengl --gpu <id>
-//   synbench-gpu --run --api vulkan|dx12|dx11|opengl|d2d|qt --gpu <id> --plan <plan> [--screen <name>]
-//   synbench-gpu --probe | --probe-gl --gpu <id> | --self-test
+//   syntheon-gpu --run --serve --api vulkan|dx12|dx11|opengl --gpu <id>
+//   syntheon-gpu --run --api vulkan|dx12|dx11|opengl|d2d|qt --gpu <id> --plan <plan> [--screen <name>]
+//   syntheon-gpu --probe | --probe-gl --gpu <id> | --self-test
 //   dev hooks: --api null, --headless, --allow-software, --render-size WxH,
 //              --content-scale F, --validation, --no-overlay; --print-hashes
 //
@@ -45,7 +45,7 @@
 #include "tests/gpu/worker/dxgi/dxgi_probe.h"
 #endif
 #include "tests/gpu/worker/worker_window.h"
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 #include "tests/gpu/worker/null/null_backend.h"
 #endif
 
@@ -93,12 +93,12 @@ constexpr int kExitOk = 0, kExitError = 1, kExitArgs = 2, kExitStdin = 3, kExitS
 #if defined(_WIN32)
 // Qt's messages to stderr, as on Linux. Qt's own Windows handler shows a message box for a fatal error when there
 // is no console (the worker is started without one), e.g. "no Qt platform plugin could be initialized": an
-// unattended child would then sit on a dialog until SynBench kills it. A fatal message ends the process here
+// unattended child would then sit on a dialog until Syntheon kills it. A fatal message ends the process here
 // instead, with exit code 1 and the message on stderr (Qt would abort after the handler returns).
 void qtMessageToStderr(QtMsgType type, const QMessageLogContext &context, const QString &message)
 {
     const QByteArray text = qFormatLogMessage(type, context, message).toUtf8();
-    std::fprintf(stderr, "synbench-gpu: %s\n", text.constData());
+    std::fprintf(stderr, "syntheon-gpu: %s\n", text.constData());
     std::fflush(stderr);
     if (type == QtFatalMsg)
         std::_Exit(kExitError);
@@ -124,7 +124,7 @@ void hardenProcess()
     // from our own folder (§2.2, the cpucrypto P17 hardening).
     SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
 #elif defined(__linux__)
-    // Never outlive SynBench, even if it is killed (the Phase 3 a6deee0 lesson).
+    // Never outlive Syntheon, even if it is killed (the Phase 3 a6deee0 lesson).
     prctl(PR_SET_PDEATHSIG, SIGKILL);
 #endif
 }
@@ -132,7 +132,7 @@ void hardenProcess()
 [[noreturn]] void failArgs(const std::string &problem)
 {
     std::fflush(stdout);
-    std::fprintf(stderr, "synbench-gpu: %s\n", problem.c_str());
+    std::fprintf(stderr, "syntheon-gpu: %s\n", problem.c_str());
     std::fflush(stderr);
     std::exit(kExitArgs);
 }
@@ -158,7 +158,7 @@ bool knownApi(const std::string &api)
         if (api == a)
             return true;
     }
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     if (api == "null")
         return true;
 #endif
@@ -201,7 +201,7 @@ Args parseArgs(const std::vector<std::string> &argv)
             a.planText = QString::fromStdString(value(i));
         } else if (opt == "--screen") {
             a.screen = QString::fromStdString(value(i));
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
         } else if (opt == "--headless") {
             a.headless = true;
         } else if (opt == "--allow-software") {
@@ -279,7 +279,7 @@ std::vector<WorkloadPlan> toPlan(const QVector<pr::PlanItem> &items, std::string
 
 std::unique_ptr<IBackend> makeBackend(const std::string &api)
 {
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     if (api == "null")
         return makeNullBackend();
 #endif
@@ -296,7 +296,7 @@ std::unique_ptr<IBackend> makeBackend(const std::string &api)
         // Task 27: Direct2D draws text with the bundled IBM Plex Sans (worker.qrc), handed over as bytes
         // (the backends are Qt-free). It takes its window through resume(), so unlike Qt raster it is
         // made here, before the window. A missing font is the backend's warning, not an error.
-        QFile font(QStringLiteral(":/synbench-gpu/fonts/IBMPlexSans-Variable.ttf"));
+        QFile font(QStringLiteral(":/syntheon-gpu/fonts/IBMPlexSans-Variable.ttf"));
         std::vector<std::uint8_t> bytes;
         if (font.open(QIODevice::ReadOnly)) {
             const QByteArray data = font.readAll();
@@ -409,7 +409,7 @@ void handleLine(Control &c, std::string line)
     protocolError("unknown command '" + line + "'");
 }
 
-// SynBench holds our stdin open while it lives: EOF means it is gone, so exit
+// Syntheon holds our stdin open while it lives: EOF means it is gone, so exit
 // at once (_Exit: no destructors, no waiting for the main thread). Raw reads,
 // not stdio (the cpucrypto lesson: a thread blocked in fgetc() holds stdin's
 // lock, and exit() would wait for it).
@@ -450,7 +450,7 @@ int selfTest()
     for (std::size_t i = 0; i < kAllWorkloads.size(); ++i) {
         const std::uint64_t h = contentHash(buildScene(kAllWorkloads[i]));
         if (h != kGoldenHash[i]) {
-            std::fprintf(stderr, "synbench-gpu: self-test: %s content hash 0x%016llx is not the golden 0x%016llx\n",
+            std::fprintf(stderr, "syntheon-gpu: self-test: %s content hash 0x%016llx is not the golden 0x%016llx\n",
                          workloadId(kAllWorkloads[i]), (unsigned long long)h, (unsigned long long)kGoldenHash[i]);
             return kExitError;
         }
@@ -458,7 +458,7 @@ int selfTest()
     for (std::size_t i = 0; i < kNativeKinds.size(); ++i) {
         const std::uint64_t h = nativeHash(buildNativeOps(kNativeKinds[i]));
         if (h != kGoldenNativeHash[i]) {
-            std::fprintf(stderr, "synbench-gpu: self-test: native %s hash 0x%016llx is not the golden 0x%016llx\n", nativeId(kNativeKinds[i]),
+            std::fprintf(stderr, "syntheon-gpu: self-test: native %s hash 0x%016llx is not the golden 0x%016llx\n", nativeId(kNativeKinds[i]),
                          (unsigned long long)h, (unsigned long long)kGoldenNativeHash[i]);
             return kExitError;
         }
@@ -466,15 +466,15 @@ int selfTest()
     return kExitOk;
 }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 // Developer builds only: golden_hashes.inc as it should read for this build.
 int printHashes()
 {
     std::printf("// SPDX-License-Identifier: GPL-3.0-or-later\n"
-                "// GENERATED by synbench-gpu --print-hashes (a developer build, on Linux); do not edit.\n"
+                "// GENERATED by syntheon-gpu --print-hashes (a developer build, on Linux); do not edit.\n"
                 "// A change here changes the content the GPU test draws: bump its testVersion.\n"
                 "// contentHash(buildScene(w)) at content scale 1, for w in kAllWorkloads order\n"
-                "// (Phase 4a design §6.7); synbench-gpu --self-test checks them on every OS.\n"
+                "// (Phase 4a design §6.7); syntheon-gpu --self-test checks them on every OS.\n"
                 "#pragma once\n\n#include <array>\n#include <cstdint>\n\nnamespace sb::gpu {\n\n"
                 "inline constexpr std::array<std::uint64_t, %d> kGoldenHash = {\n",
                 int(kAllWorkloads.size()));
@@ -521,7 +521,7 @@ public:
                         screen = s;
                 }
                 if (!screen) {
-                    std::fprintf(stderr, "synbench-gpu: unknown --screen '%s'\n", qPrintable(m_args.screen));
+                    std::fprintf(stderr, "syntheon-gpu: unknown --screen '%s'\n", qPrintable(m_args.screen));
                     return kExitArgs;
                 }
             }
@@ -552,7 +552,7 @@ public:
 
         BackendInit init;
         if (!m_args.gpu.isEmpty() && !parseGpuId(m_args.gpu, &init)) {
-            std::fprintf(stderr, "synbench-gpu: bad --gpu '%s'\n", qPrintable(m_args.gpu));
+            std::fprintf(stderr, "syntheon-gpu: bad --gpu '%s'\n", qPrintable(m_args.gpu));
             return kExitArgs;
         }
         if (!m_args.luid.isEmpty()) {
@@ -634,8 +634,8 @@ public:
         hooks.stopRequested = [this] { return stopRequested(); };
         if (m_window) {
             hooks.windowOk = [this] {
-#if defined(SYNBENCH_DEV_HOOKS)
-                if (qEnvironmentVariable("SYNBENCH_GPU_FAKE_MOVE") == QLatin1StringView("measure"))
+#if defined(SYNTHEON_DEV_HOOKS)
+                if (qEnvironmentVariable("SYNTHEON_GPU_FAKE_MOVE") == QLatin1StringView("measure"))
                     m_window->fakeMove();  // dev hook: the window "moved" during the measurement
 #endif
                 return m_window->windowOk();
@@ -756,7 +756,7 @@ private:
         return {qRound(logical.width() * scale), qRound(logical.height() * scale)};
     }
 
-    // The window's steps of SYNBENCH_GPU_FAKE_SCREEN ("WxH@scale;WxH@scale"): dev hook, see replanFromWindow().
+    // The window's steps of SYNTHEON_GPU_FAKE_SCREEN ("WxH@scale;WxH@scale"): dev hook, see replanFromWindow().
     struct FakeStep {
         int w, h;
         double scale;
@@ -764,9 +764,9 @@ private:
     std::vector<FakeStep> fakeSteps() const
     {
         std::vector<FakeStep> steps;
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
         static const QRegularExpression one(QStringLiteral("^(\\d+)x(\\d+)@([0-9.]+)$"));
-        for (const QString &part : qEnvironmentVariable("SYNBENCH_GPU_FAKE_SCREEN").split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
+        for (const QString &part : qEnvironmentVariable("SYNTHEON_GPU_FAKE_SCREEN").split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
             if (const auto m = one.match(part); m.hasMatch())
                 steps.push_back({m.captured(1).toInt(), m.captured(2).toInt(), m.captured(3).toDouble()});
         }
@@ -923,7 +923,7 @@ private:
     std::unique_ptr<Runner> m_runner;
     std::unique_ptr<glue::GlContext> m_gl;  // OpenGL only (task 21)
     double m_scale = 1.0;
-    std::size_t m_fakeIndex = 0;  // dev hook: how many re-plans have looked at SYNBENCH_GPU_FAKE_SCREEN
+    std::size_t m_fakeIndex = 0;  // dev hook: how many re-plans have looked at SYNTHEON_GPU_FAKE_SCREEN
     QString m_screenName;
     QSize m_screenPx;  // that screen's size in physical px (§10's `screen`)
     std::optional<std::array<quint8, 8>> m_renderLuid;  // --luid: the adapter the frames are drawn on (Windows)
@@ -931,13 +931,13 @@ private:
     std::string m_present;  // the last resume()'s present mode (the result's "present")
 };
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 // The tests' check of the serve order (task 9): how often the null backend
 // was resumed and suspended.
 void reportNullCalls(const Args &a, IBackend *b)
 {
     if (a.api == "null" && b)
-        std::fprintf(stderr, "synbench-gpu: null backend: resume %d, suspend %d\n", static_cast<NullBackend *>(b)->resumeCount(),
+        std::fprintf(stderr, "syntheon-gpu: null backend: resume %d, suspend %d\n", static_cast<NullBackend *>(b)->resumeCount(),
                      static_cast<NullBackend *>(b)->suspendCount());
 }
 #endif
@@ -951,7 +951,7 @@ int main(int argc, char **argv)
     const std::vector<std::string> args(argv + 1, argv + argc);
     if (args == std::vector<std::string>{"--self-test"})
         return selfTest();
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     if (args == std::vector<std::string>{"--print-hashes"})
         return printHashes();
 #endif
@@ -1126,7 +1126,7 @@ int main(int argc, char **argv)
         if (code == kExitOk)
             emitLine(pr::DoneEvent{});
     }
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     reportNullCalls(a, worker.backend());
 #endif
     return code;

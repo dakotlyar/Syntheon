@@ -3,7 +3,7 @@
 // Linked into every test executable, next to crash_handler.cpp. No test may
 // ever reach the user's real history or settings: tst_controllers once
 // deleted Storage::defaultDataDir() without Qt's test mode on, which was the
-// real ~/.local/share/SynBench.
+// real ~/.local/share/Syntheon.
 //
 //  - At static initialisation, before main() and before anything resolves a
 //    path: QStandardPaths test mode (~/.qttest/... on Linux, ...\qttest on
@@ -18,7 +18,7 @@
 //    earlier; 0-100 are reserved for the implementation). The file is also
 //    listed first in each test's sources.
 //  - On Unix under CTest, XDG_RUNTIME_DIR from the file the test_home
-//    fixture writes (SYNBENCH_TEST_RUNTIME_FILE, tests/check_test_home.cmake):
+//    fixture writes (SYNTHEON_TEST_RUNTIME_FILE, tests/check_test_home.cmake):
 //    a private folder chosen at test time, so single-instance sockets never
 //    share the user's real runtime folder. Launched apps inherit it.
 //  - When the QCoreApplication exists: a guard resolves the data, config and
@@ -42,13 +42,13 @@ namespace {
 
 QString testConfigRoot()
 {
-    return QDir(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)).filePath(QStringLiteral("synbench-ini"));
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)).filePath(QStringLiteral("syntheon-ini"));
 }
 
 void useFixtureRuntimeDir()
 {
 #ifdef Q_OS_UNIX
-    const QByteArray file = qgetenv("SYNBENCH_TEST_RUNTIME_FILE");
+    const QByteArray file = qgetenv("SYNTHEON_TEST_RUNTIME_FILE");
     if (file.isEmpty())
         return;  // not under CTest's fixture
     std::FILE *f = std::fopen(file.constData(), "r");
@@ -87,7 +87,7 @@ bool isTestPath(const QString &path)
 
 void checkTestPaths()
 {
-    const QSettings ini(QSettings::IniFormat, QSettings::UserScope, QStringLiteral("SynBench"), QStringLiteral("SynBench"));
+    const QSettings ini(QSettings::IniFormat, QSettings::UserScope, QStringLiteral("Syntheon"), QStringLiteral("Syntheon"));
     const QString paths[] = {
         QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation),
         QStandardPaths::writableLocation(QStandardPaths::AppDataLocation),

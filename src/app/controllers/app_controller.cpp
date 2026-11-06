@@ -7,7 +7,7 @@
 
 #include "sysinfo/collector.h"
 
-#include "synbench_version.h"
+#include "syntheon_version.h"
 
 #include <QCoreApplication>
 #include <QFile>
@@ -20,7 +20,7 @@
 #include "privileged/win_inproc/windows_inprocess_ops.h"
 #endif
 
-Q_LOGGING_CATEGORY(lcApp, "synbench.app")
+Q_LOGGING_CATEGORY(lcApp, "syntheon.app")
 
 namespace sb {
 
@@ -137,7 +137,7 @@ QString AppController::emulationText() const
 
 QString AppController::thirdPartyNotices() const
 {
-    QFile f(QStringLiteral(":/synbench/THIRD-PARTY-NOTICES.txt"));
+    QFile f(QStringLiteral(":/syntheon/THIRD-PARTY-NOTICES.txt"));
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
         return {};
     return QString::fromUtf8(f.readAll());
@@ -145,7 +145,7 @@ QString AppController::thirdPartyNotices() const
 
 QString AppController::version() const
 {
-    return m_info.app.version.isEmpty() ? QStringLiteral(SYNBENCH_DISPLAY_VERSION) : m_info.app.version;
+    return m_info.app.version.isEmpty() ? QStringLiteral(SYNTHEON_DISPLAY_VERSION) : m_info.app.version;
 }
 
 void AppController::refreshPower()
@@ -164,7 +164,7 @@ void AppController::refreshPower()
 
 void AppController::applyPower(BatteryInfo b)
 {
-#ifdef SYNBENCH_DEV_HOOKS
+#ifdef SYNTHEON_DEV_HOOKS
     if (m_powerForTest)
         b = *m_powerForTest;
 #endif
@@ -178,7 +178,7 @@ void AppController::applyPower(BatteryInfo b)
         emit powerChanged();
 }
 
-#ifdef SYNBENCH_DEV_HOOKS
+#ifdef SYNTHEON_DEV_HOOKS
 void AppController::setPowerForTest(std::optional<BatteryInfo> power)
 {
     m_powerForTest = std::move(power);
@@ -221,7 +221,7 @@ void AppController::start()
         const SystemInfo info = sysinfo::collectSystemInfo();
         QMetaObject::invokeMethod(this, [this, info] {
             m_info = info;
-#ifdef SYNBENCH_DEV_HOOKS
+#ifdef SYNTHEON_DEV_HOOKS
             if (m_powerForTest) {
                 m_info.battery.present = m_powerForTest->present;
                 m_info.battery.acOnline = m_powerForTest->acOnline;
@@ -415,7 +415,7 @@ QVariantList AppController::systemRows() const
     if (!i.os.session.isEmpty())
         os += QStringLiteral(", ") + i.os.session;
     out << infoRow(tr("Operating system"), os);
-    out << infoRow(tr("SynBench"), QStringLiteral("%1 (%2, Qt %3)").arg(version(), i.cpu.arch, i.app.qtVersion));
+    out << infoRow(tr("Syntheon"), QStringLiteral("%1 (%2, Qt %3)").arg(version(), i.cpu.arch, i.app.qtVersion));
     return out;
 }
 

@@ -2,7 +2,7 @@
 import QtQuick
 import QtQuick.Dialogs
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // Layout, theme, licences (D11), data location (move or open an existing
 // history, D7) and Clear history. Changes apply right away.
@@ -118,7 +118,7 @@ ScreenFrame {
                     spacing: 2
                     SbText { text: qsTr("Licences"); font.weight: Font.DemiBold }
                     SbText {
-                        text: qsTr("The open-source software SynBench includes")
+                        text: qsTr("The open-source software Syntheon includes")
                         kind: "small"
                         wrapMode: Text.WordWrap
                         Layout.preferredWidth: 220
@@ -221,7 +221,7 @@ ScreenFrame {
                             SbText {
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
-                                text: qsTr("That folder already has a SynBench history. Open it? Your current history "
+                                text: qsTr("That folder already has a Syntheon history. Open it? Your current history "
                                            + "stays where it is, and the two are never merged.")
                             }
                             RowLayout {

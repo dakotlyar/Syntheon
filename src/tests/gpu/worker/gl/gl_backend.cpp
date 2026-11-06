@@ -126,7 +126,7 @@ void GlBackend::onDebugMessage(std::uint32_t type, const char *message)
 {
     if (type != GL_DEBUG_TYPE_ERROR)
         return;
-    std::fprintf(stderr, "synbench-gpu: opengl: %s\n", message ? message : "(no message)");
+    std::fprintf(stderr, "syntheon-gpu: opengl: %s\n", message ? message : "(no message)");
     if (m_validationErrors.fetch_add(1) == 0)
         m_firstValidationError = message ? message : "(no message)";
 }
@@ -342,7 +342,7 @@ std::string GlBackend::init(const BackendInit &init, const PresentTarget &target
             glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
             glDebugMessageCallback(onDebug, this);
         } else {
-            std::fprintf(stderr, "synbench-gpu: opengl: no KHR_debug; running without validation\n");
+            std::fprintf(stderr, "syntheon-gpu: opengl: no KHR_debug; running without validation\n");
         }
     }
     GLint alignment = 0;
@@ -724,7 +724,7 @@ std::string GlBackend::readback(double t, std::vector<std::uint8_t> *rgba8)
     return readTarget(target, rgba8);
 }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 std::string GlBackend::readbackPresented(std::vector<std::uint8_t> *rgba8)
 {
     if (!m_headless || !m_resumed || m_frame == 0)

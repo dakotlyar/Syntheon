@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
 import QtQuick.Controls.Basic
-import SynBench
+import Syntheon
 
 // A checkbox in the mockup's look (accent when on). Keeps its reason when
 // disabled ("OpenVINO (no Intel device)").

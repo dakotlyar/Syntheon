@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // One test's detail page inside Results (the rail keeps Results highlighted).
 // Tabs: the tests of this run plus, if the run had no Battery, a "Battery" tab

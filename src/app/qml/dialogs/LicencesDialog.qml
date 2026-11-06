@@ -3,10 +3,10 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // Settings > Licences (D11): THIRD-PARTY-NOTICES.txt, the notices of the
-// libraries and fonts SynBench includes, as shipped beside LICENSE.txt.
+// libraries and fonts Syntheon includes, as shipped beside LICENSE.txt.
 SbDialog {
     id: dialog
 
@@ -27,7 +27,7 @@ SbDialog {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             kind: "small"
-            text: qsTr("SynBench is free software under the GNU GPL, version 3 or later. It includes the software below, "
+            text: qsTr("Syntheon is free software under the GNU GPL, version 3 or later. It includes the software below, "
                        + "each under its own licence.")
         }
         Rectangle {

@@ -2,7 +2,7 @@
 #pragma once
 
 // The compression corpus (Phase 2 design §5.4, P11): 32 MiB generated at
-// prepare time from SynBench's own PRNG, integer arithmetic only, so it is
+// prepare time from Syntheon's own PRNG, integer arithmetic only, so it is
 // byte-identical on every platform (no bundled data). 128 blocks of 256 KiB;
 // a compress unit works on one block.
 //

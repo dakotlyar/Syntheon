@@ -13,7 +13,7 @@
 #include <QJSEngine>
 #include <QQmlEngine>
 
-// The app's C++ singletons, declared to the QML module SynBench at build time
+// The app's C++ singletons, declared to the QML module Syntheon at build time
 // (QML_FOREIGN), so qmlcachegen and qmllint know their types: a typo in
 // "RunController.selectedCount" is a lint warning, not a silent undefined.
 //
@@ -30,7 +30,7 @@ struct Instance {
 
     static T *create(QQmlEngine *, QJSEngine *engine)
     {
-        Q_ASSERT_X(object, "SynBench QML singleton", "AppRuntime::registerQml() must run before the engine loads QML");
+        Q_ASSERT_X(object, "Syntheon QML singleton", "AppRuntime::registerQml() must run before the engine loads QML");
         Q_ASSERT(engine->thread() == object->thread());
         QJSEngine::setObjectOwnership(object, QJSEngine::CppOwnership);
         return object;

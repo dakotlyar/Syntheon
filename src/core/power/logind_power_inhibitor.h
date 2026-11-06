@@ -11,7 +11,7 @@ class QDBusUnixFileDescriptor;
 
 namespace sb {
 
-// logind Inhibit("sleep", "SynBench", why, "block") over the system bus. The
+// logind Inhibit("sleep", "Syntheon", why, "block") over the system bus. The
 // lock lasts as long as the returned fd stays open.
 class LogindPowerInhibitor : public PowerInhibitor
 {

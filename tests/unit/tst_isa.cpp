@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// synbench_isa (Phase 2 design §14.1 "ISA"): the decoders on injected CPUID /
+// syntheon_isa (Phase 2 design §14.1 "ISA"): the decoders on injected CPUID /
 // XCR0 / hwcap bits, the SIMD ladder (P9), the core ranking (P4) on fixture
 // sysfs trees and mocked CPU-set data, and System info's view of it (P15).
 #include "isa/core_ranking.h"
@@ -92,7 +92,7 @@ private slots:
         const CpuFeatures f = decodeX86(knowhere());
         QCOMPARE(QString::fromStdString(f.vendor), QStringLiteral("AuthenticAMD"));
         QCOMPARE(QString::fromStdString(f.brand), QStringLiteral("AMD RYZEN AI MAX+ 392 w/ Radeon 8060S"));
-        // System info is unchanged by the move onto synbench_isa (P15).
+        // System info is unchanged by the move onto syntheon_isa (P15).
         const sb::sysinfo::X86Cpu s = sb::sysinfo::fromIsa(f);
         QCOMPARE(s.features.join(QLatin1Char(',')), QLatin1StringView(kKnowhereFeatures));
         QCOMPARE(s.vendor, QStringLiteral("AuthenticAMD"));

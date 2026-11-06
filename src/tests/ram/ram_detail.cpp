@@ -579,7 +579,7 @@ DetailLayout RamTest::detail(const TestResult &r) const
         }
         if (!modules.rows.isEmpty())
             d.blocks.append({QStringLiteral("Modules"), modules});
-        d.blocks.append({{}, NoteBlock{QStringLiteral("As reported by the firmware (SMBIOS). SynBench doesn't read SPD, so timings "
+        d.blocks.append({{}, NoteBlock{QStringLiteral("As reported by the firmware (SMBIOS). Syntheon doesn't read SPD, so timings "
                                                       "aren't shown."),
                                        Tone::Neutral}});
     } else if (const QString source = text(r, QStringLiteral("config.source")); source.startsWith(QLatin1StringView("not available: "))) {

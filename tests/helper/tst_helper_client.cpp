@@ -107,11 +107,11 @@ private slots:
         const QString pkexec = exe(QStringLiteral("sys/bin/pkexec"));
         const QString pathPkexec = exe(QStringLiteral("evil/pkexec"));  // a $PATH entry: never used
         Q_UNUSED(pathPkexec)
-        const QString app = exe(QStringLiteral("build/bin/SynBench"));
-        const QString helper = exe(QStringLiteral("build/bin/synbench-helper"));
-        const QString image = exe(QStringLiteral("SynBench-x86_64.AppImage"));
-        const QString mountedApp = exe(QStringLiteral("mount_abc/usr/bin/SynBench"));
-        exe(QStringLiteral("mount_abc/usr/bin/synbench-helper"));
+        const QString app = exe(QStringLiteral("build/bin/Syntheon"));
+        const QString helper = exe(QStringLiteral("build/bin/syntheon-helper"));
+        const QString image = exe(QStringLiteral("Syntheon-x86_64.AppImage"));
+        const QString mountedApp = exe(QStringLiteral("mount_abc/usr/bin/Syntheon"));
+        exe(QStringLiteral("mount_abc/usr/bin/syntheon-helper"));
 
         LinuxHelperClient::Environment dev;
         dev.applicationFilePath = app;
@@ -140,7 +140,7 @@ private slots:
         appImage.mountInfo = mountTable(QStringLiteral("fuse.AppImage"), image, appImage.appDir);
         l = LinuxHelperClient::defaultLaunch(appImage);
         QVERIFY(l);
-        QCOMPARE(l->primary.arguments, (QStringList{image, QStringLiteral("--synbench-helper")}));
+        QCOMPARE(l->primary.arguments, (QStringList{image, QStringLiteral("--syntheon-helper")}));
         // No extract-and-run fallback under pkexec: the runtime would extract to a
         // predictable world-readable folder that root then executes from.
         QVERIFY(!l->fallback);
@@ -170,7 +170,7 @@ private slots:
         QCOMPARE(LinuxHelperClient::defaultLaunch(realistic)->primary.arguments.value(0), image);  // the AppImage branch
         // Special characters in the file name: the kernel octal-escapes them in
         // the fs type and the source (observed on a real AppImage named
-        // "SynBench test (1).AppImage": fuse.SynBench\040test\040(1).AppImage).
+        // "Syntheon test (1).AppImage": fuse.Syntheon\040test\040(1).AppImage).
         for (const QString &odd : {QStringLiteral("My App (1).AppImage"), QStringLiteral("a#b.AppImage"),
                                     QStringLiteral("back\\slash.AppImage"), QStringLiteral("tab\tname.AppImage")}) {
             const QString oddImage = exe(odd);
@@ -202,7 +202,7 @@ private slots:
         noDir.applicationFilePath = app;
         QCOMPARE(LinuxHelperClient::defaultLaunch(noDir)->primary.arguments, QStringList{helper});
         LinuxHelperClient::Environment relative = appImage;
-        relative.appImage = QStringLiteral("SynBench-x86_64.AppImage");
+        relative.appImage = QStringLiteral("Syntheon-x86_64.AppImage");
         QVERIFY(!LinuxHelperClient::defaultLaunch(relative));  // the binary IS inside $APPDIR: refused, not ignored
         LinuxHelperClient::Environment notExec = appImage;
         notExec.appImage = t.filePath(QStringLiteral("plain-file"));
@@ -239,7 +239,7 @@ private slots:
         // The helper path is canonical (a symlinked app dir resolves).
         QVERIFY(QFile::link(t.filePath(QStringLiteral("build")), t.filePath(QStringLiteral("linkdir"))));
         LinuxHelperClient::Environment linked = dev;
-        linked.applicationFilePath = t.filePath(QStringLiteral("linkdir/bin/SynBench"));
+        linked.applicationFilePath = t.filePath(QStringLiteral("linkdir/bin/Syntheon"));
         QCOMPARE(LinuxHelperClient::defaultLaunch(linked)->primary.arguments, QStringList{helper});
 
         // Helper missing: an error, not a bogus path.
@@ -371,10 +371,10 @@ private slots:
         QTest::newRow("pkexec: not authorized") << "echo 'Error executing command as another user: Not authorized' >&2; exit 127" << n;
         QTest::newRow("silent 126") << "exit 126" << c;
         QTest::newRow("silent 127") << "exit 127" << n;
-        QTest::newRow("AppImage can't exec (126)") << "echo 'SynBench.AppImage: Permission denied' >&2; exit 126" << e;
+        QTest::newRow("AppImage can't exec (126)") << "echo 'Syntheon.AppImage: Permission denied' >&2; exit 126" << e;
         QTest::newRow("AppImage not found (127)") << "echo 'exec: No such file or directory' >&2; exit 127" << e;
-        QTest::newRow("helper started, then 126") << "echo 'synbench-helper: started (euid 0) for uid 1000' >&2; exit 126" << e;
-        QTest::newRow("helper started, then 127") << "echo 'synbench-helper: started (euid 0) for uid 1000' >&2; exit 127" << e;
+        QTest::newRow("helper started, then 126") << "echo 'syntheon-helper: started (euid 0) for uid 1000' >&2; exit 126" << e;
+        QTest::newRow("helper started, then 127") << "echo 'syntheon-helper: started (euid 0) for uid 1000' >&2; exit 127" << e;
     }
 
     void exitCodeClassification()
@@ -435,8 +435,8 @@ private slots:
                                         .arg(kTestHelper, m_entry, m_table));
         LinuxHelperClient c(options());
         QSignalSpy ready(&c, &LinuxHelperClient::ready);
-        c.start({{fake, {QStringLiteral("--synbench-helper")}},
-                 LinuxHelperClient::Command{fake, {QStringLiteral("--appimage-extract-and-run"), QStringLiteral("--synbench-helper")}}});
+        c.start({{fake, {QStringLiteral("--syntheon-helper")}},
+                 LinuxHelperClient::Command{fake, {QStringLiteral("--appimage-extract-and-run"), QStringLiteral("--syntheon-helper")}}});
         QVERIFY(ready.wait(10000));
         QVERIFY(c.readSmbios(nullptr));
 

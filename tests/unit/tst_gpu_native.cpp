@@ -64,7 +64,7 @@ QString overlayOverContent(const std::vector<std::uint8_t> &presented, const std
 // worker's font from the same resource file the worker reads.
 std::unique_ptr<d2d::Direct2DNative> makeDirect2D(std::uint32_t w, std::uint32_t h, const NativeOps &ops, QString *why)
 {
-    QFile font(QStringLiteral(":/synbench-gpu/fonts/IBMPlexSans-Variable.ttf"));
+    QFile font(QStringLiteral(":/syntheon-gpu/fonts/IBMPlexSans-Variable.ttf"));
     std::vector<std::uint8_t> bytes;
     if (font.open(QIODevice::ReadOnly)) {
         const QByteArray data = font.readAll();

@@ -1,8 +1,8 @@
 # How to add a test (the plugin contract)
 
-A SynBench "test" is a class implementing `sb::ITest` (`src/core/itest.h`).
+A Syntheon "test" is a class implementing `sb::ITest` (`src/core/itest.h`).
 Tests are linked in statically and listed in `src/tests/CMakeLists.txt`
-(`SYNBENCH_TESTS`); the core, the UI and the database know nothing about any
+(`SYNTHEON_TESTS`); the core, the UI and the database know nothing about any
 particular test. The real ones so far are the CPU test (Phase 2,
 `src/tests/cpu/`), the RAM test (Phase 3, `src/tests/ram/`) and the GPU test
 (Phase 4a, `src/tests/gpu/`); the other four are still Phase 1 stubs built from
@@ -124,7 +124,7 @@ one series:
 
 ## 5. The measurement engine (only for a benchmark that times kernels)
 
-The CPU and RAM tests share one engine, the `synbench_test_engine` CMake target
+The CPU and RAM tests share one engine, the `syntheon_test_engine` CMake target
 (its files stay in `src/tests/cpu/engine/`, `cpu_context.*` and `telemetry/`,
 namespace `sb::cpu`; Phase 3 D17). It runs a `Kernel` in time-boxed windows on a
 `WorkerPool` (a warm-up and five repetitions, the median and the spread), polls
@@ -138,15 +138,15 @@ Stop, and checks each unit's result:
   CPU from `isa::allowedLogicalCpus()`); empty by default, so other pools are
   unchanged;
 - `cpu::scaled()`: the windows at the developer time scale
-  (`SYNBENCH_STUB_SCALE`, smoke runs), so a test's whole run fits in a CI job;
+  (`SYNTHEON_STUB_SCALE`, smoke runs), so a test's whole run fits in a CI job;
 - `opaque()`: hides a value from the optimiser (seeds and buffer pointers on
   the way into a unit).
 
-A test links `synbench_test_engine` and keeps its kernels in a target of their
-own with fixed optimisation flags (`synbench_cpu_kernels`,
-`synbench_ram_kernels`), so a Debug build measures the same code.
+A test links `syntheon_test_engine` and keeps its kernels in a target of their
+own with fixed optimisation flags (`syntheon_cpu_kernels`,
+`syntheon_ram_kernels`), so a Debug build measures the same code.
 
-`tools/cpu-repeatability.py <synbench.db> --test cpu|ram|gpu` prints the CV of a
+`tools/cpu-repeatability.py <syntheon.db> --test cpu|ram|gpu` prints the CV of a
 test's score, its groups and its main metrics over the last runs in a history
 (the validation gate's ≤ 3% over 5 runs); a new real test adds its groups and
 metrics to the script's `TESTS` table.
@@ -171,7 +171,7 @@ differs from its re-score by design: that is the anchor history, not a bug.
 
 ## 6. Work in a separate process (only if needed)
 
-A test whose work shouldn't run inside SynBench (a library with global state
+A test whose work shouldn't run inside Syntheon (a library with global state
 you can't reset, code that could crash, or a configuration that must not leak
 in) can run it in a small worker program, as the CPU test does for encryption
 (`src/tests/cpu/worker/` and `crypto_client.h`):
@@ -188,13 +188,13 @@ in) can run it in a small worker program, as the CPU test does for encryption
   the worker's verdict alone.
 - The client polls `cancelled` every 50 ms and **kills** the process on Stop
   or at a time limit (killing a process is safe, unlike a thread), and holds
-  its stdin open so the worker exits by itself if SynBench goes away.
+  its stdin open so the worker exits by itself if Syntheon goes away.
 - A `--self-test` mode lets `probe()` mark the part unavailable when the
   worker is missing or broken.
 
 ### The GPU worker (Phase 4a): a second example
 
-`synbench-gpu` (`src/tests/gpu/worker/`, client in `src/tests/gpu/client/`)
+`syntheon-gpu` (`src/tests/gpu/worker/`, client in `src/tests/gpu/client/`)
 follows the same rules and adds what a graphics test needs. The reason for the
 process is that a driver crash, a GPU hang or a stuck present kills only the
 worker; the GPU test reports an Error for that API and goes on.
@@ -221,7 +221,7 @@ worker; the GPU test reports an Error for that API and goes on.
   `stop` (the worker finishes its frame and exits 4) and, for several workers
   at once, simply kills them, so Stop stays within 250 ms. A worker that goes
   quiet is killed when a workload's timeout (2 × warm-up + measure, plus 30 s)
-  runs out. The worker holds stdin as a lifeline: EOF means SynBench is gone
+  runs out. The worker holds stdin as a lifeline: EOF means Syntheon is gone
   and it exits 3 at once.
 - **Exit codes mean something:** 0 done, 1 error, 2 bad arguments or a
   protocol error, 3 stdin closed, 4 stopped, 5 the API is not available. Exit 5
@@ -236,7 +236,7 @@ worker; the GPU test reports an Error for that API and goes on.
 - **No dialogs, ever.** The worker is started without a console from a GUI app,
   so on Windows it sets `SetErrorMode` and a stderr message handler first
   thing, and a fatal Qt message exits instead of showing a box. Its start-up
-  `--probe` runs while SynBench starts, so a hang there would block the
+  `--probe` runs while Syntheon starts, so a hang there would block the
   window; the probe has its own short time limit.
 - **Packaging.** The worker is listed in the packaging checks like the
   encryption one, and because it runs headless for its probe it needs Qt's
@@ -252,14 +252,14 @@ rebuild. Other tests need nothing: a cut-short run is marked Interrupted.
 
 ## 8. Registering it
 
-1. Create `src/tests/<id>/` with a `CMakeLists.txt` building `synbench_test_<id>`
+1. Create `src/tests/<id>/` with a `CMakeLists.txt` building `syntheon_test_<id>`
    and `<id>_test.h` declaring `sb::tests::<Id>Test`.
-2. Add `<id>` to `SYNBENCH_TESTS` in `src/tests/CMakeLists.txt`. The registration
+2. Add `<id>` to `SYNTHEON_TESTS` in `src/tests/CMakeLists.txt`. The registration
    code is generated from that list (no self-registering static initialisers).
 3. Add unit tests (see `tests/unit/tst_stubs.cpp`, `tst_registry.cpp` and, for a
    real test, `tst_cpu_test.cpp` and `tst_ram_test.cpp`) and run `ctest`. GUI
    tests that run or configure a test go through the stubs, not a real test
-   (a real run takes minutes and, for RAM, gigabytes). `SYNBENCH_SMOKE=1` runs every
+   (a real run takes minutes and, for RAM, gigabytes). `SYNTHEON_SMOKE=1` runs every
    available test end to end, real ones at the developer time scale.
 4. A third-party library: see "the third-party pattern" in BUILDING.md (pinned,
    static, and a notice in `THIRD-PARTY-NOTICES.txt`).

@@ -2,7 +2,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // The one dialog style: themed panel, title (and optional subtitle) in the
 // app's title font, padding. Every dialog in qml/dialogs is an SbDialog, so none

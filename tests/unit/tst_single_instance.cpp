@@ -41,7 +41,7 @@ RunRecord staleRunning()
 
 } // namespace
 
-// One SynBench per history folder: the lock, the focus request, the stale lock
+// One Syntheon per history folder: the lock, the focus request, the stale lock
 // after a crash, two folders side by side, and recovery leaving a live run
 // alone.
 class TestSingleInstance : public QObject
@@ -123,7 +123,7 @@ private slots:
         QFile lock(instance::lockFilePath(folder));
         QVERIFY(lock.open(QIODevice::WriteOnly));
         // QLockFile's format: pid, application name, host name.
-        lock.write(QByteArray("2147483000\nSynBench\n") + QSysInfo::machineHostName().toUtf8() + "\n");
+        lock.write(QByteArray("2147483000\nSyntheon\n") + QSysInfo::machineHostName().toUtf8() + "\n");
         lock.close();
         Storage st(s);
         QVERIFY2(st.open().ok(), "a lock owned by a dead process must not block the app");
@@ -140,12 +140,12 @@ private slots:
         s.setDataLocation(folder);
         Storage st(s);
         QVERIFY(st.open().ok());
-        QVERIFY(!QDir(folder).entryList({QStringLiteral("*.lock")}).contains(QStringLiteral("synbench.lock")));
+        QVERIFY(!QDir(folder).entryList({QStringLiteral("*.lock")}).contains(QStringLiteral("syntheon.lock")));
         QVERIFY(QFile::exists(instance::lockFilePath(folder)));
         SingleInstance si;
         QVERIFY(si.listen(folder));
 #ifdef Q_OS_UNIX
-        // Linux: $XDG_RUNTIME_DIR/synbench (0700, ours), the socket is a file in it.
+        // Linux: $XDG_RUNTIME_DIR/syntheon (0700, ours), the socket is a file in it.
         QVERIFY(instance::lockFilePath(folder).startsWith(m_runtime.path()));
         const QFileInfo state(instance::stateDir());
         QCOMPARE(state.ownerId(), uint(geteuid()));
@@ -154,17 +154,17 @@ private slots:
         QVERIFY(QFile::exists(SingleInstance::nameFor(folder)));
 #else
         // Windows: the lock file is under the per-user local data folder
-        // (%LOCALAPPDATA%\SynBench\run), NOT in the history folder, named by the
+        // (%LOCALAPPDATA%\Syntheon\run), NOT in the history folder, named by the
         // folder's hash; the socket is a named pipe (a name, not a file).
         const QString lock = QDir::fromNativeSeparators(instance::lockFilePath(folder));
         const QString local = QDir::fromNativeSeparators(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation));
         const QByteArray why = ("lock path was '" + lock + "', local data folder '" + local + "'").toLocal8Bit();
-        QVERIFY2(lock.startsWith(local + QStringLiteral("/SynBench/run/"), Qt::CaseInsensitive), why.constData());
+        QVERIFY2(lock.startsWith(local + QStringLiteral("/Syntheon/run/"), Qt::CaseInsensitive), why.constData());
         QVERIFY2(!lock.startsWith(QDir::fromNativeSeparators(folder), Qt::CaseInsensitive), why.constData());
         QVERIFY2(lock.contains(instance::key(folder)), why.constData());
         QVERIFY(QFile::exists(instance::lockFilePath(folder)));
         const QString pipe = SingleInstance::nameFor(folder);
-        QVERIFY2(pipe.startsWith(QStringLiteral("synbench-")) && !pipe.contains(QLatin1Char('\\')) && !pipe.contains(QLatin1Char('/')),
+        QVERIFY2(pipe.startsWith(QStringLiteral("syntheon-")) && !pipe.contains(QLatin1Char('\\')) && !pipe.contains(QLatin1Char('/')),
                  qPrintable(pipe));
 #endif
     }
@@ -201,7 +201,7 @@ private slots:
         s.setDataLocation(folder);
         QFile lock(instance::lockFilePath(folder));
         QVERIFY(lock.open(QIODevice::WriteOnly));
-        lock.write(QByteArray::number(QCoreApplication::applicationPid()) + "\nSynBench\nsome-other-host\n");  // a live pid, another host
+        lock.write(QByteArray::number(QCoreApplication::applicationPid()) + "\nSyntheon\nsome-other-host\n");  // a live pid, another host
         lock.close();
         Storage st(s);
         QCOMPARE(st.open().status, Storage::OpenStatus::InUse);
@@ -327,26 +327,26 @@ private slots:
         QCOMPARE(RunRepository(live.storage().connection()).load(run.uuid)->status, RunStatus::Running);
     }
 
-    // `SynBench --synbench-selfcheck` (the check CI runs on the real AppImage): in a
+    // `Syntheon --syntheon-selfcheck` (the check CI runs on the real AppImage): in a
     // build tree it passes by finding the helper, needs no display or root, and says so.
     void selfCheckRunsWithoutADisplayOrRoot()
     {
-#if defined(SYNBENCH_EXE) && defined(Q_OS_UNIX)
-        // --synbench-selfcheck returns from main() before any storage or
+#if defined(SYNTHEON_EXE) && defined(Q_OS_UNIX)
+        // --syntheon-selfcheck returns from main() before any storage or
         // settings exist (src/app/self_check.cpp only checks the helper);
         // the scratch data and settings make even a direct run, outside
         // CTest's environment, unable to reach the real ones if that changes.
         QTemporaryDir scratch;
         QProcess p;
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        env.insert(QStringLiteral("SYNBENCH_DATA_DIR"), scratch.filePath(QStringLiteral("data")));
-        env.insert(QStringLiteral("SYNBENCH_SETTINGS_FILE"), scratch.filePath(QStringLiteral("settings.ini")));
+        env.insert(QStringLiteral("SYNTHEON_DATA_DIR"), scratch.filePath(QStringLiteral("data")));
+        env.insert(QStringLiteral("SYNTHEON_SETTINGS_FILE"), scratch.filePath(QStringLiteral("settings.ini")));
         env.remove(QStringLiteral("DISPLAY"));
         env.remove(QStringLiteral("WAYLAND_DISPLAY"));
         env.remove(QStringLiteral("APPIMAGE"));
         env.remove(QStringLiteral("APPDIR"));
         p.setProcessEnvironment(env);
-        p.start(QStringLiteral(SYNBENCH_EXE), {QStringLiteral("--synbench-selfcheck")});
+        p.start(QStringLiteral(SYNTHEON_EXE), {QStringLiteral("--syntheon-selfcheck")});
         QVERIFY(p.waitForFinished(20000));
         const QString out = QString::fromLocal8Bit(p.readAllStandardOutput());
         QVERIFY2(p.exitCode() == 0 && out.contains(QStringLiteral("PASS: helper ")), qPrintable(out));
@@ -355,7 +355,7 @@ private slots:
         env.insert(QStringLiteral("APPIMAGE"), QStringLiteral("/tmp/evil.AppImage"));
         env.insert(QStringLiteral("APPDIR"), QStringLiteral("/tmp/evil"));
         p.setProcessEnvironment(env);
-        p.start(QStringLiteral(SYNBENCH_EXE), {QStringLiteral("--synbench-selfcheck")});
+        p.start(QStringLiteral(SYNTHEON_EXE), {QStringLiteral("--syntheon-selfcheck")});
         QVERIFY(p.waitForFinished(20000));
         QCOMPARE(p.exitCode(), 0);
 #else
@@ -367,21 +367,21 @@ private slots:
     // the first gets the request; a different folder starts normally.
     void secondProcessExitsCleanlyAndTheFirstIsToldToRaise()
     {
-#if defined(SYNBENCH_EXE) && !defined(Q_OS_WIN)
-        // (Windows: SynBench.exe is a GUI-subsystem program with no stderr to read
+#if defined(SYNTHEON_EXE) && !defined(Q_OS_WIN)
+        // (Windows: Syntheon.exe is a GUI-subsystem program with no stderr to read
         // the "listening" / "asked for this window" log lines from, and it asks
         // for administrator rights. The in-process tests above cover the logic.)
         QTemporaryDir dir;
         auto launch = [&](QProcess &p, const QString &folder, const QString &ini) {
             QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
             env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
-            env.insert(QStringLiteral("SYNBENCH_NO_ELEVATION"), QStringLiteral("1"));
-            env.insert(QStringLiteral("SYNBENCH_DATA_DIR"), folder);
-            env.insert(QStringLiteral("SYNBENCH_SETTINGS_FILE"), dir.filePath(ini));
-            env.insert(QStringLiteral("QT_LOGGING_RULES"), QStringLiteral("synbench.instance.info=true"));
+            env.insert(QStringLiteral("SYNTHEON_NO_ELEVATION"), QStringLiteral("1"));
+            env.insert(QStringLiteral("SYNTHEON_DATA_DIR"), folder);
+            env.insert(QStringLiteral("SYNTHEON_SETTINGS_FILE"), dir.filePath(ini));
+            env.insert(QStringLiteral("QT_LOGGING_RULES"), QStringLiteral("syntheon.instance.info=true"));
             p.setProcessEnvironment(env);
             p.setProcessChannelMode(QProcess::MergedChannels);
-            p.start(QStringLiteral(SYNBENCH_EXE), {});
+            p.start(QStringLiteral(SYNTHEON_EXE), {});
         };
         const QString shared = dir.filePath(QStringLiteral("shared"));
         QProcess first;
@@ -411,7 +411,7 @@ private slots:
                 p->kill();
         }
 #else
-        QSKIP("the SynBench executable path isn't known to this test");
+        QSKIP("the Syntheon executable path isn't known to this test");
 #endif
     }
 };

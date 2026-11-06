@@ -2,8 +2,8 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
-import SynBench
-import SynBenchTest
+import Syntheon
+import SyntheonTest
 
 // Results, Detail (every block type from real stub runs), the Battery tab
 // (D4, N4), the Stopped "partial" marker (N2) and View log (D16).

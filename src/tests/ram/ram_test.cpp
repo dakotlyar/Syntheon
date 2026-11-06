@@ -352,7 +352,7 @@ private:
     void forcedFailure(Measurement &m, const QString &stage) const;
     std::optional<QString> shortOfMemory(std::uint64_t bytes) const;
 
-    // RunContext::setPart, remembered for the SYNBENCH_RAM_FAIL hook.
+    // RunContext::setPart, remembered for the SYNTHEON_RAM_FAIL hook.
     void setPart(const QString &part)
     {
         m_part = part;
@@ -498,14 +498,14 @@ bool RamRun::failed(const QString &group, const Measurement &m, const QString &w
 
 void RamRun::forcedFailure(Measurement &m, const QString &stage) const
 {
-#if defined(SYNBENCH_DEV_HOOKS)
-    // Tests: SYNBENCH_RAM_FAIL=<prefix> makes the first measurement whose
+#if defined(SYNTHEON_DEV_HOOKS)
+    // Tests: SYNTHEON_RAM_FAIL=<prefix> makes the first measurement whose
     // stage, or "<part>: <stage>", starts with it a wrong result
     // ("Copy", "All-thread bandwidth: Copy"; AP-5 L2).
-    const QString fail = qEnvironmentVariable("SYNBENCH_RAM_FAIL");
+    const QString fail = qEnvironmentVariable("SYNTHEON_RAM_FAIL");
     if (m.ok() && !fail.isEmpty() && (stage.startsWith(fail) || (m_part + QStringLiteral(": ") + stage).startsWith(fail))) {
         m.outcome = Measurement::Outcome::WrongResult;
-        m.error = "forced wrong result (SYNBENCH_RAM_FAIL)";
+        m.error = "forced wrong result (SYNTHEON_RAM_FAIL)";
     }
 #else
     (void)m;
@@ -1129,13 +1129,13 @@ void RamRun::loaded()
         groupFail(kLoadedId, status, reason);
         groupEnd(kLoadedId);
     };
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     // Tests on a small runner (CI: one core, two SMT threads):
-    // SYNBENCH_RAM_LOAD_SHARES_CORE=1 lets the load run on the chased core's
+    // SYNTHEON_RAM_LOAD_SHARES_CORE=1 lets the load run on the chased core's
     // SMT sibling, or on the chased CPU itself, where §5.4 would say N/A, so
     // the loaded paths still run. Never in a product build (packaging
     // presets build without dev hooks); the numbers mean nothing.
-    const bool shareCore = qEnvironmentVariableIntValue("SYNBENCH_RAM_LOAD_SHARES_CORE") == 1;
+    const bool shareCore = qEnvironmentVariableIntValue("SYNTHEON_RAM_LOAD_SHARES_CORE") == 1;
 #else
     const bool shareCore = false;
 #endif
@@ -1161,7 +1161,7 @@ void RamRun::loaded()
         loadOn = ram::loadCpus(m_allowed, {isa::cpuKey(pick.core)});  // the SMT sibling
         if (loadOn.empty())
             loadOn = m_allowed;  // one CPU: the chased one
-        m_ctx.log(LogLevel::Warning, QStringLiteral("Loaded latency: SYNBENCH_RAM_LOAD_SHARES_CORE: the load shares the chased "
+        m_ctx.log(LogLevel::Warning, QStringLiteral("Loaded latency: SYNTHEON_RAM_LOAD_SHARES_CORE: the load shares the chased "
                                                     "core (a test hook; these numbers mean nothing)"));
     }
     for (const isa::CoreChoice &c : loadOn) {

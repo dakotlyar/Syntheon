@@ -50,7 +50,7 @@ bool writeAll(int fd, const Bytes &bytes)
         if (n < 0) {
             if (errno == EINTR)
                 continue;
-            return false;  // EPIPE: SynBench is gone
+            return false;  // EPIPE: Syntheon is gone
         }
         done += std::size_t(n);
     }
@@ -67,7 +67,7 @@ int serve(Core &core, int inFd, int outFd)
     for (;;) {
         const ssize_t n = ::read(inFd, buf, sizeof buf);
         if (n == 0)
-            return 0;  // EOF: SynBench exited or crashed. Nothing to restore in Phase 1.
+            return 0;  // EOF: Syntheon exited or crashed. Nothing to restore in Phase 1.
         if (n < 0) {
             if (errno == EINTR)
                 continue;

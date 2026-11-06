@@ -40,12 +40,12 @@ struct RecoveryReport {
 //  2. F5: every scratch folder still registered for a run that isn't running
 //     is deleted (that includes abandoned runs, which are already
 //     'interrupted'), then its row. A path that isn't exactly
-//     <scratchRoot>/synbench-<uuid>/<name>, or is a link, is never deleted,
+//     <scratchRoot>/syntheon-<uuid>/<name>, or is a link, is never deleted,
 //     only unregistered.
 // Each run is finalised last, so recovery interrupted half-way just runs
 // again at the next start.
 // `scratchRoot` is the orchestrator's (Config::scratchRoot, default
-// QDir::tempPath()): only folders under <scratchRoot>/synbench-<uuid>/ are
+// QDir::tempPath()): only folders under <scratchRoot>/syntheon-<uuid>/ are
 // ever deleted, and never through a link (AP5-R2-2).
 RecoveryReport recoverRuns(QSqlDatabase db, const Registry &registry, const QString &scratchRoot = QString());
 

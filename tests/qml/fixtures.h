@@ -15,7 +15,7 @@
 #include <memory>
 #include <vector>
 
-// QML singleton "Fixtures" (module SynBenchTest): an OptionsModel with one
+// QML singleton "Fixtures" (module SyntheonTest): an OptionsModel with one
 // option of every kind, for the editor tests, and the stub time scale. Declared
 // at build time so qmllint sees it; main.cpp's Setup owns the one instance.
 class Fixtures : public QObject

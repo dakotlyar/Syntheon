@@ -5,7 +5,7 @@
 #ifdef Q_OS_LINUX
 #include "app/self_check.h"
 #endif
-#ifdef SYNBENCH_DEV_HOOKS
+#ifdef SYNTHEON_DEV_HOOKS
 #include "app/screenshot_tour.h"
 #endif
 
@@ -15,7 +15,7 @@
 #include <QQuickWindow>
 #include <QtQml>
 
-#include "synbench_version.h"
+#include "syntheon_version.h"
 
 #include <cstdio>
 #include <cstring>
@@ -28,13 +28,13 @@
 int main(int argc, char *argv[])
 {
 #ifdef Q_OS_LINUX
-    // `SynBench --synbench-selfcheck`: read-only, unprivileged, prints PASS/FAIL.
+    // `Syntheon --syntheon-selfcheck`: read-only, unprivileged, prints PASS/FAIL.
     // (Ahead of everything else, so it works as any user and without a display.)
-    if (argc > 1 && std::strcmp(argv[1], "--synbench-selfcheck") == 0)
+    if (argc > 1 && std::strcmp(argv[1], "--syntheon-selfcheck") == 0)
         return sb::runSelfCheck(argc, argv);
 #endif
-#ifndef SYNBENCH_DEV_HOOKS
-    // SynBench runs elevated: first of all, before Qt (or anything else) loads a
+#ifndef SYNTHEON_DEV_HOOKS
+    // Syntheon runs elevated: first of all, before Qt (or anything else) loads a
     // library, restrict where DLLs come from (Windows). The exe's own
     // /DEPENDENTLOADFLAG covers the libraries that load before main().
     // PACKAGED builds only: they have every DLL and plugin beside the exe
@@ -58,9 +58,9 @@ int main(int argc, char *argv[])
 
 #ifdef Q_OS_LINUX
     // P25: never run the GUI as root. A root GUI breaks on Wayland and leaves
-    // root-owned history; SynBench asks for administrator access itself.
+    // root-owned history; Syntheon asks for administrator access itself.
     if (geteuid() == 0) {
-        std::fputs("SynBench must not be run as root (for example with sudo). Start it as your normal user;\n"
+        std::fputs("Syntheon must not be run as root (for example with sudo). Start it as your normal user;\n"
                    "it asks for administrator access itself when it starts.\n",
                    stderr);
         return 1;
@@ -68,18 +68,18 @@ int main(int argc, char *argv[])
 #endif
 
     QGuiApplication app(argc, argv);
-    QGuiApplication::setApplicationName(QStringLiteral("SynBench"));
-    QGuiApplication::setApplicationDisplayName(QStringLiteral("SynBench"));
+    QGuiApplication::setApplicationName(QStringLiteral("Syntheon"));
+    QGuiApplication::setApplicationDisplayName(QStringLiteral("Syntheon"));
     // Matches the .desktop file, so Wayland compositors show the right icon.
-    QGuiApplication::setDesktopFileName(QStringLiteral("io.github.dakotlyar.SynBench"));
-    QGuiApplication::setApplicationVersion(QStringLiteral(SYNBENCH_DISPLAY_VERSION));
+    QGuiApplication::setDesktopFileName(QStringLiteral("io.github.dakotlyar.Syntheon"));
+    QGuiApplication::setApplicationVersion(QStringLiteral(SYNTHEON_DISPLAY_VERSION));
 
     sb::loadBundledFonts();
     // P15: Qt Quick Controls Basic, re-skinned in QML.
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     sb::AppRuntime runtime(sb::AppRuntime::optionsFromEnvironment());
-    // One SynBench per history: a second launch asks the first to come to the
+    // One Syntheon per history: a second launch asks the first to come to the
     // front and leaves quietly (exit code 0). This is before the window and
     // before the administrator prompt.
     if (!runtime.claimInstance())
@@ -91,7 +91,7 @@ int main(int argc, char *argv[])
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
         [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
-    engine.loadFromModule("SynBench", "Main");
+    engine.loadFromModule("Syntheon", "Main");
     runtime.start();
 
     // A second launch asks us to come to the front. Wayland may refuse to
@@ -112,9 +112,9 @@ int main(int argc, char *argv[])
         w->alert(0);
     });
 
-#ifdef SYNBENCH_DEV_HOOKS
-    // Developer tool: SYNBENCH_TOUR=<folder> saves a screenshot of every screen.
-    const QString tourFolder = qEnvironmentVariable("SYNBENCH_TOUR");
+#ifdef SYNTHEON_DEV_HOOKS
+    // Developer tool: SYNTHEON_TOUR=<folder> saves a screenshot of every screen.
+    const QString tourFolder = qEnvironmentVariable("SYNTHEON_TOUR");
     std::unique_ptr<sb::ScreenshotTour> tour;
     if (!tourFolder.isEmpty() && !engine.rootObjects().isEmpty()) {
         tour = std::make_unique<sb::ScreenshotTour>(qobject_cast<QQuickWindow *>(engine.rootObjects().first()), runtime,

@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // The CrystalDiskMark-style grid (Storage): row labels down the side, a
 // value with its unit (and IOPS) in each cell. One flat grid so the header

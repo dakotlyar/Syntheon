@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 $tool = Join-Path $HostQt 'bin\windeployqt.exe'
 $qmlDir = Join-Path $PSScriptRoot '..\..\src\app\qml'
 $args = @('--release', '--no-translations', '--no-compiler-runtime', '--no-opengl-sw', '--no-system-d3d-compiler',
-          '--qmldir', $qmlDir, (Join-Path $Stage 'SynBench.exe'))
+          '--qmldir', $qmlDir, (Join-Path $Stage 'Syntheon.exe'))
 if ($TargetQt) {
     # The aqt "arm64_cross_compiled" Qt ships host-qtpaths.bat: a wrapper that
     # runs the HOST qtpaths with the target's configuration (target_qt.conf).
@@ -45,8 +45,8 @@ if ($TargetQt) {
 }
 & $tool @args
 if ($LASTEXITCODE -ne 0) { throw "windeployqt exited with $LASTEXITCODE" }
-# The GPU worker (synbench-gpu.exe, next to SynBench.exe) runs its probe and its headless mode on Qt's
-# offscreen platform plugin. windeployqt analysed SynBench.exe only and deploys qwindows.dll alone, so
+# The GPU worker (syntheon-gpu.exe, next to Syntheon.exe) runs its probe and its headless mode on Qt's
+# offscreen platform plugin. windeployqt analysed Syntheon.exe only and deploys qwindows.dll alone, so
 # qoffscreen.dll is copied here, from the TARGET Qt (the ARM64 one on the cross route, never the host's
 # x64 copy; pe-check.ps1 then checks its architecture and its imports like every other DLL).
 $qtRoot = if ($TargetQt) { $TargetQt } else { $HostQt }
@@ -57,7 +57,7 @@ if (-not (Test-Path (Join-Path $platforms 'qwindows.dll'))) { $platforms = Join-
 if (-not (Test-Path (Join-Path $platforms 'qwindows.dll'))) { throw "windeployqt deployed no qwindows.dll under $Stage" }
 Copy-Item $offscreen $platforms -Force
 Write-Host "copied $offscreen -> $platforms"
-# Plugins SynBench does not use. The SQL drivers other than SQLite need client
+# Plugins Syntheon does not use. The SQL drivers other than SQLite need client
 # libraries we do not ship (OCI.dll, LIBPQ.dll, fbclient.dll, MIMAPI64.dll...),
 # which pe-check.ps1 rightly rejects; and nothing here needs the others below.
 # What is kept is named, so a new plugin has to be added on purpose.

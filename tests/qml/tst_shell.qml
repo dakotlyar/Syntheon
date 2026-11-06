@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtTest
-import SynBench
+import Syntheon
 
 // §7/§10: switching rail <-> top tabs swaps only the nav, so every screen keeps
 // its state; a narrow window falls back to the top strip by itself.

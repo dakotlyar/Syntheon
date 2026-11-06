@@ -12,18 +12,18 @@ foreach(kind stub real)
     file(MAKE_DIRECTORY "${_dir}/${kind}")
     add_custom_command(
         OUTPUT "${_dir}/${kind}.lib"
-        COMMAND "${SYNBENCH_CLANG}" ${_coff_flags} "${CMAKE_CURRENT_SOURCE_DIR}/${kind}-aesni-gcm-x86_64.s"
+        COMMAND "${SYNTHEON_CLANG}" ${_coff_flags} "${CMAKE_CURRENT_SOURCE_DIR}/${kind}-aesni-gcm-x86_64.s"
                 -o "${_dir}/${kind}/aesni-gcm-x86_64.obj"
-        COMMAND "${SYNBENCH_CLANG}" ${_coff_flags} "${CMAKE_CURRENT_SOURCE_DIR}/sha256-x86_64.s"
+        COMMAND "${SYNTHEON_CLANG}" ${_coff_flags} "${CMAKE_CURRENT_SOURCE_DIR}/sha256-x86_64.s"
                 -o "${_dir}/${kind}/sha256-x86_64.obj"
         COMMAND "${CMAKE_COMMAND}" -E rm -f "${_dir}/${kind}.lib"
-        COMMAND "${SYNBENCH_LLVM_AR}" rcs "${_dir}/${kind}.lib" aesni-gcm-x86_64.obj sha256-x86_64.obj
+        COMMAND "${SYNTHEON_LLVM_AR}" rcs "${_dir}/${kind}.lib" aesni-gcm-x86_64.obj sha256-x86_64.obj
         WORKING_DIRECTORY "${_dir}/${kind}"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${kind}-aesni-gcm-x86_64.s" "${CMAKE_CURRENT_SOURCE_DIR}/sha256-x86_64.s"
         VERBATIM)
 endforeach()
 add_custom_target(planted_crypto_coff ALL DEPENDS "${_dir}/stub.lib" "${_dir}/real.lib")
-set(_check "${SYNBENCH_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/crypto-symbols.py"
-    --arch x86_64 --nm "${SYNBENCH_LLVM_NM}" --objdump "${SYNBENCH_LLVM_OBJDUMP}")
+set(_check "${SYNTHEON_PYTHON3}" "${PROJECT_SOURCE_DIR}/packaging/checks/crypto-symbols.py"
+    --arch x86_64 --nm "${SYNTHEON_LLVM_NM}" --objdump "${SYNTHEON_LLVM_OBJDUMP}")
 add_test(NAME crypto_symbols_coff_rejects_stub_gcm COMMAND ${_check} "${_dir}/stub.lib" --expect-missing AES)
 add_test(NAME crypto_symbols_coff_accepts_real COMMAND ${_check} "${_dir}/real.lib")

@@ -12,7 +12,7 @@ class TestHardening : public QObject
     Q_OBJECT
 
 private slots:
-    // The environment a caller could use to make an elevated SynBench load
+    // The environment a caller could use to make an elevated Syntheon load
     // plugins, QML or a style config from somewhere it controls.
     void scrubRemovesTheLoadPathVariablesAndOnlyThose()
     {

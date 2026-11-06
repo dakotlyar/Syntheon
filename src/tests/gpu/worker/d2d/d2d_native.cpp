@@ -96,7 +96,7 @@ std::string Direct2DNative::createDevice(const BackendInit &init, BackendInfo *i
     UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | (init.validation ? D3D11_CREATE_DEVICE_DEBUG : 0);
     HRESULT hr = D3D11CreateDevice(m_adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, flags, levels, 2, D3D11_SDK_VERSION, &m_device, &level, &m_cx);
     if (hr == DXGI_ERROR_SDK_COMPONENT_MISSING && (flags & D3D11_CREATE_DEVICE_DEBUG)) {
-        std::fprintf(stderr, "synbench-gpu: d2d: the debug layer isn't installed; running without validation\n");
+        std::fprintf(stderr, "syntheon-gpu: d2d: the debug layer isn't installed; running without validation\n");
         flags &= ~UINT(D3D11_CREATE_DEVICE_DEBUG);
         hr = D3D11CreateDevice(m_adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, flags, levels, 2, D3D11_SDK_VERSION, &m_device, &level, &m_cx);
     }
@@ -201,7 +201,7 @@ std::string Direct2DNative::createTextFormat()
     };
     const std::string why = bundled();
     if (!why.empty()) {
-        std::fprintf(stderr, "synbench-gpu: d2d: warning: %s; the text workload uses Segoe UI\n", why.c_str());
+        std::fprintf(stderr, "syntheon-gpu: d2d: warning: %s; the text workload uses Segoe UI\n", why.c_str());
         m_warning = why + "; the text workload uses Segoe UI instead of IBM Plex Sans";  // reaches the result (a `warning` event)
         m_fonts.Reset();  // the system collection
         m_family = kFallbackFamily;
@@ -623,7 +623,7 @@ std::string Direct2DNative::readback(double t, std::vector<std::uint8_t> *rgba8)
     return readBitmap(m_content.Get(), m_init.renderWidth, m_init.renderHeight, rgba8);
 }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 std::string Direct2DNative::readbackPresented(std::vector<std::uint8_t> *rgba8)
 {
     if (!m_headless || !m_resumed || !m_loaded || m_frame == 0)
@@ -647,7 +647,7 @@ std::string Direct2DNative::validationProblem()
             if (m->Severity != D3D11_MESSAGE_SEVERITY_ERROR && m->Severity != D3D11_MESSAGE_SEVERITY_CORRUPTION)
                 continue;
             const std::string text(m->pDescription ? m->pDescription : "(no message)");
-            std::fprintf(stderr, "synbench-gpu: d2d: %s\n", text.c_str());
+            std::fprintf(stderr, "syntheon-gpu: d2d: %s\n", text.c_str());
             if (m_validationErrors++ == 0)
                 m_firstValidationError = text;
         }

@@ -67,7 +67,7 @@ public:
         Idle,
         Running,
         Stopping,
-        Abandoned,  // a test didn't respond; restart SynBench to run again
+        Abandoned,  // a test didn't respond; restart Syntheon to run again
     };
     Q_ENUM(State)
 

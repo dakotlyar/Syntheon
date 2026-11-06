@@ -2,7 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Shapes
-import SynBench
+import Syntheon
 
 // A hand-built line chart (P14). Data is plain values so it can be tested:
 //   points      [{x, y}]

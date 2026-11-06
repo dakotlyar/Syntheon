@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
-import SynBench
+import Syntheon
 
 // The one text item: theme colours and fonts, in the mockup's styles.
 //   kind: "body" | "muted" | "small" | "label" | "data" | "display" | "title"

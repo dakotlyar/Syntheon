@@ -6,7 +6,7 @@
 // decompressed block's hash must equal it. In the kernels library, so its
 // code is built with P7's flags like the other kernels.
 //
-// Eight independent lanes over little-endian 8-byte words (every SynBench
+// Eight independent lanes over little-endian 8-byte words (every Syntheon
 // platform is little-endian), each step h = rotl((h ^ w) * k, 31), so a bit
 // of a word reaches the low bits of its lane as well as the high ones (a
 // plain multiply only carries upwards: flipping bit 63 of two words of a

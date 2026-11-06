@@ -27,7 +27,7 @@ using Clock = std::chrono::steady_clock;
 
 namespace {
 
-const QString kDidNotRespond = QStringLiteral("Did not respond, restart SynBench");
+const QString kDidNotRespond = QStringLiteral("Did not respond, restart Syntheon");
 
 UnavailablePrivilegedOps &unavailableOps()
 {
@@ -125,7 +125,7 @@ struct Orchestrator::Shared {
         QString error;
         if (f(error))
             return true;
-        qWarning("SynBench: history write failed: %s", qPrintable(error));
+        qWarning("Syntheon: history write failed: %s", qPrintable(error));
         post([error](Orchestrator *o) { emit o->storageError(error); });
         return false;
     }
@@ -274,7 +274,7 @@ public:
 
     // After run() returns: delete the scratch folder and its registration.
     // AP5-R2-2: the test may have replaced the folder with a link; only the
-    // exact <root>/synbench-<uuid>/<test> folder is deleted, and never by
+    // exact <root>/syntheon-<uuid>/<test> folder is deleted, and never by
     // following a link.
     void cleanup()
     {
@@ -585,7 +585,7 @@ Orchestrator::StartResult Orchestrator::start(const Plan &plan, const RunMeta &m
 {
     StartResult result;
     if (m_state == State::Abandoned) {
-        result.errors.append(QStringLiteral("A test stopped responding. Restart SynBench to run tests again."));
+        result.errors.append(QStringLiteral("A test stopped responding. Restart Syntheon to run tests again."));
         return result;
     }
     if (m_state != State::Idle) {
@@ -785,7 +785,7 @@ void Orchestrator::abandon(int index)
     QString error;
     const auto check = [&](bool ok) {
         if (!ok) {
-            qWarning("SynBench: history write failed: %s", qPrintable(error));
+            qWarning("Syntheon: history write failed: %s", qPrintable(error));
             emit storageError(error);
         }
     };

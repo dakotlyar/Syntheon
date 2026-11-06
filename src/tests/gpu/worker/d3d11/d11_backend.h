@@ -95,7 +95,7 @@ public:
     // Everything released (also by the destructor); the validation counters stay readable.
     void shutdown();
     int validationErrors() const { return m_validationErrors; }
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     // Dev hook, headless only (task 20's overlay test, as Vulkan's and D3D12's): the
     // last frame's present-pass output (render size, RGBA8, top row first), after drain().
     std::string readbackPresented(std::vector<std::uint8_t> *rgba8);

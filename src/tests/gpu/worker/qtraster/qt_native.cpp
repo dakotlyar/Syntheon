@@ -18,7 +18,7 @@ namespace sb::gpu {
 namespace {
 
 constexpr QRgb kBackground = qRgb(18, 20, 26);
-constexpr char kFontResource[] = ":/synbench-gpu/fonts/IBMPlexSans-Variable.ttf";
+constexpr char kFontResource[] = ":/syntheon-gpu/fonts/IBMPlexSans-Variable.ttf";
 
 QColor colourOf(std::uint32_t rgba8)
 {
@@ -253,7 +253,7 @@ std::string QtNative::frame(double t)
         return "frame() before load()";
     drawOps(t);
     if (!m_store || !m_window) {
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
         compose(m_content.width() > 0 ? std::uint32_t(m_content.width()) : 0, std::uint32_t(m_content.height()));  // headless: the dev hook's image
 #endif
         return {};  // headless: nothing is presented

@@ -9,11 +9,11 @@ class QString;
 
 namespace sb::tests {
 
-// A SYNBENCH_STUB_SCALE value: a plain finite number in (0, 100], else nothing.
+// A SYNTHEON_STUB_SCALE value: a plain finite number in (0, 100], else nothing.
 std::optional<double> parseStubScale(const QString &text);
 
-// Phase 1 stubs take about 10-30 s each (P20). SYNBENCH_STUB_SCALE (a factor,
-// e.g. 0.05) shortens that for tests; SYNBENCH_SMOKE=1 implies 0.03. The real
+// Phase 1 stubs take about 10-30 s each (P20). SYNTHEON_STUB_SCALE (a factor,
+// e.g. 0.05) shortens that for tests; SYNTHEON_SMOKE=1 implies 0.03. The real
 // CPU test scales its measurement windows by the same factor (Phase 2 §12,
 // tests/cpu/engine/time_scale.h); a packaged build is always at 1.
 double stubTimeScale();

@@ -35,7 +35,7 @@ bool LogindPowerInhibitor::acquire(const QString &why, QString *error)
         return false;
     }
     const QDBusReply<QDBusUnixFileDescriptor> reply =
-        manager.call(QStringLiteral("Inhibit"), QStringLiteral("sleep"), QStringLiteral("SynBench"), why,
+        manager.call(QStringLiteral("Inhibit"), QStringLiteral("sleep"), QStringLiteral("Syntheon"), why,
                      QStringLiteral("block"));
     if (!reply.isValid() || !reply.value().isValid()) {
         if (error)

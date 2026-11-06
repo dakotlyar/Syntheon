@@ -18,7 +18,7 @@ namespace {
 constexpr int kPollMs = 20;  // P-STOP: Stop within 250 ms (shorter than the 50 ms of the spec: headroom on a 1-core runner)
 constexpr qsizetype kMaxLine = pr::kMaxLine;
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 QString g_testProgram;
 QStringList g_testArgs;
 #endif
@@ -53,7 +53,7 @@ public:
             return false;
         }
         QStringList all = args;
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
         if (!g_testProgram.isEmpty())
             all = g_testArgs + args;
 #endif
@@ -237,14 +237,14 @@ ClientOutcome endOutcome(End end, const QString &problem, Link &link, std::chron
 
 QString GpuClient::workerPath()
 {
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     if (!g_testProgram.isEmpty())
         return g_testProgram;
 #endif
 #if defined(Q_OS_WIN)
-    const QString name = QStringLiteral("synbench-gpu.exe");
+    const QString name = QStringLiteral("syntheon-gpu.exe");
 #else
-    const QString name = QStringLiteral("synbench-gpu");
+    const QString name = QStringLiteral("syntheon-gpu");
 #endif
     const QDir dir(QCoreApplication::applicationDirPath());
     for (const QString &candidate : {dir.filePath(name), dir.filePath(QStringLiteral("../libexec/") + name)}) {
@@ -270,7 +270,7 @@ QProcessEnvironment GpuClient::baseEnvironment()
         if (parent.contains(QLatin1StringView(name)))
             env.insert(QString::fromLatin1(name), parent.value(QLatin1StringView(name)));
     }
-    // PATH: the worker's own folder and System32 first, then SynBench's PATH (a dev or test build
+    // PATH: the worker's own folder and System32 first, then Syntheon's PATH (a dev or test build
     // finds the Qt DLLs there; a packaged one has them next to the exe and loads from System32 and
     // its folder only, /DEPENDENTLOADFLAG:0xA00).
     const QString root = parent.value(QStringLiteral("SystemRoot"), QStringLiteral("C:\\Windows"));
@@ -295,8 +295,8 @@ QProcessEnvironment GpuClient::baseEnvironment()
     // 610M's OpenGL Shading at ~8 fps); 60 s is far beyond any frame the test accepts.
     env.insert(QStringLiteral("QT_WAYLAND_FRAME_CALLBACK_TIMEOUT"), QStringLiteral("60000"));
 #endif
-#if defined(SYNBENCH_DEV_HOOKS)
-    for (const QString &pair : parent.value(QStringLiteral("SYNBENCH_GPU_WORKER_ENV")).split(QLatin1Char('|'), Qt::SkipEmptyParts)) {
+#if defined(SYNTHEON_DEV_HOOKS)
+    for (const QString &pair : parent.value(QStringLiteral("SYNTHEON_GPU_WORKER_ENV")).split(QLatin1Char('|'), Qt::SkipEmptyParts)) {
         const qsizetype eq = pair.indexOf(QLatin1Char('='));
         if (eq > 0)
             env.insert(pair.left(eq), pair.mid(eq + 1));
@@ -307,8 +307,8 @@ QProcessEnvironment GpuClient::baseEnvironment()
 
 QStringList GpuClient::extraArgs()
 {
-#if defined(SYNBENCH_DEV_HOOKS)
-    return qEnvironmentVariable("SYNBENCH_GPU_WORKER_ARGS").split(QLatin1Char(' '), Qt::SkipEmptyParts);
+#if defined(SYNTHEON_DEV_HOOKS)
+    return qEnvironmentVariable("SYNTHEON_GPU_WORKER_ARGS").split(QLatin1Char(' '), Qt::SkipEmptyParts);
 #else
     return {};
 #endif
@@ -426,7 +426,7 @@ std::optional<pr::GlEvent> GpuClient::probeGl(const GpuEntry &gpu, const QProces
     return gl;
 }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 void GpuClient::setWorkerForTests(const QString &program, const QStringList &extraArgs)
 {
     g_testProgram = program;

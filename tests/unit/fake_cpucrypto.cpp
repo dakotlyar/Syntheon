@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// A fake synbench-cpucrypto for tst_cpu_crypto (through
+// A fake syntheon-cpucrypto for tst_cpu_crypto (through
 // CryptoClient::setWorkerForTests): it prints a well-formed run, or a
 // planted defect, and exits. No OpenSSL, no Qt.
 //   fake-cpucrypto --fake ok|wrongsum|absurd|nonl|crash [--checksum 0x...] <the worker's usual arguments>

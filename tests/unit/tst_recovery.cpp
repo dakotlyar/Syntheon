@@ -81,7 +81,7 @@ struct Fixture {
         fakes.insert(QStringLiteral("battery"), b.get());
         registry.add(std::move(b));
     }
-    QString dbPath() const { return dir.filePath(QStringLiteral("synbench.db")); }
+    QString dbPath() const { return dir.filePath(QStringLiteral("syntheon.db")); }
     QSqlDatabase db() { return conn->db(); }
     RunRepository repo() { return RunRepository(db()); }
 
@@ -161,7 +161,7 @@ private slots:
         // Committed results are kept; the rest are Interrupted.
         QCOMPARE(statuses(run), (QStringList{QStringLiteral("cpu=ok"), QStringLiteral("ram=interrupted"),
                                              QStringLiteral("gpu=interrupted")}));
-        QCOMPARE(run.tests[1].statusReason, QStringLiteral("SynBench closed before this test finished"));
+        QCOMPARE(run.tests[1].statusReason, QStringLiteral("Syntheon closed before this test finished"));
         QCOMPARE(run.overall, std::optional<double>(100));
         // finished_at = the last sign of life (the log line), not "now".
         QVERIFY(run.finishedAt < QDateTime::currentDateTimeUtc().addSecs(-30));
@@ -406,7 +406,7 @@ private slots:
         QTemporaryDir root;
         const RunRecord seeded = f.seed({placeholder(QStringLiteral("cpu"))});
         const QString path = QDir(root.path()).filePath(
-            QStringLiteral("synbench-%1/cpu").arg(seeded.uuid.toString(QUuid::WithoutBraces)));
+            QStringLiteral("syntheon-%1/cpu").arg(seeded.uuid.toString(QUuid::WithoutBraces)));
         QVERIFY(QDir().mkpath(path));
         RunRepository repo = f.repo();
         QVERIFY(repo.addScratchPath(*repo.runId(seeded.uuid), path));
@@ -486,7 +486,7 @@ private slots:
         RunRepository repo = f.repo();
         const auto id = repo.saveRun(done);
         QVERIFY(repo.addScratchPath(*id, precious.path()));
-        QVERIFY(repo.addScratchPath(*id, QStringLiteral("relative/synbench-x")));
+        QVERIFY(repo.addScratchPath(*id, QStringLiteral("relative/syntheon-x")));
 
         const RecoveryReport report = recoverRuns(f.db(), f.registry);
         QCOMPARE(report.scratchPathsRemoved, 0);

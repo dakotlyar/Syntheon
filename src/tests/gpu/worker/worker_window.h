@@ -28,7 +28,7 @@ public:
     ~WorkerWindow() override;
     bool stopRequested() const;   // Esc or close
     bool windowOk() const;        // exposed, and size/screen/scale unchanged since the first expose
-    void setWorkloadTitle(const QString &api, const QString &workload);  // "SynBench GPU test · Vulkan · Geometry"
+    void setWorkloadTitle(const QString &api, const QString &workload);  // "Syntheon GPU test · Vulkan · Geometry"
 
     // Task 9: whether it has been exposed since the last show(), and why
     // windowOk() is false (§3.2, §3.3 reasons; "" while it is ok).
@@ -42,7 +42,7 @@ public:
     void rebase();  // take the baseline now (screen, scale, size), if exposed
     // The screen or the scale differs from the baseline (the compositor moved the window).
     bool placementChanged() const { return m_armed && (screen() != m_screen || devicePixelRatio() != m_dpr); }
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     void fakeMove() { m_fakeMoved = true; }  // dev hook: the next problem() says the window moved
 #endif
     // Task 10 (qt_glue::vulkanTarget): the QVulkanInstance that adopted the
@@ -54,7 +54,7 @@ protected:
 
 private:
     bool m_stop = false;
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     bool m_fakeMoved = false;
 #endif
     bool m_armed = false;  // the baseline below is set (the first expose since show())

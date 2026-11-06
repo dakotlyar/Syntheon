@@ -12,7 +12,7 @@ X86Cpu fromIsa(const isa::CpuFeatures &f)
 {
     using isa::Feature;
     // System info's names for the features it lists (x86FeatureOrder()); the
-    // others synbench_isa knows (PCLMULQDQ, VAES...) aren't shown here.
+    // others syntheon_isa knows (PCLMULQDQ, VAES...) aren't shown here.
     static const QHash<QString, Feature> byName = {
         {QStringLiteral("sse2"), Feature::Sse2},          {QStringLiteral("sse3"), Feature::Sse3},
         {QStringLiteral("ssse3"), Feature::Ssse3},        {QStringLiteral("sse4.1"), Feature::Sse41},

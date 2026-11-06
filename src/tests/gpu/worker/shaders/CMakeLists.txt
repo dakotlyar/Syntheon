@@ -7,17 +7,17 @@
 # tools, also for the ARM64 cross build), into
 # ${CMAKE_BINARY_DIR}/gpu_shaders/<name>_<vs|ps>.<dxil|dxbc>.inc.
 #
-# The target synbench_gpu_shaders builds them. The GPU backends depend on it
-# and include the files from SYNBENCH_GPU_SHADER_DIR:
-#   add_dependencies(synbench_gpu_backends synbench_gpu_shaders)
-#   target_include_directories(synbench_gpu_backends PRIVATE ${SYNBENCH_GPU_SHADER_DIR})
+# The target syntheon_gpu_shaders builds them. The GPU backends depend on it
+# and include the files from SYNTHEON_GPU_SHADER_DIR:
+#   add_dependencies(syntheon_gpu_backends syntheon_gpu_shaders)
+#   target_include_directories(syntheon_gpu_backends PRIVATE ${SYNTHEON_GPU_SHADER_DIR})
 # (a custom command's outputs only get a rule in the folder that declares
 # them, so the backends use the target, not the files as sources).
 if(NOT WIN32)
     return()
 endif()
 
-set(SYNBENCH_GPU_SHADER_DIR "${CMAKE_BINARY_DIR}/gpu_shaders" CACHE INTERNAL "The Windows build's DXIL/DXBC includes")
+set(SYNTHEON_GPU_SHADER_DIR "${CMAKE_BINARY_DIR}/gpu_shaders" CACHE INTERNAL "The Windows build's DXIL/DXBC includes")
 
 # The SDK: the developer environment's WindowsSdkDir/WindowsSDKVersion (Ninja
 # builds), else the Visual Studio generator's variables, else the newest
@@ -42,9 +42,9 @@ if(_sdk_dir)
         list(APPEND _sdk_bins "${_v}/x64")
     endforeach()
 endif()
-find_program(SYNBENCH_SDK_DXC NAMES dxc PATHS ${_sdk_bins} NO_DEFAULT_PATH)
-find_program(SYNBENCH_SDK_FXC NAMES fxc PATHS ${_sdk_bins} NO_DEFAULT_PATH)
-if(NOT SYNBENCH_SDK_DXC OR NOT SYNBENCH_SDK_FXC)
+find_program(SYNTHEON_SDK_DXC NAMES dxc PATHS ${_sdk_bins} NO_DEFAULT_PATH)
+find_program(SYNTHEON_SDK_FXC NAMES fxc PATHS ${_sdk_bins} NO_DEFAULT_PATH)
+if(NOT SYNTHEON_SDK_DXC OR NOT SYNTHEON_SDK_FXC)
     message(FATAL_ERROR "dxc.exe/fxc.exe not found in the Windows SDK (looked in: ${_sdk_bins})")
 endif()
 
@@ -52,7 +52,7 @@ endif()
 # the banner of `fxc.exe /?`, matched by `regex`; "unknown" when the tool doesn't say. dxc: the first x.y.z
 # ("dxcompiler.dll: 1.8 - 1.8.2505.1" -> 1.8.2505, AP-5 nit); fxc: the first x.y ("Shader Compiler 10.1", before the
 # banner's D3DCompiler path, whose SDK folder "10.0.22621.0" must not match).
-function(_synbench_tool_version out regex exe)
+function(_syntheon_tool_version out regex exe)
     execute_process(COMMAND "${exe}" ${ARGN} OUTPUT_VARIABLE _o ERROR_VARIABLE _e RESULT_VARIABLE _rc TIMEOUT 30)
     string(REGEX MATCH "${regex}" _v "${_o}\n${_e}")
     if(NOT _v)
@@ -60,15 +60,15 @@ function(_synbench_tool_version out regex exe)
     endif()
     set(${out} "${_v}" CACHE INTERNAL "")
 endfunction()
-_synbench_tool_version(SYNBENCH_GPU_DXC_VERSION "[0-9]+\\.[0-9]+\\.[0-9]+" "${SYNBENCH_SDK_DXC}" -version)
-_synbench_tool_version(SYNBENCH_GPU_FXC_VERSION "[0-9]+\\.[0-9]+" "${SYNBENCH_SDK_FXC}" /?)
+_syntheon_tool_version(SYNTHEON_GPU_DXC_VERSION "[0-9]+\\.[0-9]+\\.[0-9]+" "${SYNTHEON_SDK_DXC}" -version)
+_syntheon_tool_version(SYNTHEON_GPU_FXC_VERSION "[0-9]+\\.[0-9]+" "${SYNTHEON_SDK_FXC}" /?)
 
 set(_sb_shader_incs "")
 
-# synbench_gpu_shader(NAME <name>): <name>.hlsl's VSMain and PSMain as DXIL
+# syntheon_gpu_shader(NAME <name>): <name>.hlsl's VSMain and PSMain as DXIL
 # (dxc.exe, vs_6_0/ps_6_0) and DXBC (fxc.exe, vs_5_0/ps_5_0), each embedded
 # as k<Name><Vs|Ps><Dxil|Dxbc>[] and ...Size.
-function(synbench_gpu_shader)
+function(syntheon_gpu_shader)
     cmake_parse_arguments(arg "" "NAME" "" ${ARGN})
     set(src "${CMAKE_CURRENT_SOURCE_DIR}/${arg_NAME}.hlsl")
     set(deps "${src}" "${CMAKE_CURRENT_SOURCE_DIR}/common.hlsli" "${CMAKE_CURRENT_SOURCE_DIR}/lighting.hlsli" "${CMAKE_CURRENT_SOURCE_DIR}/post.hlsli"
@@ -92,16 +92,16 @@ function(synbench_gpu_shader)
             set(entry PSMain)
             set(Stage Ps)
         endif()
-        set(base "${SYNBENCH_GPU_SHADER_DIR}/${arg_NAME}_${stage}")
+        set(base "${SYNTHEON_GPU_SHADER_DIR}/${arg_NAME}_${stage}")
         add_custom_command(OUTPUT "${base}.dxil.inc"
-            COMMAND "${SYNBENCH_SDK_DXC}" -T ${stage}_6_0 -E ${entry} -Fo "${base}.dxil" "${src}"
+            COMMAND "${SYNTHEON_SDK_DXC}" -T ${stage}_6_0 -E ${entry} -Fo "${base}.dxil" "${src}"
             COMMAND "${CMAKE_COMMAND}" "-DINPUT=${base}.dxil" "-DOUTPUT=${base}.dxil.inc"
                     "-DNAME=k${camel}${Stage}Dxil" -P "${PROJECT_SOURCE_DIR}/cmake/EmbedBinary.cmake"
             DEPENDS ${deps}
             COMMENT "DXIL ${arg_NAME}.hlsl ${entry}"
             VERBATIM)
         add_custom_command(OUTPUT "${base}.dxbc.inc"
-            COMMAND "${SYNBENCH_SDK_FXC}" /nologo /T ${stage}_5_0 /E ${entry} /Fo "${base}.dxbc" "${src}"
+            COMMAND "${SYNTHEON_SDK_FXC}" /nologo /T ${stage}_5_0 /E ${entry} /Fo "${base}.dxbc" "${src}"
             COMMAND "${CMAKE_COMMAND}" "-DINPUT=${base}.dxbc" "-DOUTPUT=${base}.dxbc.inc"
                     "-DNAME=k${camel}${Stage}Dxbc" -P "${PROJECT_SOURCE_DIR}/cmake/EmbedBinary.cmake"
             DEPENDS ${deps}
@@ -112,22 +112,22 @@ function(synbench_gpu_shader)
     set(_sb_shader_incs ${_sb_shader_incs} ${incs} PARENT_SCOPE)
 endfunction()
 
-file(MAKE_DIRECTORY "${SYNBENCH_GPU_SHADER_DIR}")
-synbench_gpu_shader(NAME present)
-synbench_gpu_shader(NAME geometry)
-synbench_gpu_shader(NAME drawcalls)
-synbench_gpu_shader(NAME depth_only)
-synbench_gpu_shader(NAME shading)
-synbench_gpu_shader(NAME sky)
-synbench_gpu_shader(NAME particles)
-synbench_gpu_shader(NAME ground)
-synbench_gpu_shader(NAME post_bright)
-synbench_gpu_shader(NAME post_down)
-synbench_gpu_shader(NAME post_up)
-synbench_gpu_shader(NAME post_composite)
-synbench_gpu_shader(NAME post_tonemap)
-synbench_gpu_shader(NAME post_fxaa)
-synbench_gpu_shader(NAME quads)
-synbench_gpu_shader(NAME sprites)
+file(MAKE_DIRECTORY "${SYNTHEON_GPU_SHADER_DIR}")
+syntheon_gpu_shader(NAME present)
+syntheon_gpu_shader(NAME geometry)
+syntheon_gpu_shader(NAME drawcalls)
+syntheon_gpu_shader(NAME depth_only)
+syntheon_gpu_shader(NAME shading)
+syntheon_gpu_shader(NAME sky)
+syntheon_gpu_shader(NAME particles)
+syntheon_gpu_shader(NAME ground)
+syntheon_gpu_shader(NAME post_bright)
+syntheon_gpu_shader(NAME post_down)
+syntheon_gpu_shader(NAME post_up)
+syntheon_gpu_shader(NAME post_composite)
+syntheon_gpu_shader(NAME post_tonemap)
+syntheon_gpu_shader(NAME post_fxaa)
+syntheon_gpu_shader(NAME quads)
+syntheon_gpu_shader(NAME sprites)
 
-add_custom_target(synbench_gpu_shaders ALL DEPENDS ${_sb_shader_incs})
+add_custom_target(syntheon_gpu_shaders ALL DEPENDS ${_sb_shader_incs})

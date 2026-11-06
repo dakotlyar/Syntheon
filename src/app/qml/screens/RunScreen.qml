@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 // Pick one, several or all tests; their options appear on the right (generic,
 // from each test's schema); the run bar shows the estimate and what blocks

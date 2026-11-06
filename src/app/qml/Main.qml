@@ -2,7 +2,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
 ApplicationWindow {
     id: window
@@ -12,7 +12,7 @@ ApplicationWindow {
     minimumWidth: 760
     minimumHeight: 560
     visible: true
-    title: qsTr("SynBench")
+    title: qsTr("Syntheon")
     color: Theme.win
 
     // The theme is set only in Settings; "system" follows the OS live.
@@ -79,7 +79,7 @@ ApplicationWindow {
     InUseDialog {
         visible: StorageController.startupKind === "inuse"
         onTakeOver: error = StorageController.takeOver()
-        onQuitClicked: AppController.quitFailed(qsTr("SynBench is already running with this history."))
+        onQuitClicked: AppController.quitFailed(qsTr("Syntheon is already running with this history."))
     }
     AuthDialog {
         visible: StorageController.startupKind === "none" && AppController.authStateName !== "ready"

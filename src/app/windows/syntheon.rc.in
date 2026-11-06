@@ -4,15 +4,15 @@
 #include <winver.h>
 
 // The icon with the lowest id is the exe's icon.
-1 ICON "@SYNBENCH_SOURCE_DIR@/assets/synbench.ico"
+1 ICON "@SYNTHEON_SOURCE_DIR@/assets/syntheon.ico"
 
 // The manifest (administrator, DPI, long paths) is NOT here: CMake merges and
 // embeds it from the target's .manifest source (see CMakeLists.txt). Putting
 // it in this file as well gave "CVT1100: duplicate resource MANIFEST 1".
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION @SYNBENCH_VERSION_MAJOR@,@SYNBENCH_VERSION_MINOR@,@SYNBENCH_VERSION_PATCH@,0
- PRODUCTVERSION @SYNBENCH_VERSION_MAJOR@,@SYNBENCH_VERSION_MINOR@,@SYNBENCH_VERSION_PATCH@,0
+ FILEVERSION @SYNTHEON_VERSION_MAJOR@,@SYNTHEON_VERSION_MINOR@,@SYNTHEON_VERSION_PATCH@,0
+ PRODUCTVERSION @SYNTHEON_VERSION_MAJOR@,@SYNTHEON_VERSION_MINOR@,@SYNTHEON_VERSION_PATCH@,0
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
  FILEFLAGS 0
  FILEOS VOS_NT_WINDOWS32
@@ -23,14 +23,14 @@ BEGIN
     BEGIN
         BLOCK "040904B0"
         BEGIN
-            VALUE "CompanyName", "SynBench"
-            VALUE "FileDescription", "SynBench"
-            VALUE "FileVersion", "@SYNBENCH_FILE_VERSION@"
-            VALUE "InternalName", "SynBench"
+            VALUE "CompanyName", "Syntheon"
+            VALUE "FileDescription", "Syntheon"
+            VALUE "FileVersion", "@SYNTHEON_FILE_VERSION@"
+            VALUE "InternalName", "Syntheon"
             VALUE "LegalCopyright", "GPL-3.0-or-later"
-            VALUE "OriginalFilename", "SynBench.exe"
-            VALUE "ProductName", "SynBench"
-            VALUE "ProductVersion", "@SYNBENCH_VERSION@"
+            VALUE "OriginalFilename", "Syntheon.exe"
+            VALUE "ProductName", "Syntheon"
+            VALUE "ProductVersion", "@SYNTHEON_VERSION@"
         END
     END
     BLOCK "VarFileInfo"

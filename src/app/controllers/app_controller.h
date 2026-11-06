@@ -69,7 +69,7 @@ public:
     ~AppController() override;
 
     void start();
-    // Smoke runs (SYNBENCH_SMOKE=1, CI under xvfb) have no polkit agent: no
+    // Smoke runs (SYNTHEON_SMOKE=1, CI under xvfb) have no polkit agent: no
     // helper is started, the gate is open and privileged calls are
     // Unavailable. Never set in a normal launch.
     void setElevationDisabled(bool disabled) { m_noElevation = disabled; }
@@ -88,7 +88,7 @@ public:
     QStringList batteryLines() const;
 
     const SystemInfo &systemInfo() const { return m_info; }
-#ifdef SYNBENCH_DEV_HOOKS
+#ifdef SYNTHEON_DEV_HOOKS
     // Test hook, compiled out of packaged builds: pretend this snapshot was
     // collected (the real one is read on a pool thread at start).
     void setSystemInfoForTest(const SystemInfo &info)
@@ -155,7 +155,7 @@ private:
     QString m_section = QStringLiteral("run");
     QTimer m_powerTimer;
     bool m_powerBusy = false;
-#ifdef SYNBENCH_DEV_HOOKS
+#ifdef SYNTHEON_DEV_HOOKS
     std::optional<BatteryInfo> m_powerForTest;
 #endif
     void applyPower(BatteryInfo read);

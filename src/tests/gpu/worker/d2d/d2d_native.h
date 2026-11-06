@@ -71,7 +71,7 @@ public:
     // The family DirectWrite draws the text workload with ("IBM Plex Sans", or the fallback's).
     const std::wstring &fontFamily() const { return m_family; }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
     // Dev hook (the overlay test): headless only, the last frame as the window would get it (the
     // render-size stand-in for the back buffer: the content, then the overlay), RGBA8 top row first.
     std::string readbackPresented(std::vector<std::uint8_t> *rgba8);

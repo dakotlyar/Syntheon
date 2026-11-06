@@ -272,7 +272,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Context::onMessage(VkDebugUtilsMessageSeverityFla
     if (!(severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT))
         return VK_FALSE;
     const char *text = data && data->pMessage ? data->pMessage : "(no message)";
-    std::fprintf(stderr, "synbench-gpu: vulkan: %s\n", text);
+    std::fprintf(stderr, "syntheon-gpu: vulkan: %s\n", text);
     // Only the validation layer's own errors fail a run (a loader complaint
     // about some other layer is printed, not counted).
     if (types & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
@@ -389,9 +389,9 @@ std::string Context::create(const BackendInit &init, const PresentTarget &target
         // Synchronisation validation: any hazard is an error (task 12, R1), where the layer is new
         // enough to be right about it; older ones get core validation only.
         std::uint32_t spec = layerSpecVersion(kValidationLayer);
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
         // Dev hook "1.3.204": pretend the validation layer is that old (the test of the sync-validation gate).
-        if (const char *fake = std::getenv("SYNBENCH_GPU_FAKE_LAYER_SPEC")) {
+        if (const char *fake = std::getenv("SYNTHEON_GPU_FAKE_LAYER_SPEC")) {
             unsigned major = 0, minor = 0, patch = 0;
             if (std::sscanf(fake, "%u.%u.%u", &major, &minor, &patch) == 3)
                 spec = VK_MAKE_API_VERSION(0, major, minor, patch);
@@ -401,15 +401,15 @@ std::string Context::create(const BackendInit &init, const PresentTarget &target
             features.enabledValidationFeatureCount = 1;
             features.pEnabledValidationFeatures = enables;
         } else {
-            std::fprintf(stderr, "synbench-gpu: sync validation skipped: validation layer %u.%u.%u too old\n", VK_API_VERSION_MAJOR(spec),
+            std::fprintf(stderr, "syntheon-gpu: sync validation skipped: validation layer %u.%u.%u too old\n", VK_API_VERSION_MAJOR(spec),
                          VK_API_VERSION_MINOR(spec), VK_API_VERSION_PATCH(spec));
         }
         features.pNext = &messenger;  // also covers vkCreateInstance / vkDestroyInstance
     }
 
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app.pApplicationName = "SynBench GPU test";
-    app.pEngineName = "SynBench";
+    app.pApplicationName = "Syntheon GPU test";
+    app.pEngineName = "Syntheon";
     app.apiVersion = VK_API_VERSION_1_3;
     VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ici.pNext = validation ? &features : nullptr;

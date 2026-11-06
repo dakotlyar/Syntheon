@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-// `synbench-gpu --probe` on Windows (Phase 4a design §4.1, §4.2, task 23): the DXGI adapters and, per
+// `syntheon-gpu --probe` on Windows (Phase 4a design §4.1, §4.2, task 23): the DXGI adapters and, per
 // adapter, whether Direct3D 12, Direct3D 11 and Direct2D can be used on it. Adapters are numbered
 // exactly as dxgi::findAdapter does (high-performance order; software adapters only with
 // allowSoftware; WARP, 1414:008c, added last when the enumeration doesn't list it), so the GUI's

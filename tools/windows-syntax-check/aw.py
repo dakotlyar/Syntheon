@@ -14,7 +14,7 @@ Usage:
 
   --build-dir DIR  a configured Linux build tree whose compile_commands.json
                    gives the include paths and defines (default:
-                   ~/.cache/synbench/build/local-linux-x64-debug)
+                   ~/.cache/syntheon/build/local-linux-x64-debug)
   FILE ...         repo-relative sources to check (always checked, whether or
                    not they reach <windows.h>); none: every one that does,
                    plus FORCE
@@ -33,12 +33,12 @@ import subprocess
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
-CACHE = pathlib.Path(os.environ.get("XDG_CACHE_HOME", pathlib.Path.home() / ".cache")) / "synbench" / "windows-syntax-check"
+CACHE = pathlib.Path(os.environ.get("XDG_CACHE_HOME", pathlib.Path.home() / ".cache")) / "syntheon" / "windows-syntax-check"
 STUB = CACHE / "stubs"  # generated on every run
 GXX = "x86_64-w64-mingw32-g++"
 # Checked even though they don't reach <windows.h> (B1: gpu_test.cpp once did, through hags.h).
 FORCE = {"src/tests/gpu/gpu_test.cpp", "src/tests/gpu/gpu_detail.cpp", "tests/unit/tst_gpu_test.cpp"}
-BUILD = pathlib.Path.home() / ".cache/synbench/build/local-linux-x64-debug"
+BUILD = pathlib.Path.home() / ".cache/syntheon/build/local-linux-x64-debug"
 
 def make_stubs():
     (STUB / "QtGui").mkdir(parents=True, exist_ok=True)
@@ -118,17 +118,17 @@ def flags_for(src, by_file):
 def win_flags(fl, hooks):
     out = ["-I", str(STUB)]
     for a in fl:
-        if a == "-DSYNBENCH_DEV_HOOKS=1" and not hooks:
+        if a == "-DSYNTHEON_DEV_HOOKS=1" and not hooks:
             continue
         out.append(a.replace("mkspecs/linux-g++", "mkspecs/win32-g++"))
-    if hooks and "-DSYNBENCH_DEV_HOOKS=1" not in out:
-        out.append("-DSYNBENCH_DEV_HOOKS=1")
+    if hooks and "-DSYNTHEON_DEV_HOOKS=1" not in out:
+        out.append("-DSYNTHEON_DEV_HOOKS=1")
     vk = BUILD / "_deps/vulkanheaders-src/include"
     out += ["-I", str(REPO / "src/tests/gpu/worker"),
-            "-I", str(vk), "-isystem", str(BUILD / "_deps/synbench_volk-src"),
+            "-I", str(vk), "-isystem", str(BUILD / "_deps/syntheon_volk-src"),
             "-isystem", str(REPO / "src/tests/gpu/worker/gl/glad/include"),
-            '-DSYNBENCH_GPU_DXC_VERSION="1.8.2505"', '-DSYNBENCH_GPU_FXC_VERSION="10.1"',
-            '-DSYNBENCH_GPU_SHADER_STAMP="c957"']
+            '-DSYNTHEON_GPU_DXC_VERSION="1.8.2505"', '-DSYNTHEON_GPU_FXC_VERSION="10.1"',
+            '-DSYNTHEON_GPU_SHADER_STAMP="c957"']
     return out
 
 def reaches_windows(src, fl):

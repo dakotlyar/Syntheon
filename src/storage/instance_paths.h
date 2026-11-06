@@ -11,10 +11,10 @@ namespace sb::instance {
 // meaningless). Keyed by a hash of the folder's CANONICAL path, so a symlinked
 // path and the real one are the same history.
 //
-// Linux: $XDG_RUNTIME_DIR/synbench (0700, owned by us; cleared at logout, so
+// Linux: $XDG_RUNTIME_DIR/syntheon (0700, owned by us; cleared at logout, so
 // a lock left by a crash can't outlive the session). Windows: the user's
-// %LOCALAPPDATA%\SynBench\run. Two users on one machine therefore don't share
-// a lock even for a shared folder: SynBench is a per-user app.
+// %LOCALAPPDATA%\Syntheon\run. Two users on one machine therefore don't share
+// a lock even for a shared folder: Syntheon is a per-user app.
 
 // The folder's canonical path (the cleaned absolute path if it doesn't exist yet).
 QString canonicalFolder(const QString &folder);

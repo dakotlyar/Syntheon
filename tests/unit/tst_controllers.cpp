@@ -194,8 +194,8 @@ private slots:
         const QString data = dir.filePath(QStringLiteral("data"));
         QDir().mkpath(data);
         {
-            QVERIFY(Database::migrate(QDir(data).filePath(QStringLiteral("synbench.db"))).ok());
-            Database::ScopedConnection c(QDir(data).filePath(QStringLiteral("synbench.db")), QStringLiteral("seed"));
+            QVERIFY(Database::migrate(QDir(data).filePath(QStringLiteral("syntheon.db"))).ok());
+            Database::ScopedConnection c(QDir(data).filePath(QStringLiteral("syntheon.db")), QStringLiteral("seed"));
             RunRecord r;
             r.uuid = QUuid::createUuid();
             r.status = RunStatus::Running;
@@ -243,7 +243,7 @@ private slots:
         const QString other = dir.filePath(QStringLiteral("b"));
         QDir().mkpath(other);
         {
-            const QString path = QDir(other).filePath(QStringLiteral("synbench.db"));
+            const QString path = QDir(other).filePath(QStringLiteral("syntheon.db"));
             QVERIFY(Database::migrate(path).ok());
             Database::ScopedConnection c(path, QStringLiteral("seed"));
             RunRecord r;
@@ -290,7 +290,7 @@ private slots:
         AppRuntime rt(o);
         StartupController &st = rt.startup();
         RecoveryReport report;
-        report.errors = {QStringLiteral("couldn't delete /tmp/synbench-x/scratch")};
+        report.errors = {QStringLiteral("couldn't delete /tmp/syntheon-x/scratch")};
         st.finishRecovery(report);
         st.dismissRecoveryNotice();
         st.finishRecovery(report);  // the same problem again, next pass
@@ -328,7 +328,7 @@ private slots:
         QTemporaryDir dir;
         const QString data = dir.filePath(QStringLiteral("data"));
         QDir().mkpath(data);
-        const QString db = QDir(data).filePath(QStringLiteral("synbench.db"));
+        const QString db = QDir(data).filePath(QStringLiteral("syntheon.db"));
         const QByteArray garbage = QByteArray("this is not an SQLite database, just text ").repeated(200);
         {
             QFile f(db);
@@ -344,7 +344,7 @@ private slots:
         QCOMPARE(c.startupKind(), QStringLiteral("failed"));
         const QString msg = c.startupMessage();
         QVERIFY2(msg.contains(QDir::toNativeSeparators(db)), qPrintable(msg));
-        QVERIFY2(msg.contains(QStringLiteral("damaged or isn't a SynBench history")), qPrintable(msg));
+        QVERIFY2(msg.contains(QStringLiteral("damaged or isn't a Syntheon history")), qPrintable(msg));
         QVERIFY2(msg.contains(QStringLiteral("(file is not a database)")), qPrintable(msg));  // SQLite's own reason, alone
         QVERIFY2(!msg.contains(QStringLiteral("Unable to fetch row")), qPrintable(msg));
         QVERIFY2(msg.contains(QStringLiteral("left untouched")), qPrintable(msg));
@@ -352,7 +352,7 @@ private slots:
         QVERIFY(f.open(QIODevice::ReadOnly));
         QCOMPARE(f.readAll(), garbage);  // byte for byte
         QVERIFY(!QFile::exists(db + QStringLiteral("-wal")));
-        QVERIFY(QDir(data).entryList({QStringLiteral("synbench.db.bak*")}).isEmpty());
+        QVERIFY(QDir(data).entryList({QStringLiteral("syntheon.db.bak*")}).isEmpty());
     }
 
     void storageControllerBasics()
@@ -367,7 +367,7 @@ private slots:
         rt.startup().waitForRecovery();
         QCOMPARE(c.startupKind(), QStringLiteral("none"));
         QCOMPARE(c.runCount(), 0);
-        QVERIFY(c.dbPath().endsWith(QStringLiteral("synbench.db")));
+        QVERIFY(c.dbPath().endsWith(QStringLiteral("syntheon.db")));
         QVERIFY(c.sizeText().contains(QLatin1StringView("B")));
 
         RunRepository repo(rt.storage().connection());
@@ -414,7 +414,7 @@ private slots:
         rt.startup().waitForRecovery();
         QCOMPARE(c.runCount(), 1);
         QVERIFY(c.dataLocation().endsWith(QStringLiteral("b")));
-        QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("a/synbench.db"))));
+        QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("a/syntheon.db"))));
 
         // Another folder that already has a history: offered, not merged.
         const QString other = dir.filePath(QStringLiteral("other"));
@@ -443,7 +443,7 @@ private slots:
         c.unlock(QStringLiteral("run"));
         QCOMPARE(c.openHistoryIn(other), QString());
         QCOMPARE(c.runCount(), 3);  // that folder's own history
-        QVERIFY(QFile::exists(QDir(b).filePath(QStringLiteral("synbench.db"))));  // the old one untouched
+        QVERIFY(QFile::exists(QDir(b).filePath(QStringLiteral("syntheon.db"))));  // the old one untouched
     }
 
     void launchProblems()
@@ -467,12 +467,12 @@ private slots:
             // mode for every test binary and aborts unless it took.
             QDir(Storage::defaultDataDir()).removeRecursively();
         }
-        // A history from a newer SynBench: refused, untouched, Choose another.
+        // A history from a newer Syntheon: refused, untouched, Choose another.
         {
             const QString newer = dir.filePath(QStringLiteral("newer"));
             QDir().mkpath(newer);
             {
-                Database::ScopedConnection conn(QDir(newer).filePath(QStringLiteral("synbench.db")), QStringLiteral("t"));
+                Database::ScopedConnection conn(QDir(newer).filePath(QStringLiteral("syntheon.db")), QStringLiteral("t"));
                 QSqlQuery(conn.db()).exec(QStringLiteral("PRAGMA user_version = 9"));
             }
             AppRuntime::Options o;
@@ -482,7 +482,7 @@ private slots:
             StorageController &c = rt.storageController();
             c.open();
             QCOMPARE(c.startupKind(), QStringLiteral("newer"));
-            QVERIFY(c.startupMessage().contains(QLatin1StringView("newer SynBench")));
+            QVERIFY(c.startupMessage().contains(QLatin1StringView("newer Syntheon")));
             const QString fresh = dir.filePath(QStringLiteral("fresh"));
             QDir().mkpath(fresh);
             QCOMPARE(c.openHistoryIn(fresh), QString());  // Choose…

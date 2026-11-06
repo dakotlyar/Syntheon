@@ -31,16 +31,16 @@ void StorageController::open()
         break;
     case Storage::OpenStatus::NewerVersion:
         m_problem = StartupProblem::NewerVersion;
-        m_message = QStringLiteral("The saved runs in %1 were made by a newer SynBench. This version can't open them "
+        m_message = QStringLiteral("The saved runs in %1 were made by a newer Syntheon. This version can't open them "
                                    "and won't change them.").arg(m_storage.dataDir());
         break;
     case Storage::OpenStatus::InUse:
         m_problem = StartupProblem::InUse;
-        m_message = QStringLiteral("SynBench is already running with this history.");
+        m_message = QStringLiteral("Syntheon is already running with this history.");
         break;
     case Storage::OpenStatus::Damaged:
         m_problem = StartupProblem::Failed;
-        m_message = QStringLiteral("The history file at %1 is damaged or isn't a SynBench history (%2). "
+        m_message = QStringLiteral("The history file at %1 is damaged or isn't a Syntheon history (%2). "
                                    "It was left untouched: use another location, or move the file away and start again.")
                         .arg(QDir::toNativeSeparators(m_storage.dbPath()), r.error.isEmpty() ? QStringLiteral("unknown error") : r.error);
         break;
@@ -78,11 +78,11 @@ QString StorageController::apply(const Storage::OpenResult &r)
         return {};
     }
     if (r.status == Storage::OpenStatus::NewerVersion)
-        return QStringLiteral("The saved runs there were made by a newer SynBench.");
+        return QStringLiteral("The saved runs there were made by a newer Syntheon.");
     if (r.status == Storage::OpenStatus::Damaged)
-        return QStringLiteral("The history file there is damaged or isn't a SynBench history (%1). It was left untouched.").arg(r.error);
+        return QStringLiteral("The history file there is damaged or isn't a Syntheon history (%1). It was left untouched.").arg(r.error);
     if (r.status == Storage::OpenStatus::InUse)
-        return QStringLiteral("That history is open in another SynBench. Close it there first.");
+        return QStringLiteral("That history is open in another Syntheon. Close it there first.");
     return r.error.isEmpty() ? QStringLiteral("That folder can't be used.") : r.error;
 }
 

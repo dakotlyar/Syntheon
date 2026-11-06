@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # OpenSSL 3.5.9's get_windows_regdirs() (crypto/defaults.c, built with
-# OSSL_WINCTX, which SynBench's Windows builds use) declares `HKEY hkey;`
-# without a value; when RegOpenKeyEx fails (the normal case for SynBench: the
+# OSSL_WINCTX, which Syntheon's Windows builds use) declares `HKEY hkey;`
+# without a value; when RegOpenKeyEx fails (the normal case for Syntheon: the
 # registry key doesn't exist) it still calls RegCloseKey(hkey) on that stack
 # garbage. This initialises it to NULL (RegCloseKey(NULL) only returns an
 # error). To be offered upstream with the armcap patch (AP-5 L9).
 #
 # Not changed, reported instead: the same RegOpenKeyEx passes KEY_WOW64_32KEY
 # as ulOptions instead of in samDesired. Moving it isn't clearly right (the
-# key path already names WOW6432Node explicitly), and for SynBench the key is
+# key path already names WOW6432Node explicitly), and for Syntheon the key is
 # never meant to be read: the directories stay NULL either way.
 #
 # Applied by ExternalProject's PATCH_COMMAND on every target (Windows-only
@@ -22,13 +22,13 @@ set(file "${SOURCE_DIR}/crypto/defaults.c")
 file(READ "${file}" text)
 file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" script_sha)
 string(SUBSTRING "${script_sha}" 0 16 script_sha)
-set(marker "SynBench (AP-5 L9, patch ${script_sha})")
+set(marker "Syntheon (AP-5 L9, patch ${script_sha})")
 string(FIND "${text}" "${marker}" already)
 if(NOT already EQUAL -1)
     message(STATUS "defaults patch: already applied")
     return()
 endif()
-string(FIND "${text}" "SynBench (AP-5 L9" other)
+string(FIND "${text}" "Syntheon (AP-5 L9" other)
 if(NOT other EQUAL -1)
     message(FATAL_ERROR "defaults patch: ${file} was patched by another version of this script; "
                         "delete the OpenSSL source tree so it is extracted again")

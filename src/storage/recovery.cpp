@@ -17,7 +17,7 @@ namespace sb {
 
 namespace {
 
-const QString kClosedReason = QStringLiteral("SynBench closed before this test finished");
+const QString kClosedReason = QStringLiteral("Syntheon closed before this test finished");
 
 class StoredRecoveryContext : public RecoveryContext
 {
@@ -118,7 +118,7 @@ void recoverRun(RunRepository &repo, const Registry &registry, const QUuid &uuid
     notice.status = notice.recoveredTestIds.isEmpty() ? RunStatus::Interrupted : RunStatus::Recovered;
     note(notice.status == RunStatus::Recovered ? LogLevel::Info : LogLevel::Warning, {},
          notice.status == RunStatus::Recovered ? QStringLiteral("Run recovered at startup")
-                                               : QStringLiteral("Run interrupted: SynBench closed while it was running"));
+                                               : QStringLiteral("Run interrupted: Syntheon closed while it was running"));
     const auto overall = computeOverall(run->tests, [&](const QString &id) {
         const ITest *t = registry.find(id);
         return t && t->info().countsTowardOverall;

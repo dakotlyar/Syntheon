@@ -3,9 +3,9 @@
 // TEST-ONLY helper binary: the real helper's request handling, but reading
 // SMBIOS from paths given on the command line, so READ_SMBIOS can be tested
 // end to end without root. Never installed or packaged; the shipped
-// synbench-helper takes no arguments and only reads its fixed paths.
+// syntheon-helper takes no arguments and only reads its fixed paths.
 //
-//   synbench-helper-test <entry_point> <table> [build id]
+//   syntheon-helper-test <entry_point> <table> [build id]
 
 #include "helper/helper_core.h"
 

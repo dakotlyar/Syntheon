@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=SynBench
+Name=Syntheon
 GenericName=System benchmark
 Comment=Synthetic system benchmark: CPU, memory, storage, graphics, AI and battery
-Exec=SynBench
-Icon=synbench
+Exec=Syntheon
+Icon=syntheon
 Terminal=false
 Categories=System;Monitor;Utility;
 Keywords=benchmark;cpu;gpu;memory;storage;battery;
-StartupWMClass=SynBench
+StartupWMClass=Syntheon

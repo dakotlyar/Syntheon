@@ -377,7 +377,7 @@ private slots:
     {
         startRuntime();
         RunController &r = rc();
-        const QString reason = QStringLiteral("Did not respond, restart SynBench");
+        const QString reason = QStringLiteral("Did not respond, restart Syntheon");
         r.orchestrator().runStarted(RunRecord{}, QStringList{QStringLiteral("gpu")});
         r.orchestrator().testStarted(0, QStringLiteral("gpu"));
         r.orchestrator().interfaceHold(0, true);

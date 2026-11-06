@@ -1,13 +1,13 @@
 ; SPDX-License-Identifier: GPL-3.0-or-later
 ;
-; Inno Setup script for SynBench v2 (one per architecture, D9).
+; Inno Setup script for Syntheon v2 (one per architecture, D9).
 ;
-;   iscc packaging\windows\synbench.iss /DAppVersion=2026.11.0 /DArch=x64 /DSourceDir=C:\stage /DOutputDir=C:\out
+;   iscc packaging\windows\syntheon.iss /DAppVersion=2026.11.0 /DArch=x64 /DSourceDir=C:\stage /DOutputDir=C:\out
 ;
 ;   AppVersion  display version (2026.11.N)
 ;   Arch        x64 or arm64
 ;   SourceDir   the `cmake --install` tree
-;   OutputDir   where SynBench-<ver>-windows-<arch>-setup.exe goes
+;   OutputDir   where Syntheon-<ver>-windows-<arch>-setup.exe goes
 ;
 ; AppId is the OLD Python SynBench's (D10): installing v2 upgrades that install
 ; in place, and the x64 and ARM64 installers share it (N3), so installing one
@@ -27,10 +27,10 @@
   #define OutputDir "..\..\out"
 #endif
 
-#define AppName "SynBench"
-#define AppPublisher "SynBench"
-#define AppURL "https://github.com/dakotlyar/SynBench"
-#define AppExeName "SynBench.exe"
+#define AppName "Syntheon"
+#define AppPublisher "Syntheon"
+#define AppURL "https://github.com/dakotlyar/Syntheon"
+#define AppExeName "Syntheon.exe"
 
 [Setup]
 ; Keep this GUID stable across releases and across both architectures.
@@ -60,8 +60,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 #endif
 OutputDir={#OutputDir}
-OutputBaseFilename=SynBench-{#AppVersion}-windows-{#Arch}-setup
-SetupIconFile=..\..\assets\synbench.ico
+OutputBaseFilename=Syntheon-{#AppVersion}-windows-{#Arch}-setup
+SetupIconFile=..\..\assets\syntheon.ico
 UninstallDisplayIcon={app}\{#AppExeName}
 Compression=lzma2/max
 SolidCompression=yes
@@ -117,9 +117,9 @@ begin
   Allowed := RemoveBackslash(ExpandConstant('{autopf}\{#AppName}'));
   if (Requested <> '') and (CompareText(Requested, Allowed) <> 0) then
   begin
-    Log('Refusing /DIR=' + Requested + ': SynBench installs only into ' + Allowed);
+    Log('Refusing /DIR=' + Requested + ': Syntheon installs only into ' + Allowed);
     if not WizardSilent then
-      SuppressibleMsgBox('SynBench installs only into ' + Allowed + '.', mbError, MB_OK, IDOK);
+      SuppressibleMsgBox('Syntheon installs only into ' + Allowed + '.', mbError, MB_OK, IDOK);
     Result := False;
     Exit;
   end;
@@ -131,7 +131,7 @@ begin
   begin
     Log('The ARM64 version is installed; refusing the x64 setup.');
     if not WizardSilent then
-      SuppressibleMsgBox('The ARM64 version of SynBench is installed. Use the ARM64 setup (or uninstall it first).', mbError, MB_OK, IDOK);
+      SuppressibleMsgBox('The ARM64 version of Syntheon is installed. Use the ARM64 setup (or uninstall it first).', mbError, MB_OK, IDOK);
     Result := False;
     Exit;
   end;
@@ -141,9 +141,9 @@ begin
     // Never block a silent run on a message box: SuppressibleMsgBox answers
     // with the default (OK) under /SUPPRESSMSGBOXES, and in a silent setup the
     // box is skipped altogether. Returning False ends Setup with a non-zero exit code.
-    Log('SynBench is installed with the MSI package; refusing to install over it.');
+    Log('Syntheon is installed with the MSI package; refusing to install over it.');
     if not WizardSilent then
-      SuppressibleMsgBox('SynBench was installed with the MSI package. Uninstall it first (Settings > Apps), then run this installer.',
+      SuppressibleMsgBox('Syntheon was installed with the MSI package. Uninstall it first (Settings > Apps), then run this installer.',
                          mbError, MB_OK, IDOK);
     Result := False;
   end;

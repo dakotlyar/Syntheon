@@ -12,12 +12,12 @@ if(MSVC)
             string(REPLACE "${_flag}" "" CMAKE_${_lang}_FLAGS_DEBUG "${CMAKE_${_lang}_FLAGS_DEBUG}")
         endforeach()
     endforeach()
-    set(SYNBENCH_RAM_KERNEL_FLAGS /O2)
+    set(SYNTHEON_RAM_KERNEL_FLAGS /O2)
 else()
-    set(SYNBENCH_RAM_KERNEL_FLAGS -O2)
+    set(SYNTHEON_RAM_KERNEL_FLAGS -O2)
 endif()
 
-add_library(synbench_ram_kernels STATIC
+add_library(syntheon_ram_kernels STATIC
     # The pointer chase (§5.1, P3).
     cycle_builder.h cycle_builder.cpp
     chase.h chase.cpp chase_loop.cpp
@@ -27,35 +27,35 @@ add_library(synbench_ram_kernels STATIC
     # The loaded-latency load's delay (§5.4).
     spin.h spin.cpp
 )
-target_link_libraries(synbench_ram_kernels PUBLIC synbench_isa)
-target_compile_options(synbench_ram_kernels PRIVATE ${SYNBENCH_RAM_KERNEL_FLAGS})
+target_link_libraries(syntheon_ram_kernels PUBLIC syntheon_isa)
+target_compile_options(syntheon_ram_kernels PRIVATE ${SYNTHEON_RAM_KERNEL_FLAGS})
 # No Qt here: no moc pass (qt_standard_project_setup turns it on everywhere).
-set_target_properties(synbench_ram_kernels PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+set_target_properties(syntheon_ram_kernels PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 
 # The bandwidth paths (§5.3, P8): one OBJECT library per ISA, built for its
 # architecture only, with its arch flags on top of the ones above. Every one
 # follows the ODR rule in bw/bw_common.h (the simd_odr CTest checks them as
 # "bw:" objects), and the x64 ones' store variants are checked in their code
 # (the bw_stores CTest). tests/CMakeLists.txt finds them through the global
-# property SYNBENCH_BW_ISAS and each target's SYNBENCH_ARCH_FLAGS and
-# SYNBENCH_WIDE. GCC's loop-distribution and Clang's loop-idiom passes could
+# property SYNTHEON_BW_ISAS and each target's SYNTHEON_ARCH_FLAGS and
+# SYNTHEON_WIDE. GCC's loop-distribution and Clang's loop-idiom passes could
 # turn a copy loop into a memcpy call (whose large-size path uses
 # non-temporal stores): both are off here, and bw_stores rejects any call.
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _sb_cpu)
-set(SYNBENCH_BW_ISAS "")
+set(SYNTHEON_BW_ISAS "")
 if(_sb_cpu MATCHES "^(x86_64|amd64|x64)$")
-    set(SYNBENCH_BW_ISAS sse2 avx2)
-    set(SYNBENCH_BW_sse2_FLAGS "")  # part of the x86-64-v2 baseline
+    set(SYNTHEON_BW_ISAS sse2 avx2)
+    set(SYNTHEON_BW_sse2_FLAGS "")  # part of the x86-64-v2 baseline
     if(MSVC)
-        set(SYNBENCH_BW_avx2_FLAGS /arch:AVX2)
+        set(SYNTHEON_BW_avx2_FLAGS /arch:AVX2)
     else()
-        set(SYNBENCH_BW_avx2_FLAGS -mavx2)
+        set(SYNTHEON_BW_avx2_FLAGS -mavx2)
     endif()
-    set(SYNBENCH_BW_WIDE avx2)
+    set(SYNTHEON_BW_WIDE avx2)
 elseif(_sb_cpu MATCHES "^(aarch64|arm64)$")
-    set(SYNBENCH_BW_ISAS neon)
-    set(SYNBENCH_BW_neon_FLAGS "")  # the armv8-a baseline
-    set(SYNBENCH_BW_WIDE "")
+    set(SYNTHEON_BW_ISAS neon)
+    set(SYNTHEON_BW_neon_FLAGS "")  # the armv8-a baseline
+    set(SYNTHEON_BW_WIDE "")
 endif()
 if(MSVC)
     set(_bw_no_idiom "")
@@ -64,18 +64,18 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 else()
     set(_bw_no_idiom -fno-tree-loop-distribute-patterns)
 endif()
-foreach(_isa IN LISTS SYNBENCH_BW_ISAS)
-    add_library(synbench_bw_${_isa} OBJECT bw/bw_${_isa}.cpp bw/bw_common.h)
-    target_include_directories(synbench_bw_${_isa} PRIVATE "${PROJECT_SOURCE_DIR}/src")
-    target_compile_options(synbench_bw_${_isa} PRIVATE ${SYNBENCH_RAM_KERNEL_FLAGS} ${_bw_no_idiom}
-                                                       ${SYNBENCH_BW_${_isa}_FLAGS})
-    set_target_properties(synbench_bw_${_isa} PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
-    target_sources(synbench_ram_kernels PRIVATE $<TARGET_OBJECTS:synbench_bw_${_isa}>)
+foreach(_isa IN LISTS SYNTHEON_BW_ISAS)
+    add_library(syntheon_bw_${_isa} OBJECT bw/bw_${_isa}.cpp bw/bw_common.h)
+    target_include_directories(syntheon_bw_${_isa} PRIVATE "${PROJECT_SOURCE_DIR}/src")
+    target_compile_options(syntheon_bw_${_isa} PRIVATE ${SYNTHEON_RAM_KERNEL_FLAGS} ${_bw_no_idiom}
+                                                       ${SYNTHEON_BW_${_isa}_FLAGS})
+    set_target_properties(syntheon_bw_${_isa} PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    target_sources(syntheon_ram_kernels PRIVATE $<TARGET_OBJECTS:syntheon_bw_${_isa}>)
     set(_wide OFF)
-    if(_isa IN_LIST SYNBENCH_BW_WIDE)
+    if(_isa IN_LIST SYNTHEON_BW_WIDE)
         set(_wide ON)
     endif()
-    set_target_properties(synbench_bw_${_isa} PROPERTIES
-        SYNBENCH_ARCH_FLAGS "${SYNBENCH_BW_${_isa}_FLAGS}" SYNBENCH_WIDE ${_wide})
-    set_property(GLOBAL APPEND PROPERTY SYNBENCH_BW_ISAS ${_isa})
+    set_target_properties(syntheon_bw_${_isa} PROPERTIES
+        SYNTHEON_ARCH_FLAGS "${SYNTHEON_BW_${_isa}_FLAGS}" SYNTHEON_WIDE ${_wide})
+    set_property(GLOBAL APPEND PROPERTY SYNTHEON_BW_ISAS ${_isa})
 endforeach()

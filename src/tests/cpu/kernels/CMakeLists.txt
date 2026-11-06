@@ -17,14 +17,14 @@ if(MSVC)
             string(REPLACE "${_flag}" "" CMAKE_${_lang}_FLAGS_DEBUG "${CMAKE_${_lang}_FLAGS_DEBUG}")
         endforeach()
     endforeach()
-    set(SYNBENCH_SCALAR_KERNEL_FLAGS /O2 /fp:precise)
+    set(SYNTHEON_SCALAR_KERNEL_FLAGS /O2 /fp:precise)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(SYNBENCH_SCALAR_KERNEL_FLAGS -O2 -fno-vectorize -fno-slp-vectorize -ffp-contract=off)
+    set(SYNTHEON_SCALAR_KERNEL_FLAGS -O2 -fno-vectorize -fno-slp-vectorize -ffp-contract=off)
 else()
-    set(SYNBENCH_SCALAR_KERNEL_FLAGS -O2 -fno-tree-vectorize -ffp-contract=off)
+    set(SYNTHEON_SCALAR_KERNEL_FLAGS -O2 -fno-tree-vectorize -ffp-contract=off)
 endif()
 
-add_library(synbench_cpu_kernels STATIC
+add_library(syntheon_cpu_kernels STATIC
     kernel_common.h
     prng.h
     int_kernel.h int_kernel.cpp
@@ -36,53 +36,53 @@ add_library(synbench_cpu_kernels STATIC
     nbody_kernel.h nbody_kernel.cpp
     block_hash.h block_hash.cpp
 )
-target_link_libraries(synbench_cpu_kernels PUBLIC synbench_isa)
+target_link_libraries(syntheon_cpu_kernels PUBLIC syntheon_isa)
 
 # The SIMD paths (§5.3, P8, P9): one OBJECT library per ISA, each with its own
 # arch flags on top of P7's, built for its architecture only. The wide ones
 # (wider than the build's baseline) follow the ODR rule in simd/simd_common.h;
 # the simd_odr CTest checks their objects. tests/CMakeLists.txt finds them
-# through the global property SYNBENCH_SIMD_ISAS and each target's
-# SYNBENCH_ARCH_FLAGS and SYNBENCH_WIDE.
+# through the global property SYNTHEON_SIMD_ISAS and each target's
+# SYNTHEON_ARCH_FLAGS and SYNTHEON_WIDE.
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _sb_cpu)
-set(SYNBENCH_SIMD_ISAS "")
+set(SYNTHEON_SIMD_ISAS "")
 if(_sb_cpu MATCHES "^(x86_64|amd64|x64)$")
-    set(SYNBENCH_SIMD_ISAS sse42 avx2 avx512)
-    set(SYNBENCH_SIMD_sse42_FLAGS "")  # the x86-64-v2 baseline
+    set(SYNTHEON_SIMD_ISAS sse42 avx2 avx512)
+    set(SYNTHEON_SIMD_sse42_FLAGS "")  # the x86-64-v2 baseline
     if(MSVC)
-        set(SYNBENCH_SIMD_avx2_FLAGS /arch:AVX2)
-        set(SYNBENCH_SIMD_avx512_FLAGS /arch:AVX512)
+        set(SYNTHEON_SIMD_avx2_FLAGS /arch:AVX2)
+        set(SYNTHEON_SIMD_avx512_FLAGS /arch:AVX512)
     else()
-        set(SYNBENCH_SIMD_avx2_FLAGS -mavx2 -mfma)
-        set(SYNBENCH_SIMD_avx512_FLAGS -mavx512f -mavx512bw -mavx512dq -mavx512vl -mfma)
+        set(SYNTHEON_SIMD_avx2_FLAGS -mavx2 -mfma)
+        set(SYNTHEON_SIMD_avx512_FLAGS -mavx512f -mavx512bw -mavx512dq -mavx512vl -mfma)
     endif()
-    set(SYNBENCH_SIMD_WIDE avx2 avx512)
+    set(SYNTHEON_SIMD_WIDE avx2 avx512)
 elseif(_sb_cpu MATCHES "^(aarch64|arm64)$")
-    set(SYNBENCH_SIMD_ISAS neon)
-    set(SYNBENCH_SIMD_neon_FLAGS "")  # the armv8-a baseline
-    set(SYNBENCH_SIMD_WIDE "")
+    set(SYNTHEON_SIMD_ISAS neon)
+    set(SYNTHEON_SIMD_neon_FLAGS "")  # the armv8-a baseline
+    set(SYNTHEON_SIMD_WIDE "")
     # SVE: Linux only (MSVC has no SVE intrinsics; isa::kSveInBuild agrees).
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        list(APPEND SYNBENCH_SIMD_ISAS sve)
-        set(SYNBENCH_SIMD_sve_FLAGS -march=armv8.2-a+sve)
-        list(APPEND SYNBENCH_SIMD_WIDE sve)
-        target_compile_definitions(synbench_cpu_kernels PRIVATE SB_SIMD_SVE=1)
+        list(APPEND SYNTHEON_SIMD_ISAS sve)
+        set(SYNTHEON_SIMD_sve_FLAGS -march=armv8.2-a+sve)
+        list(APPEND SYNTHEON_SIMD_WIDE sve)
+        target_compile_definitions(syntheon_cpu_kernels PRIVATE SB_SIMD_SVE=1)
     endif()
 endif()
-foreach(_isa IN LISTS SYNBENCH_SIMD_ISAS)
-    add_library(synbench_simd_${_isa} OBJECT simd/simd_${_isa}.cpp simd/simd_common.h)
-    target_include_directories(synbench_simd_${_isa} PRIVATE "${PROJECT_SOURCE_DIR}/src")
-    target_compile_options(synbench_simd_${_isa} PRIVATE ${SYNBENCH_SCALAR_KERNEL_FLAGS} ${SYNBENCH_SIMD_${_isa}_FLAGS})
-    set_target_properties(synbench_simd_${_isa} PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
-    target_sources(synbench_cpu_kernels PRIVATE $<TARGET_OBJECTS:synbench_simd_${_isa}>)
+foreach(_isa IN LISTS SYNTHEON_SIMD_ISAS)
+    add_library(syntheon_simd_${_isa} OBJECT simd/simd_${_isa}.cpp simd/simd_common.h)
+    target_include_directories(syntheon_simd_${_isa} PRIVATE "${PROJECT_SOURCE_DIR}/src")
+    target_compile_options(syntheon_simd_${_isa} PRIVATE ${SYNTHEON_SCALAR_KERNEL_FLAGS} ${SYNTHEON_SIMD_${_isa}_FLAGS})
+    set_target_properties(syntheon_simd_${_isa} PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    target_sources(syntheon_cpu_kernels PRIVATE $<TARGET_OBJECTS:syntheon_simd_${_isa}>)
     set(_wide OFF)
-    if(_isa IN_LIST SYNBENCH_SIMD_WIDE)
+    if(_isa IN_LIST SYNTHEON_SIMD_WIDE)
         set(_wide ON)
     endif()
-    set_target_properties(synbench_simd_${_isa} PROPERTIES
-        SYNBENCH_ARCH_FLAGS "${SYNBENCH_SIMD_${_isa}_FLAGS}" SYNBENCH_WIDE ${_wide})
-    set_property(GLOBAL APPEND PROPERTY SYNBENCH_SIMD_ISAS ${_isa})
+    set_target_properties(syntheon_simd_${_isa} PROPERTIES
+        SYNTHEON_ARCH_FLAGS "${SYNTHEON_SIMD_${_isa}_FLAGS}" SYNTHEON_WIDE ${_wide})
+    set_property(GLOBAL APPEND PROPERTY SYNTHEON_SIMD_ISAS ${_isa})
 endforeach()
-target_compile_options(synbench_cpu_kernels PRIVATE ${SYNBENCH_SCALAR_KERNEL_FLAGS})
+target_compile_options(syntheon_cpu_kernels PRIVATE ${SYNTHEON_SCALAR_KERNEL_FLAGS})
 # No Qt here: no moc pass (qt_standard_project_setup turns it on everywhere).
-set_target_properties(synbench_cpu_kernels PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+set_target_properties(syntheon_cpu_kernels PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)

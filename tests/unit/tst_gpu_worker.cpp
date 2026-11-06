@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The GPU worker (Phase 4a task 9): the built synbench-gpu with the null
+// The GPU worker (Phase 4a task 9): the built syntheon-gpu with the null
 // backend, through QProcess: the --plan and --serve protocols, exit codes,
 // stop and the stdin lifeline; plus the block signature. No GPU.
 #include "gpu_worker_process.h"

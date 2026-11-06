@@ -487,9 +487,9 @@ std::string VulkanBackend::resume(const PresentTarget &target)
                 return fail(failure("vkCreateSemaphore", r));
         }
         std::string created;
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
         // Dev hook: "1" = no swapchain can be made; "later" = none after the first resume (L8's test).
-        if (const char *hook = std::getenv("SYNBENCH_GPU_FAIL_SWAPCHAIN"); hook && (hook[0] == '1' || (std::strcmp(hook, "later") == 0 && m_everResumed)))
+        if (const char *hook = std::getenv("SYNTHEON_GPU_FAIL_SWAPCHAIN"); hook && (hook[0] == '1' || (std::strcmp(hook, "later") == 0 && m_everResumed)))
             created = "N/A: this GPU can't present to the test window on this display system";
 #endif
         if (created.empty())
@@ -791,7 +791,7 @@ std::string VulkanBackend::readback(double t, std::vector<std::uint8_t> *rgba8)
         rgba8);
 }
 
-#if defined(SYNBENCH_DEV_HOOKS)
+#if defined(SYNTHEON_DEV_HOOKS)
 std::string VulkanBackend::readbackPresented(std::vector<std::uint8_t> *rgba8)
 {
     if (!m_headless || !m_resumed || m_frame == 0)

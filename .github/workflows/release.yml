@@ -38,17 +38,17 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           path: artifacts
-          pattern: SynBench-*
+          pattern: Syntheon-*
           merge-multiple: false
 
       - name: Collect exactly the five release files
         run: |
           mkdir release
-          cp "artifacts/SynBench-windows-x64-installers/SynBench-$VERSION-windows-x64-setup.exe" release/
-          cp "artifacts/SynBench-windows-x64-installers/SynBench-$VERSION-windows-x64.msi" release/
-          cp "artifacts/SynBench-windows-arm64-installers/SynBench-$VERSION-windows-arm64-setup.exe" release/
-          cp "artifacts/SynBench-windows-arm64-installers/SynBench-$VERSION-windows-arm64.msi" release/
-          cp "artifacts/SynBench-linux-x86_64-AppImage/SynBench-$VERSION-x86_64.AppImage" release/
+          cp "artifacts/Syntheon-windows-x64-installers/Syntheon-$VERSION-windows-x64-setup.exe" release/
+          cp "artifacts/Syntheon-windows-x64-installers/Syntheon-$VERSION-windows-x64.msi" release/
+          cp "artifacts/Syntheon-windows-arm64-installers/Syntheon-$VERSION-windows-arm64-setup.exe" release/
+          cp "artifacts/Syntheon-windows-arm64-installers/Syntheon-$VERSION-windows-arm64.msi" release/
+          cp "artifacts/Syntheon-linux-x86_64-AppImage/Syntheon-$VERSION-x86_64.AppImage" release/
           test "$(find release -type f | wc -l)" -eq 5
           find release -type f -exec ls -l {} +
 
@@ -56,4 +56,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" release/* --draft --generate-notes --title "SynBench $VERSION"
+          gh release create "$GITHUB_REF_NAME" release/* --draft --generate-notes --title "Syntheon $VERSION"

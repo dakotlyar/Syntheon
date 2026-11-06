@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-// The encryption kernels of synbench-cpucrypto (Phase 2 design §5.5, P12),
+// The encryption kernels of syntheon-cpucrypto (Phase 2 design §5.5, P12),
 // on the CPU test's measurement engine, through OpenSSL's EVP interface. No
 // Qt: this is the worker's code only.
 //
@@ -14,7 +14,7 @@
 //                followed by the record
 // The records are the same fixed 16 KiB of data on every thread (made in
 // makeThread). The unit's checksum folds the tag or the 64 digests;
-// golden/crypto.inc (made by `synbench-cpucrypto --print-golden`, a
+// golden/crypto.inc (made by `syntheon-cpucrypto --print-golden`, a
 // developer build only) holds it per seed. Every unit is checked against it,
 // on the hardware and the software path alike: two implementations agreeing.
 

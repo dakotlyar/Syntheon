@@ -25,13 +25,13 @@ tree, whose `compile_commands.json` supplies the include paths and defines:
 ```
 python3 tools/windows-syntax-check/aw.py                       # every source that reaches <windows.h>, plus FORCE
 python3 tools/windows-syntax-check/aw.py src/tests/gpu/model/hags.cpp  # only these (always checked)
-python3 tools/windows-syntax-check/aw.py --build-dir ~/.cache/synbench/build/local-linux-x64-debug
+python3 tools/windows-syntax-check/aw.py --build-dir ~/.cache/syntheon/build/local-linux-x64-debug
 ```
 
-The default build tree is `~/.cache/synbench/build/local-linux-x64-debug`. The
-stubs are generated into `$XDG_CACHE_HOME/synbench/windows-syntax-check/`
+The default build tree is `~/.cache/syntheon/build/local-linux-x64-debug`. The
+stubs are generated into `$XDG_CACHE_HOME/syntheon/windows-syntax-check/`
 (default `~/.cache/...`) on every run; nothing is written to the repo. Sources
-under `src/` are checked with and without `SYNBENCH_DEV_HOOKS`, the tests
+under `src/` are checked with and without `SYNTHEON_DEV_HOOKS`, the tests
 with it only (how they are built). The exit code is 1 if any file fails, 2 for
 a missing compiler or build tree.
 

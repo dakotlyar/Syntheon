@@ -3,9 +3,9 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import SynBench
+import Syntheon
 
-// Shown once, after the storage and administrator gates: what SynBench found
+// Shown once, after the storage and administrator gates: what Syntheon found
 // (one line per test, from its probe) and where your history is kept.
 SbDialog {
     id: dialog
@@ -14,7 +14,7 @@ SbDialog {
 
     width: Math.min(parent ? parent.width - 48 : 560, 560)
 
-    title: qsTr("Welcome to SynBench")
+    title: qsTr("Welcome to Syntheon")
     subtitle: qsTr("Here is what this machine can run.")
 
     contentItem: ColumnLayout {
