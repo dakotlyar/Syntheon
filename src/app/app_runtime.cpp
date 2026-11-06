@@ -2,6 +2,7 @@
 #include "app/app_runtime.h"
 
 #include "app/qml_singletons.h"
+#include "storage/legacy_migration.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -41,6 +42,20 @@ AppRuntime::AppRuntime(Options options, QObject *parent) : QObject(parent), m_op
         if (data.isEmpty())
             data = m_smokeDir->filePath(QStringLiteral("data"));
     }
+    // Settings from before the rename, ahead of anything that reads the new file.
+    // Only for the real per-user settings: the smoke run, the tour and the dev
+    // hooks all set one of these, and never come here.
+    QString fallbackIni;
+    if (ini.isEmpty() && data.isEmpty()) {
+        SettingsStore probe;  // never synced: only asks where the new file goes
+        const auto s = legacy::migrateSettings(legacy::settingsFile(), probe.fileName(), legacy::defaultDataDir());
+        if (s.status == legacy::SettingsStatus::Failed) {
+            qCWarning(lcRuntime) << s.error;
+            fallbackIni = legacy::settingsFile();
+        }
+    }
+    if (!fallbackIni.isEmpty())
+        ini = fallbackIni;
     m_store = ini.isEmpty() ? std::make_unique<SettingsStore>() : std::make_unique<SettingsStore>(ini);
     if (!data.isEmpty()) {
         QDir().mkpath(data);
