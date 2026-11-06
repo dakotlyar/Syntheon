@@ -1136,6 +1136,7 @@ jobs:
   lint:
     if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
