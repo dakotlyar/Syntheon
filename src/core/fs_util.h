@@ -39,5 +39,7 @@ enum class ScratchCleanup {
 ScratchCleanup cleanupScratch(const QString &path, const QString &scratchRoot, const QUuid &runUuid);
 
 QString scratchRunFolderName(const QUuid &runUuid);
+// "synbench-<uuid>": accepted by isSafeScratchPath for rows left by a pre-rename run, never created.
+QString legacyScratchRunFolderName(const QUuid &runUuid);
 
 } // namespace sb::fs

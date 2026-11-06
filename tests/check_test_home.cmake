@@ -15,7 +15,7 @@
 #               goes to <test-home>/runtime-dir, which every test binary reads
 #               (tests/support/test_isolation.cpp sets XDG_RUNTIME_DIR from it).
 #   MODE=check  after the tests: remove that runtime folder (it must still be
-#               ours and not a symlink), then fail if anything named Syntheon
+#               ours and not a symlink), then fail if anything named Syntheon or SynBench
 #               (any case) appeared under the test HOME outside .qttest, Qt's
 #               test-mode root, and scratch: a test (or an app it launched)
 #               resolving a real default path.
@@ -127,7 +127,7 @@ elseif(MODE STREQUAL "check")
     set(bad "")
     foreach(f IN LISTS found)
         string(TOLOWER "${f}" lower)
-        if(lower MATCHES "syntheon" AND NOT f MATCHES "^\\.qttest(/|$)" AND NOT f MATCHES "^scratch(/|$)")
+        if(lower MATCHES "syntheon|synbench" AND NOT f MATCHES "^\\.qttest(/|$)" AND NOT f MATCHES "^scratch(/|$)")
             list(APPEND bad "${f}")
         endif()
     endforeach()

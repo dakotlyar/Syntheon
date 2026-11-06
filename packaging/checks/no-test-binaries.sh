@@ -16,7 +16,7 @@ for tree in "$@"; do
     while IFS= read -r -d '' f; do
         echo "test-only binary in a shipping tree: $f" >&2
         found=1
-    done < <(find "$tree" \( -iname 'syntheon-helper-test*' -o -iname 'test_helper*' -o -iname 'tst_*' -o -iname 'fake-*' \) -print0)
+    done < <(find "$tree" \( -iname 'syntheon-helper-test*' -o -iname 'synbench-helper-test*' -o -iname 'test_helper*' -o -iname 'tst_*' -o -iname 'fake-*' \) -print0)
 done
 if [[ $found -ne 0 ]]; then
     exit 1

@@ -472,6 +472,34 @@ private slots:
         QCOMPARE(q.value(0).toInt(), 0);
     }
 
+    void legacyPrefixScratchCleanedOtherPrefixRefused()
+    {
+        Fixture f;
+        QTemporaryDir root;
+        RunRecord done;
+        done.uuid = QUuid::createUuid();
+        done.status = RunStatus::Interrupted;
+        done.startedAt = QDateTime::currentDateTimeUtc();
+        RunRepository repo = f.repo();
+        const auto id = repo.saveRun(done);
+        // A row left by a run of the pre-rename build: its folder carries the old prefix.
+        const QString legacyDirPath = QDir(root.path()).filePath(fs::legacyScratchRunFolderName(done.uuid));
+        const QString legacyTest = QDir(legacyDirPath).filePath(QStringLiteral("cpu"));
+        QVERIFY(QDir().mkpath(legacyTest));
+        QVERIFY(repo.addScratchPath(*id, legacyTest));
+        // A folder with any other prefix is still refused and left alone.
+        const QString otherTest = QDir(QDir(root.path()).filePath(QStringLiteral("other-%1").arg(done.uuid.toString(QUuid::WithoutBraces))))
+                                      .filePath(QStringLiteral("cpu"));
+        QVERIFY(QDir().mkpath(otherTest));
+        QVERIFY(repo.addScratchPath(*id, otherTest));
+
+        const RecoveryReport report = recoverRuns(f.db(), f.registry, root.path());
+        QCOMPARE(report.scratchPathsRemoved, 1);
+        QCOMPARE(report.errors.size(), 1);
+        QVERIFY(!QFileInfo::exists(legacyTest));
+        QVERIFY(QFileInfo::exists(otherTest));
+    }
+
     void scratchOutsideRunFolderIsNeverDeleted()
     {
         Fixture f;

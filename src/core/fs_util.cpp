@@ -54,6 +54,12 @@ QString scratchRunFolderName(const QUuid &runUuid)
     return QStringLiteral("syntheon-%1").arg(runUuid.toString(QUuid::WithoutBraces));
 }
 
+QString legacyScratchRunFolderName(const QUuid &runUuid)
+{
+    // The name before the rename: a crashed old run can leave a row pointing here.
+    return QStringLiteral("synbench-%1").arg(runUuid.toString(QUuid::WithoutBraces));
+}
+
 bool removeTreeNoFollow(const QString &path)
 {
     const QFileInfo fi(path);  // QFileInfo describes the link itself (lstat)
@@ -80,13 +86,18 @@ bool isSafeScratchPath(const QString &path, const QString &scratchRoot, const QU
     if (name.isEmpty() || name == QLatin1StringView(".") || name == QLatin1StringView(".."))
         return false;
     const QFileInfo parent(fi.path());
-    if (isLink(parent) || parent.fileName() != scratchRunFolderName(runUuid))
+    if (isLink(parent))
+        return false;
+    const QString current = scratchRunFolderName(runUuid);
+    const QString legacy = legacyScratchRunFolderName(runUuid);
+    const QString matched = parent.fileName() == current ? current : (parent.fileName() == legacy ? legacy : QString());
+    if (matched.isEmpty())
         return false;
     const QString root = QFileInfo(scratchRoot).canonicalFilePath();
     const QString canonicalParent = parent.canonicalFilePath();
     if (root.isEmpty() || canonicalParent.isEmpty())
         return false;
-    return canonicalParent == QDir(root).filePath(scratchRunFolderName(runUuid));
+    return canonicalParent == QDir(root).filePath(matched);
 }
 
 ScratchCleanup cleanupScratch(const QString &path, const QString &scratchRoot, const QUuid &runUuid)

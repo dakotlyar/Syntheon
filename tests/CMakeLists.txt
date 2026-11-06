@@ -91,13 +91,17 @@ add_test(NAME test_isolation_rejects_planted COMMAND planted_isolation)
 set_tests_properties(test_isolation_rejects_planted PROPERTIES
     PASS_REGULAR_EXPRESSION "is not a Qt test location" FAIL_REGULAR_EXPRESSION "planted test ran")
 if(UNIX)
-    set(_planted_home "${CMAKE_CURRENT_BINARY_DIR}/planted-home/test-home")
-    file(MAKE_DIRECTORY "${_planted_home}/.local/share/Syntheon" "${_planted_home}/.qttest/share/Syntheon")
-    add_test(NAME test_home_untouched_rejects_planted
-        COMMAND ${CMAKE_COMMAND} "-DHOME_DIR=${_planted_home}" -DMODE=check -P "${CMAKE_CURRENT_SOURCE_DIR}/check_test_home.cmake")
-    set_tests_properties(test_home_untouched_rejects_planted PROPERTIES
-        PASS_REGULAR_EXPRESSION "test[ \n]+HOME:[ \n]+\\.local/share/Syntheon\n"
-        FAIL_REGULAR_EXPRESSION "\\.qttest/share/Syntheon")
+    # One planted real-looking history folder per name: the guard must fire on both.
+    foreach(_name Syntheon SynBench)
+        string(TOLOWER "${_name}" _lname)
+        set(_planted_home "${CMAKE_CURRENT_BINARY_DIR}/planted-home-${_lname}/test-home")
+        file(MAKE_DIRECTORY "${_planted_home}/.local/share/${_name}" "${_planted_home}/.qttest/share/${_name}")
+        add_test(NAME test_home_untouched_rejects_planted_${_lname}
+            COMMAND ${CMAKE_COMMAND} "-DHOME_DIR=${_planted_home}" -DMODE=check -P "${CMAKE_CURRENT_SOURCE_DIR}/check_test_home.cmake")
+        set_tests_properties(test_home_untouched_rejects_planted_${_lname} PROPERTIES
+            PASS_REGULAR_EXPRESSION "test[ \n]+HOME:[ \n]+\\.local/share/${_name}\n"
+            FAIL_REGULAR_EXPRESSION "\\.qttest/share/${_name}")
+    endforeach()
     # ...and the setup refuses an XDG_RUNTIME_DIR that is a planted symlink
     # or another user's (the sudo ctest case), before creating anything.
     set(_planted_runtime "${CMAKE_CURRENT_BINARY_DIR}/planted-runtime")

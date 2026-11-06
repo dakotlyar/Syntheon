@@ -88,6 +88,8 @@ bool isTestPath(const QString &path)
 void checkTestPaths()
 {
     const QSettings ini(QSettings::IniFormat, QSettings::UserScope, QStringLiteral("Syntheon"), QStringLiteral("Syntheon"));
+    // The pre-rename location is still real on a machine with old history.
+    const QSettings legacyIni(QSettings::IniFormat, QSettings::UserScope, QStringLiteral("SynBench"), QStringLiteral("SynBench"));
     const QString paths[] = {
         QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation),
         QStandardPaths::writableLocation(QStandardPaths::AppDataLocation),
@@ -95,6 +97,7 @@ void checkTestPaths()
         QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation),
         QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation),
         ini.fileName(),
+        legacyIni.fileName(),
     };
     for (const QString &p : paths) {
         if (!isTestPath(p)) {
