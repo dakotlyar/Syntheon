@@ -5,12 +5,18 @@
 #include "app/controllers/startup_controller.h"
 #include "app/controllers/storage_controller.h"
 #include "storage/database.h"
+#include "storage/legacy_migration.h"
 #include "tests/common/stub_clock.h"
 #include "storage/run_repository.h"
 
 #include <QCborMap>
 #include <QCborValue>
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QLockFile>
+#include <QRegularExpression>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QSqlQuery>
 #include <QTemporaryDir>
@@ -218,6 +224,73 @@ private slots:
         QVERIFY(rt.startup().recoveryPending());
         QVERIFY(rt.startup().recoveryNotice().contains(QStringLiteral("was interrupted")));
         QVERIFY(!rt.storageController().locked());
+    }
+
+    // The first launch after the rename says what it did, once.
+    void copiedHistoryIsAnnouncedOnce()
+    {
+        QTemporaryDir dir, other;
+        const QString data = dir.filePath(QStringLiteral("data"));
+        QDir().mkpath(data);
+        const QString oldDb = QDir(data).filePath(QStringLiteral("synbench.db"));
+        QVERIFY(Database::migrate(oldDb).ok());
+        {
+            Database::ScopedConnection c(oldDb, QStringLiteral("seed"));
+            QVERIFY(RunRepository(c.db()).saveRun(run()));
+            QVERIFY(RunRepository(c.db()).saveRun(run()));
+        }
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = data;
+        AppRuntime rt(o);
+        rt.storageController().open();
+        StartupController &st = rt.startup();
+        st.waitForRecovery();
+        QCOMPARE(st.recoveryNotice(),
+                 QStringLiteral("Your 2 saved runs from SynBench were copied here. The old copy in %1 was left in place; you can delete it.")
+                     .arg(QDir::toNativeSeparators(QDir::cleanPath(data))));
+        st.dismissRecoveryNotice();
+
+        st.recover();  // every location change runs this again
+        st.waitForRecovery();
+        QVERIFY(!st.recoveryPending());
+        // A folder with a history of its own runs no copy, and lastAdoption() stays as it was.
+        QVERIFY(Database::migrate(QDir(other.path()).filePath(QStringLiteral("syntheon.db"))).ok());
+        QCOMPARE(rt.storageController().openHistoryIn(other.path()), QString());
+        st.waitForRecovery();
+        QVERIFY2(!st.recoveryPending(), qPrintable(st.recoveryNotice()));
+    }
+
+    void oneCopiedRunReadsRight()
+    {
+        QTemporaryDir dir;
+        const QString oldDb = dir.filePath(QStringLiteral("synbench.db"));
+        QVERIFY(Database::migrate(oldDb).ok());
+        {
+            Database::ScopedConnection c(oldDb, QStringLiteral("seed"));
+            QVERIFY(RunRepository(c.db()).saveRun(run()));
+        }
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = dir.path();
+        AppRuntime rt(o);
+        rt.storageController().open();
+        rt.startup().waitForRecovery();
+        QVERIFY2(rt.startup().recoveryNotice().startsWith(QStringLiteral("Your 1 saved run from SynBench was copied here.")),
+                 qPrintable(rt.startup().recoveryNotice()));
+    }
+
+    // A freshly installed Syntheon with nothing to copy says nothing.
+    void noCopyNoNotice()
+    {
+        QTemporaryDir dir;
+        AppRuntime::Options o;
+        o.settingsFile = dir.filePath(QStringLiteral("settings.ini"));
+        o.dataFolder = dir.filePath(QStringLiteral("data"));
+        AppRuntime rt(o);
+        rt.storageController().open();
+        rt.startup().waitForRecovery();
+        QVERIFY(!rt.startup().recoveryPending());
     }
 
     // AP-5 #4: a run earlier in the session must not switch recovery off.
