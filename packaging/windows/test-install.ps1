@@ -36,6 +36,7 @@ $Msi = (Resolve-Path $Msi).Path
 if ($OldInstaller) { $OldInstaller = (Resolve-Path $OldInstaller).Path }
 
 $app = Join-Path $env:ProgramFiles 'Syntheon'
+$oldApp = Join-Path $env:ProgramFiles 'SynBench'
 $exe = Join-Path $app 'Syntheon.exe'
 $worker = Join-Path $app 'syntheon-cpucrypto.exe'
 $gpuWorker = Join-Path $app 'syntheon-gpu.exe'
@@ -267,13 +268,16 @@ try {
     if ($OldInstaller) {
         Step 'Upgrade over the Python v0.2.3 install'
         Run $OldInstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\old-install.log")
-        if (-not (Test-Path (Join-Path $app '_internal'))) { throw 'the old install has no _internal: not the Python build?' }
-        New-Item -ItemType Directory -Force (Join-Path $app 'python-embed') | Out-Null
-        New-Item -ItemType Directory -Force (Join-Path $app 'synbench_plugins') | Out-Null
+        if (-not (Test-Path (Join-Path $oldApp '_internal'))) { throw 'the old install has no _internal: not the Python build?' }
+        New-Item -ItemType Directory -Force (Join-Path $oldApp 'python-embed') | Out-Null
+        New-Item -ItemType Directory -Force (Join-Path $oldApp 'synbench_plugins') | Out-Null
         Run $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-upgrade.log")
-        foreach ($leftover in '_internal', 'python-embed', 'synbench_plugins', 'SynBench-CLI.exe') {
-            if (Test-Path (Join-Path $app $leftover)) { throw "Python leftover $leftover survived the upgrade" }
-        }
+        # The install moved folders with the rename: nothing of the old one may stay.
+        $startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
+        if (Test-Path $oldApp) { throw "$oldApp survived the upgrade" }
+        if (Test-Path (Join-Path $startMenu 'SynBench')) { throw 'the old Start menu folder survived the upgrade' }
+        if (-not (Test-Path (Join-Path $startMenu 'Syntheon\Syntheon.lnk'))) { throw 'no Syntheon shortcut in the Start menu after the upgrade' }
+        if (-not (Test-Path $exe)) { throw 'Syntheon.exe missing after the upgrade' }
         Assert-Version
         Test-Launch
         # One entry in Apps & Features, not two (same AppId).
@@ -282,6 +286,40 @@ try {
             Get-ChildItem $root -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like '{14A62E4F-2EF1-40BC-82D9-2418EC833479}*' }
         }
         if (@($entries).Count -ne 1) { throw "expected one uninstall entry for the shared AppId, found $(@($entries).Count)" }
+        Run (Get-InnoUninstaller) @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+        Wait-Gone
+        EndStep
+    }
+
+    # 5. A first launch copies the history from before the rename. CI only: this
+    # deletes the app's data folders, which on a real machine hold real history.
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        Step 'First launch copies the old history'
+        Run $Inno @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\inno-migration.log")
+        # The launches above left a new history: with it there, the copy would never
+        # run and this step would pass doing nothing.
+        $newData = Join-Path $env:LOCALAPPDATA 'Syntheon'
+        $newConfig = Join-Path $env:APPDATA 'Syntheon'
+        foreach ($folder in $newData, $newConfig) {
+            if (Test-Path $folder) { Remove-Item $folder -Recurse -Force }
+        }
+        $oldData = Join-Path $env:LOCALAPPDATA 'SynBench'
+        if (Test-Path $oldData) { throw "$oldData already exists: something made the old data folder" }
+        New-Item -ItemType Directory -Force $oldData | Out-Null
+        $oldDb = Join-Path $oldData 'synbench.db'
+        $newDb = Join-Path $newData 'syntheon.db'
+        & python -I (Join-Path $PSScriptRoot '..\checks\make-legacy-db.py') $oldDb
+        if ($LASTEXITCODE -ne 0) { throw "make-legacy-db.py exited with $LASTEXITCODE" }
+        $oldHash = (Get-FileHash $oldDb -Algorithm SHA256).Hash
+        Test-Launch
+        if (-not (Test-Path $newDb)) { throw "$newDb is missing after the first launch" }
+        # No double quotes in the program: they don't survive every PowerShell's argument passing.
+        $countRuns = 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute(''select count(*) from runs'').fetchone()[0])'
+        $runs = & python -I -c $countRuns $newDb
+        if ($LASTEXITCODE -ne 0) { throw "reading $newDb failed with exit code $LASTEXITCODE" }
+        if ("$runs".Trim() -ne '3') { throw "the new history has '$runs' runs, expected 3" }
+        if ((Get-FileHash $oldDb -Algorithm SHA256).Hash -ne $oldHash) { throw "$oldDb changed during the first launch" }
+        Write-Host 'the old history was copied, the old file is unchanged'
         Run (Get-InnoUninstaller) @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
         Wait-Gone
         EndStep
