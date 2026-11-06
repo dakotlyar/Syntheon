@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "storage/legacy_migration.h"
 
+#include "core/fs_util.h"
+#include "storage/database.h"
 #include "storage/instance_paths.h"
 #include "storage/legacy_names.h"
 #include "storage/settings_store.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QLockFile>
 #include <QSettings>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QStandardPaths>
 
 #include <filesystem>
+#include <optional>
 #include <system_error>
 
 namespace sb::legacy {
@@ -40,6 +47,99 @@ bool renameWhole(const QString &from, const QString &to, QString *error)
     if (ec)
         *error = QString::fromStdString(ec.message());
     return !ec;
+}
+
+QByteArray sha256(const QString &path)
+{
+    QFile file(path);
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!file.open(QIODevice::ReadOnly) || !hash.addData(&file))
+        return {};
+    return hash.result();
+}
+
+// What must be the same on both sides of the copy.
+struct Facts {
+    int runs = -1;
+    int userVersion = -1;
+    bool operator==(const Facts &) const = default;
+};
+
+// SQLite's own reason, e.g. "file is not a database", for showing to the user.
+QString reason(const QSqlQuery &q)
+{
+    const QSqlError e = q.lastError();
+    return (e.databaseText().isEmpty() ? e.driverText() : e.databaseText()).trimmed();
+}
+
+bool readFacts(QSqlDatabase &db, Facts *facts, QString *error)
+{
+    QSqlQuery q(db);
+    // Also what fails on a file with no runs table: it isn't a history.
+    if (!q.exec(QStringLiteral("SELECT count(*) FROM runs")) || !q.next()) {
+        *error = reason(q);
+        return false;
+    }
+    facts->runs = q.value(0).toInt();
+    if (!q.exec(QStringLiteral("PRAGMA user_version")) || !q.next()) {
+        *error = reason(q);
+        return false;
+    }
+    facts->userVersion = q.value(0).toInt();
+    return true;
+}
+
+// Folds the WAL into the file and reads the facts. Any failure leaves the file alone.
+bool checkpointAndRead(const QString &dbPath, Facts *facts, QString *error)
+{
+    Database::ScopedConnection conn(dbPath, QStringLiteral("adopt-source"));
+    if (!conn.isOpen()) {
+        *error = conn.error();
+        return false;
+    }
+    {
+        QSqlQuery q(conn.db());
+        if (!q.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)")) || !q.next()) {
+            *error = reason(q);
+            return false;
+        }
+        if (q.value(0).toInt() != 0) {
+            *error = QStringLiteral("The old history is busy.");
+            return false;
+        }
+    }
+    return readFacts(conn.db(), facts, error);
+}
+
+// The copy against the old file, its bytes before anything opens it.
+bool verifyCopy(const QString &legacyDb, const QString &tmp, const Facts &expected, QString *error)
+{
+    const QByteArray hash = sha256(tmp);
+    if (hash.isEmpty() || hash != sha256(legacyDb)) {
+        *error = QStringLiteral("The copy isn't the same as the original.");
+        return false;
+    }
+    Database::ScopedConnection conn(tmp, QStringLiteral("adopt-verify"));
+    if (!conn.isOpen()) {
+        *error = conn.error();
+        return false;
+    }
+    {
+        QSqlQuery q(conn.db());
+        if (!q.exec(QStringLiteral("PRAGMA integrity_check")) || !q.next()
+            || q.value(0).toString() != QLatin1StringView("ok")) {
+            *error = QStringLiteral("The history failed its integrity check.");
+            return false;
+        }
+    }
+    Facts facts;
+    if (!readFacts(conn.db(), &facts, error))
+        return false;
+    if (!(facts == expected)) {
+        *error = QStringLiteral("The copy doesn't have every run.");
+        return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -102,10 +202,87 @@ SettingsResult migrateSettings(const QString &legacyIni, const QString &newIni, 
                 return failed(QStringLiteral("the temp file can't be written."));
         }
     }
+    if (!fs::syncFile(tmp))
+        return failed(QStringLiteral("the temp file can't be written."));
     QString why;
     if (!renameWhole(tmp, newIni, &why))
         return failed(why);
     r.status = SettingsStatus::Migrated;
+    return r;
+}
+
+AdoptResult adoptHistory(const QString &legacyDb, const QString &newDb, const QString &legacyLockPath,
+                         const std::function<bool(Stage)> &hook)
+{
+    AdoptResult r;
+    if (QFileInfo::exists(newDb) || !QFileInfo::exists(legacyDb))
+        return r;
+
+    const auto failed = [&r](const QString &why) {
+        r.status = AdoptStatus::Failed;
+        r.error = QStringLiteral("Couldn't copy your saved runs: %1%2 Your saved runs were not changed.")
+                      .arg(why, why.endsWith(QLatin1Char('.')) ? QString() : QStringLiteral("."));
+        return r;
+    };
+    const auto stop = [&hook](Stage stage) { return hook && !hook(stage); };
+    const auto interrupted = [&r] {
+        r.status = AdoptStatus::Failed;
+        r.error = QStringLiteral("Interrupted.");
+        return r;
+    };
+
+    // Same rule as the app's own lock: stale only if its owner is dead.
+    std::optional<QLockFile> lock;
+    if (!legacyLockPath.isEmpty()) {
+        lock.emplace(legacyLockPath);
+        lock->setStaleLockTime(0);
+        if (!lock->tryLock(0)) {
+            if (lock->error() != QLockFile::LockFailedError)
+                return failed(QStringLiteral("the old lock file %1 can't be read.").arg(legacyLockPath));
+            r.status = AdoptStatus::LegacyInUse;
+            r.error = QStringLiteral("An old build has this history open.");
+            return r;
+        }
+    }
+
+    const QString tmp = newDb + kTempSuffix;
+    if (!Database::removeDbFiles(tmp))
+        return failed(QStringLiteral("a leftover temp file can't be removed."));
+
+    Facts facts;
+    QString why;
+    if (!checkpointAndRead(legacyDb, &facts, &why))
+        return failed(why);
+    if (stop(Stage::BeforeCopy))
+        return interrupted();
+
+    if (!QFile::copy(legacyDb, tmp) || !fs::syncFile(tmp)) {
+        Database::removeDbFiles(tmp);
+        return failed(QStringLiteral("the copy to %1 failed (is the disk full?).").arg(QFileInfo(newDb).absolutePath()));
+    }
+    if (stop(Stage::AfterCopy))
+        return interrupted();
+
+    if (!verifyCopy(legacyDb, tmp, facts, &why)) {
+        Database::removeDbFiles(tmp);
+        return failed(why);
+    }
+    // Opening it for the check can leave these; the file itself is complete.
+    for (const char *suffix : {"-wal", "-shm"})
+        QFile::remove(tmp + QLatin1StringView(suffix));
+    if (stop(Stage::AfterVerify))
+        return interrupted();
+
+    if (!renameWhole(tmp, newDb, &why)) {
+        Database::removeDbFiles(tmp);
+        return failed(why);
+    }
+    if (stop(Stage::AfterRename))
+        return interrupted();
+
+    r.status = AdoptStatus::Adopted;
+    r.runCount = facts.runs;
+    r.legacyFolder = QFileInfo(legacyDb).absolutePath();
     return r;
 }
 

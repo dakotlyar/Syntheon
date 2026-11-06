@@ -27,17 +27,6 @@ QString dbFileIn(const QString &folder)
     return QDir(folder).filePath(QString::fromLatin1(Database::kFileName));
 }
 
-bool removeDbFiles(const QString &dbPath)
-{
-    bool ok = !QFile::exists(dbPath) || QFile::remove(dbPath);
-    for (const char *suffix : {"-wal", "-shm"}) {
-        const QString f = dbPath + QLatin1StringView(suffix);
-        if (QFile::exists(f))
-            ok = QFile::remove(f) && ok;
-    }
-    return ok;
-}
-
 } // namespace
 
 Storage::Storage(SettingsStore &settings) : m_settings(settings) {}
@@ -349,27 +338,27 @@ Storage::MoveResult Storage::moveTo(const QString &folder)
         }
     }
     if (!verifyError.isEmpty()) {
-        removeDbFiles(newPath);
+        Database::removeDbFiles(newPath);
         return restore(verifyError);
     }
 
     // 3. Switch to the copy and save the setting.
     const OpenResult opened = openAt(target, false);
     if (!opened.ok()) {
-        removeDbFiles(newPath);
+        Database::removeDbFiles(newPath);
         return restore(opened.error);
     }
     m_settings.setDataLocation(target);
     if (!m_settings.sync()) {
         closeConnection();
-        removeDbFiles(newPath);
+        Database::removeDbFiles(newPath);
         m_settings.setDataLocation(oldDir == defaultDataDir() ? QString() : oldDir);
         return restore(QStringLiteral("Couldn't save the setting to %1.").arg(m_settings.fileName()));
     }
 
     // 4. Delete the old file.
     result.status = MoveStatus::Moved;
-    if (!removeDbFiles(oldPath))
+    if (!Database::removeDbFiles(oldPath))
         result.warning = QStringLiteral("The history moved, but the old file %1 couldn't be deleted.").arg(oldPath);
     return result;
 }

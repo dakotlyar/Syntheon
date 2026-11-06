@@ -48,6 +48,9 @@ MigrateResult migrate(const QString &path, const QString &migrationsDir = QStrin
 QSqlDatabase openConnection(const QString &path, const QString &connectionName, QString *error = nullptr);
 void closeConnection(const QString &connectionName);
 
+// Deletes a database file with its -wal and -shm; true if none of them is left.
+bool removeDbFiles(const QString &dbPath);
+
 // A unique connection name for a temporary or per-thread connection.
 QString uniqueConnectionName(const QString &purpose);
 

@@ -67,6 +67,17 @@ int userVersion(QSqlDatabase &db, bool *ok, QString *error = nullptr)
 
 } // namespace
 
+bool removeDbFiles(const QString &dbPath)
+{
+    bool ok = !QFile::exists(dbPath) || QFile::remove(dbPath);
+    for (const char *suffix : {"-wal", "-shm"}) {
+        const QString f = dbPath + QLatin1StringView(suffix);
+        if (QFile::exists(f))
+            ok = QFile::remove(f) && ok;
+    }
+    return ok;
+}
+
 QString uniqueConnectionName(const QString &purpose)
 {
     static QAtomicInteger<quint64> counter;

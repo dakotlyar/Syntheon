@@ -13,6 +13,8 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace sb::fs {
@@ -58,6 +60,23 @@ QString legacyScratchRunFolderName(const QUuid &runUuid)
 {
     // The name before the rename: a crashed old run can leave a row pointing here.
     return QStringLiteral("synbench-%1").arg(runUuid.toString(QUuid::WithoutBraces));
+}
+
+bool syncFile(const QString &path)
+{
+#ifdef Q_OS_WIN
+    // FlushFileBuffers needs a handle with write access.
+    const HANDLE file = CreateFileW(reinterpret_cast<LPCWSTR>(QDir::toNativeSeparators(path).utf16()), GENERIC_WRITE,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    const bool ok = FlushFileBuffers(file) != 0;
+    CloseHandle(file);
+    return ok;
+#else
+    QFile file(path);
+    return file.open(QIODevice::ReadWrite) && ::fsync(file.handle()) == 0;
+#endif
 }
 
 bool removeTreeNoFollow(const QString &path)
