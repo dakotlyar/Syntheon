@@ -38,6 +38,9 @@ try {
     $bytes = [Text.Encoding]::Unicode.GetBytes('SYNTHEON_TOUR')
     $fs = [IO.File]::Open((Join-Path $work 'Syntheon.exe'), 'Append'); $fs.Write($bytes, 0, $bytes.Length); $fs.Close()
     Assert-Fails 'a SYNTHEON_ string (UTF-16) in Syntheon.exe'
+    Fresh-Copy
+    [IO.File]::AppendAllText((Join-Path $work 'Syntheon.exe'), 'SYNBENCH_SMOKE', [Text.Encoding]::ASCII)
+    Assert-Fails 'a SYNBENCH_ string (8-bit) in Syntheon.exe'
 
     # 2. a test-only binary
     Fresh-Copy

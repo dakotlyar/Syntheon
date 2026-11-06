@@ -3,7 +3,7 @@
 #
 # Proves a PACKAGED build carries none of the developer hooks (SYNTHEON_SMOKE,
 # SYNTHEON_TOUR*, SYNTHEON_STUB_SCALE, SYNTHEON_DATA_DIR, ...): no binary in the
-# tree may contain the text "SYNTHEON_" at all, in 8-bit or UTF-16 form.
+# tree may contain the text "SYNTHEON_" or the former "SYNBENCH_" at all, in 8-bit or UTF-16 form.
 #
 #   packaging/checks/no-dev-hooks.sh <tree>...
 # Counterpart for Windows: no-dev-hooks.ps1.
@@ -14,9 +14,9 @@ for tree in "$@"; do
     while IFS= read -r -d '' f; do
         # (no `grep -q` in a pipeline: under pipefail its early exit makes `strings` fail)
         text=$(strings -a "$f"; strings -a -el "$f")
-        if grep -q 'SYNTHEON_' <<<"$text"; then
+        if grep -qE 'SYNTHEON_|SYNBENCH_' <<<"$text"; then
             echo "developer hook text found in a packaged binary: $f" >&2
-            grep 'SYNTHEON_' <<<"$text" | head -5 >&2 || true
+            grep -E 'SYNTHEON_|SYNBENCH_' <<<"$text" | head -5 >&2 || true
             bad=1
         fi
     done < <(find "$tree" -type f \( -perm -u+x -o -name '*.so*' \) -print0)
