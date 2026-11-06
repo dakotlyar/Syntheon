@@ -956,6 +956,12 @@ private slots:
         Ctx ctx;
         const TestResult r = t.run(ctx, {});
         QCOMPARE(textOf(r, QStringLiteral("screen")), QStringLiteral("eDP-1 \u00b7 2560×1600 at 125%"));
+        // The log's "Render …" line states what the metrics do (ready said 320×180, headless; the result has the window's real plan), once.
+        const QStringList logs = ctx.logs();
+        const auto renders = logs.filter(QStringLiteral("Render "));
+        QCOMPARE(renders.size(), 1);
+        QCOMPARE(renders.first(), QStringLiteral("Render 2400×1350 at 125% in a 1294×728 window (scaled to fit) on eDP-1"));
+        QCOMPARE(textOf(r, QStringLiteral("render.size")), QStringLiteral("2400×1350"));
     }
 
     // AP-5 L3: a 3D API whose worker dies before "ready" failed "during start-up", never "in starting".

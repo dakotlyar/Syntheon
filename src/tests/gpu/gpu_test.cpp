@@ -260,6 +260,24 @@ struct ApiRun {
     std::map<FillId, pr::ResultEvent> fills;   // Quads and Sprites (§6.5, §6.6), after the four scenes
 };
 
+// The render plan this API measured: what `ready` said, corrected by the first scene result when it recorded the
+// screen the window really landed on (D1, DEF-3); `screenDetail` adds the screen's size and scale, as `screen` states it. The log's "Render …" line and the render.*/screen metrics both read this.
+pr::ReadyEvent measuredSetup(const ApiRun &a, bool screenDetail)
+{
+    pr::ReadyEvent e = *a.ready;
+    if (!a.results.empty() && !a.results.begin()->second.screen.isEmpty()) {
+        const pr::ResultEvent &res = a.results.begin()->second;
+        e.renderW = res.renderW;
+        e.renderH = res.renderH;
+        e.windowW = res.windowW;
+        e.windowH = res.windowH;
+        e.scale = res.scale;
+        e.fit = res.fit;
+        e.screen = screenDetail ? screenText(res.screen, res.screenW, res.screenH, res.scale) : res.screen;
+    }
+    return e;
+}
+
 // A workload of the 3D plan: one of the four scenes or one of the two fill workloads.
 struct WorkloadRef {
     std::optional<SceneId> scene;
@@ -577,6 +595,20 @@ TestResult GpuRun::run()
         }
     }
     bool stopped = cancelled(), renderLogged = false;
+    // §15: "Render 1920×1080 at 100% in a 1920×1080 window on DP-3", once, from the first API's first result (the window's
+    // real plan, as the metrics state it), or from `ready` when nothing was measured.
+    const auto logRender = [&](const ApiRun &a) {
+        if (renderLogged || !a.ready)
+            return;
+        renderLogged = true;
+        const pr::ReadyEvent e = measuredSetup(a, false);
+        QString where = e.windowW > 0 ? QStringLiteral(" in a %1 window").arg(sizeText({e.windowW, e.windowH})) : QStringLiteral(", headless");
+        if (e.fit)
+            where += QStringLiteral(" (scaled to fit)");
+        if (!e.screen.isEmpty())
+            where += QStringLiteral(" on ") + e.screen;
+        m_ctx.log(LogLevel::Info, QStringLiteral("Render %1 at %2%%3").arg(sizeText({e.renderW, e.renderH})).arg(scalePercent(e.scale)).arg(where));
+    };
     for (ApiRun &a : m_apis) {
         if (!a.active || stopped)
             continue;
@@ -585,17 +617,6 @@ TestResult GpuRun::run()
         case ClientOutcome::Status::Ok:
             a.ready = ready.ready;
             m_ctx.log(LogLevel::Info, QStringLiteral("%1 ready on %2").arg(apiName(a.id), ready.ready ? ready.ready->device : QString()));
-            // §15: "Render 1920×1080 at 100% in a 1920×1080 window on DP-3", once, from the first worker that is ready.
-            if (!renderLogged && ready.ready) {
-                renderLogged = true;
-                const pr::ReadyEvent &e = *ready.ready;
-                QString where = e.windowW > 0 ? QStringLiteral(" in a %1 window").arg(sizeText({e.windowW, e.windowH})) : QStringLiteral(", headless");
-                if (e.fit)
-                    where += QStringLiteral(" (scaled to fit)");
-                if (!e.screen.isEmpty())
-                    where += QStringLiteral(" on ") + e.screen;
-                m_ctx.log(LogLevel::Info, QStringLiteral("Render %1 at %2%%3").arg(sizeText({e.renderW, e.renderH})).arg(scalePercent(e.scale)).arg(where));
-            }
             break;
         case ClientOutcome::Status::NotAvailable:
             a.active = false;
@@ -663,6 +684,7 @@ TestResult GpuRun::run()
                     a.results[*work.scene] = res;
                 else
                     a.fills[*work.fill] = res;
+                logRender(a);
                 if (a.present.isEmpty())
                     a.present = res.present;
                 break;
@@ -691,6 +713,8 @@ TestResult GpuRun::run()
             compareSignatures(item, plan);
         }
     }
+    for (const ApiRun &a : m_apis)
+        logRender(a);  // nothing measured: `ready`'s plan is all there is
     for (ApiRun &a : m_apis) {
         if (!a.session || !a.session->alive())
             continue;
@@ -893,17 +917,7 @@ TestResult GpuRun::finish(bool stopped)
     for (const ApiRun &a : m_apis) {
         if (!a.ready)
             continue;
-        pr::ReadyEvent e = *a.ready;
-        if (!a.results.empty() && !a.results.begin()->second.screen.isEmpty()) {
-            const pr::ResultEvent &res = a.results.begin()->second;
-            e.renderW = res.renderW;
-            e.renderH = res.renderH;
-            e.windowW = res.windowW;
-            e.windowH = res.windowH;
-            e.scale = res.scale;
-            e.fit = res.fit;
-            e.screen = screenText(res.screen, res.screenW, res.screenH, res.scale);
-        }
+        const pr::ReadyEvent e = measuredSetup(a, true);
         r.metrics.append(text(QStringLiteral("render.size"), {}, QStringLiteral("Render size"), sizeText({e.renderW, e.renderH})));
         r.metrics.append(number(QStringLiteral("render.scale"), {}, QStringLiteral("Display scale"), double(scalePercent(e.scale)), QStringLiteral("%")));
         QString window = e.windowW > 0 ? sizeText({e.windowW, e.windowH}) : QStringLiteral("headless");
