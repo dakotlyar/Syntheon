@@ -9,10 +9,11 @@
 ;   SourceDir   the `cmake --install` tree
 ;   OutputDir   where Syntheon-<ver>-windows-<arch>-setup.exe goes
 ;
-; AppId is the OLD Python SynBench's (D10): installing v2 upgrades that install
-; in place, and the x64 and ARM64 installers share it (N3), so installing one
-; over the other replaces it. [InstallDelete] removes what the PyInstaller
-; install left behind, which Inno would not remove by itself.
+; AppId is the OLD Python SynBench's (D10): installing v2 upgrades that install,
+; and the x64 and ARM64 installers share it (N3), so installing one over the
+; other replaces it. An install from before the rename sits in Program Files\SynBench,
+; which is no longer {app}: [InstallDelete] removes that folder, its Start menu
+; folder and its desktop icon, which Inno would not remove by itself.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0-dev"
@@ -47,6 +48,7 @@ DefaultDirName={autopf}\{#AppName}
 ; /DIR= on the command line is refused in [Code].
 DisableDirPage=yes
 UsePreviousAppDir=no
+UsePreviousGroup=no
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
@@ -76,13 +78,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [InstallDelete]
-; The Python SynBench (PyInstaller one-folder + its optional side-car) left
-; these in {app}. Removed before the new files are copied.
-Type: filesandordirs; Name: "{app}\_internal"
-Type: filesandordirs; Name: "{app}\python-embed"
-Type: filesandordirs; Name: "{app}\synbench_plugins"
-Type: files; Name: "{app}\SynBench-CLI.exe"
-Type: files; Name: "{app}\base_library.zip"
+; Everything an install from before the rename left: the old program folder
+; (with the Python build's leftovers), its Start menu folder and desktop icon.
+; The user's history is never in these places.
+Type: filesandordirs; Name: "{autopf}\SynBench"
+Type: filesandordirs; Name: "{autoprograms}\SynBench"
+Type: files; Name: "{autodesktop}\SynBench.lnk"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -100,9 +101,6 @@ Root: HKLM; Subkey: "Software\SynBench"; ValueType: string; ValueName: "Arch"; V
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
-
-[UninstallDelete]
-Type: filesandordirs; Name: "{app}\synbench_plugins"
 
 [Code]
 // Inno and the MSI must not both own an install: refuse if the MSI is there.
