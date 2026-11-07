@@ -1,5 +1,7 @@
 # Syntheon
 
+Formerly SynBench.
+
 Syntheon is a synthetic system benchmark for Windows and Linux (x64 and ARM64):
 CPU, memory, storage, graphics, AI inference, NPU presence and battery life.
 Every run is saved on your computer, and runs can be compared side by side.
@@ -48,6 +50,19 @@ the open window forward.
 
 Your runs are kept in a SQLite database (Settings shows where, and can move
 it): `%LOCALAPPDATA%\Syntheon` on Windows, `~/.local/share/Syntheon` on Linux.
+Your settings are in `settings.ini`, under `%APPDATA%\Syntheon` on Windows and
+`~/.config/Syntheon` on Linux.
+
+If you used SynBench, the first launch copies your saved runs and settings
+across and tells you how many runs came over. Close SynBench first, because
+Syntheon won't copy a history that is still open. A history you kept in a folder
+of your own stays in that folder, as `syntheon.db` beside the old `synbench.db`.
+
+The old files are left exactly as they were, and Syntheon doesn't look at them
+again, so anything you do in the old app after that won't show up here. Once
+you're happy that everything arrived, the old folders are yours to delete:
+`%LOCALAPPDATA%\SynBench` and `%APPDATA%\SynBench` on Windows,
+`~/.local/share/SynBench` and `~/.config/SynBench` on Linux.
 
 ## Security model
 

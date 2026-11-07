@@ -29,9 +29,15 @@ second run changes nothing. A change to `versions.json` changes `STAMP` too,
 so rerun the script after editing it.
 
 Linux x64 only. The first run downloads the pinned tools into
-`~/.cache/syntheon/tools/` (checked against the SHA-256 in `versions.json`)
+`~/.cache/synbench/tools/` (checked against the SHA-256 in `versions.json`)
 and builds SPIRV-Cross there with CMake (a C++ compiler is needed, about half
 a minute); later runs take a few seconds. Nothing from them ships.
+
+The cache folder still has the project's old name on purpose. `build.py` hashes
+itself into `STAMP`, whose first four characters are stored with every GPU result
+as the `shaders` metric, so changing even a comment in it would change that value
+when no shader had changed. `build.py` and `font5x7.py` share the folder, and they
+can both move the next time the shaders really change.
 
 ## A new shader
 
