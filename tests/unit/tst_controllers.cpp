@@ -367,25 +367,69 @@ private slots:
         QVERIFY(QFile::exists(newIni));
     }
 
-    void settingsCopyFailureFallsBackToTheOldFile()
+    // A failed copy means defaults for the session: the old file is never the live
+    // store, and no path in it is followed. The next launch copies it after all.
+    void settingsCopyFailureRunsOnDefaults_data()
     {
+        QTest::addColumn<bool>("customFolder");
+        QTest::newRow("old default folder") << false;
+        QTest::newRow("custom folder") << true;
+    }
+    void settingsCopyFailureRunsOnDefaults()
+    {
+        QFETCH(bool, customFolder);
         const QString legacyIni = legacy::settingsFile(), newIni = SettingsStore().fileName();
         QVERIFY(legacyIni.contains(QLatin1StringView("qttest")) && newIni.contains(QLatin1StringView("qttest")));
+        QVERIFY(legacy::defaultDataDir().contains(QLatin1StringView("qttest"), Qt::CaseInsensitive));
+        QVERIFY(Storage::defaultDataDir().contains(QLatin1StringView("qttest"), Qt::CaseInsensitive));
         const QString newFolder = QFileInfo(newIni).path();
         QVERIFY(QDir(newFolder).removeRecursively());
+        QVERIFY(QDir(Storage::defaultDataDir()).removeRecursively());
+
+        QTemporaryDir custom;
+        const QString oldFolder = customFolder ? custom.path() : legacy::defaultDataDir();
+        QVERIFY(QDir().mkpath(oldFolder));
         {
             SettingsStore old(legacyIni);
+            old.setDataLocation(oldFolder);
             old.setTheme(QStringLiteral("dark"));
             QVERIFY(old.sync());
         }
+        const auto cleanup = qScopeGuard([&] {
+            QFile::remove(legacyIni);
+            QFile::remove(newFolder);
+            QDir(newFolder).removeRecursively();
+            QDir(legacy::defaultDataDir()).removeRecursively();
+            QDir(Storage::defaultDataDir()).removeRecursively();
+        });
+        QFile iniFile(legacyIni);
+        QVERIFY(iniFile.open(QIODevice::ReadOnly));
+        const QByteArray before = iniFile.readAll();
+        iniFile.close();
+
         QFile blocker(newFolder);  // a file where the new folder has to go
         QVERIFY(blocker.open(QIODevice::WriteOnly));
         blocker.close();
-        const auto cleanup = qScopeGuard([&] { QFile::remove(legacyIni); QFile::remove(newFolder); });
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Couldn't copy the settings")));
+        {
+            AppRuntime rt(AppRuntime::Options{});
+            QCOMPARE(rt.settingsStore().fileName(), newIni);
+            QCOMPARE(rt.settings().theme(), QStringLiteral("system"));
+            QVERIFY(rt.settingsStore().dataLocation().isEmpty());
+            rt.storageController().open();
+            rt.startup().waitForRecovery();
+            QCOMPARE(rt.storageController().startupKind(), QStringLiteral("none"));
+            QCOMPARE(rt.storage().dataDir(), Storage::defaultDataDir());
+        }
+        QVERIFY(!QFile::exists(QDir(oldFolder).filePath(QStringLiteral("syntheon.db"))));
+        QVERIFY(iniFile.open(QIODevice::ReadOnly));
+        QCOMPARE(iniFile.readAll(), before);
+        iniFile.close();
+
+        QVERIFY(QFile::remove(newFolder));
         AppRuntime rt(AppRuntime::Options{});
-        QCOMPARE(rt.settingsStore().fileName(), legacyIni);
         QCOMPARE(rt.settings().theme(), QStringLiteral("dark"));
+        QCOMPARE(rt.settingsStore().dataLocation(), customFolder ? custom.path() : QString());
     }
 
     // A set settings file means tests, the tour or the dev hooks: the old location is none of their business.

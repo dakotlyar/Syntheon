@@ -31,8 +31,8 @@ struct SettingsResult {
 // Copies the old settings.ini to `newIni` unless that exists. A dataLocation that
 // is just the old default folder is dropped from the copy: kept, the new app would
 // go on using the old folder as if the user had chosen it. On Failed the caller
-// should use `legacyIni` for the session, so that a custom data location is still
-// honored and the next launch tries again.
+// carries on with defaults: the old file is never the live store. The next launch
+// tries again, unless that session has written a new settings file by then.
 SettingsResult migrateSettings(const QString &legacyIni, const QString &newIni, const QString &legacyDefaultDir);
 
 enum class AdoptStatus {
