@@ -39,9 +39,12 @@ bool sameFolder(const QString &a, const QString &b)
 
 // A copy keeps the original's mode, and a read-only original must still give a file
 // the app can write. Also what lets Windows delete a read-only temp left by a kill.
+// Nothing to do on an already writable file: file systems without modes (vfat, exFAT,
+// some CIFS) refuse chmod, and that must not stop a copy that needs none.
 bool makeWritable(const QString &path)
 {
-    return QFile::setPermissions(path, QFile::permissions(path) | QFile::WriteOwner);
+    const QFile::Permissions permissions = QFile::permissions(path);
+    return (permissions & QFile::WriteOwner) || QFile::setPermissions(path, permissions | QFile::WriteOwner);
 }
 
 // Not QFile::rename(): when the rename itself fails that falls back to copying
@@ -198,8 +201,11 @@ SettingsResult migrateSettings(const QString &legacyIni, const QString &newIni, 
     };
     if (!QDir().mkpath(QFileInfo(newIni).absolutePath()))
         return failed(QStringLiteral("the folder can't be created."));
-    if (QFile::exists(tmp) && !(makeWritable(tmp) && QFile::remove(tmp)))
-        return failed(QStringLiteral("a leftover temp file can't be removed."));
+    if (QFile::exists(tmp)) {
+        makeWritable(tmp);
+        if (!QFile::remove(tmp))
+            return failed(QStringLiteral("a leftover temp file can't be removed."));
+    }
     if (!QFile::copy(legacyIni, tmp) || !makeWritable(tmp))
         return failed(QStringLiteral("the copy failed."));
     {
@@ -262,10 +268,12 @@ AdoptResult adoptHistory(const QString &legacyDb, const QString &newDb, const QS
 
     // A read-only file isn't opened at all: SQLite can't clean up after itself there,
     // so it would leave -wal and -shm beside the old file and refuse the next attempt.
-    // Nothing can be writing to it, and the hash check below still covers the copy.
+    // This user's old build can't be writing to it (the owner of someone else's file
+    // could), and the hash check below still covers the copy.
     const bool readOnly = !QFileInfo(legacyDb).isWritable();
     if (readOnly && QFileInfo(legacyDb + QStringLiteral("-wal")).size() > 0)
-        return failed(QStringLiteral("the old file is read-only and has changes still in its WAL."));
+        return failed(QStringLiteral("the old file %1 is read-only and may have runs still in its WAL. "
+                                     "Make it writable and start Syntheon again.").arg(legacyDb));
 
     Facts facts;
     QString why;

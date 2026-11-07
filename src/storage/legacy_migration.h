@@ -53,8 +53,9 @@ enum class Stage { BeforeCopy, AfterCopy, AfterVerify, AfterRename };
 
 // Copies the old history to `newDb` unless that exists. The old file's WAL is
 // folded in first (a crash can leave recent runs only there), which changes no data
-// and leaves it readable by the old build. The copy is checked against the old file
-// before it gets its final name. `legacyLockPath` is held throughout, so a running
+// and leaves it readable by the old build. A read-only old file can't have that done:
+// it is copied as it is if its WAL is empty, and refused if not. The copy is checked
+// against the old file before it gets its final name. `legacyLockPath` is held throughout, so a running
 // old build can't write during the copy and one that starts is refused. It is empty
 // when the old lock folder doesn't exist: no old build is running then, and nothing
 // stops one that starts during the copy.

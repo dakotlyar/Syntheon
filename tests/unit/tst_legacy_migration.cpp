@@ -425,6 +425,7 @@ private slots:
         const auto writable = qScopeGuard([&] { QFile::setPermissions(oldDb, QFile::ReadOwner | QFile::WriteOwner); });
         const auto a = legacy::adoptHistory(oldDb, newDb, {});
         QCOMPARE(a.status, legacy::AdoptStatus::Failed);
+        QVERIFY2(a.error.contains(QLatin1StringView("Make it writable")), qPrintable(a.error));
         QVERIFY(!QFileInfo::exists(newDb));
         QVERIFY(!QFileInfo::exists(tmpOf(newDb)));
     }
