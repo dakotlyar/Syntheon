@@ -483,7 +483,7 @@ private slots:
         RunRepository repo = f.repo();
         const auto id = repo.saveRun(done);
         // A row left by a run of the pre-rename build: its folder carries the old prefix.
-        const QString legacyDirPath = QDir(root.path()).filePath(fs::legacyScratchRunFolderName(done.uuid));
+        const QString legacyDirPath = QDir(root.path()).filePath(QStringLiteral("synbench-%1").arg(done.uuid.toString(QUuid::WithoutBraces)));
         const QString legacyTest = QDir(legacyDirPath).filePath(QStringLiteral("cpu"));
         QVERIFY(QDir().mkpath(legacyTest));
         QVERIFY(repo.addScratchPath(*id, legacyTest));
