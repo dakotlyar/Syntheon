@@ -37,6 +37,7 @@ public:
         OpenStatus status = OpenStatus::Failed;
         QString error;
         QString backupPath;  // set when a migration backed the file up
+        QString failedFile;  // set when the file at fault isn't dbPath(): a history that couldn't be copied
         bool ok() const { return status == OpenStatus::Ok; }
     };
 

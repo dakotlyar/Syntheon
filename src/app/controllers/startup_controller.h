@@ -87,7 +87,7 @@ private:
     QString m_instanceWarning;
     bool m_slow = false;
     QSet<QString> m_seenProblems;
-    QString m_adoptionNoticed;  // the old folder the copy notice was last shown for
+    QString m_adoptionNoticed;  // the old file the copy notice was last shown for
     QThread *m_thread = nullptr;
     bool m_again = false;
     std::unique_ptr<StorageController::ScopedLock> m_lock;

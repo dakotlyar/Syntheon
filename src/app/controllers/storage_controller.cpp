@@ -60,7 +60,8 @@ void StorageController::open()
     case Storage::OpenStatus::Failed:
         m_problem = StartupProblem::Failed;
         m_message = QStringLiteral("The history at %1 couldn't be opened (%2).")
-                        .arg(QDir::toNativeSeparators(m_storage.dbPath()), r.error.isEmpty() ? QStringLiteral("unknown error") : r.error);
+                        .arg(QDir::toNativeSeparators(r.failedFile.isEmpty() ? m_storage.dbPath() : r.failedFile),
+                             r.error.isEmpty() ? QStringLiteral("unknown error") : r.error);
         break;
     }
     emit startupProblemChanged();

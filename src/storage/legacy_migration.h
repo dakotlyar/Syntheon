@@ -44,8 +44,8 @@ enum class AdoptStatus {
 struct AdoptResult {
     AdoptStatus status = AdoptStatus::NothingToDo;
     QString error;
-    int runCount = 0;      // Adopted: how many runs came across
-    QString legacyFolder;  // Adopted: where the old copy stays
+    int runCount = 0;    // Adopted: how many runs came across
+    QString legacyFile;  // Adopted: the old copy, which stays where it is
 };
 // The points adoptHistory() reports to its hook, for the tests. A hook that
 // returns false ends the call there with no cleanup: what a kill looks like.
@@ -54,8 +54,10 @@ enum class Stage { BeforeCopy, AfterCopy, AfterVerify, AfterRename };
 // Copies the old history to `newDb` unless that exists. The old file's WAL is
 // folded in first (a crash can leave recent runs only there), which changes no data
 // and leaves it readable by the old build. The copy is checked against the old file
-// before it gets its final name. `legacyLockPath` (may be empty) is held throughout,
-// so a running old build can't write during the copy and one that starts is refused.
+// before it gets its final name. `legacyLockPath` is held throughout, so a running
+// old build can't write during the copy and one that starts is refused. It is empty
+// when the old lock folder doesn't exist: no old build is running then, and nothing
+// stops one that starts during the copy.
 AdoptResult adoptHistory(const QString &legacyDb, const QString &newDb, const QString &legacyLockPath,
                          const std::function<bool(Stage)> &hook = {});
 

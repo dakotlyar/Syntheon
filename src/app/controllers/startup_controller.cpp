@@ -109,16 +109,17 @@ void StartupController::finishRecovery(const RecoveryReport &report)
     }
     if (newProblem)
         lines << tr("Some leftovers couldn't be cleaned up; see the log.");
-    // Once per old folder: this also runs on every later location change, and
+    // Once per old file: this also runs on every later location change, and
     // lastAdoption() stays as it is until the next copy.
     const legacy::AdoptResult &adoption = m_storage.storage().lastAdoption();
-    if (adoption.status == legacy::AdoptStatus::Adopted && adoption.legacyFolder != m_adoptionNoticed) {
-        m_adoptionNoticed = adoption.legacyFolder;
-        const QString folder = QDir::toNativeSeparators(adoption.legacyFolder);
+    if (adoption.status == legacy::AdoptStatus::Adopted && adoption.legacyFile != m_adoptionNoticed) {
+        m_adoptionNoticed = adoption.legacyFile;
+        // The file, not its folder: a custom folder holds the live history as well.
+        const QString file = QDir::toNativeSeparators(adoption.legacyFile);
         lines << (adoption.runCount == 1
-                      ? tr("Your 1 saved run from SynBench was copied here. The old copy in %1 was left in place; you can delete it.").arg(folder)
-                      : tr("Your %1 saved runs from SynBench were copied here. The old copy in %2 was left in place; you can delete it.")
-                            .arg(adoption.runCount).arg(folder));
+                      ? tr("Your 1 saved run from SynBench was copied here. The old copy, %1, was left in place; you can delete it.").arg(file)
+                      : tr("Your %1 saved runs from SynBench were copied here. The old copy, %2, was left in place; you can delete it.")
+                            .arg(adoption.runCount).arg(file));
     }
     if (!lines.isEmpty()) {
         // Append to a notice nobody has dismissed yet; never replace it with less.

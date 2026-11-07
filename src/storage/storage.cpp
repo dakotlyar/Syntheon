@@ -170,6 +170,7 @@ Storage::OpenResult Storage::openAt(const QString &folder, bool createFolder)
         if (a.status == legacy::AdoptStatus::Failed) {
             r.status = OpenStatus::Failed;
             r.error = a.error;
+            r.failedFile = legacyDb;
             return r;
         }
         m_lastAdoption = a;

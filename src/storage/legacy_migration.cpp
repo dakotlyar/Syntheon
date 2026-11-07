@@ -37,6 +37,13 @@ bool sameFolder(const QString &a, const QString &b)
     return instance::canonicalFolder(a).compare(instance::canonicalFolder(b), cs) == 0;
 }
 
+// A copy keeps the original's mode, and a read-only original must still give a file
+// the app can write. Also what lets Windows delete a read-only temp left by a kill.
+bool makeWritable(const QString &path)
+{
+    return QFile::setPermissions(path, QFile::permissions(path) | QFile::WriteOwner);
+}
+
 // Not QFile::rename(): when the rename itself fails that falls back to copying
 // onto the final name, and a copy can be cut short. Here the final name appearing
 // is what says the job is done, so it must appear whole or not at all.
@@ -111,8 +118,9 @@ bool checkpointAndRead(const QString &dbPath, Facts *facts, QString *error)
     return readFacts(conn.db(), facts, error);
 }
 
-// The copy against the old file, its bytes before anything opens it.
-bool verifyCopy(const QString &legacyDb, const QString &tmp, const Facts &expected, QString *error)
+// The copy against the old file, its bytes before anything opens it. `facts` is
+// what the old file said, or unset if it wasn't asked, and comes back as the copy's.
+bool verifyCopy(const QString &legacyDb, const QString &tmp, Facts *facts, QString *error)
 {
     const QByteArray hash = sha256(tmp);
     if (hash.isEmpty() || hash != sha256(legacyDb)) {
@@ -132,13 +140,14 @@ bool verifyCopy(const QString &legacyDb, const QString &tmp, const Facts &expect
             return false;
         }
     }
-    Facts facts;
-    if (!readFacts(conn.db(), &facts, error))
+    Facts copied;
+    if (!readFacts(conn.db(), &copied, error))
         return false;
-    if (!(facts == expected)) {
+    if (facts->runs >= 0 && !(copied == *facts)) {
         *error = QStringLiteral("The copy doesn't have every run.");
         return false;
     }
+    *facts = copied;
     return true;
 }
 
@@ -189,9 +198,9 @@ SettingsResult migrateSettings(const QString &legacyIni, const QString &newIni, 
     };
     if (!QDir().mkpath(QFileInfo(newIni).absolutePath()))
         return failed(QStringLiteral("the folder can't be created."));
-    if (QFile::exists(tmp) && !QFile::remove(tmp))
+    if (QFile::exists(tmp) && !(makeWritable(tmp) && QFile::remove(tmp)))
         return failed(QStringLiteral("a leftover temp file can't be removed."));
-    if (!QFile::copy(legacyIni, tmp))
+    if (!QFile::copy(legacyIni, tmp) || !makeWritable(tmp))
         return failed(QStringLiteral("the copy failed."));
     {
         SettingsStore settings(tmp);
@@ -246,24 +255,33 @@ AdoptResult adoptHistory(const QString &legacyDb, const QString &newDb, const QS
     }
 
     const QString tmp = newDb + kTempSuffix;
+    if (QFile::exists(tmp))
+        makeWritable(tmp);
     if (!Database::removeDbFiles(tmp))
         return failed(QStringLiteral("a leftover temp file can't be removed."));
 
+    // A read-only file isn't opened at all: SQLite can't clean up after itself there,
+    // so it would leave -wal and -shm beside the old file and refuse the next attempt.
+    // Nothing can be writing to it, and the hash check below still covers the copy.
+    const bool readOnly = !QFileInfo(legacyDb).isWritable();
+    if (readOnly && QFileInfo(legacyDb + QStringLiteral("-wal")).size() > 0)
+        return failed(QStringLiteral("the old file is read-only and has changes still in its WAL."));
+
     Facts facts;
     QString why;
-    if (!checkpointAndRead(legacyDb, &facts, &why))
+    if (!readOnly && !checkpointAndRead(legacyDb, &facts, &why))
         return failed(why);
     if (stop(Stage::BeforeCopy))
         return interrupted();
 
-    if (!QFile::copy(legacyDb, tmp) || !fs::syncFile(tmp)) {
+    if (!QFile::copy(legacyDb, tmp) || !makeWritable(tmp) || !fs::syncFile(tmp)) {
         Database::removeDbFiles(tmp);
         return failed(QStringLiteral("the copy to %1 failed (is the disk full?).").arg(QFileInfo(newDb).absolutePath()));
     }
     if (stop(Stage::AfterCopy))
         return interrupted();
 
-    if (!verifyCopy(legacyDb, tmp, facts, &why)) {
+    if (!verifyCopy(legacyDb, tmp, &facts, &why)) {
         Database::removeDbFiles(tmp);
         return failed(why);
     }
@@ -282,7 +300,7 @@ AdoptResult adoptHistory(const QString &legacyDb, const QString &newDb, const QS
 
     r.status = AdoptStatus::Adopted;
     r.runCount = facts.runs;
-    r.legacyFolder = QFileInfo(legacyDb).absolutePath();
+    r.legacyFile = QFileInfo(legacyDb).absoluteFilePath();
     return r;
 }
 

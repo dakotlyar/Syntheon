@@ -16,6 +16,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QLockFile>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QSqlQuery>
 #include <QSqlRecord>
@@ -40,6 +41,8 @@ QString legacyLockDir()
     return QDir(QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation)).filePath(QString::fromLatin1(legacy::kRuntimeDirName));
 #endif
 }
+
+constexpr QFile::Permissions kReadOnly = QFile::ReadOwner | QFile::ReadUser | QFile::ReadGroup | QFile::ReadOther;
 
 QByteArray readAll(const QString &path)
 {
@@ -341,6 +344,91 @@ private slots:
         QCOMPARE(readAll(legacyIni), before);
     }
 
+    // A read-only old file is still copied, and its mode doesn't come along: the new
+    // file has to be one the app can write. Rows: the temp copy is rewritten or not.
+    void readOnlyOldSettingsAreCopied_data()
+    {
+        QTest::addColumn<bool>("dropsLocation");
+        QTest::newRow("copied as is") << false;
+        QTest::newRow("key removed") << true;
+    }
+    void readOnlyOldSettingsAreCopied()
+    {
+        QFETCH(bool, dropsLocation);
+        QTemporaryDir dir;
+        const QString oldDefault = dir.filePath(QStringLiteral("SynBench"));
+        QVERIFY(QDir().mkpath(oldDefault));
+        const QString legacyIni = dir.filePath(QStringLiteral("old.ini")), newIni = dir.filePath(QStringLiteral("new.ini"));
+        writeLegacyIni(legacyIni, dropsLocation ? oldDefault : QString());
+        const QByteArray before = readAll(legacyIni);
+        QVERIFY(QFile::setPermissions(legacyIni, kReadOnly));
+        const auto writable = qScopeGuard([&] { QFile::setPermissions(legacyIni, QFile::ReadOwner | QFile::WriteOwner); });
+
+        const auto s = legacy::migrateSettings(legacyIni, newIni, oldDefault);
+        QVERIFY2(s.status == legacy::SettingsStatus::Migrated, qPrintable(s.error));
+        QVERIFY(!QFileInfo::exists(tmpOf(newIni)));
+        QVERIFY(QFile::permissions(newIni) & QFile::WriteOwner);
+        SettingsStore migrated(newIni);
+        QCOMPARE(migrated.theme(), QStringLiteral("dark"));
+        migrated.setTheme(QStringLiteral("light"));
+        QVERIFY(migrated.sync());
+        QCOMPARE(readAll(legacyIni), before);
+        QVERIFY(!(QFile::permissions(legacyIni) & QFile::WriteOwner));
+    }
+
+    void readOnlyOldHistoryIsCopied()
+    {
+        QTemporaryDir data, cfg;
+        const QString oldDb = oldDbIn(data.path()), newDb = newDbIn(data.path());
+        QCOMPARE(makeHistory(oldDb, 3).size(), 3);
+        const QByteArray before = readAll(oldDb);
+        QVERIFY(QFile::setPermissions(oldDb, kReadOnly));
+        const auto writable = qScopeGuard([&] { QFile::setPermissions(oldDb, QFile::ReadOwner | QFile::WriteOwner); });
+
+        // Killed with the copy in place: the temp file must not be stuck there.
+        const auto killed = legacy::adoptHistory(oldDb, newDb, {}, [](legacy::Stage s) { return s != legacy::Stage::AfterCopy; });
+        QCOMPARE(killed.status, legacy::AdoptStatus::Failed);
+        QVERIFY2(killed.error == QLatin1StringView("Interrupted."), qPrintable(killed.error));
+        QVERIFY(QFileInfo::exists(tmpOf(newDb)));
+
+        SettingsStore settings(cfg.filePath(QStringLiteral("settings.ini")));
+        settings.setDataLocation(data.path());
+        Storage storage(settings);
+        const auto r = storage.open();
+        QVERIFY2(r.ok(), qPrintable(r.error));
+        QCOMPARE(storage.lastAdoption().status, legacy::AdoptStatus::Adopted);
+        QVERIFY(!QFileInfo::exists(tmpOf(newDb)));
+        QVERIFY(QFile::permissions(newDb) & QFile::WriteOwner);
+        QVERIFY(RunRepository(storage.connection()).saveRun(sampleRun(2000.5)));  // the copy is a working history
+        QCOMPARE(RunRepository(storage.connection()).runCount(), 4);
+        QCOMPARE(readAll(oldDb), before);
+        QVERIFY(!(QFile::permissions(oldDb) & QFile::WriteOwner));
+        QVERIFY(!QFileInfo::exists(oldDb + QStringLiteral("-wal")));
+        QVERIFY(!QFileInfo::exists(oldDb + QStringLiteral("-shm")));
+    }
+
+    // Runs only in the WAL of a file that can't be written: they can't be folded in,
+    // and a copy without them must not pass for the history.
+    void readOnlyOldHistoryWithAWalFails()
+    {
+        QTemporaryDir live, old, fresh;
+        const QString liveDb = oldDbIn(live.path()), oldDb = oldDbIn(old.path()), newDb = newDbIn(fresh.path());
+        QCOMPARE(makeHistory(liveDb, 1).size(), 1);
+        {
+            Database::ScopedConnection c(liveDb, QStringLiteral("live"));
+            QVERIFY(QSqlQuery(c.db()).exec(QStringLiteral("PRAGMA wal_autocheckpoint = 0")));
+            QVERIFY(RunRepository(c.db()).saveRun(sampleRun(1234.5)));
+            QVERIFY(QFile::copy(liveDb, oldDb));
+            QVERIFY(QFile::copy(liveDb + QStringLiteral("-wal"), oldDb + QStringLiteral("-wal")));
+        }
+        QVERIFY(QFile::setPermissions(oldDb, kReadOnly));
+        const auto writable = qScopeGuard([&] { QFile::setPermissions(oldDb, QFile::ReadOwner | QFile::WriteOwner); });
+        const auto a = legacy::adoptHistory(oldDb, newDb, {});
+        QCOMPARE(a.status, legacy::AdoptStatus::Failed);
+        QVERIFY(!QFileInfo::exists(newDb));
+        QVERIFY(!QFileInfo::exists(tmpOf(newDb)));
+    }
+
     // M1
     void plainCopy()
     {
@@ -354,7 +442,7 @@ private slots:
         const auto a = legacy::adoptHistory(oldDb, newDb, {});
         QCOMPARE(a.status, legacy::AdoptStatus::Adopted);
         QCOMPARE(a.runCount, 3);
-        QCOMPARE(a.legacyFolder, QDir::cleanPath(old.path()));
+        QCOMPARE(a.legacyFile, QDir::cleanPath(oldDb));
         QCOMPARE(readAll(newDb), before);
         QCOMPARE(readAll(oldDb), before);
         QVERIFY(!QFileInfo::exists(tmpOf(newDb)));

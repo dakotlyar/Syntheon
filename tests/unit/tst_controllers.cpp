@@ -247,8 +247,8 @@ private slots:
         StartupController &st = rt.startup();
         st.waitForRecovery();
         QCOMPARE(st.recoveryNotice(),
-                 QStringLiteral("Your 2 saved runs from SynBench were copied here. The old copy in %1 was left in place; you can delete it.")
-                     .arg(QDir::toNativeSeparators(QDir::cleanPath(data))));
+                 QStringLiteral("Your 2 saved runs from SynBench were copied here. The old copy, %1, was left in place; you can delete it.")
+                     .arg(QDir::toNativeSeparators(QDir::cleanPath(oldDb))));
         st.dismissRecoveryNotice();
 
         st.recover();  // every location change runs this again
@@ -308,8 +308,11 @@ private slots:
         AppRuntime rt(o);
         rt.storageController().open();
         QCOMPARE(rt.storageController().startupKind(), QStringLiteral("failed"));
-        QVERIFY2(rt.storageController().startupMessage().contains(QStringLiteral("Your saved runs were not changed.")),
-                 qPrintable(rt.storageController().startupMessage()));
+        const QString message = rt.storageController().startupMessage();
+        QVERIFY2(message.contains(QStringLiteral("Your saved runs were not changed.")), qPrintable(message));
+        // The file that's at fault, not the new one, which doesn't exist.
+        QVERIFY2(message.contains(QDir::toNativeSeparators(garbage.fileName())), qPrintable(message));
+        QVERIFY2(!message.contains(QStringLiteral("syntheon.db")), qPrintable(message));
     }
 
     void runningOldBuildReachesTheFailedDialog()
