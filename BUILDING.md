@@ -105,8 +105,9 @@ wix build -arch x64 -d Version=26.11.0 -d SourceDir=$PWD\stage -d IconPath=$PWD\
 The C and C++ runtime ships next to the exe (`SYNTHEON_CRT_DIRS`), so neither
 installer needs a redistributable. The exe embeds a manifest asking for
 administrator rights. The Inno installer reuses the Python SynBench's AppId, so
-it upgrades that install in place (`[InstallDelete]` removes the Python
-leftovers). The MSI version is `YY.MM.N` (`26.11.0`); everything else shows
+it upgrades that install, which moves it to `Program Files\Syntheon`
+(`[InstallDelete]` removes `Program Files\SynBench` with the Python leftovers in
+it). The MSI version is `YY.MM.N` (`26.11.0`); everything else shows
 `2026.11.0`. `packaging/windows/test-install.ps1` is the silent
 install / launch / uninstall / upgrade test CI runs.
 

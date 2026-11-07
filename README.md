@@ -38,8 +38,9 @@ no limited mode.
 **Installing on Windows.** There are two installers per architecture: the setup
 program and the MSI. They are not interchangeable: if one is installed, the other
 refuses (uninstall the first). The setup program **upgrades** the old Python
-SynBench (v0.2.3) in place; the **MSI refuses** when the old SynBench is
-installed ("Uninstall it first, or use the setup program, which upgrades it"). The
+SynBench (v0.2.3): Syntheon goes into `Program Files\Syntheon` and the old
+`Program Files\SynBench` folder is removed. The **MSI refuses** when the old
+SynBench is installed ("Uninstall it first, or use the setup program, which upgrades it"). The
 x64 and ARM64 builds exclude each other the same way (the ARM64 setup replaces an
 x64 install; the x64 setup refuses over ARM64). Both install only into Program
 Files; there is no folder choice. Uninstalling leaves your history (and the
@@ -58,11 +59,16 @@ across and tells you how many runs came over. Close SynBench first, because
 Syntheon won't copy a history that is still open. A history you kept in a folder
 of your own stays in that folder, as `syntheon.db` beside the old `synbench.db`.
 
-The old files are left exactly as they were, and Syntheon doesn't look at them
-again, so anything you do in the old app after that won't show up here. Once
-you're happy that everything arrived, the old folders are yours to delete:
+The old files are left exactly as they were, and anything you do in the old app
+after that won't show up here. Syntheon only reads an old history when it opens a
+folder that has no `syntheon.db`, so if you move your history somewhere else and
+later go back to the old location, the old runs are copied there again.
+
+Once you're happy that everything arrived, the old folders are yours to delete:
 `%LOCALAPPDATA%\SynBench` and `%APPDATA%\SynBench` on Windows,
-`~/.local/share/SynBench` and `~/.config/SynBench` on Linux.
+`~/.local/share/SynBench` and `~/.config/SynBench` on Linux. In a folder of your
+own, delete only `synbench.db` and never the folder, because `syntheon.db` beside
+it is your history now.
 
 ## Security model
 

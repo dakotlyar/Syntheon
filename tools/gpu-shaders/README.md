@@ -12,7 +12,8 @@ one HLSL source in `src/tests/gpu/worker/shaders/` (`<name>.hlsl` with
 | DXIL (SM 6.0) | the Windows SDK's `dxc.exe` | build tree, `gpu_shaders/<name>_<vs\|ps>.dxil.inc` | D3D12 |
 | DXBC (SM 5.0) | the Windows SDK's `fxc.exe` | build tree, `gpu_shaders/<name>_<vs\|ps>.dxbc.inc` | D3D11 |
 
-`generated/STAMP` is the SHA-256 of the HLSL sources and `versions.json`.
+`generated/STAMP` is the SHA-256 of the HLSL sources, `versions.json` and
+`build.py` itself.
 CTest's `gpu_shaders_stamp` (`build.py --check`, on every job, no shader
 tools needed) fails when a source changed and the outputs weren't
 regenerated.
