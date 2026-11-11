@@ -408,6 +408,12 @@ QString StorageRun::guard()
 {
     if (m_drive.isEmpty())
         return QStringLiteral("no drive selected");
+    // Read-only is checked live up front (the snapshot's storage field has no
+    // read-only flag), so it fires whether the drive came from the snapshot or
+    // the fallback.
+    const QStorageInfo live(m_drive);
+    if (live.isValid() && live.isReady() && live.isReadOnly())
+        return QStringLiteral("the drive is read-only");
     // The selected drive from the run-start snapshot (§3.3: the run-time value
     // wins; the snapshot is what run() sees).
     const QVector<Drive> drives = listDrives(m_ctx.system());
@@ -423,12 +429,8 @@ QString StorageRun::guard()
     // Not in the snapshot (or no snapshot storage field): fall back to the live
     // volume.
     const QStorageInfo info(m_drive);
-    if (info.isValid() && info.isReady()) {
-        if (info.isReadOnly())
-            return QStringLiteral("the drive is read-only");
-        if (!sb::storage::hasEnoughFreeSpace(info.bytesAvailable(), m_fileSize))
-            return freeSpaceError(info.bytesAvailable(), m_fileSize);
-    }
+    if (info.isValid() && info.isReady() && !sb::storage::hasEnoughFreeSpace(info.bytesAvailable(), m_fileSize))
+        return freeSpaceError(info.bytesAvailable(), m_fileSize);
     return {};
 }
 
