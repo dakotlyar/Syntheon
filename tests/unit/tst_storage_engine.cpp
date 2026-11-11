@@ -140,6 +140,18 @@ private slots:
         exerciseEngine(*engine, dir.filePath(QStringLiteral("file.dat")));
     }
 
+    void uringEngineBattery()
+    {
+#if defined(SYNTHEON_HAVE_LIBURING)
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        std::unique_ptr<IStorageIoEngine> engine = makeUringEngine();
+        exerciseEngine(*engine, dir.filePath(QStringLiteral("file.dat")));
+#else
+        QSKIP("io_uring engine not compiled on this platform");
+#endif
+    }
+
     void backendNameIsSync()
     {
         QCOMPARE(makeSyncEngine()->backendName(), QStringLiteral("sync"));
