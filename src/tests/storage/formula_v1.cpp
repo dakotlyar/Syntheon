@@ -61,6 +61,22 @@ const QVector<GeometricGroup> &groups()
     return g;
 }
 
+// The scoring group a sub-test's result belongs to (§11): "sequential" spans
+// seq1m_q8t1 and seq1m_q1t1, "random" spans rnd4k_q32t1 and rnd4k_q1t1, and
+// "mixed" / "latency" coincide with their sub-test ids.
+QString groupForSubTest(const QString &subTestId)
+{
+    if (subTestId == QLatin1StringView("seq1m_q8t1") || subTestId == QLatin1StringView("seq1m_q1t1"))
+        return QStringLiteral("sequential");
+    if (subTestId == QLatin1StringView("rnd4k_q32t1") || subTestId == QLatin1StringView("rnd4k_q1t1"))
+        return QStringLiteral("random");
+    if (subTestId == QLatin1StringView("mixed"))
+        return QStringLiteral("mixed");
+    if (subTestId == QLatin1StringView("latency"))
+        return QStringLiteral("latency");
+    return {};
+}
+
 ScoreBreakdown score(const TestResult &result)
 {
     const GeometricScore s = weightedGeometricScore(result, kScale, groups());
@@ -68,9 +84,10 @@ ScoreBreakdown score(const TestResult &result)
     b.subScores = s.groups;
     // A group whose part ended in an Error (or N/A, Stop) gets no sub-score
     // even if its scored metrics are all there (the RAM rule, design §12).
+    // subScores is keyed by the group id; map the sub-test id to its group.
     for (const SubResult &sub : result.subResults) {
         if (sub.status != Status::Ok)
-            b.subScores.remove(sub.id);
+            b.subScores.remove(groupForSubTest(sub.id));
     }
     // Only an Ok result gets a total; a Partial keeps the sub-scores of its
     // complete parts.

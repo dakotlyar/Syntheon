@@ -149,6 +149,28 @@ private slots:
         QVERIFY(!bp.total);
         QVERIFY(!bp.subScores.contains(QStringLiteral("latency")));
         QCOMPARE(bp.subScores.size(), 3);
+
+        // The combined groups map back: an Error in seq1m_q8t1 or seq1m_q1t1
+        // drops "sequential", and rnd4k_q32t1 / rnd4k_q1t1 drop "random".
+        r = atAnchors();
+        r.status = Status::Partial;
+        for (SubResult &s : r.subResults)
+            if (s.id == QLatin1StringView("seq1m_q8t1"))
+                s.status = Status::Error;
+        const ScoreBreakdown bs = score(r);
+        QVERIFY(!bs.total);
+        QVERIFY(!bs.subScores.contains(QStringLiteral("sequential")));
+        QCOMPARE(bs.subScores.value(QStringLiteral("random")), 1000.0);
+
+        r = atAnchors();
+        r.status = Status::Partial;
+        for (SubResult &s : r.subResults)
+            if (s.id == QLatin1StringView("rnd4k_q32t1"))
+                s.status = Status::Error;
+        const ScoreBreakdown br = score(r);
+        QVERIFY(!br.total);
+        QVERIFY(!br.subScores.contains(QStringLiteral("random")));
+        QCOMPARE(br.subScores.value(QStringLiteral("sequential")), 1000.0);
     }
 };
 
