@@ -5,5 +5,7 @@ add_library(syntheon_test_storage STATIC
     ids.h ids.cpp
     # The free-space guard, blocklist and wear arithmetic (§6; pure).
     req.h req.cpp
+    # The score (§11; pure).
+    formula_v1.h formula_v1.cpp
 )
 target_link_libraries(syntheon_test_storage PUBLIC syntheon_core syntheon_test_common)
