@@ -6,6 +6,7 @@
 // the free-space guard, blocklist and wear note live in req.{h,cpp} (§6).
 #include "tests/storage/storage_test.h"
 
+#include "core/fs_util.h"
 #include "tests/cpu/kernels/prng.h"
 #include "tests/storage/formula_v1.h"
 #include "tests/storage/ids.h"
@@ -267,6 +268,8 @@ public:
         m_window = m_tiny ? std::chrono::milliseconds(10) : kWindow;
     }
 
+    ~StorageRun() { cleanup(); }   // a crash/early-exit safety net
+
     TestResult run();
 
 private:
@@ -349,6 +352,8 @@ private:
 
 QString StorageRun::guard()
 {
+    if (m_drive.isEmpty())
+        return QStringLiteral("no drive selected");
     // The selected drive from the run-start snapshot (§3.3: the run-time value
     // wins; the snapshot is what run() sees).
     const QVector<Drive> drives = listDrives(m_ctx.system());
@@ -391,9 +396,9 @@ bool StorageRun::prepare(QString *reason)
         *reason = QStringLiteral("no writable directory on the target device %1").arg(m_drive);
         return false;
     }
-    m_targetDir = sb::storage::targetScratchName(parent, QUuid::createUuid());
-    if (!QDir().mkpath(m_targetDir)) {
-        *reason = QStringLiteral("could not create the target folder %1").arg(m_targetDir);
+    m_targetDir = m_ctx.registerTargetScratchDir(parent);
+    if (m_targetDir.isEmpty()) {
+        *reason = QStringLiteral("could not create the target folder under %1").arg(parent);
         return false;
     }
     m_filePath = m_targetDir + QStringLiteral("/file.dat");
@@ -632,9 +637,10 @@ void StorageRun::cleanup()
         closeFd(m_fd);
         m_fd = -1;
     }
-    // Remove the target folder and file (normal completion, cancel and error).
+    // Remove the target folder and file (normal completion, cancel, error and
+    // crash), never following a link (P6).
     if (!m_targetDir.isEmpty())
-        QDir(m_targetDir).removeRecursively();
+        sb::fs::removeTreeNoFollow(m_targetDir);
     m_targetDir.clear();
 }
 
@@ -837,10 +843,15 @@ Validation StorageTest::validate(const OptionValues &o) const
     const QString sizeKey = o.value(kFileSizeKey, QStringLiteral("4g")).toString();
     const qint64 size = fileSizeBytes(sizeKey);
 
+    if (drive.isEmpty()) {
+        v.add(kDriveKey, QStringLiteral("choose a drive"));
+        return v;
+    }
+
     // The free-space guard (§3.3), read live so a disk that filled since probe
     // is caught before start.
     const QStorageInfo info(drive);
-    if (!drive.isEmpty() && info.isValid() && info.isReady()) {
+    if (info.isValid() && info.isReady()) {
         const QString refusal = freeSpaceError(info.bytesAvailable(), size);
         if (!refusal.isEmpty())
             v.add(kDriveKey, refusal);

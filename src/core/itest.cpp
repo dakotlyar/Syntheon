@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/itest.h"
 
+#include <QDir>
 #include <QStringList>
+#include <QUuid>
 
 namespace sb {
 
@@ -13,6 +15,16 @@ void SubTestHandle::begin()
 void SubTestHandle::end(Status status)
 {
     m_ctx.subTestEnd(m_id, status);
+}
+
+QString RunContext::registerTargetScratchDir(const QString &parentDir)
+{
+    // The default (a test/mock context without a sink): the same hidden-name
+    // shape, created with a fresh uuid and not registered anywhere.
+    const QString path = QDir(parentDir).filePath(QStringLiteral(".syntheon-storage-")
+                                                  + QUuid::createUuid().toString(QUuid::WithoutBraces));
+    QDir().mkpath(path);
+    return path;
 }
 
 OptionSchema effectiveOptionSchema(const ITest &test, const ProbeContext &ctx, const Availability &availability)

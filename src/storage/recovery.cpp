@@ -135,6 +135,17 @@ void cleanScratch(RunRepository &repo, const QString &scratchRoot, RecoveryRepor
 {
     for (const RunRepository::ScratchPath &s : repo.scratchPathsOfFinishedRuns()) {
         const QFileInfo info(s.path);
+        // The Storage test's target folder is removed on its own (its parent is
+        // an arbitrary mount/cache dir that must never be rmdir'd).
+        if (fs::isTargetScratchPath(s.path, s.runUuid)) {
+            if (fs::removeTreeNoFollow(s.path))
+                ++report.scratchPathsRemoved;
+            else
+                report.errors.append(QStringLiteral("Couldn't delete the target folder %1").arg(s.path));
+            if (!repo.deleteScratchPathRow(s.id))
+                report.errors.append(repo.lastError());
+            continue;
+        }
         // The database is a file: a damaged or edited one, or a test that
         // swapped its folder for a link, must not be able to point this at
         // anything else. The same helper the orchestrator uses.

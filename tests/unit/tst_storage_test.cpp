@@ -200,8 +200,9 @@ private slots:
         // it emits is the pure req.h helper, checked here deterministically.
         const QString refusal = sb::storage::freeSpaceRefusal(4'400'000'000ll, 4'000'000'000ll);
         QCOMPARE(refusal, QStringLiteral("Not enough free space: the test needs about 6.1 GiB, the drive has 4 GiB"));
-        // validate() on an empty drive is clean (no drive selected -> no guard).
-        QVERIFY(t.validate({}).ok());
+        // validate() rejects an empty drive (no drive selected -> no target).
+        QVERIFY(!t.validate({}).ok());
+        QVERIFY(!t.validate({}).errors.isEmpty());
     }
 
     // A small (tiny-mode) run against a QTemporaryDir-as-drive, §15.1/§14:

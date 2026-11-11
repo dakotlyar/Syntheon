@@ -78,6 +78,12 @@ public:
     // A temp folder registered in the database, so it's cleaned up even after
     // a crash. Created on first call; empty if it can't be created.
     virtual QString scratchDir() = 0;
+    // The Storage test's per-run target folder on a chosen drive (§3.2, D5):
+    // creates the hidden `.syntheon-storage-<run uuid>` directory under
+    // `parentDir` and registers it for crash cleanup. The orchestrator uses the
+    // run's uuid and adds a scratch_paths row; the default (test/mock contexts)
+    // creates it with a fresh uuid and registers nothing.
+    virtual QString registerTargetScratchDir(const QString &parentDir);
     // The snapshot taken at run start.
     virtual const SystemSnapshot &system() const = 0;
     // Typed root-only operations (§6); fail with PrivError, never hang.

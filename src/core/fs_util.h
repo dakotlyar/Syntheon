@@ -28,6 +28,12 @@ bool removeLinkItself(const QString &path);
 bool isSafeScratchPath(const QString &path, const QString &scratchRoot, const QUuid &runUuid,
                        bool allowLinkAtPath = false);
 
+// The Storage test's per-run target folder (§3.2, D5): a directory named
+// exactly `.syntheon-storage-<run uuid>`, whose parent is anywhere (a chosen
+// mount, a cache dir) and not a link. True only for that exact shape, so the
+// cleanup can remove it without ever touching its (arbitrary) parent.
+bool isTargetScratchPath(const QString &path, const QUuid &runUuid);
+
 enum class ScratchCleanup {
     Removed,      // the folder and everything in it
     LinkRemoved,  // a link (or reparse point) stood there: only it was removed

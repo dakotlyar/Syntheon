@@ -261,6 +261,20 @@ public:
         return m_scratch;
     }
 
+    QString registerTargetScratchDir(const QString &parentDir) override
+    {
+        // The Storage test's target folder (§3.2 D5), registered in scratch_paths
+        // so recovery cleans it after a crash. The name carries the run uuid.
+        const QString path = QDir(parentDir).filePath(QStringLiteral(".syntheon-storage-")
+                                                      + m_s.header.uuid.toString(QUuid::WithoutBraces));
+        if (!QDir().mkpath(path)) {
+            m_s.log(LogLevel::Error, m_testId, QStringLiteral("Couldn't create the target folder %1").arg(path));
+            return {};
+        }
+        m_s.sinkCall([&](QString &e) { return m_s.sink.addScratchPath(m_s.header.uuid, path, &e); });
+        return path;
+    }
+
     const SystemSnapshot &system() const override { return m_s.header.system; }
     PrivilegedOps &privileged() override
     {

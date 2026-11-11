@@ -96,6 +96,16 @@ bool removeTreeNoFollow(const QString &path)
     return QDir().rmdir(path) && ok;
 }
 
+bool isTargetScratchPath(const QString &path, const QUuid &runUuid)
+{
+    const QFileInfo fi(path);
+    if (!fi.isAbsolute() || isLink(fi))
+        return false;
+    if (fi.fileName() != QStringLiteral(".syntheon-storage-") + runUuid.toString(QUuid::WithoutBraces))
+        return false;
+    return !isLink(QFileInfo(fi.path()));
+}
+
 bool isSafeScratchPath(const QString &path, const QString &scratchRoot, const QUuid &runUuid, bool allowLinkAtPath)
 {
     const QFileInfo fi(path);
@@ -104,6 +114,9 @@ bool isSafeScratchPath(const QString &path, const QString &scratchRoot, const QU
     const QString name = fi.fileName();
     if (name.isEmpty() || name == QLatin1StringView(".") || name == QLatin1StringView(".."))
         return false;
+    // The Storage test's target folder (§3.2 D5) is its own safe shape.
+    if (isTargetScratchPath(path, runUuid))
+        return true;
     const QFileInfo parent(fi.path());
     if (isLink(parent))
         return false;
