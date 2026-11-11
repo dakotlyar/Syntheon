@@ -676,12 +676,13 @@ private slots:
 
         // AP-5 #9: "View log" during a run keeps each line's own time (it
         // used to stamp every line with "now") and says it's a snapshot.
-        QTest::qWait(200);
         auto *shown = qobject_cast<QAbstractItemModel *>(res.logModel());
         auto *liveLog = qobject_cast<QAbstractItemModel *>(rc.log());
         QVERIFY(shown && liveLog);
-        QVERIFY(shown->rowCount() >= 1);
+        QVERIFY(shown->rowCount() >= 2);
         QCOMPARE(shown->data(shown->index(0, 0), LogModel::TimeRole), liveLog->data(liveLog->index(0, 0), LogModel::TimeRole));
+        QVERIFY(shown->data(shown->index(0, 0), LogModel::TimeRole)
+                != shown->data(shown->index(shown->rowCount() - 1, 0), LogModel::TimeRole));
         QVERIFY(res.live());  // the dialog's snapshot note keys off this
         rc.stop();
         QVERIFY(finished.wait(20000));
