@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QTest>
 #include <QTemporaryDir>
 
@@ -213,6 +214,7 @@ private slots:
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         qputenv("SYNTHEON_STORAGE_TINY", "1");
+        const auto restore = qScopeGuard([] { qunsetenv("SYNTHEON_STORAGE_TINY"); });
 
         StorageTest t;
         FakeRunContext ctx;
@@ -239,7 +241,6 @@ private slots:
         // The target folder + file are gone (no hidden .syntheon-storage-* left).
         const QStringList dirs = QDir(dir.path()).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         QVERIFY2(dirs.isEmpty(), qPrintable(QStringLiteral("leftover dirs: ") + dirs.join(QStringLiteral(", "))));
-        qunsetenv("SYNTHEON_STORAGE_TINY");
     }
 
     void stopRemovesTheFile()
@@ -247,6 +248,7 @@ private slots:
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         qputenv("SYNTHEON_STORAGE_TINY", "1");
+        const auto restore = qScopeGuard([] { qunsetenv("SYNTHEON_STORAGE_TINY"); });
 
         StorageTest t;
         FakeRunContext ctx;
@@ -255,6 +257,10 @@ private slots:
         const OptionValues o{{QStringLiteral("drive"), dir.path()}, {QStringLiteral("file_size"), QStringLiteral("1g")}};
         const TestResult r = t.run(ctx, o);
 
+        if (r.status == Status::NotAvailable) {
+            qInfo("O_DIRECT unavailable on the fixture fs: %s", qPrintable(r.statusReason));
+            return;
+        }
         QVERIFY(ctx.cancelAt() != Clock::time_point{});
         const double ms = std::chrono::duration<double, std::milli>(Clock::now() - ctx.cancelAt()).count();
         qInfo("Stop took %.1f ms", ms);
@@ -263,7 +269,6 @@ private slots:
         // The target folder + file are removed on Stop.
         const QStringList dirs = QDir(dir.path()).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         QVERIFY2(dirs.isEmpty(), qPrintable(QStringLiteral("leftover dirs: ") + dirs.join(QStringLiteral(", "))));
-        qunsetenv("SYNTHEON_STORAGE_TINY");
     }
 };
 
