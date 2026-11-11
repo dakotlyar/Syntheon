@@ -89,6 +89,11 @@ private slots:
         QVERIFY(isNetworkMount(QStringLiteral("/mnt/s3"), QStringLiteral("S3FS")));  // case-insensitive
         QVERIFY(!isNetworkMount(QStringLiteral("/"), QStringLiteral("ext4")));
         QVERIFY(!isNetworkMount(QStringLiteral("/"), QStringLiteral("btrfs")));
+        // Windows drive roots are local; UNC shares are network, whatever fs.
+        QVERIFY(!isNetworkMount(QStringLiteral("C:/"), QStringLiteral("NTFS")));
+        QVERIFY(!isNetworkMount(QStringLiteral("D:\\"), QStringLiteral("NTFS")));
+        QVERIFY(isNetworkMount(QStringLiteral("//nas/mjolnir"), QStringLiteral("NTFS")));
+        QVERIFY(isNetworkMount(QStringLiteral("\\\\nas\\mjolnir"), QStringLiteral("NTFS")));
         QVERIFY(isNetworkDriveType(4u));   // DRIVE_REMOTE
         QVERIFY(isNetworkDriveType(0u));   // DRIVE_UNKNOWN
         QVERIFY(!isNetworkDriveType(3u));  // DRIVE_FIXED

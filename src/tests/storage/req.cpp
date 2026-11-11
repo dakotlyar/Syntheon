@@ -52,12 +52,25 @@ bool isNetworkMount(const QString &rootPath, const QString &fileSystem)
         if (dehyphen == QLatin1StringView(name))
             return true;
     }
-    // A non-"/dev/" root on Unix implies a user-space or network mount
-    // (FUSE, NFS, SMB): the snapshot already filters those, but a caller that
-    // passes one in directly should not have it misclassified as a local disk.
+    // A UNC share ("//nas/mjolnir", or "\\nas\mjolnir" normalised) is a
+    // network mount whatever the filesystem string claims (e.g. NTFS). Both
+    // separator styles are folded to "/" (fromNativeSeparators only converts
+    // the host's native one, so a Windows-style path wouldn't normalise here).
+    QString slash = rootPath.trimmed();
+    slash.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    if (slash.startsWith(QLatin1StringView("//")))
+        return true;
+    // A Windows drive root ("C:", "C:/", "D:\", or longer "C:/data") is a
+    // local volume, never network.
+    if (slash.size() >= 2 && slash.at(0).isLetter() && slash.at(1) == QLatin1Char(':')
+        && (slash.size() == 2 || slash.at(2) == QLatin1Char('/')))
+        return false;
+    // Any other path that isn't absolute on Unix (a relative path or an
+    // unknown scheme) is not a fixed local mount: the snapshot already
+    // filters these, but a direct caller shouldn't misclassify one.
     const QString cleaned = QDir::cleanPath(rootPath);
     if (!cleaned.isEmpty() && !cleaned.startsWith(QLatin1Char('/')))
-        return true;  // a relative/windows-style path is not a fixed Unix mount
+        return true;
     return false;
 }
 
