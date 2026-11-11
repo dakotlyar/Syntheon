@@ -88,8 +88,7 @@ public:
         // io_uring_submit returns the count it actually took).
         auto kick = [&] {
             while (prepared < count
-                   && prepared - submitted < m_depth      // don't overfill the SQ
-                   && submitted - completed < m_depth) {  // don't over-submit the kernel
+                   && prepared - completed < m_depth) {   // true in-flight: every prepared SQE is submitted
                 if (cancel())
                     break;
                 if (!why.isEmpty())
