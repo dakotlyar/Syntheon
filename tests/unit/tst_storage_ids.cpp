@@ -81,6 +81,29 @@ private slots:
         QVERIFY(!fieldFromKey(u""));
     }
 
+    // The 17 stored labels (§10), in full — the latency percentiles and the
+    // mixed pair do not repeat their pattern's name.
+    void storedLabels()
+    {
+        QCOMPARE(label(Pattern::Seq1mQ8T1, Field::Read), QStringLiteral("Seq 1M Q8T1 read"));
+        QCOMPARE(label(Pattern::Seq1mQ8T1, Field::Write), QStringLiteral("Seq 1M Q8T1 write"));
+        QCOMPARE(label(Pattern::Seq1mQ1T1, Field::Read), QStringLiteral("Seq 1M Q1T1 read"));
+        QCOMPARE(label(Pattern::Seq1mQ1T1, Field::Write), QStringLiteral("Seq 1M Q1T1 write"));
+        QCOMPARE(label(Pattern::Rnd4kQ32T1, Field::Read), QStringLiteral("Random 4K Q32T1 read"));
+        QCOMPARE(label(Pattern::Rnd4kQ32T1, Field::ReadIops), QStringLiteral("Random 4K Q32T1 read IOPS"));
+        QCOMPARE(label(Pattern::Rnd4kQ32T1, Field::Write), QStringLiteral("Random 4K Q32T1 write"));
+        QCOMPARE(label(Pattern::Rnd4kQ32T1, Field::WriteIops), QStringLiteral("Random 4K Q32T1 write IOPS"));
+        QCOMPARE(label(Pattern::Rnd4kQ1T1, Field::Read), QStringLiteral("Random 4K Q1T1 read"));
+        QCOMPARE(label(Pattern::Rnd4kQ1T1, Field::ReadIops), QStringLiteral("Random 4K Q1T1 read IOPS"));
+        QCOMPARE(label(Pattern::Rnd4kQ1T1, Field::Write), QStringLiteral("Random 4K Q1T1 write"));
+        QCOMPARE(label(Pattern::Rnd4kQ1T1, Field::WriteIops), QStringLiteral("Random 4K Q1T1 write IOPS"));
+        QCOMPARE(label(Pattern::Latency, Field::P50), QStringLiteral("p50 latency"));
+        QCOMPARE(label(Pattern::Latency, Field::P99), QStringLiteral("p99 latency"));
+        QCOMPARE(label(Pattern::Latency, Field::P999), QStringLiteral("p99.9 latency"));
+        QCOMPARE(label(Pattern::Mixed, Field::Throughput), QStringLiteral("Mixed throughput"));
+        QCOMPARE(label(Pattern::Mixed, Field::Iops), QStringLiteral("Mixed IOPS"));
+    }
+
     void networkClassifier()
     {
         QVERIFY(isNetworkMount(QStringLiteral("/mnt/nas"), QStringLiteral("nfs4")));

@@ -112,6 +112,13 @@ QString key(Pattern p, Field f)
 
 QString label(Pattern p, Field f)
 {
+    // §10's stored labels: the latency percentiles are "p50 latency" ("p99.9
+    // latency"), and the mixed pair is "Mixed throughput" / "Mixed IOPS" —
+    // neither repeats the pattern's own name.
+    if (p == Pattern::Latency)
+        return fieldLabel(f);
+    if (p == Pattern::Mixed)
+        return QStringLiteral("Mixed ") + fieldLabel(f);
     return patternLabelString(p) + QLatin1Char(' ') + fieldLabel(f);
 }
 
