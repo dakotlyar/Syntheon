@@ -11,12 +11,17 @@
 #include <QTemporaryDir>
 
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #ifdef _WIN32
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
 #  include <fcntl.h>
 #  include <io.h>
-#  include <sys/stat.h>   // _S_IREAD / _S_IWRITE (the _open mode)
+#  include <string>
 #else
 #  include <fcntl.h>
 #  include <unistd.h>
@@ -26,21 +31,28 @@ using namespace sb::storage;
 
 namespace {
 
-// A plain (buffered) fd for the fixture files. The unit tests exercise the
-// engines' submit/reap loops, not O_DIRECT alignment (which tmpfs — the CI and
-// local /tmp filesystem — does not support); openDirectFile is tested
-// separately and tolerantly.
+// An int fd for the fixture files. The unit tests exercise the engines'
+// submit/reap loops, not O_DIRECT alignment, so the fd is buffered; on Windows
+// it is still FILE_FLAG_OVERLAPPED, the shape openDirectFile produces (the
+// sync and overlapped engines recover the HANDLE and do positioned I/O).
 #if defined(_WIN32)
 int openPlain(const QString &path, bool read, bool write)
 {
-    int flags = _O_BINARY;
-    if (read && write)
-        flags |= _O_RDWR | _O_CREAT | _O_TRUNC;
-    else if (write)
-        flags |= _O_WRONLY | _O_CREAT | _O_TRUNC;
-    else
-        flags |= _O_RDONLY;
-    return ::_open(path.toLocal8Bit().constData(), flags, _S_IREAD | _S_IWRITE);
+    DWORD access = 0;
+    if (read)
+        access |= GENERIC_READ;
+    if (write)
+        access |= GENERIC_WRITE;
+    const DWORD share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    const DWORD create = write ? CREATE_ALWAYS : OPEN_EXISTING;
+    const std::wstring w = path.toStdWString();
+    HANDLE h = CreateFileW(w.c_str(), access, share, nullptr, create, FILE_FLAG_OVERLAPPED, nullptr);
+    if (h == INVALID_HANDLE_VALUE)
+        return -1;
+    const int fd = _open_osfhandle(reinterpret_cast<intptr_t>(h), _O_BINARY | _O_RDWR);
+    if (fd < 0)
+        CloseHandle(h);
+    return fd;
 }
 void closeFd(int fd) { ::_close(fd); }
 #else
@@ -124,6 +136,26 @@ void exerciseEngine(IStorageIoEngine &engine, const QString &path)
         QCOMPARE(st.ops, std::uint64_t(2));
         closeFd(fd);
     }
+
+    // A batch larger than the async in-flight cap (64 > kDepth 32): the engine
+    // must window the submissions (multiple submit/reap rounds) and reuse the
+    // free slots until every op is done.
+    {
+        constexpr std::size_t kDeep = 64;
+        std::vector<char> wbuf(kDeep * kBlock, char(0x3C));
+        std::vector<IoView> views(kDeep);
+        for (std::size_t i = 0; i < kDeep; ++i)
+            views[i] = IoView{wbuf.data() + i * kBlock, kBlock, i * kBlock};
+
+        const int fd = openPlain(path, /*read=*/true, /*write=*/true);
+        QVERIFY(fd >= 0);
+        IoStats st;
+        QString err;
+        QVERIFY2(engine.runBatch(views.data(), kDeep, IoOp::Write, fd, st, kNeverCancel, &err), qPrintable(err));
+        QCOMPARE(st.ops, std::uint64_t(kDeep));
+        QCOMPARE(st.bytes, std::uint64_t(kDeep * kBlock));
+        closeFd(fd);
+    }
 }
 
 } // namespace
@@ -165,6 +197,22 @@ private slots:
 #endif
     }
 
+    void winEngineBattery()
+    {
+#if defined(_WIN32)
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        std::unique_ptr<IStorageIoEngine> engine = makeWinEngine();
+        QVERIFY(engine != nullptr);
+        QCOMPARE(engine->backendName(), QStringLiteral("overlapped"));
+        // openPlain on Windows opens FILE_FLAG_OVERLAPPED, so the engine's
+        // _get_osfhandle path drives real overlapped ReadFile/WriteFile.
+        exerciseEngine(*engine, dir.filePath(QStringLiteral("file.dat")));
+#else
+        QSKIP("overlapped engine only on Windows");
+#endif
+    }
+
     void backendNameIsSync()
     {
         QCOMPARE(makeSyncEngine()->backendName(), QStringLiteral("sync"));
@@ -191,10 +239,13 @@ private slots:
 
     void directAlignmentRule()
     {
-        // Pure rule (R2): 512 B -> 4 KiB, 4 KiB -> 4 KiB, 16 KiB honoured.
+        // Pure rule (R2): 512 B -> 4 KiB, 4 KiB -> 4 KiB, 16 KiB honoured, and
+        // a non-power-of-two block rounds up to the next power of two (what
+        // O_DIRECT actually accepts).
         QCOMPARE(alignFromBlock(512), std::size_t(4096));
         QCOMPARE(alignFromBlock(4096), std::size_t(4096));
         QCOMPARE(alignFromBlock(8192), std::size_t(8192));
+        QCOMPARE(alignFromBlock(12288), std::size_t(16384));
         QCOMPARE(alignFromBlock(16384), std::size_t(16384));
 
         // The real filesystem: >= 4 KiB and a whole multiple of it (tmpfs ext4
@@ -220,6 +271,50 @@ private slots:
             return;
         }
         QVERIFY(*fd >= 0);
+        closeFd(*fd);
+        QFile::remove(p);
+    }
+
+    // A real write+read through the O_DIRECT fd (skipped where the fixture
+    // filesystem does not support direct I/O, e.g. tmpfs).
+    void openDirectFileRoundTrip()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString p = dir.filePath(QStringLiteral("direct.dat"));
+        QString err;
+        const std::optional<int> fd = openDirectFile(p, /*read=*/true, /*write=*/true, &err);
+        if (!fd)
+            QSKIP("filesystem does not support O_DIRECT (openDirectFile failed)");
+        QVERIFY(*fd >= 0);
+
+        // An aligned 4 KiB buffer (O_DIRECT requires sector-aligned length,
+        // offset and address).
+        std::vector<char> storage(kBlock * 2 + 4095);
+        const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(storage.data());
+        void *aligned = reinterpret_cast<void *>((base + 4095) & ~std::uintptr_t(4095));
+        auto *buf = static_cast<char *>(aligned);
+
+        const std::unique_ptr<IStorageIoEngine> engine = makeSyncEngine();
+
+        std::memset(buf, char(0x42), kBlock);
+        IoView wv{buf, kBlock, 0};
+        IoStats wst;
+        QVERIFY2(engine->runBatch(&wv, 1, IoOp::Write, *fd, wst, kNeverCancel, &err), qPrintable(err));
+        QCOMPARE(wst.ops, std::uint64_t(1));
+        QCOMPARE(wst.bytes, std::uint64_t(kBlock));
+
+        std::memset(buf, char(0), kBlock);
+        IoView rv{buf, kBlock, 0};
+        IoStats rst;
+        QVERIFY2(engine->runBatch(&rv, 1, IoOp::Read, *fd, rst, kNeverCancel, &err), qPrintable(err));
+        QCOMPARE(rst.ops, std::uint64_t(1));
+        QCOMPARE(rst.bytes, std::uint64_t(kBlock));
+        QCOMPARE(rst.latenciesUs.size(), std::size_t(1));
+
+        for (std::size_t i = 0; i < kBlock; ++i)
+            QCOMPARE(buf[i], char(0x42));   // the written pattern, read back intact
+
         closeFd(*fd);
         QFile::remove(p);
     }
