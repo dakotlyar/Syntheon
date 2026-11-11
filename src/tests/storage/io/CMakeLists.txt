@@ -34,3 +34,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         endif()
     endif()
 endif()
+
+if(WIN32)
+    target_sources(syntheon_test_storage PRIVATE engine_win.cpp)
+endif()
