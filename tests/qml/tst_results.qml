@@ -37,10 +37,11 @@ TestCase {
     function tick() { waitForRendering(test) }
 
     // Stubs only (Phase 3 N6): the RAM test is real now. The chart and the
-    // KPIs come from Battery's page (test_2).
+    // KPIs come from Battery's page (test_2). Storage's grid moves to
+    // tst_storage_detail (Phase 4b task 12).
     function test_1_summaryRowsAndDetail() {
         Fixtures.setStubScale(0.02)
-        runAndWait(["ai", "storage"])
+        runAndWait(["ai", "gpu"])
         const screen = createTemporaryObject(screenComponent, test)
         Results.openRun("")
         tick()
@@ -48,7 +49,7 @@ TestCase {
         compare(findChild(screen, "overallScore").text, Results.overallText)
         verify(!findChild(screen, "partialMarker").visible)
         verify(!findChild(screen, "statusBadge").visible)
-        for (const id of ["ai", "storage"])
+        for (const id of ["ai", "gpu"])
             verify(rowFor(screen, id) !== null, id)
         verify(findChild(rowFor(screen, "ai"), "score").text.length > 0)
 
@@ -66,15 +67,15 @@ TestCase {
         chip.forceActiveFocus(Qt.TabFocusReason)
         verify(chip.visualFocus)
         verify(findChild(chip, "focusRing").visible)
-        verify(!findChild(findChild(screen, "dtab-storage"), "focusRing").visible)
-        findChild(screen, "dtab-storage").forceActiveFocus(Qt.TabFocusReason)
+        verify(!findChild(findChild(screen, "dtab-gpu"), "focusRing").visible)
+        findChild(screen, "dtab-gpu").forceActiveFocus(Qt.TabFocusReason)
         verify(!findChild(chip, "focusRing").visible)
 
-        // Another tab: Storage's CrystalDiskMark-style grid.
-        mouseClick(findChild(screen, "dtab-storage"))
+        // Another tab: the GPU test's detail page.
+        mouseClick(findChild(screen, "dtab-gpu"))
         tick()
-        compare(Results.detailTestId, "storage")
-        verify(findChild(screen, "gridMain") !== null)
+        compare(Results.detailTestId, "gpu")
+        verify(findChild(screen, "kpiValue") !== null)
 
         mouseClick(findChild(screen, "backToResults"))
         verify(!Results.detailOpen)
@@ -133,9 +134,9 @@ TestCase {
     // "View log") keeps its lines, and its line count, when the next test
     // finishes and Results updates the run underneath it.
     function test_3b_liveLogSurvivesATestFinishing() {
-        Fixtures.setStubScale(0.15)
+        Fixtures.setStubScale(0.1)  // RAM (real) first, AI (stub) second
         RunController.clearSelection()
-        for (const id of ["ai", "storage"]) RunController.toggle(id)
+        for (const id of ["ai", "ram"]) RunController.toggle(id)
         const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         const updated = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runUpdated" })
         verify(RunController.start())
@@ -166,7 +167,7 @@ TestCase {
     // the reason, not its normal layout full of dashes; any test, not just NPU.
     function test_3c_notAvailableDetailShowsTheReason() {
         Fixtures.setStubScale(0.02)
-        runAndWait(["ai", "storage"], [["ai", "simulate", "na"]])
+        runAndWait(["ai", "gpu"], [["ai", "simulate", "na"]])
         const screen = createTemporaryObject(screenComponent, test)
         Results.openRun("")
         tick()
@@ -179,17 +180,17 @@ TestCase {
         compare(Results.detailSubtitle, "Not available on this machine")
         compare(findChild(screen, "kpiValue"), null)  // no empty KPI cards
         // A test that ran keeps its own page.
-        Results.showDetail("storage")
+        Results.showDetail("gpu")
         tick()
         compare(findChild(screen, "naStateBlock"), null)
         RunController.setOption("ai", "simulate", "normal")
     }
 
     function test_4_stoppedRunShowsPartialMarker() {
-        Fixtures.setStubScale(0.15)
+        Fixtures.setStubScale(0.1)  // RAM (real) first, AI (stub) second
         RunController.clearSelection()
         RunController.toggle("ai")
-        RunController.toggle("storage")
+        RunController.toggle("ram")
         const spy = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         verify(RunController.start())
         // Stop once the first test has a score.
@@ -206,7 +207,7 @@ TestCase {
         compare(findChild(screen, "statusBadge").text, "Stopped")
         verify(findChild(screen, "partialMarker").visible)  // N2
         verify(findChild(screen, "overallNote").text.indexOf("Partial") === 0)
-        // Storage runs first (catalog order); AI was either mid-run (Stopped)
+        // RAM runs first (catalog order); AI was either mid-run (Stopped)
         // or never started (Not run).
         verify(["Stopped", "Not run"].indexOf(findChild(rowFor(screen, "ai"), "score").text) >= 0)
         Fixtures.setStubScale(0.02)

@@ -35,8 +35,8 @@ TestCase {
 
     function test_2_aRunShowsQueueLogAndStop() {
         RunController.clearSelection()
-        RunController.toggle("storage")
-        RunController.toggle("ai")  // stubs only (Phase 3 N6: RAM is real now)
+        RunController.toggle("gpu")
+        RunController.toggle("ai")  // the Storage stub leaves in Phase 4b; the GPU test's worker is a fake
         const screen = createTemporaryObject(screenComponent, test)
         const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         verify(RunController.start())
@@ -48,7 +48,7 @@ TestCase {
         verify(findChild(screen, "stopRun").visible)
         compare(findChild(screen, "viewResults").text, "View results so far")
         compare(screen.title, "Running 2 tests")
-        verify(findChild(screen, "queue-storage") !== null)
+        verify(findChild(screen, "queue-gpu") !== null)
         verify(findChild(screen, "queue-ai") !== null)
         compare(AppController.section, "progress")
 
@@ -78,9 +78,9 @@ TestCase {
         verify(!findChild(screen, "stopRun").visible)
         compare(findChild(screen, "viewResults").text, "View results")
         compare(screen.title, "Run of 2 tests")
-        compare(findChild(findChild(screen, "queue-storage"), "state").text, "✓ done")
+        compare(findChild(findChild(screen, "queue-gpu"), "state").text, "✓ done")
         compare(findChild(findChild(screen, "queue-ai"), "state").text, "✓ done")
-        verify(findChild(findChild(screen, "queue-storage"), "stage").text.indexOf("Done") === 0)
+        verify(findChild(findChild(screen, "queue-gpu"), "stage").text.indexOf("Done") === 0)
         verify(!findChild(screen, "restartBanner").visible)
     }
 
@@ -95,19 +95,19 @@ TestCase {
     function test_4_stopRun() {
         // Stop mid-run: the run is saved as Stopped (D3) and the row says so.
         RunController.clearSelection()
-        RunController.toggle("storage")
+        RunController.toggle("gpu")
         RunController.toggle("ai")
         const screen = createTemporaryObject(screenComponent, test)
         const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
-        RunController.setOption("storage", "simulate", "normal")
+        RunController.setOption("ai", "simulate", "normal")
         verify(RunController.start())
         waitForRendering(screen)
         tryVerify(function() { return findChild(screen, "stopRun").visible }, 5000)
         mouseClick(findChild(screen, "stopRun"))
         finished.wait(30000)
         compare(finished.signalArguments[0][1], "stopped")
-        verify(findChild(screen, "queue-storage") !== null)
-        const st = findChild(screen, "queue-storage").runState; verify(["cancelled", "done", "not_run"].indexOf(st) >= 0, "state was " + st)
+        verify(findChild(screen, "queue-gpu") !== null)
+        const st = findChild(screen, "queue-gpu").runState; verify(["cancelled", "done", "not_run"].indexOf(st) >= 0, "state was " + st)
     }
 
     // Phase 4a P10, M8: while a test holds the interface (the GPU test) the

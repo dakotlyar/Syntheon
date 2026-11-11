@@ -118,8 +118,11 @@ private slots:
             for (const OptionDef &o : s.options)
                 kinds.insert(int(o.kind));
         }
-        for (OptionKind k : {OptionKind::Bool, OptionKind::MultiSelect, OptionKind::SingleSelect, OptionKind::DynamicSelect,
-                             OptionKind::Number, OptionKind::Path, OptionKind::Info})
+        // DynamicSelect and Path appeared only on the Storage stub (drive /
+        // target_folder) and leave with it (Phase 4b); tst_options covers both
+        // kinds from its own fixtures.
+        for (OptionKind k : {OptionKind::Bool, OptionKind::MultiSelect, OptionKind::SingleSelect, OptionKind::Number,
+                             OptionKind::Info})
             QVERIFY2(kinds.contains(int(k)), qPrintable(QString::number(int(k))));
         // A Segmented SingleSelect and a disabled item with a reason. (The
         // Dropdown presentation was the RAM stub's "buffer" option, gone with
@@ -226,17 +229,6 @@ private slots:
         const auto *table = std::get_if<TableBlock>(&d.blocks.first().content);
         QVERIFY(table);
         QCOMPARE(table->columns, (QStringList{QStringLiteral("Workload"), QStringLiteral("TensorRT")}));
-    }
-
-    void storageGrid()
-    {
-        const TestResult sto = runOne(QStringLiteral("storage")).tests[0];
-        const DetailLayout d = m_registry.find(QStringLiteral("storage"))->detail(sto);
-        const auto *grid = std::get_if<GridBlock>(&d.blocks.first().content);
-        QVERIFY(grid);
-        QCOMPARE(grid->rowLabels.size(), 4);
-        QCOMPARE(grid->cells[2][0].secondaryMetricKey, QStringLiteral("rnd4k_q32t1.read_iops"));
-        QVERIFY(grid->cells[0][0].secondaryMetricKey.isEmpty());
     }
 
     void simulateModes()
@@ -367,7 +359,7 @@ private slots:
         Orchestrator o(m_registry, *m_sink, m_inhibitor, fastConfig());
         QSignalSpy finished(&o, &Orchestrator::runFinished);
         QSignalSpy started(&o, &Orchestrator::testStarted);
-        QVERIFY(o.start({{QStringLiteral("ai"), {}}, {QStringLiteral("storage"), {}}}, {}).ok);
+        QVERIFY(o.start({{QStringLiteral("ai"), {}}}, {}).ok);
         QVERIFY(started.wait(5000));
         QTest::qWait(200);
         o.stop();
@@ -375,7 +367,6 @@ private slots:
         const RunRecord run = finished.last().at(0).value<RunRecord>();
         QCOMPARE(run.status, RunStatus::Stopped);
         QCOMPARE(run.tests[0].status, Status::Cancelled);
-        QCOMPARE(run.tests[1].status, Status::NotRun);
         tests::setStubTimeScale(0.02);
     }
 

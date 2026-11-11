@@ -588,8 +588,8 @@ private slots:
         RunController &rc = m_rt->run();
         // Stubs only (Phase 3 N6: the RAM test is real now; its Detail page
         // is tst_ram_test's). The stubs' chart and KPIs are Battery's (tst_stubs,
-        // tst_results.qml).
-        for (const QString &id : {QStringLiteral("storage"), QStringLiteral("ai")})
+        // tst_results.qml). The Storage grid moves to tst_storage_detail (task 12).
+        for (const QString &id : {QStringLiteral("ai"), QStringLiteral("ram")})
             rc.toggle(id);
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
@@ -608,9 +608,6 @@ private slots:
         // Phase 4a M1: the exported table carries boldCells (empty when none are set).
         QVERIFY(block(res.detailBlocks(), QStringLiteral("table")).contains(QStringLiteral("boldCells")));
         QCOMPARE(res.detailColorToken(), QStringLiteral("t-ai"));
-        res.showDetail(QStringLiteral("storage"));
-        const auto grid = block(res.detailBlocks(), QStringLiteral("grid"));
-        QCOMPARE(grid.value(QStringLiteral("rows")).toList().size(), 4);
         res.closeDetail();
         QVERIFY(!res.detailOpen());
 
@@ -622,7 +619,6 @@ private slots:
         log->setTestFilter(QStringLiteral("ai"));
         QVERIFY(log->rowCount() > 0 && log->rowCount() < all);
         QVERIFY(log->visibleText().contains(QLatin1StringView("AI inference")));
-        QVERIFY(!log->visibleText().contains(QLatin1StringView("Storage")));
         log->setTestFilter({});
         log->setMinLevel(QStringLiteral("warning"));
         QVERIFY(log->rowCount() < all);
@@ -635,7 +631,7 @@ private slots:
     {
         startRuntime();
         RunController &rc = m_rt->run();
-        for (const QString &id : {QStringLiteral("storage"), QStringLiteral("ai")})
+        for (const QString &id : {QStringLiteral("ram"), QStringLiteral("ai")})
             rc.toggle(id);
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
@@ -651,17 +647,17 @@ private slots:
         QCOMPARE(res.detailBlocks(), before);
         QCOMPARE(res.detailTitle(), QStringLiteral("AI inference"));
         // A different test is a change; an explicit select always tells the page.
-        res.selectDetail(QStringLiteral("storage"));
+        res.selectDetail(QStringLiteral("ram"));
         QCOMPARE(changed.count(), 1);
     }
 
     void followsTheLiveRun()
     {
-        tests::setStubTimeScale(0.3);
+        tests::setStubTimeScale(0.2);  // RAM (real) first, AI (stub) second
         startRuntime();
         RunController &rc = m_rt->run();
         rc.toggle(QStringLiteral("ai"));
-        rc.toggle(QStringLiteral("storage"));
+        rc.toggle(QStringLiteral("ram"));
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
         ResultsController &res = m_rt->results();

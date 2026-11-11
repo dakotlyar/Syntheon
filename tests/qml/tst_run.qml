@@ -127,14 +127,15 @@ TestCase {
         Fixtures.clearPower()
     }
 
-    // A stub's option (Phase 3 N6: the RAM stub's duration option is gone).
+    // A stub's option (Phase 4b: the Storage stub's file size is gone; the AI
+    // stub's sub-tests scale its estimate).
     function test_optionChangesTheEstimate() {
         const screen = createTemporaryObject(screenComponent, test)
-        RunController.toggle("storage")
+        RunController.toggle("ai")
         const before = RunController.estimateText
-        RunController.setOption("storage", "file_size", "4g")
+        RunController.setOption("ai", "subtests", ["vision"])  // 1 of 4 sub-tests shortens it
         verify(RunController.estimateText !== before)
-        RunController.setOption("storage", "file_size", "1g")
+        RunController.setOption("ai", "subtests", ["llm", "vision", "imagegen", "speech"])
         compare(RunController.estimateText, before)
     }
 
