@@ -6,16 +6,31 @@
 // the free-space guard, blocklist and wear note live in req.{h,cpp} (§6).
 #include "tests/storage/storage_test.h"
 
+#include "tests/cpu/kernels/prng.h"
 #include "tests/storage/formula_v1.h"
 #include "tests/storage/ids.h"
 #include "tests/storage/io/engine.h"
 #include "tests/storage/req.h"
 
+#include <QDir>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QStorageInfo>
+#include <QUuid>
 
+#ifdef _WIN32
+#  include <io.h>
+#else
+#  include <unistd.h>
+#endif
+
+#include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstring>
+#include <map>
+#include <numeric>
+#include <vector>
 
 namespace sb::tests {
 
@@ -96,6 +111,561 @@ QString freeSpaceError(qint64 freeBytes, qint64 size)
 {
     return sb::storage::hasEnoughFreeSpace(freeBytes, size) ? QString()
                                                             : sb::storage::freeSpaceRefusal(freeBytes, size);
+}
+
+} // namespace
+
+// ---- the run loop (task 11, §8) ----
+namespace {
+
+constexpr std::uint64_t kSeed = 0x574B524C;                 // "WKRL" (§4.3, N4)
+constexpr std::size_t kMaxDepth = 32;
+constexpr std::size_t kSeqBlock = std::size_t(1) << 20;      // 1 MiB
+constexpr std::size_t kRndBlock = 4096;                      // 4 KiB
+constexpr int kRuns = 3;                                     // median of 3 (§2.1)
+constexpr std::chrono::milliseconds kWindow{5000};           // 5 s per window
+constexpr std::size_t kFillChunk = std::size_t(1) << 20;     // 1 MiB prep chunks
+constexpr std::uint64_t kTinyFileBytes = std::uint64_t(8) << 20;  // 8 MiB in tiny mode
+
+bool tinyMode()
+{
+#ifdef SYNTHEON_DEV_HOOKS
+    return !qEnvironmentVariable("SYNTHEON_STORAGE_TINY").isEmpty();
+#else
+    return false;
+#endif
+}
+
+std::size_t depthFor(sb::storage::Pattern p)
+{
+    switch (p) {
+    case sb::storage::Pattern::Seq1mQ8T1: return 8;
+    case sb::storage::Pattern::Seq1mQ1T1: return 1;
+    case sb::storage::Pattern::Rnd4kQ32T1: return 32;
+    case sb::storage::Pattern::Rnd4kQ1T1: return 1;
+    case sb::storage::Pattern::Mixed: return 32;
+    default: return 1;
+    }
+}
+
+std::size_t blockFor(sb::storage::Pattern p)
+{
+    return (p == sb::storage::Pattern::Seq1mQ8T1 || p == sb::storage::Pattern::Seq1mQ1T1) ? kSeqBlock : kRndBlock;
+}
+
+bool isSequential(sb::storage::Pattern p)
+{
+    return p == sb::storage::Pattern::Seq1mQ8T1 || p == sb::storage::Pattern::Seq1mQ1T1;
+}
+
+void closeFd(int fd)
+{
+#ifdef _WIN32
+    ::_close(fd);
+#else
+    ::close(fd);
+#endif
+}
+
+// The next `bytes` of the PRNG stream, as 64-bit words (§4.3).
+void fillRandomNext(sb::cpu::Xoshiro256ss &rng, std::byte *buf, std::size_t bytes)
+{
+    std::uint64_t *words = reinterpret_cast<std::uint64_t *>(buf);
+    const std::size_t n = bytes / 8;
+    for (std::size_t i = 0; i < n; ++i)
+        words[i] = rng.next();
+    if (const std::size_t rem = bytes % 8) {
+        const std::uint64_t last = rng.next();
+        std::memcpy(words + n, &last, rem);
+    }
+}
+
+double medianOf(std::vector<double> v)
+{
+    if (v.empty())
+        return 0.0;
+    std::sort(v.begin(), v.end());
+    return v[v.size() / 2];
+}
+
+// A percentile of the samples (nearest-rank), in place on a sorted copy.
+double percentileUs(std::vector<double> sorted, double pct)
+{
+    if (sorted.empty())
+        return 0.0;
+    std::sort(sorted.begin(), sorted.end());
+    std::size_t rank = std::size_t(std::ceil(pct / 100.0 * sorted.size()));
+    if (rank == 0)
+        rank = 1;
+    return sorted[rank - 1];
+}
+
+double cvPercent(const std::vector<double> &v)
+{
+    if (v.size() < 2)
+        return 0.0;
+    const double mean = std::accumulate(v.begin(), v.end(), 0.0) / double(v.size());
+    double sq = 0;
+    for (double x : v)
+        sq += (x - mean) * (x - mean);
+    const double sd = std::sqrt(sq / double(v.size()));
+    return mean > 0 ? sd / mean * 100.0 : 0.0;
+}
+
+// One measured window's throughput.
+struct Window {
+    double mbps = 0;   // MB/s
+    double iops = 0;
+};
+
+// The Storage run (the much smaller RamRun analogue, §5, §8): a direct
+// steady_clock loop, no WorkerPool / core pinning.
+class StorageRun
+{
+public:
+    StorageRun(RunContext &ctx, const OptionValues &o)
+        : m_ctx(ctx)
+        , m_drive(o.value(QStringLiteral("drive")).toString())
+        , m_fileSize(fileSizeBytes(o.value(QStringLiteral("file_size"), QStringLiteral("4g")).toString()))
+    {
+        m_tiny = tinyMode();
+        // The declared size drives the free-space guard and the file_size
+        // metric; tiny mode only shrinks the file actually written (and the
+        // window), so a test run is fast without weakening the guard.
+        m_actualFileSize = m_tiny ? kTinyFileBytes : m_fileSize;
+        m_window = m_tiny ? std::chrono::milliseconds(10) : kWindow;
+    }
+
+    TestResult run();
+
+private:
+    bool stopRequested()
+    {
+        if (m_ctx.cancelled())
+            m_stopped = true;
+        return m_stopped;
+    }
+
+    // Progress against the fixed budget, never backwards (P-PROG).
+    void report(const QString &stage)
+    {
+        m_lastFraction = std::clamp(std::max(m_lastFraction, m_done / m_budgetTotal), 0.0, 0.999);
+        m_ctx.progress(m_lastFraction, stage);
+    }
+    void step(const QString &stage)
+    {
+        m_done += 1.0;
+        report(stage);
+    }
+
+    // The pre-run guard (§3.3, §3.5): an empty string means go.
+    QString guard();
+
+    bool prepare(QString *reason);
+    bool fillFile(QString *reason);
+
+    void runPattern(sb::storage::Pattern p);
+    Window measureWindow(sb::storage::IStorageIoEngine &engine, sb::storage::IoOp op, sb::storage::Pattern p,
+                         std::size_t block, std::size_t depth, std::vector<double> *latencies);
+    Window measureMixed(sb::storage::IStorageIoEngine &engine, std::size_t block, std::size_t depth);
+    void latency();
+    void finish(TestResult &r);
+    void cleanup();
+
+    void metric(const QString &key, const QString &sub, const QString &label, double value, const QString &unit,
+                Direction direction = Direction::HigherIsBetter, bool headline = false)
+    {
+        m_result.metrics.append({key, sub, label, value, unit, direction, headline});
+    }
+    void text(const QString &key, const QString &label, const QString &value)
+    {
+        m_result.metrics.append({key, QString(), label, value, QString(), Direction::Neutral, false});
+    }
+
+    RunContext &m_ctx;
+    QString m_drive;
+    std::uint64_t m_fileSize = 0;        // the declared size (guard + metric)
+    std::uint64_t m_actualFileSize = 0;  // the file actually written
+    bool m_tiny = false;
+    std::chrono::milliseconds m_window{kWindow};
+
+    // Chosen once per run (pickEngine), named in model.io.
+    std::unique_ptr<sb::storage::IStorageIoEngine> m_engine;
+    QString m_engineName;
+
+    // The over-aligned arena (§4.2), filled once with random data for writes.
+    std::size_t m_align = 4096;
+    std::vector<std::byte> m_arenaStorage;
+    std::byte *m_arena = nullptr;
+
+    QString m_targetDir;
+    QString m_filePath;
+    int m_fd = -1;
+    double m_prepSeconds = 0;
+
+    // rnd4k_q1t1's read samples -> the latency percentiles (§2, P10).
+    std::vector<double> m_latenciesUs;
+
+    double m_done = 0;
+    double m_budgetTotal = 1;
+    double m_lastFraction = 0;
+    bool m_stopped = false;
+    std::map<QString, Status> m_status;
+    std::map<QString, QString> m_reason;
+    double m_worstSpread = 0;
+    TestResult m_result;
+};
+
+QString StorageRun::guard()
+{
+    // The selected drive from the run-start snapshot (§3.3: the run-time value
+    // wins; the snapshot is what run() sees).
+    const QVector<Drive> drives = listDrives(m_ctx.system());
+    for (const Drive &d : drives) {
+        if (d.mount != m_drive)
+            continue;
+        if (sb::storage::isNetworkMount(d.mount, d.fileSystem))
+            return QStringLiteral("the drive is a network mount (blocked)");
+        if (!sb::storage::hasEnoughFreeSpace(d.freeBytes, m_fileSize))
+            return freeSpaceError(d.freeBytes, m_fileSize);
+        return {};
+    }
+    // Not in the snapshot (or no snapshot storage field): fall back to the live
+    // volume.
+    const QStorageInfo info(m_drive);
+    if (info.isValid() && info.isReady() && !sb::storage::hasEnoughFreeSpace(info.bytesAvailable(), m_fileSize))
+        return freeSpaceError(info.bytesAvailable(), m_fileSize);
+    return {};
+}
+
+bool StorageRun::prepare(QString *reason)
+{
+    m_engine = sb::storage::pickEngine(sb::storage::IoDepth::Queued);
+    m_engineName = m_engine->backendName();
+
+    // The arena: max depth x 1 MiB, over-aligned to the fs block size, filled
+    // once with the PRNG (§4.2, §4.3). The write phases reuse it.
+    m_align = sb::storage::directAlignment(m_drive);
+    m_arenaStorage.resize(kMaxDepth * kSeqBlock + m_align);
+    const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(m_arenaStorage.data());
+    m_arena = reinterpret_cast<std::byte *>((base + m_align - 1) & ~std::uintptr_t(m_align - 1));
+    sb::cpu::Xoshiro256ss rng(kSeed);
+    fillRandomNext(rng, m_arena, kMaxDepth * kSeqBlock);
+
+    // The hidden target folder on the mount (D5) and the file inside it.
+    m_targetDir = sb::storage::targetScratchName(m_drive, QUuid::createUuid());
+    if (!QDir().mkpath(m_targetDir)) {
+        *reason = QStringLiteral("could not create the target folder %1").arg(m_targetDir);
+        return false;
+    }
+    m_filePath = m_targetDir + QStringLiteral("/file.dat");
+
+    const auto t0 = std::chrono::steady_clock::now();
+    auto fd = sb::storage::openDirectFile(m_filePath, /*read=*/true, /*write=*/true, reason);
+    if (!fd)
+        return false;   // §7: no silent buffered fallback
+    m_fd = *fd;
+    if (!fillFile(reason)) {
+        closeFd(m_fd);
+        m_fd = -1;
+        return false;
+    }
+    m_prepSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    return true;
+}
+
+bool StorageRun::fillFile(QString *reason)
+{
+    const auto sync = sb::storage::makeSyncEngine();
+    std::vector<std::byte> storage(kFillChunk + m_align);
+    const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(storage.data());
+    std::byte *buf = reinterpret_cast<std::byte *>((base + m_align - 1) & ~std::uintptr_t(m_align - 1));
+    sb::cpu::Xoshiro256ss rng(kSeed);
+    const auto stop = [this] { return m_ctx.cancelled(); };
+    std::uint64_t offset = 0;
+    while (offset < m_actualFileSize) {
+        if (stop())
+            return true;   // Stop mid-prep: the caller sees m_stopped and cleans up
+        const std::size_t n = std::size_t(std::min<std::uint64_t>(kFillChunk, m_actualFileSize - offset));
+        fillRandomNext(rng, buf, n);
+        sb::storage::IoView v{buf, n, offset};
+        sb::storage::IoStats st;
+        if (!sync->runBatch(&v, 1, sb::storage::IoOp::Write, m_fd, st, stop, reason))
+            return false;
+        offset += n;
+    }
+    return true;
+}
+
+Window StorageRun::measureWindow(sb::storage::IStorageIoEngine &engine, sb::storage::IoOp op, sb::storage::Pattern p,
+                                 std::size_t block, std::size_t depth, std::vector<double> *latencies)
+{
+    const std::uint64_t blocks = m_actualFileSize / block;
+    sb::cpu::Xoshiro256ss rng(kSeed);
+    std::vector<sb::storage::IoView> batch(depth);
+    std::uint64_t seqOff = 0;
+    sb::storage::IoStats total;
+    const auto t0 = std::chrono::steady_clock::now();
+    const auto stop = [this] { return m_ctx.cancelled(); };
+    while (!stop() && std::chrono::steady_clock::now() - t0 < m_window) {
+        for (std::size_t i = 0; i < depth; ++i) {
+            const std::uint64_t off = isSequential(p) ? (seqOff * block) % m_actualFileSize : rng.below(blocks) * block;
+            batch[i] = {m_arena + i * block, block, off};
+            ++seqOff;
+        }
+        sb::storage::IoStats st;
+        QString err;
+        if (!engine.runBatch(batch.data(), depth, op, m_fd, st, stop, &err))
+            m_ctx.log(LogLevel::Warning, err);
+        total.ops += st.ops;
+        total.bytes += st.bytes;
+        if (latencies)
+            latencies->insert(latencies->end(), st.latenciesUs.begin(), st.latenciesUs.end());
+    }
+    const auto t1 = std::chrono::steady_clock::now();
+    const double seconds = std::max(1e-9, std::chrono::duration<double>(t1 - t0).count());
+    Window w;
+    w.mbps = double(total.bytes) / seconds / 1'000'000.0;
+    w.iops = double(total.ops) / seconds;
+    return w;
+}
+
+Window StorageRun::measureMixed(sb::storage::IStorageIoEngine &engine, std::size_t block, std::size_t depth)
+{
+    const std::uint64_t blocks = m_actualFileSize / block;
+    sb::cpu::Xoshiro256ss rng(kSeed);
+    std::vector<sb::storage::IoView> batch(depth);
+    sb::storage::IoStats total;
+    const auto t0 = std::chrono::steady_clock::now();
+    const auto stop = [this] { return m_ctx.cancelled(); };
+    while (!stop() && std::chrono::steady_clock::now() - t0 < m_window) {
+        // 70/30 random read/write (§2): seven read rounds to three write rounds.
+        auto round = [&](sb::storage::IoOp op) {
+            for (std::size_t i = 0; i < depth; ++i)
+                batch[i] = {m_arena + i * block, block, rng.below(blocks) * block};
+            sb::storage::IoStats st;
+            QString err;
+            if (!engine.runBatch(batch.data(), depth, op, m_fd, st, stop, &err))
+                m_ctx.log(LogLevel::Warning, err);
+            total.ops += st.ops;
+            total.bytes += st.bytes;
+        };
+        for (int k = 0; k < 7; ++k)
+            round(sb::storage::IoOp::Read);
+        for (int k = 0; k < 3; ++k)
+            round(sb::storage::IoOp::Write);
+    }
+    const auto t1 = std::chrono::steady_clock::now();
+    const double seconds = std::max(1e-9, std::chrono::duration<double>(t1 - t0).count());
+    Window w;
+    w.mbps = double(total.bytes) / seconds / 1'000'000.0;
+    w.iops = double(total.ops) / seconds;
+    return w;
+}
+
+void StorageRun::runPattern(sb::storage::Pattern p)
+{
+    const QString id = sb::storage::patternId(p);
+    const std::size_t depth = depthFor(p);
+    const std::size_t block = blockFor(p);
+    m_ctx.subTestBegin(id);
+    m_status[id] = Status::Ok;
+    m_ctx.setPart(sb::storage::patternLabel(p));
+
+    if (p == sb::storage::Pattern::Mixed) {
+        std::vector<double> mbps, iops;
+        for (int r = 0; r < kRuns && !stopRequested(); ++r) {
+            step(QStringLiteral("Mixed 70/30 · run %1 of 3").arg(r + 1));
+            const Window w = measureMixed(*m_engine, block, depth);
+            mbps.push_back(w.mbps);
+            iops.push_back(w.iops);
+            m_worstSpread = std::max(m_worstSpread, cvPercent(mbps));
+        }
+        if (mbps.size() == kRuns) {
+            metric(sb::storage::key(p, sb::storage::Field::Throughput), id, sb::storage::label(p, sb::storage::Field::Throughput),
+                   medianOf(mbps), QStringLiteral("MB/s"), Direction::HigherIsBetter, true);
+            metric(sb::storage::key(p, sb::storage::Field::Iops), id, sb::storage::label(p, sb::storage::Field::Iops),
+                   medianOf(iops), QStringLiteral("IOPS"));
+        } else if (m_stopped) {
+            m_status[id] = Status::Cancelled;
+        } else {
+            m_status[id] = Status::Error;
+        }
+        m_ctx.subTestEnd(id, m_status[id]);
+        return;
+    }
+
+    // Read phase.
+    std::vector<double> readMbps, readIops;
+    std::vector<double> samples;
+    for (int r = 0; r < kRuns && !stopRequested(); ++r) {
+        step(QStringLiteral("%1 read · run %2 of 3").arg(id).arg(r + 1));
+        const Window w = measureWindow(*m_engine, sb::storage::IoOp::Read, p, block, depth, &samples);
+        readMbps.push_back(w.mbps);
+        readIops.push_back(w.iops);
+        m_worstSpread = std::max(m_worstSpread, cvPercent(readMbps));
+    }
+    // Write phase.
+    std::vector<double> writeMbps, writeIops;
+    for (int r = 0; r < kRuns && !stopRequested(); ++r) {
+        step(QStringLiteral("%1 write · run %2 of 3").arg(id).arg(r + 1));
+        const Window w = measureWindow(*m_engine, sb::storage::IoOp::Write, p, block, depth, nullptr);
+        writeMbps.push_back(w.mbps);
+        writeIops.push_back(w.iops);
+        m_worstSpread = std::max(m_worstSpread, cvPercent(writeMbps));
+    }
+
+    if (readMbps.size() == kRuns && writeMbps.size() == kRuns) {
+        metric(sb::storage::key(p, sb::storage::Field::Read), id, sb::storage::label(p, sb::storage::Field::Read),
+               medianOf(readMbps), QStringLiteral("MB/s"), Direction::HigherIsBetter, p == sb::storage::Pattern::Seq1mQ8T1);
+        metric(sb::storage::key(p, sb::storage::Field::Write), id, sb::storage::label(p, sb::storage::Field::Write),
+               medianOf(writeMbps), QStringLiteral("MB/s"));
+        if (!isSequential(p)) {
+            metric(sb::storage::key(p, sb::storage::Field::ReadIops), id, sb::storage::label(p, sb::storage::Field::ReadIops),
+                   medianOf(readIops), QStringLiteral("IOPS"), Direction::HigherIsBetter,
+                   p == sb::storage::Pattern::Rnd4kQ32T1);
+            metric(sb::storage::key(p, sb::storage::Field::WriteIops), id, sb::storage::label(p, sb::storage::Field::WriteIops),
+                   medianOf(writeIops), QStringLiteral("IOPS"));
+        }
+        if (p == sb::storage::Pattern::Rnd4kQ1T1)
+            m_latenciesUs = std::move(samples);   // the latency source (§2, P10)
+    } else if (m_stopped) {
+        m_status[id] = Status::Cancelled;
+    } else {
+        m_status[id] = Status::Error;
+    }
+    m_ctx.subTestEnd(id, m_status[id]);
+}
+
+void StorageRun::latency()
+{
+    const QString id = QStringLiteral("latency");
+    m_ctx.subTestBegin(id);
+    m_status[id] = Status::Ok;
+    m_ctx.setPart(QStringLiteral("Latency (4K Q1T1)"));
+    metric(sb::storage::key(sb::storage::Pattern::Latency, sb::storage::Field::P50), id,
+           sb::storage::label(sb::storage::Pattern::Latency, sb::storage::Field::P50),
+           percentileUs(m_latenciesUs, 50.0), QStringLiteral("µs"), Direction::LowerIsBetter, true);
+    metric(sb::storage::key(sb::storage::Pattern::Latency, sb::storage::Field::P99), id,
+           sb::storage::label(sb::storage::Pattern::Latency, sb::storage::Field::P99),
+           percentileUs(m_latenciesUs, 99.0), QStringLiteral("µs"), Direction::LowerIsBetter);
+    metric(sb::storage::key(sb::storage::Pattern::Latency, sb::storage::Field::P999), id,
+           sb::storage::label(sb::storage::Pattern::Latency, sb::storage::Field::P999),
+           percentileUs(m_latenciesUs, 99.9), QStringLiteral("µs"), Direction::LowerIsBetter);
+    m_ctx.subTestEnd(id, Status::Ok);
+}
+
+void StorageRun::finish(TestResult &r)
+{
+    // The neutral metrics (§10) go onto the moved-out result `r` (the pattern
+    // metrics were appended to it before the move).
+    const auto num = [&r](const QString &key, const QString &label, double value, const QString &unit) {
+        r.metrics.append({key, QString(), label, value, unit, Direction::Neutral, false});
+    };
+    const auto str = [&r](const QString &key, const QString &label, const QString &value) {
+        r.metrics.append({key, QString(), label, value, QString(), Direction::Neutral, false});
+    };
+    str(sb::storage::kModelIo, QStringLiteral("I/O engine"), m_engineName);
+    str(sb::storage::kTargetDrive, QStringLiteral("Target drive"), m_drive);
+    QString fs, kind;
+    for (const Drive &d : listDrives(m_ctx.system())) {
+        if (d.mount == m_drive) {
+            fs = d.fileSystem;
+            kind = d.kind;
+            num(sb::storage::kTargetFreeBytes, QStringLiteral("Free space"),
+                double(d.freeBytes) / double(std::uint64_t(1) << 30), QStringLiteral("GiB"));
+            break;
+        }
+    }
+    str(sb::storage::kTargetFilesystem, QStringLiteral("Filesystem"), fs);
+    str(sb::storage::kTargetKind, QStringLiteral("Drive kind"), kind);
+    num(sb::storage::kFileSize, QStringLiteral("Test file size"),
+        double(m_fileSize) / double(std::uint64_t(1) << 30), QStringLiteral("GiB"));
+    num(sb::storage::kDirectAlignment, QStringLiteral("Direct-I/O alignment"), double(m_align), QStringLiteral("B"));
+    num(sb::storage::kPrepSeconds, QStringLiteral("File preparation"), m_prepSeconds, QStringLiteral("s"));
+    num(sb::storage::kWearWriteGb, QStringLiteral("Estimated writes"),
+        double(sb::storage::worstCaseWriteBytes(qint64(m_fileSize), 1)) / 1'000'000'000.0, QStringLiteral("GB"));
+    num(sb::storage::kStabilitySpread, QStringLiteral("Worst window CV"), m_worstSpread, QStringLiteral("%"));
+}
+
+void StorageRun::cleanup()
+{
+    if (m_fd >= 0) {
+        closeFd(m_fd);
+        m_fd = -1;
+    }
+    // Remove the target folder and file (normal completion, cancel and error).
+    if (!m_targetDir.isEmpty())
+        QDir(m_targetDir).removeRecursively();
+    m_targetDir.clear();
+}
+
+TestResult StorageRun::run()
+{
+    // §3.5 blocklist / §3.3 free-space guard, read from the run-start snapshot.
+    if (const QString why = guard(); !why.isEmpty()) {
+        m_result = TestResult::notAvailable(why);
+        m_result.subResults = {};
+        return m_result;
+    }
+
+    // The budget: prep + 4 patterns x 2 phases x 3 runs + mixed x 3 runs +
+    // latency = 1 + 24 + 3 + 1 = 29 steps (the stage labels drive the UI).
+    m_budgetTotal = 1.0 + 4.0 * 2.0 * kRuns + 1.0 * kRuns + 1.0;
+
+    QString reason;
+    if (!prepare(&reason)) {
+        cleanup();
+        if (stopRequested())
+            return TestResult::withStatus(Status::Cancelled, defaultStoppedReason());
+        // openDirectFile failure = NotAvailable (§7), never a silent fallback.
+        m_result = TestResult::notAvailable(reason);
+        return m_result;
+    }
+    step(QStringLiteral("Preparing the test file"));
+    m_ctx.log(LogLevel::Info, QStringLiteral("Starting Storage: %1 → %2, %3, backend %4")
+                                  .arg(m_drive, m_filePath,
+                                       QStringLiteral("%1 GiB").arg(double(m_fileSize) / double(std::uint64_t(1) << 30), 0, 'f', 1),
+                                       m_engineName));
+
+    const sb::storage::Pattern order[] = {sb::storage::Pattern::Seq1mQ8T1, sb::storage::Pattern::Seq1mQ1T1,
+                                          sb::storage::Pattern::Rnd4kQ32T1, sb::storage::Pattern::Rnd4kQ1T1,
+                                          sb::storage::Pattern::Mixed};
+    for (sb::storage::Pattern p : order) {
+        if (stopRequested())
+            break;
+        runPattern(p);
+    }
+    if (!stopRequested() && !m_latenciesUs.empty())
+        latency();
+
+    TestResult r = std::move(m_result);
+    finish(r);
+    for (const auto &[id, status] : m_status)
+        r.subResults.append({id, status, m_reason[id], {}});
+
+    if (m_stopped) {
+        r.status = Status::Cancelled;
+    } else {
+        int ok = 0;
+        for (const SubResult &s : std::as_const(r.subResults))
+            if (s.status == Status::Ok)
+                ++ok;
+        if (ok == 6)
+            r.status = Status::Ok;
+        else if (ok > 0) {
+            r.status = Status::Partial;
+            r.statusReason = QStringLiteral("No Storage score: not every part ran");
+        } else {
+            r.status = Status::Error;
+            r.statusReason = QStringLiteral("the Storage test failed");
+        }
+    }
+
+    cleanup();
+    if (!m_stopped)
+        m_ctx.progress(1.0, QStringLiteral("Done"));
+    return r;
 }
 
 } // namespace
@@ -256,10 +826,10 @@ std::chrono::seconds StorageTest::timeLimit(const OptionValues &o) const
     return std::chrono::seconds(2 * estimate(o).count() + 60);
 }
 
-TestResult StorageTest::run(RunContext &, const OptionValues &)
+TestResult StorageTest::run(RunContext &ctx, const OptionValues &o)
 {
-    // Implemented in task 11 (StorageRun).
-    return TestResult::error(QStringLiteral("Storage run not implemented"));
+    StorageRun r(ctx, o);
+    return r.run();
 }
 
 ScoreBreakdown StorageTest::score(const TestResult &result) const
