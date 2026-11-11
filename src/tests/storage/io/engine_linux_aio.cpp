@@ -54,21 +54,22 @@ public:
         const bool isRead = (op == IoOp::Read);
         std::vector<std::chrono::steady_clock::time_point> started(count);
         std::vector<std::size_t> slotOf(count, std::size_t(-1));
-        std::vector<struct iocb *> toSubmit(m_depth);
-        std::size_t submitted = 0;   // views handed to the kernel so far
-        std::size_t completed = 0;   // events reaped so far
+        std::size_t nextView = 0;    // next view to prepare
+        std::size_t submitted = 0;   // iocbs the kernel has accepted
+        std::size_t completed = 0;  // events reaped
         QString why;
 
         auto now = [] { return std::chrono::steady_clock::now(); };
 
-        // Prepare up to the in-flight cap into free slots and io_submit them.
         auto submitWindow = [&] {
             if (!why.isEmpty())
                 return;
+            std::vector<struct iocb *> toSubmit(m_depth);
+            std::vector<std::size_t> viewOf(m_depth);
             std::size_t nsub = 0;
-            while (submitted < count && submitted - completed < m_depth) {
+            while (nextView < count && submitted - completed < m_depth) {
                 if (cancel())
-                    break;   // stop submitting; the in-flight ops drain below
+                    break;
                 std::size_t slot = std::size_t(-1);
                 for (std::size_t s = 0; s < m_depth; ++s) {
                     if (m_free[s]) {
@@ -78,44 +79,60 @@ public:
                 }
                 if (slot == std::size_t(-1))
                     break;
-                const IoView &v = views[submitted];
+                const IoView &v = views[nextView];
                 m_free[slot] = false;
-                m_viewFor[slot] = submitted;
-                slotOf[submitted] = slot;
+                m_viewFor[slot] = nextView;
+                slotOf[nextView] = slot;
                 struct iocb *cb = &m_iocbs[slot];
                 std::memset(cb, 0, sizeof(*cb));
                 if (isRead)
                     ::io_prep_pread(cb, fd, v.data, v.length, static_cast<long long>(v.offset));
                 else
                     ::io_prep_pwrite(cb, fd, v.data, v.length, static_cast<long long>(v.offset));
-                started[submitted] = now();
-                toSubmit[nsub++] = cb;
-                ++submitted;
+                started[nextView] = now();
+                toSubmit[nsub] = cb;
+                viewOf[nsub] = nextView;
+                ++nsub;
+                ++nextView;
             }
-            if (nsub) {
-                const long rc = ::io_submit(m_ctx, static_cast<long>(nsub), toSubmit.data());
-                if (rc < 0)
+            if (nsub == 0)
+                return;
+            const long rc = ::io_submit(m_ctx, static_cast<long>(nsub), toSubmit.data());
+            std::size_t accepted = 0;
+            if (rc < 0) {
+                if (why.isEmpty())
                     why = QStringLiteral("libaio io_submit: %1").arg(QString::fromLatin1(std::strerror(-rc)));
-                else if (rc != static_cast<long>(nsub))
-                    why = QStringLiteral("libaio io_submit: partial submit (%1 of %2)")
-                              .arg(rc).arg(nsub);
+            } else {
+                accepted = std::size_t(rc);
             }
+            // Roll back the slots of any not-accepted iocb (a partial submit):
+            // their views stay pending and are re-prepared on the next window.
+            for (std::size_t i = accepted; i < nsub; ++i) {
+                const std::size_t view = viewOf[i];
+                m_free[slotOf[view]] = true;
+                m_viewFor[slotOf[view]] = std::size_t(-1);
+                --nextView;   // re-queue this view
+            }
+            submitted += accepted;
         };
 
         submitWindow();
         std::vector<struct io_event> events(m_depth);
-        while (why.isEmpty() && completed < submitted) {
+        while (completed < submitted) {
             struct timespec timeout{};
             timeout.tv_nsec = 50 * 1000 * 1000;   // 50 ms (P-STOP)
             const long n = ::io_getevents(m_ctx, 1, static_cast<long>(m_depth), events.data(), &timeout);
             if (n < 0) {
-                why = QStringLiteral("libaio io_getevents: %1").arg(QString::fromLatin1(std::strerror(-n)));
-                break;
+                if (why.isEmpty())
+                    why = QStringLiteral("libaio io_getevents: %1").arg(QString::fromLatin1(std::strerror(-n)));
+                break;   // the context no longer reaps reliably
             }
             if (n == 0) {
                 submitWindow();   // timeout: poll cancel and top the batch up
                 continue;
             }
+            // Process every dequeued event — even after one has failed, so the
+            // remaining in-flight ops are never left touching freed buffers.
             for (long i = 0; i < n; ++i) {
                 const struct iocb *obj = events[std::size_t(i)].obj;
                 const std::size_t slot = static_cast<std::size_t>(obj - m_iocbs.data());
@@ -123,19 +140,19 @@ public:
                 const long res = static_cast<long>(events[std::size_t(i)].res);
                 m_free[slot] = true;
                 m_viewFor[slot] = std::size_t(-1);
+                ++completed;
                 if (res < 0) {
-                    why = QStringLiteral("libaio op failed: %1").arg(QString::fromLatin1(std::strerror(-res)));
-                    break;
+                    if (why.isEmpty())
+                        why = QStringLiteral("libaio op failed: %1").arg(QString::fromLatin1(std::strerror(-res)));
+                    continue;
                 }
                 out.ops += 1;
                 out.bytes += static_cast<std::uint64_t>(res);
                 if (isRead)
                     out.latenciesUs.push_back(
                         std::chrono::duration<double, std::micro>(now() - started[idx]).count());
-                ++completed;
             }
-            if (why.isEmpty())
-                submitWindow();
+            submitWindow();
         }
 
         if (!why.isEmpty()) {

@@ -90,26 +90,32 @@ public:
                 sl.ov.OffsetHigh = static_cast<DWORD>(v.offset >> 32);
                 sl.ov.hEvent = sl.event;
                 sl.t0 = now();
-                ++submitted;
 
                 DWORD immediate = 0;
                 const BOOL ok = isRead ? ReadFile(h, v.data, static_cast<DWORD>(v.length), &immediate, &sl.ov)
                                        : WriteFile(h, v.data, static_cast<DWORD>(v.length), &immediate, &sl.ov);
                 if (ok) {
-                    // Completed synchronously: count it now, the slot stays free.
+                    // Completed synchronously: count it now, the slot stays free;
+                    // both submitted and completed advance by one.
                     out.ops += 1;
                     out.bytes += static_cast<std::uint64_t>(immediate);
                     if (isRead)
                         out.latenciesUs.push_back(
                             std::chrono::duration<double, std::micro>(now() - sl.t0).count());
                     ++completed;
+                    ++submitted;
                     continue;
                 }
                 if (GetLastError() != ERROR_IO_PENDING) {
+                    // A real submit failure: the slot never went pending. Stop
+                    // submitting, cancel what is already in flight, and drain it
+                    // below before returning.
                     why = QStringLiteral("overlapped submit failed: error %1").arg(GetLastError());
+                    CancelIoEx(h, nullptr);
                     break;
                 }
                 sl.pending = true;
+                ++submitted;
             }
         };
 
@@ -153,6 +159,16 @@ public:
         }
 
         if (!why.isEmpty()) {
+            // Drain every outstanding op (cancelled ones included) so no kernel
+            // op is still DMA-ing into the caller's buffers when we return.
+            for (auto &sl : m_slots) {
+                if (sl.pending) {
+                    DWORD transferred = 0;
+                    GetOverlappedResult(h, &sl.ov, &transferred, TRUE);   // block
+                    ResetEvent(sl.event);
+                    sl.pending = false;
+                }
+            }
             if (error)
                 *error = why;
             return false;
