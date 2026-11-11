@@ -35,9 +35,10 @@ private slots:
             QVERIFY2(i.colorToken.startsWith(QLatin1StringView("t-")), qPrintable(i.id));
             tokens.insert(i.colorToken);
             // Phase 1 stubs are version 0 (§2.9); the real CPU and RAM tests
-            // are 1 since their calibrations (Phase 2 task 18, Phase 3 task 14), the GPU since Phase 4a task 36.
+            // are 1 since their calibrations (Phase 2 task 18, Phase 3 task 14), the GPU since Phase 4a task 36,
+            // and Storage's measurement since Phase 4b (its formula stays 0 until the task-13 calibration).
             const int version = i.id == QLatin1StringView("cpu") || i.id == QLatin1StringView("ram") || i.id == QLatin1StringView("gpu") ? 1 : 0;
-            QCOMPARE(i.testVersion, version);
+            QCOMPARE(i.testVersion, i.id == QLatin1StringView("storage") ? 1 : version);
             QCOMPARE(i.formulaVersion, version);
             const bool battery = i.id == QLatin1StringView("battery");
             QCOMPARE(i.exclusivity == Exclusivity::RunsAlone, battery);
