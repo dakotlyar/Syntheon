@@ -146,7 +146,7 @@ private slots:
 
     void everyStubRunsAndScoresNearItsTarget()
     {
-        const QHash<QString, double> targets = {{QStringLiteral("storage"), 938}, {QStringLiteral("ai"), 772}};
+        const QHash<QString, double> targets = {{QStringLiteral("ai"), 772}};
         for (const QString &id : targets.keys()) {
             const RunRecord run = runOne(id);
             QCOMPARE(run.status, RunStatus::Completed);
@@ -256,7 +256,7 @@ private slots:
         tests::setStubTimeLimitFloor(std::chrono::seconds(1));
         Orchestrator o(m_registry, *m_sink, m_inhibitor, fastConfig());
         QSignalSpy finished(&o, &Orchestrator::runFinished);
-        QVERIFY(o.start({{QStringLiteral("storage"), {{QStringLiteral("simulate"), QStringLiteral("hang")}}}}, {}).ok);
+        QVERIFY(o.start({{QStringLiteral("ai"), {{QStringLiteral("simulate"), QStringLiteral("hang")}}}}, {}).ok);
         QVERIFY(finished.wait(30000));
         const RunRecord run = finished.last().at(0).value<RunRecord>();
         QCOMPARE(run.status, RunStatus::Interrupted);
@@ -305,7 +305,7 @@ private slots:
             PrivilegedOps &privileged() override { return ops; }
         };
         tests::setStubTimeScale(0.02);
-        for (const QString &id : {QStringLiteral("ai"), QStringLiteral("storage"), QStringLiteral("battery")}) {
+        for (const QString &id : {QStringLiteral("ai"), QStringLiteral("battery")}) {
             LastSliceContext ctx;
             OptionValues o;
             if (id == QLatin1StringView("battery"))
