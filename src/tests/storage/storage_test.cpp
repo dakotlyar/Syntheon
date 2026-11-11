@@ -384,6 +384,7 @@ private:
     QString m_filePath;
     int m_fd = -1;
     double m_prepSeconds = 0;
+    std::uint64_t m_bytesWritten = 0;   // the actual write footprint (prep + phases)
 
     // rnd4k_q1t1's read samples -> the latency percentiles (§2, P10).
     std::vector<double> m_latenciesUs;
@@ -490,6 +491,7 @@ bool StorageRun::fillFile(QString *reason)
         if (!sync->runBatch(&v, 1, sb::storage::IoOp::Write, m_fd, st, stop, reason))
             return false;
         offset += n;
+        m_bytesWritten += st.bytes;
     }
     return true;
 }
@@ -523,6 +525,8 @@ std::optional<Window> StorageRun::measureWindow(sb::storage::IStorageIoEngine &e
         }
         total.ops += st.ops;
         total.bytes += st.bytes;
+        if (op == sb::storage::IoOp::Write)
+            m_bytesWritten += st.bytes;
         if (latencies)
             latencies->insert(latencies->end(), st.latenciesUs.begin(), st.latenciesUs.end());
     }
@@ -558,6 +562,8 @@ std::optional<Window> StorageRun::measureMixed(sb::storage::IStorageIoEngine &en
             }
             total.ops += st.ops;
             total.bytes += st.bytes;
+            if (op == sb::storage::IoOp::Write)
+                m_bytesWritten += st.bytes;
             return true;
         };
         for (int k = 0; k < 7; ++k)
@@ -710,8 +716,8 @@ void StorageRun::finish(TestResult &r)
         double(m_fileSize) / double(std::uint64_t(1) << 30), QStringLiteral("GiB"));
     num(sb::storage::kDirectAlignment, QStringLiteral("Direct-I/O alignment"), double(m_align), QStringLiteral("B"));
     num(sb::storage::kPrepSeconds, QStringLiteral("File preparation"), m_prepSeconds, QStringLiteral("s"));
-    num(sb::storage::kWearWriteGb, QStringLiteral("Estimated writes"),
-        double(sb::storage::worstCaseWriteBytes(qint64(m_fileSize), 1)) / 1'000'000'000.0, QStringLiteral("GB"));
+    num(sb::storage::kWearWriteGb, QStringLiteral("Bytes written"),
+        double(m_bytesWritten) / 1'000'000'000.0, QStringLiteral("GB"));
     num(sb::storage::kStabilitySpread, QStringLiteral("Worst window CV"), m_worstSpread, QStringLiteral("%"));
 }
 
@@ -929,7 +935,7 @@ QList<Precondition> StorageTest::preconditions(const OptionValues &o, const Prob
     wear.id = QStringLiteral("wear");
     wear.label = QStringLiteral("Drive wear");
     wear.state = Precondition::State::Met;
-    wear.detail = sb::storage::wearNote(sb::storage::worstCaseWriteBytes(size, 1), kind);
+    wear.detail = sb::storage::wearNote(sb::storage::conservativeWriteBytes(size), kind);
     out.append(wear);
 
     // D2: a removable / optical drive is warned, not blocked.

@@ -94,11 +94,17 @@ bool hasEnoughFreeSpace(qint64 freeBytes, qint64 fileSizeBytes)
     return freeBytes >= needed + kFreeMarginBytes;
 }
 
-qint64 worstCaseWriteBytes(qint64 fileSizeBytes, int runs)
+qint64 conservativeWriteBytes(qint64 fileSizeBytes)
 {
-    if (fileSizeBytes < 0 || runs < 0)
+    // The write phases are time-boxed: four patterns x 3 runs x 5 s plus the
+    // mixed phase's 30% write share (~65 s of writes total). A conservative
+    // 3000 MB/s (a fast-but-not-top NVMe) over that time, plus the full-file
+    // prep, so the note over-estimates rather than surprising the user.
+    constexpr double kWriteMBps = 3000.0;
+    constexpr double kWriteWindowSeconds = 65.0;
+    if (fileSizeBytes < 0)
         return 0;
-    return fileSizeBytes * (1 + runs);
+    return fileSizeBytes + qint64(kWriteMBps * 1'000'000.0 * kWriteWindowSeconds);
 }
 
 QString targetScratchName(const QString &mountRoot, const QUuid &runUuid)

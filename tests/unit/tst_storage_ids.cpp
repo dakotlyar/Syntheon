@@ -138,12 +138,12 @@ private slots:
         QVERIFY(!hasEnoughFreeSpace(size, -1));
     }
 
-    void worstCaseWrites()
+    void conservativeWrites()
     {
-        QCOMPARE(worstCaseWriteBytes(4ll * 1000000000, 3), 4ll * 1000000000 * 4);
-        QCOMPARE(worstCaseWriteBytes(4ll * 1000000000, 0), 4ll * 1000000000);
-        QCOMPARE(worstCaseWriteBytes(0, 5), 0ll);
-        QCOMPARE(worstCaseWriteBytes(4ll * 1000000000, -1), 0ll);
+        // prep + 3000 MB/s x 65 s = prep + 195 GB (the conservative estimate).
+        QCOMPARE(conservativeWriteBytes(4ll * 1000000000), 4ll * 1000000000 + 195000000000ll);
+        QCOMPARE(conservativeWriteBytes(0), 195000000000ll);
+        QCOMPARE(conservativeWriteBytes(-1), 0ll);
     }
 
     void scratchName()

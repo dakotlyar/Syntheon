@@ -26,10 +26,12 @@ bool isNetworkDriveType(std::uint32_t winDriveType);                       // DR
 constexpr qint64 kFreeMarginBytes = 2ll * 1024 * 1024 * 1024;   // 2 GiB
 bool hasEnoughFreeSpace(qint64 freeBytes, qint64 fileSizeBytes); // free >= fileSize*1.1 + margin
 
-// The "writes about N GB to this SSD" number: prep (full file written) +
-// worst-case measured writes (every write phase re-writes the whole file in
-// the worst case; a 5 s window on a fast NVMe can cover the whole 4 GiB).
-qint64 worstCaseWriteBytes(qint64 fileSizeBytes, int runs);     // = fileSize * (1 + runs) conservatively
+// The pre-run wear-note estimate (D3 "no surprise writes"): the full-file prep
+// plus a fast drive's write throughput over the total write-window time. The
+// write phases are time-boxed (they keep writing the whole 5 s x 3 runs), so a
+// naive "prep + one rewrite" under-reports a fast NVMe by 8-15x; this
+// over-estimates instead.
+qint64 conservativeWriteBytes(qint64 fileSizeBytes);  // = fileSize + 3000 MB/s x 65 s
 
 // Map a mount root to a writable test folder name that is always inside the
 // mount and hidden (P6 / D5).

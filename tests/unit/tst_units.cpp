@@ -66,7 +66,10 @@ private slots:
         QVERIFY(!Units::isCanonical(QStringLiteral("MiB/s")));
         QVERIFY(Units::isCanonical(QStringLiteral("MHz")));
         QVERIFY(Units::isCanonical(QStringLiteral("°C")));
-        QCOMPARE(Units::canonical().size(), 24);
+        QVERIFY(Units::isCanonical(QStringLiteral("GiB")));
+        QVERIFY(Units::isCanonical(QStringLiteral("GB")));
+        QVERIFY(Units::isCanonical(QStringLiteral("B")));
+        QCOMPARE(Units::canonical().size(), 27);
     }
 };
 

@@ -15,7 +15,8 @@ const QStringList &canonical()
         QStringLiteral("fps"),    QStringLiteral("Mpx/s"), QStringLiteral("Gpx/s"),  QStringLiteral("MOps/s"),
         QStringLiteral("MFLOPS"), QStringLiteral("tok/s"), QStringLiteral("inf/s"),  QStringLiteral("it/s"),
         QStringLiteral("W"),      QStringLiteral("Wh"),    QStringLiteral("%"),      QStringLiteral("MT/s"),
-        QStringLiteral("points"), QStringLiteral("MHz"), QStringLiteral("°C"), QString(),
+        QStringLiteral("points"), QStringLiteral("MHz"), QStringLiteral("°C"),
+        QStringLiteral("GiB"),    QStringLiteral("GB"),    QStringLiteral("B"),      QString(),
     };
     return units;
 }
