@@ -16,6 +16,7 @@
 #ifdef _WIN32
 #  include <fcntl.h>
 #  include <io.h>
+#  include <sys/stat.h>   // _S_IREAD / _S_IWRITE (the _open mode)
 #else
 #  include <fcntl.h>
 #  include <unistd.h>
