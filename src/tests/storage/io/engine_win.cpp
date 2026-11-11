@@ -30,10 +30,13 @@ constexpr std::size_t kDepth = 32;   // the max pattern queue depth (Q32)
 class WinEngine final : public IStorageIoEngine
 {
 public:
-    explicit WinEngine(std::size_t depth) : m_depth(depth), m_slots(depth)
+    explicit WinEngine(std::size_t depth) : m_depth(depth), m_slots(depth), m_ready(true)
     {
-        for (auto &s : m_slots)
+        for (auto &s : m_slots) {
             s.event = CreateEventW(nullptr, TRUE, FALSE, nullptr);   // manual-reset
+            if (!s.event)
+                m_ready = false;
+        }
     }
 
     ~WinEngine() override
@@ -51,6 +54,11 @@ public:
                   int fd, IoStats &out, const CancelFn &cancel,
                   QString *error) override
     {
+        if (!m_ready) {
+            if (error)
+                *error = QStringLiteral("overlapped: CreateEventW failed");
+            return false;
+        }
         const HANDLE h = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
         if (h == INVALID_HANDLE_VALUE || h == nullptr) {
             if (error)
@@ -62,6 +70,14 @@ public:
         std::size_t submitted = 0;   // views handed to the file so far
         std::size_t completed = 0;   // results collected so far
         QString why;
+        bool cancelled = false;
+        // Latch: once cancel() reports true, stop polling it for the rest of
+        // the batch (it may be expensive or one-shot).
+        auto stop = [&] {
+            if (!cancelled && cancel())
+                cancelled = true;
+            return cancelled;
+        };
 
         auto now = [] { return std::chrono::steady_clock::now(); };
 
@@ -72,7 +88,7 @@ public:
             if (!why.isEmpty())
                 return;
             while (submitted < count && submitted - completed < m_depth) {
-                if (cancel())
+                if (stop())
                     break;
                 std::size_t slot = std::size_t(-1);
                 for (std::size_t s = 0; s < m_depth; ++s) {
@@ -138,6 +154,8 @@ public:
                     ++npending;
                 }
             }
+            if (npending == 0)
+                break;
             const DWORD r = WaitForMultipleObjects(static_cast<DWORD>(npending), waitFor.data(), FALSE, 50);
             if (r == WAIT_TIMEOUT) {
                 submitWindow();   // poll cancel and top the batch back up
@@ -147,26 +165,33 @@ public:
                 why = QStringLiteral("WaitForMultipleObjects failed: error %1").arg(GetLastError());
                 break;
             }
-            const std::size_t slot = slotOf[r - WAIT_OBJECT_0];
-            Slot &sl = m_slots[slot];
-            DWORD transferred = 0;
-            if (!GetOverlappedResult(h, &sl.ov, &transferred, FALSE)) {
-                why = QStringLiteral("GetOverlappedResult failed: error %1").arg(GetLastError());
-                break;
+            // WaitForMultipleObjects returns the lowest signalled index; sweep
+            // from there to the end and reap every signalled slot, so a low slot
+            // never starves a higher one at Q32.
+            const std::size_t first = static_cast<std::size_t>(r - WAIT_OBJECT_0);
+            for (std::size_t i = first; i < npending; ++i) {
+                if (WaitForSingleObject(waitFor[i], 0) != WAIT_OBJECT_0)
+                    continue;   // not (yet) signalled
+                Slot &sl = m_slots[slotOf[i]];
+                DWORD transferred = 0;
+                if (!GetOverlappedResult(h, &sl.ov, &transferred, FALSE)) {
+                    why = QStringLiteral("GetOverlappedResult failed: error %1").arg(GetLastError());
+                    break;
+                }
+                ResetEvent(sl.event);
+                sl.pending = false;
+                if (static_cast<std::uint64_t>(transferred) != sl.length) {
+                    why = QStringLiteral("overlapped short op: %1 of %2 bytes")
+                              .arg(transferred).arg(sl.length);
+                    break;
+                }
+                out.ops += 1;
+                out.bytes += static_cast<std::uint64_t>(transferred);
+                if (isRead)
+                    out.latenciesUs.push_back(
+                        std::chrono::duration<double, std::micro>(now() - sl.t0).count());
+                ++completed;
             }
-            ResetEvent(sl.event);
-            sl.pending = false;
-            if (static_cast<std::uint64_t>(transferred) != sl.length) {
-                why = QStringLiteral("overlapped short op: %1 of %2 bytes")
-                          .arg(transferred).arg(sl.length);
-                break;
-            }
-            out.ops += 1;
-            out.bytes += static_cast<std::uint64_t>(transferred);
-            if (isRead)
-                out.latenciesUs.push_back(
-                    std::chrono::duration<double, std::micro>(now() - sl.t0).count());
-            ++completed;
             submitWindow();
         }
 
@@ -199,6 +224,7 @@ private:
 
     std::size_t m_depth = 0;
     std::vector<Slot> m_slots;
+    bool m_ready = false;
 };
 
 } // namespace
