@@ -8,4 +8,6 @@ add_library(syntheon_test_storage STATIC
     # The score (§11; pure).
     formula_v1.h formula_v1.cpp
 )
+# The per-OS async I/O engines (§4.1, D7).
+add_subdirectory(io)
 target_link_libraries(syntheon_test_storage PUBLIC syntheon_core syntheon_test_common)
