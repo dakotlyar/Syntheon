@@ -22,6 +22,10 @@
 #include <QUuid>
 
 #ifdef _WIN32
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
 #  include <io.h>
 #else
 #  include <unistd.h>
@@ -140,6 +144,32 @@ QString writableParentOnDevice(const QString &mount)
             return candidate;
     }
     return {};
+}
+
+// §3.5: a network mount is blocked by its filesystem/root (isNetworkMount), and
+// on Windows also by GetDriveTypeW — a mapped drive reports "NTFS" but is
+// DRIVE_REMOTE.
+bool isBlockedDrive(const Drive &d)
+{
+    if (sb::storage::isNetworkMount(d.mount, d.fileSystem))
+        return true;
+#ifdef _WIN32
+    const UINT type = GetDriveTypeW(reinterpret_cast<const wchar_t *>(QDir::toNativeSeparators(d.mount).utf16()));
+    return sb::storage::isNetworkDriveType(std::uint32_t(type));
+#else
+    return false;
+#endif
+}
+
+// D2: removable / optical drives are warned, not blocked.
+bool isRemovableDrive(const Drive &d)
+{
+#ifdef _WIN32
+    const UINT type = GetDriveTypeW(reinterpret_cast<const wchar_t *>(QDir::toNativeSeparators(d.mount).utf16()));
+    return type == DRIVE_REMOVABLE || type == DRIVE_CDROM;
+#else
+    return d.bus == QLatin1StringView("USB");
+#endif
 }
 
 } // namespace
@@ -378,7 +408,7 @@ QString StorageRun::guard()
     for (const Drive &d : drives) {
         if (d.mount != m_drive)
             continue;
-        if (sb::storage::isNetworkMount(d.mount, d.fileSystem))
+        if (isBlockedDrive(d))
             return QStringLiteral("the drive is a network mount (blocked)");
         if (!sb::storage::hasEnoughFreeSpace(d.freeBytes, m_fileSize))
             return freeSpaceError(d.freeBytes, m_fileSize);
@@ -387,8 +417,12 @@ QString StorageRun::guard()
     // Not in the snapshot (or no snapshot storage field): fall back to the live
     // volume.
     const QStorageInfo info(m_drive);
-    if (info.isValid() && info.isReady() && !sb::storage::hasEnoughFreeSpace(info.bytesAvailable(), m_fileSize))
-        return freeSpaceError(info.bytesAvailable(), m_fileSize);
+    if (info.isValid() && info.isReady()) {
+        if (info.isReadOnly())
+            return QStringLiteral("the drive is read-only");
+        if (!sb::storage::hasEnoughFreeSpace(info.bytesAvailable(), m_fileSize))
+            return freeSpaceError(info.bytesAvailable(), m_fileSize);
+    }
     return {};
 }
 
@@ -808,7 +842,7 @@ Availability StorageTest::probe(const ProbeContext &ctx) const
     a.capabilities.append({engine->backendName(), Tone::Neutral});
     int blocked = 0;
     for (const Drive &d : drives)
-        if (sb::storage::isNetworkMount(d.mount, d.fileSystem))
+        if (isBlockedDrive(d))
             ++blocked;
     if (blocked)
         a.capabilities.append({QStringLiteral("%1 network mount%2 blocked")
@@ -835,7 +869,7 @@ OptionSchema StorageTest::options(const ProbeContext &ctx, const Availability &)
                           .arg(d.fileSystem.isEmpty() ? QStringLiteral("?") : d.fileSystem)
                           .arg(double(d.freeBytes) / 1'000'000'000.0, 0, 'f', 0)
                           .arg(d.kind.isEmpty() ? QStringLiteral("?") : d.kind);
-        if (sb::storage::isNetworkMount(d.mount, d.fileSystem)) {
+        if (isBlockedDrive(d)) {
             item.enabled = false;
             item.disabledReason = sb::storage::networkBlockReason(d.fileSystem);
         }
@@ -885,15 +919,28 @@ QList<Precondition> StorageTest::preconditions(const OptionValues &o, const Prob
     // The wear note: prep (one full write) + one more full write during the
     // measured write phases (§3.4: a 4 GiB file -> ~8 GB). Informational.
     QString kind;
+    const Drive *sel = nullptr;
     for (const Drive &d : listDrives(ctx.system()))
         if (d.mount == drive)
-            kind = d.kind;
+            sel = &d;
+    if (sel)
+        kind = sel->kind;
     Precondition wear;
     wear.id = QStringLiteral("wear");
     wear.label = QStringLiteral("Drive wear");
     wear.state = Precondition::State::Met;
     wear.detail = sb::storage::wearNote(sb::storage::worstCaseWriteBytes(size, 1), kind);
     out.append(wear);
+
+    // D2: a removable / optical drive is warned, not blocked.
+    if (sel && isRemovableDrive(*sel)) {
+        Precondition removable;
+        removable.id = QStringLiteral("removable");
+        removable.label = QStringLiteral("Removable drive");
+        removable.state = Precondition::State::Met;
+        removable.detail = QStringLiteral("this is a removable / optical drive; results may vary between reconnects");
+        out.append(removable);
+    }
     return out;
 }
 
@@ -910,12 +957,16 @@ Validation StorageTest::validate(const OptionValues &o) const
     }
 
     // The free-space guard (§3.3), read live so a disk that filled since probe
-    // is caught before start.
+    // is caught before start; a read-only mount is rejected outright.
     const QStorageInfo info(drive);
     if (info.isValid() && info.isReady()) {
-        const QString refusal = freeSpaceError(info.bytesAvailable(), size);
-        if (!refusal.isEmpty())
-            v.add(kDriveKey, refusal);
+        if (info.isReadOnly())
+            v.add(kDriveKey, QStringLiteral("the drive is read-only"));
+        else {
+            const QString refusal = freeSpaceError(info.bytesAvailable(), size);
+            if (!refusal.isEmpty())
+                v.add(kDriveKey, refusal);
+        }
     }
     return v;
 }
