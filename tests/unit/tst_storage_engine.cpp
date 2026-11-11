@@ -152,6 +152,18 @@ private slots:
 #endif
     }
 
+    void aioEngineBattery()
+    {
+#if defined(SYNTHEON_HAVE_LIBAIO)
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        std::unique_ptr<IStorageIoEngine> engine = makeAioEngine();
+        exerciseEngine(*engine, dir.filePath(QStringLiteral("file.dat")));
+#else
+        QSKIP("libaio engine not compiled on this platform");
+#endif
+    }
+
     void backendNameIsSync()
     {
         QCOMPARE(makeSyncEngine()->backendName(), QStringLiteral("sync"));
