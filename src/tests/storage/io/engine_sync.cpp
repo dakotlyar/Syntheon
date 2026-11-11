@@ -12,6 +12,10 @@
 #include <cstring>
 
 #ifdef _WIN32
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
 #  include <fcntl.h>
 #  include <io.h>
 #else
@@ -25,15 +29,30 @@ namespace sb::storage {
 
 namespace {
 
-// One positioned read/write. POSIX: pread(2)/pwrite(2). Windows: the CRT has
-// no pread/pwrite, so seek + read/write — the sync engine is single-threaded
-// (Q1T1; maxInFlight() == 1), so the shared file position is safe.
+// One positioned read/write. POSIX: pread(2)/pwrite(2). Windows: the fd is a
+// FILE_FLAG_OVERLAPPED handle (openDirectFile), so the CRT _read/_write would
+// fail with EINVAL; drive a positioned ReadFile/WriteFile on the recovered
+// HANDLE with a local OVERLAPPED + manual-reset event instead. The sync engine
+// is single-threaded (maxInFlight() == 1), so blocking on the one result is
+// what a "sync" backend means.
 std::int64_t readAt(int fd, void *buf, std::uint64_t len, std::uint64_t off)
 {
 #ifdef _WIN32
-    if (_lseeki64(fd, std::int64_t(off), SEEK_SET) < 0)
+    const HANDLE h = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
+    if (h == INVALID_HANDLE_VALUE || h == nullptr)
         return -1;
-    return _read(fd, buf, static_cast<unsigned>(len));
+    OVERLAPPED ov{};
+    ov.Offset = static_cast<DWORD>(off & 0xFFFFFFFFu);
+    ov.OffsetHigh = static_cast<DWORD>(off >> 32);
+    ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);   // manual-reset
+    if (!ov.hEvent)
+        return -1;
+    DWORD n = 0;
+    BOOL ok = ReadFile(h, buf, static_cast<DWORD>(len), &n, &ov);
+    if (!ok && GetLastError() == ERROR_IO_PENDING)
+        ok = GetOverlappedResult(h, &ov, &n, TRUE);   // wait for completion
+    CloseHandle(ov.hEvent);
+    return ok ? static_cast<std::int64_t>(n) : -1;
 #else
     return ::pread(fd, buf, len, static_cast<off_t>(off));
 #endif
@@ -42,9 +61,21 @@ std::int64_t readAt(int fd, void *buf, std::uint64_t len, std::uint64_t off)
 std::int64_t writeAt(int fd, const void *buf, std::uint64_t len, std::uint64_t off)
 {
 #ifdef _WIN32
-    if (_lseeki64(fd, std::int64_t(off), SEEK_SET) < 0)
+    const HANDLE h = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
+    if (h == INVALID_HANDLE_VALUE || h == nullptr)
         return -1;
-    return _write(fd, buf, static_cast<unsigned>(len));
+    OVERLAPPED ov{};
+    ov.Offset = static_cast<DWORD>(off & 0xFFFFFFFFu);
+    ov.OffsetHigh = static_cast<DWORD>(off >> 32);
+    ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);   // manual-reset
+    if (!ov.hEvent)
+        return -1;
+    DWORD n = 0;
+    BOOL ok = WriteFile(h, buf, static_cast<DWORD>(len), &n, &ov);
+    if (!ok && GetLastError() == ERROR_IO_PENDING)
+        ok = GetOverlappedResult(h, &ov, &n, TRUE);   // wait for completion
+    CloseHandle(ov.hEvent);
+    return ok ? static_cast<std::int64_t>(n) : -1;
 #else
     return ::pwrite(fd, buf, len, static_cast<off_t>(off));
 #endif

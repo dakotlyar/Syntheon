@@ -198,7 +198,9 @@ std::optional<int> openDirectFile(const QString &path, bool read, bool write, QS
     if (write)
         access |= GENERIC_WRITE;
     const DWORD share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
-    const DWORD create = write ? CREATE_ALWAYS : OPEN_EXISTING;
+    // OPEN_ALWAYS, not CREATE_ALWAYS: the file is prepared (filled) by an
+    // earlier open; a re-open for the measured phases must not truncate it.
+    const DWORD create = write ? OPEN_ALWAYS : OPEN_EXISTING;
     // Cache bypass (P7, §26): unbuffered + write-through overlapped.
     const DWORD flags = FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH;
 
