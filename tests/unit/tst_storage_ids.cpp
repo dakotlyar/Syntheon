@@ -170,22 +170,29 @@ private slots:
         QCOMPARE(networkBlockReason(QStringLiteral("CIFS")), QStringLiteral("cifs · network — blocked"));
         QCOMPARE(networkBlockReason(QStringLiteral("nfs4")), QStringLiteral("nfs4 · network — blocked"));
         QCOMPARE(networkBlockReason(QStringLiteral("NFS")), QStringLiteral("nfs · network — blocked"));
+        QCOMPARE(networkBlockReason(QString()), QStringLiteral("network — blocked"));  // no leading " · "
     }
 
     void freeSpaceRefusalStrings()
     {
-        // 4 GiB needs 4 x 1.1 + 2 GiB margin ≈ 6.5 GiB (6.1 GiB, one decimal); a
-        // 4.4 GiB drive is short.
+        // 4 GiB needs 4 x 1.1 + 2 GiB margin ≈ 6.5 GiB; a 4.1 GiB drive is short.
+        // The "needs" figure is rounded up, the "has" down, so free < needed.
         const QString r = freeSpaceRefusal(4'400'000'000ll, 4'000'000'000ll);
         QVERIFY(r.startsWith(QStringLiteral("Not enough free space:")));
-        QVERIFY(r.contains(QStringLiteral("6.1 GiB")));  // the "needs about" figure
-        QVERIFY(r.contains(QStringLiteral("4.1 GiB")));  // the "has" figure
-        // A drive with exactly enough free reports the "has" as its own GiB
-        // (and its "needs about" the same: free == the threshold).
-        const qint64 size = 4'000'000'000ll;
-        const qint64 enough = size + size / 10 + kFreeMarginBytes;
-        const QString ok = freeSpaceRefusal(enough, size);
-        QVERIFY(ok.contains(QStringLiteral("6.1 GiB")));  // 6.547 GiB, one decimal
+        QVERIFY(r.contains(QStringLiteral("6.1 GiB")));  // needed, ceil of 6.098
+        QVERIFY(r.contains(QStringLiteral("4 GiB")));    // free, floor of 4.098 (".0" dropped)
+        // A GiB-sized file (4LL<<30) with free just below its threshold: the
+        // refused pair still reads free < needed (6.3 GiB has vs 6.4 GiB needs).
+        const qint64 size = 4ll << 30;
+        const qint64 needed = size + size / 10 + kFreeMarginBytes;
+        const QString short_ = freeSpaceRefusal(needed - 1, size);
+        QVERIFY(short_.contains(QStringLiteral("6.4 GiB")));  // needs, ceil
+        QVERIFY(short_.contains(QStringLiteral("6.3 GiB")));  // has, floor
+        // Exactly at the threshold (free == needed), the round-up / round-down
+        // pair still reads free < needed (6.3 GiB has vs 6.4 GiB needs).
+        const QString ok = freeSpaceRefusal(needed, size);
+        QVERIFY(ok.contains(QStringLiteral("6.4 GiB")));  // needs, ceil of 6.4-ε
+        QVERIFY(ok.contains(QStringLiteral("6.3 GiB")));  // has, floor of 6.4-ε
     }
 
     void wearNoteStrings()

@@ -19,13 +19,16 @@ const char *const kNetworkFileSystems[] = {
 };
 
 // bytes -> a GiB string (1024-based) with one decimal, the trailing ".0"
-// dropped (e.g. 6.5 GiB, 8 GiB). Used for the free-space refusal.
-QString giBText(qint64 bytes)
+// dropped (e.g. 6.5 GiB, 8 GiB). Used for the free-space refusal; `roundUp`
+// rounds to the next 0.1 GiB, otherwise to the previous 0.1 GiB, so a refused
+// pair always reads as free < needed.
+QString giBText(qint64 bytes, bool roundUp)
 {
     if (bytes < 0)
         return QStringLiteral("0 GiB");
     const double gib = double(bytes) / (1024.0 * 1024.0 * 1024.0);
-    QString s = QString::number(gib, 'f', 1);
+    const double tenths = roundUp ? std::ceil(gib * 10.0) / 10.0 : std::floor(gib * 10.0) / 10.0;
+    QString s = QString::number(tenths, 'f', 1);
     if (s.endsWith(QLatin1StringView(".0")))
         s.chop(2);
     return s + QStringLiteral(" GiB");
@@ -128,16 +131,21 @@ QString rejectReasonText(RejectReason r)
 
 QString networkBlockReason(const QString &fileSystem)
 {
-    return fileSystem.toLower() + QStringLiteral(" · network — blocked");
+    const QString fs = fileSystem.toLower();
+    if (fs.isEmpty())
+        return QStringLiteral("network — blocked");
+    return fs + QStringLiteral(" · network — blocked");
 }
 
 QString freeSpaceRefusal(qint64 freeBytes, qint64 fileSizeBytes)
 {
     // The guard (§3.3): what the run needs is fileSize x 1.1 + the 2 GiB
-    // margin (the same arithmetic as hasEnoughFreeSpace).
+    // margin (the same arithmetic as hasEnoughFreeSpace). The "needs about"
+    // figure is rounded up and the "has" figure down, so a refused pair never
+    // shows free >= needed.
     const qint64 needed = fileSizeBytes + fileSizeBytes / 10 + kFreeMarginBytes;
     return QStringLiteral("Not enough free space: the test needs about %1, the drive has %2")
-        .arg(giBText(needed), giBText(freeBytes));
+        .arg(giBText(needed, true), giBText(freeBytes, false));
 }
 
 QString wearNote(qint64 writeBytes, const QString &kind)
