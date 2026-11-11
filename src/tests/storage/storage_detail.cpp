@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The Storage test's Detail page (Phase 4b design §13, task 12): the
-// CrystalDiskMark-style grid (rows = the four seq/rnd patterns, columns =
-// Read/Write, with IOPS as the secondary metric on the random rows), a latency
-// table, and a mixed table, plus a KPI block (score + the four headline
-// numbers), the engine in the subtitle and the cache-bypass / no-verify notes.
-// Built only from the existing GridBlock/TableBlock/KpisBlock/NoteBlock
-// (design N10); no new renderer.
+// The Storage test's Detail page (Phase 4b design §13 + the D8 mockup revision):
+// the CrystalDiskMark-style grid (rows = the four seq/rnd patterns, columns =
+// Read/Write, IOPS as the secondary metric on the random rows), a latency table
+// and a mixed table (each with its sub-score and an explicit title), a
+// "Sub-tests" weight line, a KPI block (score + the four headline numbers),
+// the engine in the subtitle, and the cache-bypass / no-verify notes. Built
+// only from the existing GridBlock/TableBlock/KpisBlock/NoteBlock (design N10);
+// no new renderer.
+#include "tests/storage/formula_v1.h"
 #include "tests/storage/ids.h"
 #include "tests/storage/storage_test.h"
 #include "tests/common/stub_test.h"
@@ -47,6 +49,55 @@ QString text(const TestResult &r, const char *key)
     return std::get<QString>(m->value);
 }
 
+const SubResult *sub(const TestResult &r, const QString &id)
+{
+    for (const SubResult &s : r.subResults)
+        if (s.id == id)
+            return &s;
+    return nullptr;
+}
+
+QString subScore(const SubResult *s)
+{
+    return s && s->score ? Units::format(*s->score, QStringLiteral("points"), false) : QStringLiteral("—");
+}
+
+// A percentage ("12.5%", "15%") for the weight line.
+QString pct(double weight)
+{
+    QString s = QString::number(weight * 100.0, 'f', 1);
+    if (s.endsWith(QLatin1StringView(".0")))
+        s.chop(2);
+    return s + QStringLiteral("%");
+}
+
+// The concise sub-test name for the weight line / sub-tests table.
+QString shortName(const QString &id)
+{
+    if (id == QLatin1StringView("seq1m_q8t1"))
+        return QStringLiteral("Seq 1M Q8T1");
+    if (id == QLatin1StringView("seq1m_q1t1"))
+        return QStringLiteral("Seq 1M Q1T1");
+    if (id == QLatin1StringView("rnd4k_q32t1"))
+        return QStringLiteral("Rnd 4K Q32T1");
+    if (id == QLatin1StringView("rnd4k_q1t1"))
+        return QStringLiteral("Rnd 4K Q1T1");
+    if (id == QLatin1StringView("mixed"))
+        return QStringLiteral("Mixed");
+    if (id == QLatin1StringView("latency"))
+        return QStringLiteral("Latency");
+    return id;
+}
+
+// "Seq 1M Q8T1 12.5% · Seq 1M Q1T1 12.5% · …" (the D8 weight line).
+QString weightLine()
+{
+    QStringList parts;
+    for (const GeometricGroup &g : sb::storage::formula_v1::groups())
+        parts << QStringLiteral("%1 %2").arg(shortName(g.id), pct(g.weight));
+    return parts.join(QStringLiteral(" · "));
+}
+
 } // namespace
 
 DetailLayout StorageTest::detail(const TestResult &r) const
@@ -56,13 +107,11 @@ DetailLayout StorageTest::detail(const TestResult &r) const
     const QString engine = text(r, "model.io");
     const QString kind = text(r, "target.kind");
     const QString wearGb = metric(r, "wear.write_gb") ? QString::number(std::llround(std::get<double>(metric(r, "wear.write_gb")->value))) : QString();
+    const bool scored = r.status == Status::Ok || r.status == Status::Partial;
 
     // Subtitle: "Score 1,000 · <drive> · cache bypassed · <engine>" (§13).
     QStringList parts;
-    if (drive.isEmpty())
-        parts << QStringLiteral("no drive");
-    else
-        parts << drive;
+    parts << (drive.isEmpty() ? QStringLiteral("no drive") : drive);
     parts << QStringLiteral("cache bypassed");
     if (!engine.isEmpty())
         parts << engine;
@@ -72,7 +121,7 @@ DetailLayout StorageTest::detail(const TestResult &r) const
     d.headlineMetrics = {QStringLiteral("seq1m_q8t1.read"), QStringLiteral("rnd4k_q32t1.read_iops"),
                          QStringLiteral("mixed.throughput"), QStringLiteral("latency.p50")};
     d.headlineLabels.insert(QStringLiteral("seq1m_q8t1.read"), QStringLiteral("Seq read"));
-    d.headlineLabels.insert(QStringLiteral("rnd4k_q32t1.read_iops"), QStringLiteral("4K IOPS"));
+    d.headlineLabels.insert(QStringLiteral("rnd4k_q32t1.read_iops"), QStringLiteral("4K read"));
     d.headlineLabels.insert(QStringLiteral("mixed.throughput"), QStringLiteral("Mixed"));
 
     // KPIs: the score, then the four headline numbers in plain language (§13).
@@ -95,6 +144,9 @@ DetailLayout StorageTest::detail(const TestResult &r) const
     if (!kpis.items.isEmpty())
         d.blocks.append({{}, kpis});
 
+    // The six-item weight line (D8).
+    d.blocks.append({{}, NoteBlock{weightLine(), Tone::Neutral}});
+
     // The CrystalDiskMark-style grid (N10): rows = patterns, columns = Read/Write.
     GridBlock grid;
     grid.columnLabels = {QStringLiteral("Read"), QStringLiteral("Write")};
@@ -111,25 +163,47 @@ DetailLayout StorageTest::detail(const TestResult &r) const
     if (!grid.rowLabels.isEmpty())
         d.blocks.append({QStringLiteral("Sequential and random"), grid});
 
+    // Latency table with its sub-score (§13 / D8).
     if (r.metric(QStringLiteral("latency.p50"))) {
         TableBlock lat;
         lat.columns = {QStringLiteral("Latency (4K Q1T1 read)"), QStringLiteral("µs")};
         lat.rows = {{DetailCell::literal(QStringLiteral("p50")), DetailCell::metric(QStringLiteral("latency.p50"))},
                     {DetailCell::literal(QStringLiteral("p99")), DetailCell::metric(QStringLiteral("latency.p99"))},
                     {DetailCell::literal(QStringLiteral("p99.9")), DetailCell::metric(QStringLiteral("latency.p999"))}};
-        d.blocks.append({{}, lat});
+        if (scored)
+            lat.rows.append(QVector<DetailCell>{DetailCell::literal(QStringLiteral("Score")), DetailCell::literal(subScore(sub(r, QStringLiteral("latency"))))});
+        lat.summary = QStringLiteral("p50 %1").arg(Units::format(std::get<double>(metric(r, "latency.p50")->value), QStringLiteral("µs"), false));
+        d.blocks.append({QStringLiteral("Latency (4K Q1T1 read)"), lat});
     }
 
+    // Mixed table with its score (§13 / D8).
     if (r.metric(QStringLiteral("mixed.throughput"))) {
         TableBlock mixed;
         mixed.columns = {QStringLiteral("Mixed 70/30 random"), QStringLiteral("Result")};
         mixed.rows = {{DetailCell::literal(QStringLiteral("Throughput")), DetailCell::metric(QStringLiteral("mixed.throughput"))},
                       {DetailCell::literal(QStringLiteral("IOPS")), DetailCell::metric(QStringLiteral("mixed.iops"))}};
-        d.blocks.append({{}, mixed});
+        if (scored)
+            mixed.rows.append(QVector<DetailCell>{DetailCell::literal(QStringLiteral("Score")), DetailCell::literal(subScore(sub(r, QStringLiteral("mixed"))))});
+        mixed.summary = QStringLiteral("throughput %1").arg(Units::format(std::get<double>(metric(r, "mixed.throughput")->value), QStringLiteral("MB/s"), false));
+        d.blocks.append({QStringLiteral("Mixed 70/30 random"), mixed});
     }
 
+    // The Sub-tests weight + sub-score table (the D8 "SCORE column" surface).
+    TableBlock groups;
+    groups.columns = {QStringLiteral("Sub-test"), QStringLiteral("Weight")};
+    if (scored)
+        groups.columns << QStringLiteral("Sub-score");
+    for (const GeometricGroup &g : sb::storage::formula_v1::groups()) {
+        QVector<DetailCell> cells{DetailCell::literal(shortName(g.id)), DetailCell::literal(pct(g.weight))};
+        if (scored)
+            cells << DetailCell::literal(subScore(sub(r, g.id)));
+        groups.rows.append(cells);
+    }
+    d.blocks.append({QStringLiteral("Sub-tests"), groups});
+
     // The notes (§13): cache bypassed, no data verification, the write
-    // footprint, and the HDD caveat.
+    // footprint, and the HDD caveat (a Warn note, so it surfaces rather than
+    // hiding in a collapsed table).
     QString note = QStringLiteral("Cache bypassed (O_DIRECT / unbuffered I/O); data not verified");
     if (!wearGb.isEmpty())
         note += QStringLiteral("; writes about %1 GB").arg(wearGb);
@@ -138,7 +212,7 @@ DetailLayout StorageTest::detail(const TestResult &r) const
     if (kind == QLatin1StringView("HDD"))
         d.blocks.append({{}, NoteBlock{QStringLiteral("The sequential patterns dominate on a spinning disk; for 4 KiB "
                                                        "random I/O, an SSD is the meaningful comparison."),
-                                       Tone::Neutral}});
+                                       Tone::Warn}});
 
     return d;
 }
