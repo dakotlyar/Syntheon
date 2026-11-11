@@ -7,6 +7,8 @@
 // per-op read latency. Also the Windows openDirectFile/directAlignment helpers.
 #include "tests/storage/io/engine.h"
 
+#include <QDir>
+
 #ifndef NOMINMAX
 #  define NOMINMAX
 #endif
@@ -236,12 +238,17 @@ std::unique_ptr<IStorageIoEngine> makeWinEngine()
 
 std::size_t directAlignment(const QString &path)
 {
-    // The volume's bytes-per-sector, raised to a 4 KiB multiple (§4.2 P7).
-    DWORD sectorsPerCluster = 0, bytesPerSector = 0, freeClusters = 0, totalClusters = 0;
-    const std::wstring w = path.toStdWString();
-    if (GetDiskFreeSpaceW(w.c_str(), &sectorsPerCluster, &bytesPerSector, &freeClusters, &totalClusters)
-        && bytesPerSector > 0)
-        return alignFromBlock(std::size_t(bytesPerSector));
+    // GetVolumePathNameW resolves a file or directory to its volume root
+    // ("C:\"), which GetDiskFreeSpaceW wants; its bytes-per-sector is raised
+    // to a power-of-two 4 KiB floor by alignFromBlock (§4.2 P7).
+    const std::wstring full = QDir::toNativeSeparators(path).toStdWString();
+    wchar_t volume[MAX_PATH + 1] = L"";
+    if (GetVolumePathNameW(full.c_str(), volume, MAX_PATH + 1)) {
+        DWORD sectorsPerCluster = 0, bytesPerSector = 0, freeClusters = 0, totalClusters = 0;
+        if (GetDiskFreeSpaceW(volume, &sectorsPerCluster, &bytesPerSector, &freeClusters, &totalClusters)
+            && bytesPerSector > 0)
+            return alignFromBlock(std::size_t(bytesPerSector));
+    }
     return 4096;
 }
 

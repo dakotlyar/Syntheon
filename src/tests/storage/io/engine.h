@@ -13,6 +13,8 @@
 
 #include <QByteArray>
 #include <QString>
+#include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -72,12 +74,15 @@ std::size_t directAlignment(const QString &path);   // bytes; >= 4096
 // ----- additions for tasks 5–8 (not in §4.1's interface) -----
 
 // The pure alignment rule (§4.2 P7, risk R2): the fs/device block size rounded
-// up to a whole 4 KiB multiple, so a 512 B logical block -> 4 KiB and a 16 KiB
-// NVMe namespace -> 16 KiB both hold. Factored out so the unit test can cover
-// the 16 KiB case without a real 16 KiB-block filesystem.
+// up to a whole power-of-two multiple, floored at 4 KiB — a 512 B logical
+// block -> 4 KiB, and a 16 KiB NVMe namespace -> 16 KiB. A power of two is
+// what O_DIRECT / unbuffered I/O actually accept, so a non-power-of-two block
+// (e.g. a 12 KiB fs block) must round up rather than pass through. Factored
+// out so the unit test can cover the 16 KiB case without a real 16 KiB-block
+// filesystem.
 constexpr std::size_t alignFromBlock(std::size_t blockBytes)
 {
-    return blockBytes < 4096 ? std::size_t(4096) : blockBytes;
+    return std::bit_ceil(std::max<std::size_t>(blockBytes, 4096));
 }
 
 // The queue-depth class a pattern drives (§4.1): Q1T1 uses the sync engine on
