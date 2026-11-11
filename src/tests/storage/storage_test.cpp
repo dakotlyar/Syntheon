@@ -13,8 +13,10 @@
 #include "tests/storage/req.h"
 
 #include <QDir>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QStandardPaths>
 #include <QStorageInfo>
 #include <QUuid>
 
@@ -113,6 +115,31 @@ QString freeSpaceError(qint64 freeBytes, qint64 size)
                                                             : sb::storage::freeSpaceRefusal(freeBytes, size);
 }
 
+// A writable directory on the SAME block device as `mount` (§3.2 D5: the test
+// must benchmark `mount`, but the mount root may not be user-writable, e.g.
+// "/" on a CI runner). Candidates: the mount, GenericCacheLocation, home,
+// /var/tmp — the first writable one on the same device (never cross devices,
+// never a tmpfs that isn't the mount itself).
+QString writableParentOnDevice(const QString &mount)
+{
+    const QString device = QStorageInfo(mount).device();
+    QStringList candidates;
+    candidates << mount;
+    candidates << QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation);
+    candidates << QDir::homePath();
+    candidates << QStringLiteral("/var/tmp");
+    for (const QString &candidate : candidates) {
+        if (candidate.isEmpty())
+            continue;
+        if (QStorageInfo(candidate).device() != device)
+            continue;
+        const QFileInfo fi(candidate);
+        if (fi.isDir() && fi.isWritable())
+            return candidate;
+    }
+    return {};
+}
+
 } // namespace
 
 // ---- the run loop (task 11, §8) ----
@@ -130,7 +157,11 @@ constexpr std::uint64_t kTinyFileBytes = std::uint64_t(8) << 20;  // 8 MiB in ti
 bool tinyMode()
 {
 #ifdef SYNTHEON_DEV_HOOKS
-    return !qEnvironmentVariable("SYNTHEON_STORAGE_TINY").isEmpty();
+    // The tiny run (small file + 10 ms windows) is for the unit tests and the
+    // CI smoke launch (SYNTHEON_SMOKE=1), which must never write gigabytes or
+    // run for minutes.
+    return !qEnvironmentVariable("SYNTHEON_STORAGE_TINY").isEmpty()
+        || !qEnvironmentVariable("SYNTHEON_SMOKE").isEmpty();
 #else
     return false;
 #endif
@@ -352,8 +383,15 @@ bool StorageRun::prepare(QString *reason)
     sb::cpu::Xoshiro256ss rng(kSeed);
     fillRandomNext(rng, m_arena, kMaxDepth * kSeqBlock);
 
-    // The hidden target folder on the mount (D5) and the file inside it.
-    m_targetDir = sb::storage::targetScratchName(m_drive, QUuid::createUuid());
+    // The hidden target folder (D5) and the file inside it. The mount root may
+    // not be user-writable (e.g. "/" on a CI runner), so resolve a writable
+    // directory on the same block device first (§3.2).
+    const QString parent = writableParentOnDevice(m_drive);
+    if (parent.isEmpty()) {
+        *reason = QStringLiteral("no writable directory on the target device %1").arg(m_drive);
+        return false;
+    }
+    m_targetDir = sb::storage::targetScratchName(parent, QUuid::createUuid());
     if (!QDir().mkpath(m_targetDir)) {
         *reason = QStringLiteral("could not create the target folder %1").arg(m_targetDir);
         return false;
