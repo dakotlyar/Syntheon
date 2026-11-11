@@ -36,6 +36,7 @@ syntheon_add_unit_test(tst_ram_test SOURCES tst_ram_test.cpp LIBS syntheon_test_
 syntheon_add_unit_test(tst_storage_ids SOURCES tst_storage_ids.cpp LIBS syntheon_test_storage)
 syntheon_add_unit_test(tst_storage_formula SOURCES tst_storage_formula.cpp LIBS syntheon_test_storage)
 syntheon_add_unit_test(tst_storage_engine SOURCES tst_storage_engine.cpp LIBS syntheon_test_storage)
+syntheon_add_unit_test(tst_storage_test SOURCES tst_storage_test.cpp LIBS syntheon_test_storage)
 # These keep threads busy on (up to) every CPU; alone, so a parallel ctest -j
 # doesn't starve the timing-sensitive engine tests' coordinator
 # (tst_cpu_engine's cancelAtWindowChangeover). CI runs ctest serially anyway.

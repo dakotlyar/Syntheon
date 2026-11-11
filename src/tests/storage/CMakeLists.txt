@@ -7,6 +7,8 @@ add_library(syntheon_test_storage STATIC
     req.h req.cpp
     # The score (§11; pure).
     formula_v1.h formula_v1.cpp
+    # The Detail page (§13; pure over the stored result).
+    storage_detail.cpp
 )
 # The per-OS async I/O engines (§4.1, D7).
 add_subdirectory(io)
