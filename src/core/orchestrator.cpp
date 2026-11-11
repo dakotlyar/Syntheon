@@ -272,6 +272,7 @@ public:
             return {};
         }
         m_s.sinkCall([&](QString &e) { return m_s.sink.addScratchPath(m_s.header.uuid, path, &e); });
+        m_targetScratch = path;
         return path;
     }
 
@@ -314,6 +315,15 @@ public:
         const QFileInfo runFolder(QFileInfo(m_scratch).path());
         if (!runFolder.isSymbolicLink() && !runFolder.isJunction())
             QDir().rmdir(runFolder.filePath());  // the run's folder, once empty
+
+        // The Storage test's target folder (if it registered one): the test
+        // removes the folder itself (no-follow); here we just drop the stale
+        // scratch_paths row so it isn't reported as a leftover on next startup.
+        if (!m_targetScratch.isEmpty()) {
+            fs::removeTreeNoFollow(m_targetScratch);   // idempotent safety net
+            m_s.sinkCall([&](QString &e) { return m_s.sink.removeScratchPath(m_s.header.uuid, m_targetScratch, &e); });
+            m_targetScratch.clear();
+        }
     }
 
 private:
@@ -322,6 +332,7 @@ private:
     const QString m_testId;
     int m_checkpointSeq = 0;
     QString m_scratch;
+    QString m_targetScratch;
     std::atomic<bool> m_held{false};
 };
 

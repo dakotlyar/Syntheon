@@ -138,10 +138,11 @@ void cleanScratch(RunRepository &repo, const QString &scratchRoot, RecoveryRepor
         // The Storage test's target folder is removed on its own (its parent is
         // an arbitrary mount/cache dir that must never be rmdir'd).
         if (fs::isTargetScratchPath(s.path, s.runUuid)) {
-            if (fs::removeTreeNoFollow(s.path))
-                ++report.scratchPathsRemoved;
-            else
+            if (!fs::removeTreeNoFollow(s.path)) {
                 report.errors.append(QStringLiteral("Couldn't delete the target folder %1").arg(s.path));
+                continue;   // keep the row; try again next start
+            }
+            ++report.scratchPathsRemoved;
             if (!repo.deleteScratchPathRow(s.id))
                 report.errors.append(repo.lastError());
             continue;
