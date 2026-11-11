@@ -6,7 +6,7 @@
 # simply builds the sync engine (N11). The overlapped engine on Windows is
 # added by task 9.
 target_sources(syntheon_test_storage PRIVATE
-    engine.h engine_sync.cpp
+    engine.h engine_sync.cpp pickEngine.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

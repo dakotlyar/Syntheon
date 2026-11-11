@@ -169,6 +169,25 @@ private slots:
         QCOMPARE(makeSyncEngine()->backendName(), QStringLiteral("sync"));
     }
 
+    void pickEngineSelection()
+    {
+        // Depth 1 is always the sync engine (P4); the queued depths pick the
+        // platform's async backend (§4.1 selection, D7).
+        QCOMPARE(pickEngine(IoDepth::One)->backendName(), QStringLiteral("sync"));
+
+        std::unique_ptr<IStorageIoEngine> queued = pickEngine(IoDepth::Queued);
+        QVERIFY(queued != nullptr);
+#if defined(_WIN32)
+        QCOMPARE(queued->backendName(), QStringLiteral("overlapped"));
+#elif defined(SYNTHEON_HAVE_LIBURING)
+        QCOMPARE(queued->backendName(), QStringLiteral("io_uring"));
+#elif defined(SYNTHEON_HAVE_LIBAIO)
+        QCOMPARE(queued->backendName(), QStringLiteral("libaio"));
+#else
+        QCOMPARE(queued->backendName(), QStringLiteral("sync"));
+#endif
+    }
+
     void directAlignmentRule()
     {
         // Pure rule (R2): 512 B -> 4 KiB, 4 KiB -> 4 KiB, 16 KiB honoured.
