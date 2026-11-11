@@ -193,12 +193,17 @@ DetailLayout StorageTest::detail(const TestResult &r) const
     groups.columns = {QStringLiteral("Sub-test"), QStringLiteral("Weight")};
     if (scored)
         groups.columns << QStringLiteral("Sub-score");
+    QStringList summaryParts;
     for (const GeometricGroup &g : sb::storage::formula_v1::groups()) {
         QVector<DetailCell> cells{DetailCell::literal(shortName(g.id)), DetailCell::literal(pct(g.weight))};
         if (scored)
             cells << DetailCell::literal(subScore(sub(r, g.id)));
         groups.rows.append(cells);
+        if (scored)
+            summaryParts << QStringLiteral("%1 %2").arg(shortName(g.id), subScore(sub(r, g.id)));
     }
+    if (scored)
+        groups.summary = summaryParts.join(QStringLiteral(" · "));
     d.blocks.append({QStringLiteral("Sub-tests"), groups});
 
     // The notes (§13): cache bypassed, no data verification, the write

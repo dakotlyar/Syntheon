@@ -157,6 +157,9 @@ private slots:
         QCOMPARE(groups->rows[0][0].text, QStringLiteral("Seq 1M Q8T1"));
         QCOMPARE(groups->rows[0][1].text, QStringLiteral("12.5%"));
         QCOMPARE(groups->rows[0][2].text, QStringLiteral("1,000"));
+        QCOMPARE(groups->summary,
+                 QStringLiteral("Seq 1M Q8T1 1,000 · Seq 1M Q1T1 1,000 · Rnd 4K Q32T1 1,000 · "
+                                "Rnd 4K Q1T1 1,000 · Mixed 1,000 · Latency 1,000"));
 
         // The cache-bypass note (not the HDD caveat on an SSD).
         QVERIFY(std::any_of(notes.begin(), notes.end(), [](const QString &n) {
