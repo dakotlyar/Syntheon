@@ -117,8 +117,16 @@ public:
                                   .arg(QString::fromLatin1(std::strerror(-rc)));
                     break;   // SQEs stay prepared; reaped on the next kick
                 }
-                if (rc == 0)
-                    break;   // nothing taken this round; retry on the next kick
+                if (rc == 0) {
+                    // Prepared SQEs are pending but the kernel took none: this
+                    // must fail loudly, or the drain loop below (completed ==
+                    // submitted) would return success with ops < count and
+                    // unsubmitted SQEs still pointing at caller buffers.
+                    if (why.isEmpty())
+                        why = QStringLiteral("io_uring_submit: accepted 0 of %1 pending SQEs")
+                                  .arg(prepared - submitted);
+                    break;
+                }
                 submitted += static_cast<std::size_t>(rc);
             }
         };
