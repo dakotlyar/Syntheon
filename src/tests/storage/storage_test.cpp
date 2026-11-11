@@ -177,7 +177,8 @@ bool isRemovableDrive(const Drive &d)
 // ---- the run loop (task 11, §8) ----
 namespace {
 
-constexpr std::uint64_t kSeed = 0x574B524C;                 // "WKRL" (§4.3, N4)
+constexpr std::uint64_t kSeed = 0x574B524C;                 // "WKRL" (§4.3, N4), the file content
+constexpr std::uint64_t kOffsetSeed = 0x9E3779B97F4A7C15ull;  // the offset stream (distinct from the fill)
 constexpr std::size_t kMaxDepth = 32;
 constexpr std::size_t kSeqBlock = std::size_t(1) << 20;      // 1 MiB
 constexpr std::size_t kRndBlock = 4096;                      // 4 KiB
@@ -290,6 +291,7 @@ public:
         : m_ctx(ctx)
         , m_drive(o.value(QStringLiteral("drive")).toString())
         , m_fileSize(fileSizeBytes(o.value(QStringLiteral("file_size"), QStringLiteral("4g")).toString()))
+        , m_offsetRng(kOffsetSeed)
     {
         m_tiny = tinyMode();
         // The declared size drives the free-space guard and the file_size
@@ -388,6 +390,9 @@ private:
 
     // rnd4k_q1t1's read samples -> the latency percentiles (§2, P10).
     std::vector<double> m_latenciesUs;
+    // The random-offset stream, seeded once per run so each window reads
+    // different locations (a per-window reseed re-warms the same cache lines).
+    sb::cpu::Xoshiro256ss m_offsetRng;
 
     double m_done = 0;
     double m_budgetTotal = 1;
@@ -458,17 +463,10 @@ bool StorageRun::prepare(QString *reason)
     }
     m_filePath = m_targetDir + QStringLiteral("/file.dat");
 
-    const auto t0 = std::chrono::steady_clock::now();
     auto fd = sb::storage::openDirectFile(m_filePath, /*read=*/true, /*write=*/true, reason);
     if (!fd)
         return false;   // §7: no silent buffered fallback
     m_fd = *fd;
-    if (!fillFile(reason)) {
-        closeFd(m_fd);
-        m_fd = -1;
-        return false;
-    }
-    m_prepSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     return true;
 }
 
@@ -480,10 +478,13 @@ bool StorageRun::fillFile(QString *reason)
     std::byte *buf = reinterpret_cast<std::byte *>((base + m_align - 1) & ~std::uintptr_t(m_align - 1));
     sb::cpu::Xoshiro256ss rng(kSeed);
     const auto stop = [this] { return m_ctx.cancelled(); };
+    const auto t0 = std::chrono::steady_clock::now();
     std::uint64_t offset = 0;
     while (offset < m_actualFileSize) {
-        if (stop())
-            return true;   // Stop mid-prep: the caller sees m_stopped and cleans up
+        if (stop()) {
+            m_stopped = true;   // latch: the run was cancelled, not "filled"
+            return false;
+        }
         const std::size_t n = std::size_t(std::min<std::uint64_t>(kFillChunk, m_actualFileSize - offset));
         fillRandomNext(rng, buf, n);
         sb::storage::IoView v{buf, n, offset};
@@ -493,6 +494,7 @@ bool StorageRun::fillFile(QString *reason)
         offset += n;
         m_bytesWritten += st.bytes;
     }
+    m_prepSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     return true;
 }
 
@@ -501,7 +503,6 @@ std::optional<Window> StorageRun::measureWindow(sb::storage::IStorageIoEngine &e
                                                std::vector<double> *latencies, QString *error)
 {
     const std::uint64_t blocks = m_actualFileSize / block;
-    sb::cpu::Xoshiro256ss rng(kSeed);
     // A batch larger than the in-flight cap so the sliding window stays full
     // (not count==depth, which drains to QD=0 between every runBatch).
     const std::size_t batchSize = depth * 8;
@@ -512,7 +513,7 @@ std::optional<Window> StorageRun::measureWindow(sb::storage::IStorageIoEngine &e
     const auto stop = [this] { return m_ctx.cancelled(); };
     while (!stop() && std::chrono::steady_clock::now() - t0 < m_window) {
         for (std::size_t i = 0; i < batchSize; ++i) {
-            const std::uint64_t off = isSequential(p) ? (seqOff * block) % m_actualFileSize : rng.below(blocks) * block;
+            const std::uint64_t off = isSequential(p) ? (seqOff * block) % m_actualFileSize : m_offsetRng.below(blocks) * block;
             batch[i] = {m_arena + (i % depth) * block, block, off};
             ++seqOff;
         }
@@ -542,36 +543,30 @@ std::optional<Window> StorageRun::measureMixed(sb::storage::IStorageIoEngine &en
                                                QString *error)
 {
     const std::uint64_t blocks = m_actualFileSize / block;
-    sb::cpu::Xoshiro256ss rng(kSeed);
     std::vector<sb::storage::IoView> batch(depth);
     sb::storage::IoStats total;
     const auto t0 = std::chrono::steady_clock::now();
     const auto stop = [this] { return m_ctx.cancelled(); };
+    // 70/30 random read/write (§2): ten single-round steps (7 read, 3 write),
+    // the 5 s bound re-checked each round so a slow HDD/USB can't overshoot by
+    // seconds.
+    std::size_t step = 0;
     while (!stop() && std::chrono::steady_clock::now() - t0 < m_window) {
-        // 70/30 random read/write (§2): seven read rounds to three write rounds,
-        // the 5 s bound re-checked each round.
-        auto round = [&](sb::storage::IoOp op) -> bool {
-            for (std::size_t i = 0; i < depth; ++i)
-                batch[i] = {m_arena + i * block, block, rng.below(blocks) * block};
-            sb::storage::IoStats st;
-            QString err;
-            if (!engine.runBatch(batch.data(), depth, op, m_fd, st, stop, &err)) {
-                if (error)
-                    *error = err.isEmpty() ? QStringLiteral("the I/O engine failed") : err;
-                return false;
-            }
-            total.ops += st.ops;
-            total.bytes += st.bytes;
-            if (op == sb::storage::IoOp::Write)
-                m_bytesWritten += st.bytes;
-            return true;
-        };
-        for (int k = 0; k < 7; ++k)
-            if (!round(sb::storage::IoOp::Read))
-                return std::nullopt;
-        for (int k = 0; k < 3; ++k)
-            if (!round(sb::storage::IoOp::Write))
-                return std::nullopt;
+        const sb::storage::IoOp op = (step % 10) < 7 ? sb::storage::IoOp::Read : sb::storage::IoOp::Write;
+        for (std::size_t i = 0; i < depth; ++i)
+            batch[i] = {m_arena + i * block, block, m_offsetRng.below(blocks) * block};
+        sb::storage::IoStats st;
+        QString err;
+        if (!engine.runBatch(batch.data(), depth, op, m_fd, st, stop, &err)) {
+            if (error)
+                *error = err.isEmpty() ? QStringLiteral("the I/O engine failed") : err;
+            return std::nullopt;
+        }
+        total.ops += st.ops;
+        total.bytes += st.bytes;
+        if (op == sb::storage::IoOp::Write)
+            m_bytesWritten += st.bytes;
+        ++step;
     }
     const auto t1 = std::chrono::steady_clock::now();
     const double seconds = std::max(1e-9, std::chrono::duration<double>(t1 - t0).count());
@@ -761,6 +756,13 @@ TestResult StorageRun::run()
                                   .arg(m_drive, m_filePath,
                                        QStringLiteral("%1 GiB").arg(double(m_fileSize) / double(std::uint64_t(1) << 30), 0, 'f', 1),
                                        m_engineName));
+    if (!fillFile(&reason)) {
+        cleanup();
+        if (m_stopped)
+            return TestResult::withStatus(Status::Cancelled, defaultStoppedReason());
+        m_result = TestResult::error(reason);
+        return m_result;
+    }
 
     const sb::storage::Pattern order[] = {sb::storage::Pattern::Seq1mQ8T1, sb::storage::Pattern::Seq1mQ1T1,
                                           sb::storage::Pattern::Rnd4kQ32T1, sb::storage::Pattern::Rnd4kQ1T1,
@@ -786,8 +788,15 @@ TestResult StorageRun::run()
 
     TestResult r = std::move(m_result);
     finish(r);
-    for (const auto &[id, status] : m_status)
-        r.subResults.append({id, status, m_reason[id], {}});
+    // Sub-results in the canonical pattern order (§10 / kPatterns), not the
+    // alphabetical order of the status map.
+    for (sb::storage::Pattern p : sb::storage::kPatterns) {
+        const QString id = sb::storage::patternId(p);
+        const auto it = m_status.find(id);
+        if (it == m_status.end())
+            continue;   // never started (Stop)
+        r.subResults.append({id, it->second, m_reason[id], {}});
+    }
 
     if (m_stopped) {
         r.status = Status::Cancelled;
