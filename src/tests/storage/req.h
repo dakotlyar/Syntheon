@@ -35,4 +35,28 @@ qint64 worstCaseWriteBytes(qint64 fileSizeBytes, int runs);     // = fileSize * 
 // mount and hidden (P6 / D5).
 QString targetScratchName(const QString &mountRoot, const QUuid &runUuid);  // ".../.syntheon-storage-<uuid>"
 
+// The exact user-facing strings (locked by tst_storage_ids, Phase 4b §3.3,
+// §3.5, §3.4). Pure: these are the wording the picker, the preconditions and
+// the run's refusal messages show, so they are never reworded without a test.
+
+// A short reason for each rejection.
+QString rejectReasonText(RejectReason);
+//   None -> "" ; Network -> "network — blocked" ; ReadOnly -> "read-only" ;
+//   TooSmall -> "too small" ; NoFreeSpace -> "not enough free space" ;
+//   NotFixed -> "not a fixed drive"
+
+// The disabled picker item's reason for a network mount (mockup).
+QString networkBlockReason(const QString &fileSystem);  // "cifs · network — blocked"
+
+// The refuse-to-run message when free space is short (the guard, §3.3).
+QString freeSpaceRefusal(qint64 freeBytes, qint64 fileSizeBytes);
+//   "Not enough free space: the test needs about %1, the drive has %2",
+//   %1 = fileSize*1.1 + kFreeMarginBytes, %2 = freeBytes, both as GiB (1
+//   decimal, a trailing ".0" dropped).
+
+// The wear note before the run (§3.4): N = writeBytes (the worst-case write
+// footprint), in GB (1'000'000'000, rounded to a whole number).
+QString wearNote(qint64 writeBytes, const QString &kind);
+//   kind == "SSD" -> "writes about %1 GB to this SSD", else "… to this drive"
+
 } // namespace sb::storage

@@ -126,6 +126,49 @@ private slots:
         QVERIFY(name.endsWith(id.toString(QUuid::WithoutBraces)));
         QVERIFY(!name.contains(QStringLiteral("(.syntheon-storage-")));  // braced uuid, not bare
     }
+
+    void rejectReasonTexts()
+    {
+        QCOMPARE(rejectReasonText(RejectReason::None), QString());
+        QCOMPARE(rejectReasonText(RejectReason::Network), QStringLiteral("network — blocked"));
+        QCOMPARE(rejectReasonText(RejectReason::ReadOnly), QStringLiteral("read-only"));
+        QCOMPARE(rejectReasonText(RejectReason::TooSmall), QStringLiteral("too small"));
+        QCOMPARE(rejectReasonText(RejectReason::NoFreeSpace), QStringLiteral("not enough free space"));
+        QCOMPARE(rejectReasonText(RejectReason::NotFixed), QStringLiteral("not a fixed drive"));
+    }
+
+    void networkBlockStrings()
+    {
+        QCOMPARE(networkBlockReason(QStringLiteral("CIFS")), QStringLiteral("cifs · network — blocked"));
+        QCOMPARE(networkBlockReason(QStringLiteral("nfs4")), QStringLiteral("nfs4 · network — blocked"));
+        QCOMPARE(networkBlockReason(QStringLiteral("NFS")), QStringLiteral("nfs · network — blocked"));
+    }
+
+    void freeSpaceRefusalStrings()
+    {
+        // 4 GiB needs 4 x 1.1 + 2 GiB margin ≈ 6.5 GiB (6.1 GiB, one decimal); a
+        // 4.4 GiB drive is short.
+        const QString r = freeSpaceRefusal(4'400'000'000ll, 4'000'000'000ll);
+        QVERIFY(r.startsWith(QStringLiteral("Not enough free space:")));
+        QVERIFY(r.contains(QStringLiteral("6.1 GiB")));  // the "needs about" figure
+        QVERIFY(r.contains(QStringLiteral("4.1 GiB")));  // the "has" figure
+        // A drive with exactly enough free reports the "has" as its own GiB
+        // (and its "needs about" the same: free == the threshold).
+        const qint64 size = 4'000'000'000ll;
+        const qint64 enough = size + size / 10 + kFreeMarginBytes;
+        const QString ok = freeSpaceRefusal(enough, size);
+        QVERIFY(ok.contains(QStringLiteral("6.1 GiB")));  // 6.547 GiB, one decimal
+    }
+
+    void wearNoteStrings()
+    {
+        QCOMPARE(wearNote(8'000'000'000ll, QStringLiteral("SSD")), QStringLiteral("writes about 8 GB to this SSD"));
+        QCOMPARE(wearNote(8'000'000'000ll, QStringLiteral("HDD")), QStringLiteral("writes about 8 GB to this drive"));
+        QCOMPARE(wearNote(8'000'000'000ll, QStringLiteral("NVMe")), QStringLiteral("writes about 8 GB to this drive"));
+        QCOMPARE(wearNote(0, QStringLiteral("SSD")), QStringLiteral("writes about 0 GB to this SSD"));
+        QCOMPARE(wearNote(8'499'999'999ll, QStringLiteral("SSD")), QStringLiteral("writes about 8 GB to this SSD"));
+        QCOMPARE(wearNote(8'500'000'001ll, QStringLiteral("SSD")), QStringLiteral("writes about 9 GB to this SSD"));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestStorageIds)
