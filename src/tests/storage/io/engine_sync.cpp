@@ -54,7 +54,11 @@ std::int64_t readAt(int fd, void *buf, std::uint64_t len, std::uint64_t off)
     CloseHandle(ov.hEvent);
     return ok ? static_cast<std::int64_t>(n) : -1;
 #else
-    return ::pread(fd, buf, len, static_cast<off_t>(off));
+    for (;;) {
+        const ssize_t r = ::pread(fd, buf, len, static_cast<off_t>(off));
+        if (r >= 0 || errno != EINTR)
+            return r;
+    }
 #endif
 }
 
@@ -77,7 +81,11 @@ std::int64_t writeAt(int fd, const void *buf, std::uint64_t len, std::uint64_t o
     CloseHandle(ov.hEvent);
     return ok ? static_cast<std::int64_t>(n) : -1;
 #else
-    return ::pwrite(fd, buf, len, static_cast<off_t>(off));
+    for (;;) {
+        const ssize_t r = ::pwrite(fd, buf, len, static_cast<off_t>(off));
+        if (r >= 0 || errno != EINTR)
+            return r;
+    }
 #endif
 }
 
@@ -106,6 +114,12 @@ public:
                     *error = QStringLiteral("sync I/O failed: %1")
                                  .arg(QString::fromLatin1(std::strerror(errno)));
                 return false;   // a real I/O failure, not cancel
+            }
+            if (static_cast<std::uint64_t>(n) != v.length) {
+                if (error)
+                    *error = QStringLiteral("sync short I/O: %1 of %2 bytes")
+                                 .arg(n).arg(v.length);
+                return false;   // EOF / short transfer: never count a partial op
             }
             out.ops += 1;
             out.bytes += static_cast<std::uint64_t>(n);

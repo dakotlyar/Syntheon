@@ -95,6 +95,12 @@ public:
                 const BOOL ok = isRead ? ReadFile(h, v.data, static_cast<DWORD>(v.length), &immediate, &sl.ov)
                                        : WriteFile(h, v.data, static_cast<DWORD>(v.length), &immediate, &sl.ov);
                 if (ok) {
+                    if (static_cast<std::uint64_t>(immediate) != v.length) {
+                        why = QStringLiteral("overlapped short op: %1 of %2 bytes")
+                                  .arg(immediate).arg(v.length);
+                        CancelIoEx(h, nullptr);
+                        break;
+                    }
                     // Completed synchronously: count it now, the slot stays free;
                     // both submitted and completed advance by one.
                     out.ops += 1;
@@ -115,6 +121,7 @@ public:
                     break;
                 }
                 sl.pending = true;
+                sl.length = v.length;
                 ++submitted;
             }
         };
@@ -149,6 +156,11 @@ public:
             }
             ResetEvent(sl.event);
             sl.pending = false;
+            if (static_cast<std::uint64_t>(transferred) != sl.length) {
+                why = QStringLiteral("overlapped short op: %1 of %2 bytes")
+                          .arg(transferred).arg(sl.length);
+                break;
+            }
             out.ops += 1;
             out.bytes += static_cast<std::uint64_t>(transferred);
             if (isRead)
@@ -181,6 +193,7 @@ private:
         OVERLAPPED ov{};
         HANDLE event = nullptr;
         bool pending = false;
+        std::uint64_t length = 0;   // expected transfer (short-op check)
         std::chrono::steady_clock::time_point t0{};
     };
 

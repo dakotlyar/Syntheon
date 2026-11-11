@@ -70,6 +70,12 @@ public:
                               .arg(QString::fromLatin1(std::strerror(-res)));
                 return;
             }
+            if (static_cast<std::uint64_t>(res) != views[idx].length) {
+                if (why.isEmpty())
+                    why = QStringLiteral("io_uring short op: %1 of %2 bytes")
+                              .arg(res).arg(views[idx].length);
+                return;
+            }
             out.ops += 1;
             out.bytes += static_cast<std::uint64_t>(res);
             if (isRead)
@@ -104,6 +110,8 @@ public:
             }
             while (prepared > submitted) {
                 const int rc = ::io_uring_submit(&m_ring);
+                if (rc == -EINTR)
+                    continue;   // interrupted: retry, don't treat as an error
                 if (rc < 0) {
                     if (why.isEmpty())
                         why = QStringLiteral("io_uring_submit: %1")
@@ -126,6 +134,8 @@ public:
                 kick();
                 continue;
             }
+            if (rc == -EINTR)
+                continue;   // interrupted: retry
             if (rc < 0) {
                 if (why.isEmpty())
                     why = QStringLiteral("io_uring_wait: %1")

@@ -123,6 +123,8 @@ public:
             timeout.tv_nsec = 50 * 1000 * 1000;   // 50 ms (P-STOP)
             const long n = ::io_getevents(m_ctx, 1, static_cast<long>(m_depth), events.data(), &timeout);
             if (n < 0) {
+                if (n == -EINTR)
+                    continue;   // interrupted: retry
                 if (why.isEmpty())
                     why = QStringLiteral("libaio io_getevents: %1").arg(QString::fromLatin1(std::strerror(-n)));
                 break;   // the context no longer reaps reliably
@@ -144,6 +146,11 @@ public:
                 if (res < 0) {
                     if (why.isEmpty())
                         why = QStringLiteral("libaio op failed: %1").arg(QString::fromLatin1(std::strerror(-res)));
+                    continue;
+                }
+                if (static_cast<std::uint64_t>(res) != views[idx].length) {
+                    if (why.isEmpty())
+                        why = QStringLiteral("libaio short op: %1 of %2 bytes").arg(res).arg(views[idx].length);
                     continue;
                 }
                 out.ops += 1;
