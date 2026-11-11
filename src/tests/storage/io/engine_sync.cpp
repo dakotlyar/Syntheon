@@ -143,14 +143,23 @@ std::unique_ptr<IStorageIoEngine> makeSyncEngine()
 #if !defined(_WIN32)
 std::size_t directAlignment(const QString &path)
 {
-    // statfs on the parent directory (the file may not exist yet: the arena is
-    // sized before the file is created, §7). f_bsize is the optimal block size,
-    // rounded up to a power-of-two 4 KiB floor (§4.2 P7): > 4096 on a 16 KiB-
-    // block NVMe namespace (R2).
-    struct statfs fs{};
-    const QByteArray dir = QFileInfo(path).absolutePath().toLocal8Bit();
-    if (::statfs(dir.constData(), &fs) == 0 && fs.f_bsize > 0)
-        return alignFromBlock(std::size_t(fs.f_bsize));
+    // statfs on the nearest EXISTING ancestor. The path may be a directory
+    // (a mount point — use it directly) or a file that does not exist yet
+    // (§7 sizes the arena before the file is created, and the target mount
+    // folder may not exist yet either). Keep stripping the last component
+    // until a directory that exists is reached, then stat that; f_bsize is
+    // raised to a power-of-two 4 KiB floor by alignFromBlock (§4.2 P7, R2).
+    QString dir = QFileInfo(path).isDir() ? QFileInfo(path).absoluteFilePath()
+                                          : QFileInfo(path).absolutePath();
+    for (;;) {
+        struct statfs fs{};
+        if (::statfs(dir.toLocal8Bit().constData(), &fs) == 0 && fs.f_bsize > 0)
+            return alignFromBlock(std::size_t(fs.f_bsize));
+        const QString parent = QFileInfo(dir).absolutePath();
+        if (parent == dir)
+            break;   // the filesystem root, with nothing above it
+        dir = parent;
+    }
     return 4096;
 }
 

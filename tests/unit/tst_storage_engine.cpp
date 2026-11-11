@@ -255,6 +255,12 @@ private slots:
         const std::size_t a = directAlignment(dir.path());
         QVERIFY(a >= 4096);
         QCOMPARE(a % 4096, std::size_t(0));
+
+        // The nearest-existing-ancestor walk: a path that doesn't exist yet (a
+        // not-yet-created target folder + file, §7 pre-creation sizing)
+        // resolves to the same filesystem as the existing ancestor.
+        const QString deep = dir.filePath(QStringLiteral("not-there/sub/file.dat"));
+        QCOMPARE(directAlignment(deep), a);
     }
 
     void openDirectFileReport()
