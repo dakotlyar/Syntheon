@@ -933,18 +933,15 @@ QList<Precondition> StorageTest::preconditions(const OptionValues &o, const Prob
 
     // The wear note: prep (one full write) + one more full write during the
     // measured write phases (§3.4: a 4 GiB file -> ~8 GB). Informational.
-    QString kind;
-    const Drive *sel = nullptr;
+    std::optional<Drive> sel;
     for (const Drive &d : listDrives(ctx.system()))
         if (d.mount == drive)
-            sel = &d;
-    if (sel)
-        kind = sel->kind;
+            sel = d;   // copy: the temporary QVector is gone after the loop
     Precondition wear;
     wear.id = QStringLiteral("wear");
     wear.label = QStringLiteral("Drive wear");
     wear.state = Precondition::State::Met;
-    wear.detail = sb::storage::wearNote(sb::storage::conservativeWriteBytes(size), kind);
+    wear.detail = sb::storage::wearNote(sb::storage::conservativeWriteBytes(size), sel ? sel->kind : QString());
     out.append(wear);
 
     // D2: a removable / optical drive is warned, not blocked.
