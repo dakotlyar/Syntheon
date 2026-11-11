@@ -152,7 +152,7 @@ private slots:
         const QString name = targetScratchName(QStringLiteral("/data"), id);
         QVERIFY(name.startsWith(QStringLiteral("/data/.syntheon-storage-")));
         QVERIFY(name.endsWith(id.toString(QUuid::WithoutBraces)));
-        QVERIFY(!name.contains(QStringLiteral("(.syntheon-storage-")));  // braced uuid, not bare
+        QVERIFY(!name.contains(QLatin1Char('{')) && !name.contains(QLatin1Char('}')));  // unbraced uuid
     }
 
     void rejectReasonTexts()
