@@ -231,9 +231,9 @@ private:
 
 } // namespace
 
-std::unique_ptr<IStorageIoEngine> makeWinEngine()
+std::unique_ptr<IStorageIoEngine> makeWinEngine(std::size_t queueDepth)
 {
-    return std::make_unique<WinEngine>(kDepth);
+    return std::make_unique<WinEngine>(queueDepth ? queueDepth : kDepth);
 }
 
 std::size_t directAlignment(const QString &path)

@@ -181,9 +181,9 @@ private:
 
 } // namespace
 
-std::unique_ptr<IStorageIoEngine> makeAioEngine()
+std::unique_ptr<IStorageIoEngine> makeAioEngine(std::size_t queueDepth)
 {
-    return std::make_unique<AioEngine>(kDepth);
+    return std::make_unique<AioEngine>(queueDepth ? queueDepth : kDepth);
 }
 
 } // namespace sb::storage

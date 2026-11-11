@@ -33,6 +33,7 @@
 #include <cstring>
 #include <map>
 #include <numeric>
+#include <optional>
 #include <vector>
 
 namespace sb::tests {
@@ -299,12 +300,25 @@ private:
     bool fillFile(QString *reason);
 
     void runPattern(sb::storage::Pattern p);
-    Window measureWindow(sb::storage::IStorageIoEngine &engine, sb::storage::IoOp op, sb::storage::Pattern p,
-                         std::size_t block, std::size_t depth, std::vector<double> *latencies);
-    Window measureMixed(sb::storage::IStorageIoEngine &engine, std::size_t block, std::size_t depth);
+    std::optional<Window> measureWindow(sb::storage::IStorageIoEngine &engine, sb::storage::IoOp op, sb::storage::Pattern p,
+                                        std::size_t block, std::size_t depth, std::vector<double> *latencies,
+                                        QString *error);
+    std::optional<Window> measureMixed(sb::storage::IStorageIoEngine &engine, std::size_t block, std::size_t depth,
+                                       QString *error);
     void latency();
     void finish(TestResult &r);
     void cleanup();
+
+    // The engine for a pattern: sync (Q1T1), or the async backend at its depth.
+    sb::storage::IStorageIoEngine &engineFor(sb::storage::Pattern p)
+    {
+        const std::size_t depth = depthFor(p);
+        if (depth == 1)
+            return *m_syncEngine;
+        if (depth <= 8)
+            return *m_q8Engine;
+        return *m_q32Engine;
+    }
 
     void metric(const QString &key, const QString &sub, const QString &label, double value, const QString &unit,
                 Direction direction = Direction::HigherIsBetter, bool headline = false)
@@ -323,8 +337,12 @@ private:
     bool m_tiny = false;
     std::chrono::milliseconds m_window{kWindow};
 
-    // Chosen once per run (pickEngine), named in model.io.
-    std::unique_ptr<sb::storage::IStorageIoEngine> m_engine;
+    // Chosen once per run (pickEngine), named in model.io: the sync engine for
+    // Q1T1 and the async backend sized to Q8 and Q32 (§4.1: a pattern's
+    // in-flight cap is its own depth).
+    std::unique_ptr<sb::storage::IStorageIoEngine> m_syncEngine;
+    std::unique_ptr<sb::storage::IStorageIoEngine> m_q8Engine;
+    std::unique_ptr<sb::storage::IStorageIoEngine> m_q32Engine;
     QString m_engineName;
 
     // The over-aligned arena (§4.2), filled once with random data for writes.
@@ -376,8 +394,10 @@ QString StorageRun::guard()
 
 bool StorageRun::prepare(QString *reason)
 {
-    m_engine = sb::storage::pickEngine(sb::storage::IoDepth::Queued);
-    m_engineName = m_engine->backendName();
+    m_syncEngine = sb::storage::pickEngine(sb::storage::IoDepth::One);
+    m_q8Engine = sb::storage::pickEngine(sb::storage::IoDepth::Queued, 8);
+    m_q32Engine = sb::storage::pickEngine(sb::storage::IoDepth::Queued, 32);
+    m_engineName = m_q32Engine->backendName();
 
     // The arena: max depth x 1 MiB, over-aligned to the fs block size, filled
     // once with the PRNG (§4.2, §4.3). The write phases reuse it.
@@ -440,26 +460,33 @@ bool StorageRun::fillFile(QString *reason)
     return true;
 }
 
-Window StorageRun::measureWindow(sb::storage::IStorageIoEngine &engine, sb::storage::IoOp op, sb::storage::Pattern p,
-                                 std::size_t block, std::size_t depth, std::vector<double> *latencies)
+std::optional<Window> StorageRun::measureWindow(sb::storage::IStorageIoEngine &engine, sb::storage::IoOp op,
+                                               sb::storage::Pattern p, std::size_t block, std::size_t depth,
+                                               std::vector<double> *latencies, QString *error)
 {
     const std::uint64_t blocks = m_actualFileSize / block;
     sb::cpu::Xoshiro256ss rng(kSeed);
-    std::vector<sb::storage::IoView> batch(depth);
+    // A batch larger than the in-flight cap so the sliding window stays full
+    // (not count==depth, which drains to QD=0 between every runBatch).
+    const std::size_t batchSize = depth * 8;
+    std::vector<sb::storage::IoView> batch(batchSize);
     std::uint64_t seqOff = 0;
     sb::storage::IoStats total;
     const auto t0 = std::chrono::steady_clock::now();
     const auto stop = [this] { return m_ctx.cancelled(); };
     while (!stop() && std::chrono::steady_clock::now() - t0 < m_window) {
-        for (std::size_t i = 0; i < depth; ++i) {
+        for (std::size_t i = 0; i < batchSize; ++i) {
             const std::uint64_t off = isSequential(p) ? (seqOff * block) % m_actualFileSize : rng.below(blocks) * block;
-            batch[i] = {m_arena + i * block, block, off};
+            batch[i] = {m_arena + (i % depth) * block, block, off};
             ++seqOff;
         }
         sb::storage::IoStats st;
         QString err;
-        if (!engine.runBatch(batch.data(), depth, op, m_fd, st, stop, &err))
-            m_ctx.log(LogLevel::Warning, err);
+        if (!engine.runBatch(batch.data(), batchSize, op, m_fd, st, stop, &err)) {
+            if (error)
+                *error = err.isEmpty() ? QStringLiteral("the I/O engine failed") : err;
+            return std::nullopt;   // a real I/O failure: stop this pattern now
+        }
         total.ops += st.ops;
         total.bytes += st.bytes;
         if (latencies)
@@ -473,7 +500,8 @@ Window StorageRun::measureWindow(sb::storage::IStorageIoEngine &engine, sb::stor
     return w;
 }
 
-Window StorageRun::measureMixed(sb::storage::IStorageIoEngine &engine, std::size_t block, std::size_t depth)
+std::optional<Window> StorageRun::measureMixed(sb::storage::IStorageIoEngine &engine, std::size_t block, std::size_t depth,
+                                               QString *error)
 {
     const std::uint64_t blocks = m_actualFileSize / block;
     sb::cpu::Xoshiro256ss rng(kSeed);
@@ -482,21 +510,28 @@ Window StorageRun::measureMixed(sb::storage::IStorageIoEngine &engine, std::size
     const auto t0 = std::chrono::steady_clock::now();
     const auto stop = [this] { return m_ctx.cancelled(); };
     while (!stop() && std::chrono::steady_clock::now() - t0 < m_window) {
-        // 70/30 random read/write (§2): seven read rounds to three write rounds.
-        auto round = [&](sb::storage::IoOp op) {
+        // 70/30 random read/write (§2): seven read rounds to three write rounds,
+        // the 5 s bound re-checked each round.
+        auto round = [&](sb::storage::IoOp op) -> bool {
             for (std::size_t i = 0; i < depth; ++i)
                 batch[i] = {m_arena + i * block, block, rng.below(blocks) * block};
             sb::storage::IoStats st;
             QString err;
-            if (!engine.runBatch(batch.data(), depth, op, m_fd, st, stop, &err))
-                m_ctx.log(LogLevel::Warning, err);
+            if (!engine.runBatch(batch.data(), depth, op, m_fd, st, stop, &err)) {
+                if (error)
+                    *error = err.isEmpty() ? QStringLiteral("the I/O engine failed") : err;
+                return false;
+            }
             total.ops += st.ops;
             total.bytes += st.bytes;
+            return true;
         };
         for (int k = 0; k < 7; ++k)
-            round(sb::storage::IoOp::Read);
+            if (!round(sb::storage::IoOp::Read))
+                return std::nullopt;
         for (int k = 0; k < 3; ++k)
-            round(sb::storage::IoOp::Write);
+            if (!round(sb::storage::IoOp::Write))
+                return std::nullopt;
     }
     const auto t1 = std::chrono::steady_clock::now();
     const double seconds = std::max(1e-9, std::chrono::duration<double>(t1 - t0).count());
@@ -511,54 +546,71 @@ void StorageRun::runPattern(sb::storage::Pattern p)
     const QString id = sb::storage::patternId(p);
     const std::size_t depth = depthFor(p);
     const std::size_t block = blockFor(p);
+    sb::storage::IStorageIoEngine &engine = engineFor(p);
     m_ctx.subTestBegin(id);
     m_status[id] = Status::Ok;
     m_ctx.setPart(sb::storage::patternLabel(p));
 
     if (p == sb::storage::Pattern::Mixed) {
         std::vector<double> mbps, iops;
+        QString err;
         for (int r = 0; r < kRuns && !stopRequested(); ++r) {
             step(QStringLiteral("Mixed 70/30 · run %1 of 3").arg(r + 1));
-            const Window w = measureMixed(*m_engine, block, depth);
-            mbps.push_back(w.mbps);
-            iops.push_back(w.iops);
-            m_worstSpread = std::max(m_worstSpread, cvPercent(mbps));
+            const std::optional<Window> w = measureMixed(engine, block, depth, &err);
+            if (!w) {
+                m_status[id] = Status::Error;
+                m_reason[id] = err;
+                break;
+            }
+            mbps.push_back(w->mbps);
+            iops.push_back(w->iops);
         }
-        if (mbps.size() == kRuns) {
+        m_worstSpread = std::max(m_worstSpread, cvPercent(mbps));
+        if (m_status[id] == Status::Ok && mbps.size() == kRuns) {
             metric(sb::storage::key(p, sb::storage::Field::Throughput), id, sb::storage::label(p, sb::storage::Field::Throughput),
                    medianOf(mbps), QStringLiteral("MB/s"), Direction::HigherIsBetter, true);
             metric(sb::storage::key(p, sb::storage::Field::Iops), id, sb::storage::label(p, sb::storage::Field::Iops),
                    medianOf(iops), QStringLiteral("IOPS"));
         } else if (m_stopped) {
             m_status[id] = Status::Cancelled;
-        } else {
-            m_status[id] = Status::Error;
         }
         m_ctx.subTestEnd(id, m_status[id]);
         return;
     }
 
-    // Read phase.
+    // Read phase (only rnd4k_q1t1 feeds the latency percentiles, §2 P10).
     std::vector<double> readMbps, readIops;
     std::vector<double> samples;
+    QString err;
     for (int r = 0; r < kRuns && !stopRequested(); ++r) {
         step(QStringLiteral("%1 read · run %2 of 3").arg(id).arg(r + 1));
-        const Window w = measureWindow(*m_engine, sb::storage::IoOp::Read, p, block, depth, &samples);
-        readMbps.push_back(w.mbps);
-        readIops.push_back(w.iops);
-        m_worstSpread = std::max(m_worstSpread, cvPercent(readMbps));
+        const std::optional<Window> w =
+            measureWindow(engine, sb::storage::IoOp::Read, p, block, depth,
+                          p == sb::storage::Pattern::Rnd4kQ1T1 ? &samples : nullptr, &err);
+        if (!w) {
+            m_status[id] = Status::Error;
+            m_reason[id] = err;
+            break;
+        }
+        readMbps.push_back(w->mbps);
+        readIops.push_back(w->iops);
     }
     // Write phase.
     std::vector<double> writeMbps, writeIops;
-    for (int r = 0; r < kRuns && !stopRequested(); ++r) {
+    for (int r = 0; r < kRuns && !stopRequested() && m_status[id] == Status::Ok; ++r) {
         step(QStringLiteral("%1 write · run %2 of 3").arg(id).arg(r + 1));
-        const Window w = measureWindow(*m_engine, sb::storage::IoOp::Write, p, block, depth, nullptr);
-        writeMbps.push_back(w.mbps);
-        writeIops.push_back(w.iops);
-        m_worstSpread = std::max(m_worstSpread, cvPercent(writeMbps));
+        const std::optional<Window> w = measureWindow(engine, sb::storage::IoOp::Write, p, block, depth, nullptr, &err);
+        if (!w) {
+            m_status[id] = Status::Error;
+            m_reason[id] = err;
+            break;
+        }
+        writeMbps.push_back(w->mbps);
+        writeIops.push_back(w->iops);
     }
+    m_worstSpread = std::max(m_worstSpread, std::max(cvPercent(readMbps), cvPercent(writeMbps)));
 
-    if (readMbps.size() == kRuns && writeMbps.size() == kRuns) {
+    if (m_status[id] == Status::Ok && readMbps.size() == kRuns && writeMbps.size() == kRuns) {
         metric(sb::storage::key(p, sb::storage::Field::Read), id, sb::storage::label(p, sb::storage::Field::Read),
                medianOf(readMbps), QStringLiteral("MB/s"), Direction::HigherIsBetter, p == sb::storage::Pattern::Seq1mQ8T1);
         metric(sb::storage::key(p, sb::storage::Field::Write), id, sb::storage::label(p, sb::storage::Field::Write),
@@ -574,8 +626,6 @@ void StorageRun::runPattern(sb::storage::Pattern p)
             m_latenciesUs = std::move(samples);   // the latency source (§2, P10)
     } else if (m_stopped) {
         m_status[id] = Status::Cancelled;
-    } else {
-        m_status[id] = Status::Error;
     }
     m_ctx.subTestEnd(id, m_status[id]);
 }
@@ -680,8 +730,19 @@ TestResult StorageRun::run()
             break;
         runPattern(p);
     }
-    if (!stopRequested() && !m_latenciesUs.empty())
-        latency();
+    if (!stopRequested()) {
+        if (!m_latenciesUs.empty()) {
+            latency();
+        } else {
+            // No rnd4k_q1t1 read samples: record latency as NotAvailable rather
+            // than silently omitting the sub-test (design §2: latency is derived).
+            const QString id = QStringLiteral("latency");
+            m_ctx.subTestBegin(id);
+            m_status[id] = Status::NotAvailable;
+            m_reason[id] = QStringLiteral("no latency samples (rnd4k_q1t1 read did not run)");
+            m_ctx.subTestEnd(id, Status::NotAvailable);
+        }
+    }
 
     TestResult r = std::move(m_result);
     finish(r);

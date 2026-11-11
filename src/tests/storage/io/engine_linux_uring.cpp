@@ -185,9 +185,9 @@ private:
 
 } // namespace
 
-std::unique_ptr<IStorageIoEngine> makeUringEngine()
+std::unique_ptr<IStorageIoEngine> makeUringEngine(std::size_t queueDepth)
 {
-    return std::make_unique<UringEngine>(kDepth);
+    return std::make_unique<UringEngine>(queueDepth ? queueDepth : kDepth);
 }
 
 } // namespace sb::storage

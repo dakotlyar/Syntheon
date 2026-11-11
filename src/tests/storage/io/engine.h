@@ -92,20 +92,22 @@ enum class IoDepth { One, Queued };
 // Pick the engine for a pattern's depth (§4.1 selection, D7). Never returns
 // nullptr. One -> sync everywhere; Queued -> overlapped on Windows, io_uring
 // on Linux x64 when liburing was compiled, else libaio on Linux, else sync.
-std::unique_ptr<IStorageIoEngine> pickEngine(IoDepth depth);
+// `queueDepth` sizes the async engine's in-flight cap (8 for Q8, 32 for Q32).
+std::unique_ptr<IStorageIoEngine> pickEngine(IoDepth depth, std::size_t queueDepth = 32);
 
 // The concrete engine constructors (one per engine TU). Only the sync engine
-// is always built; the others exist where their CMake gate holds, so callers
-// guard with SYNTHEON_HAVE_LIBURING / SYNTHEON_HAVE_LIBAIO / _WIN32.
+// is always built (depth 1); the async engines take their queue depth, so
+// callers size the in-flight cap to the pattern (8 for Q8, 32 for Q32). Guard
+// with SYNTHEON_HAVE_LIBURING / SYNTHEON_HAVE_LIBAIO / _WIN32.
 std::unique_ptr<IStorageIoEngine> makeSyncEngine();
 #if defined(SYNTHEON_HAVE_LIBURING)
-std::unique_ptr<IStorageIoEngine> makeUringEngine();
+std::unique_ptr<IStorageIoEngine> makeUringEngine(std::size_t queueDepth = 32);
 #endif
 #if defined(SYNTHEON_HAVE_LIBAIO)
-std::unique_ptr<IStorageIoEngine> makeAioEngine();
+std::unique_ptr<IStorageIoEngine> makeAioEngine(std::size_t queueDepth = 32);
 #endif
 #if defined(_WIN32)
-std::unique_ptr<IStorageIoEngine> makeWinEngine();
+std::unique_ptr<IStorageIoEngine> makeWinEngine(std::size_t queueDepth = 32);
 #endif
 
 } // namespace sb::storage
