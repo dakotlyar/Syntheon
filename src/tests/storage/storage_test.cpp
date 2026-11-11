@@ -504,8 +504,11 @@ std::optional<Window> StorageRun::measureWindow(sb::storage::IStorageIoEngine &e
 {
     const std::uint64_t blocks = m_actualFileSize / block;
     // A batch larger than the in-flight cap so the sliding window stays full
-    // (not count==depth, which drains to QD=0 between every runBatch).
-    const std::size_t batchSize = depth * 8;
+    // (not count==depth, which drains to QD=0 between every runBatch), but with
+    // a UNIQUE arena slot per view (`i`, not `i % depth`) so out-of-order
+    // completions can't alias a slot still being DMA'd into, and bounded by the
+    // 32 MiB arena. Q1T1 is sequential, so one view at a time suffices.
+    const std::size_t batchSize = depth == 1 ? 1 : std::min(depth * 8, (kMaxDepth * kSeqBlock) / block);
     std::vector<sb::storage::IoView> batch(batchSize);
     std::uint64_t seqOff = 0;
     sb::storage::IoStats total;
@@ -514,7 +517,7 @@ std::optional<Window> StorageRun::measureWindow(sb::storage::IStorageIoEngine &e
     while (!stop() && std::chrono::steady_clock::now() - t0 < m_window) {
         for (std::size_t i = 0; i < batchSize; ++i) {
             const std::uint64_t off = isSequential(p) ? (seqOff * block) % m_actualFileSize : m_offsetRng.below(blocks) * block;
-            batch[i] = {m_arena + (i % depth) * block, block, off};
+            batch[i] = {m_arena + i * block, block, off};
             ++seqOff;
         }
         sb::storage::IoStats st;
