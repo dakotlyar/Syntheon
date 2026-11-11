@@ -40,6 +40,9 @@ include(CompilerFlags)
 include(ThirdParty)
 include(GpuThirdParty)
 include(OpenSSL)
+# The Storage test's async I/O engine detection + notices (§4.1, D7), before
+# the third-party notices are written.
+include(StorageIo)
 
 set(_syntheon_qt_components Core Gui Network Qml Quick QuickControls2 QuickShapes Sql)
 if(SYNTHEON_BUILD_TESTS)

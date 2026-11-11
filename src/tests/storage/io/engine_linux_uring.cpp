@@ -70,7 +70,9 @@ public:
                     ::io_uring_prep_read(sqe, fd, v.data, static_cast<unsigned>(v.length), v.offset);
                 else
                     ::io_uring_prep_write(sqe, fd, v.data, static_cast<unsigned>(v.length), v.offset);
-                ::io_uring_sqe_set_data64(sqe, static_cast<std::uint64_t>(submitted));
+                // The raw user_data field, not io_uring_sqe_set_data64: that
+                // helper arrived after liburing 2.1 (Ubuntu 22.04).
+                sqe->user_data = static_cast<std::uint64_t>(submitted);
                 ++submitted;
                 any = true;
             }
@@ -106,7 +108,7 @@ public:
                         break;
                     }
                 }
-                const std::size_t idx = static_cast<std::size_t>(::io_uring_cqe_get_data64(cqe));
+                const std::size_t idx = static_cast<std::size_t>(cqe->user_data);
                 const int res = cqe->res;
                 ::io_uring_cqe_seen(&m_ring, cqe);
                 cqe = nullptr;

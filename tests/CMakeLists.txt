@@ -214,6 +214,12 @@ set(_notices_expect
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND _notices_expect "ICU ${SYNTHEON_QT_NOTICE_ICU}|UNICODE, INC. LICENSE AGREEMENT")
 endif()
+if(SYNTHEON_HAVE_LIBURING)
+    list(APPEND _notices_expect "liburing|Permission is hereby granted")
+endif()
+if(SYNTHEON_HAVE_LIBAIO)
+    list(APPEND _notices_expect "libaio|GNU LESSER GENERAL PUBLIC LICENSE")
+endif()
 list(JOIN _notices_expect "@@" _notices_expect_arg)
 add_test(NAME third_party_notices
     COMMAND "${CMAKE_COMMAND}" "-DNOTICES=${PROJECT_BINARY_DIR}/THIRD-PARTY-NOTICES.txt"

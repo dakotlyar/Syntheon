@@ -56,7 +56,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             ninja-build libgl1-mesa-dev libegl1-mesa-dev \
             libxkbcommon-dev libfontconfig1-dev \
-            mesa-vulkan-drivers vulkan-validationlayers xvfb libxcb-cursor0
+            mesa-vulkan-drivers vulkan-validationlayers xvfb libxcb-cursor0 \
+            liburing-dev libaio-dev
 
       - name: Install Qt
         uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
@@ -467,7 +468,8 @@ jobs:
             libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
             libxcb-shape0 libxcb-xkb1 libxcb-xinerama0 libxcb-randr0 libxcb-sync1 libxcb-xfixes0 \
             libxkbcommon-x11-0 libwayland-egl1 \
-            desktop-file-utils appstream
+            desktop-file-utils appstream \
+            liburing-dev libaio-dev
 
       - name: Install Qt
         uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4 (= v4.4.1)
