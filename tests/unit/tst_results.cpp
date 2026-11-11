@@ -9,6 +9,7 @@
 #include "storage/database.h"
 #include "storage/run_repository.h"
 #include "tests/common/stub_clock.h"
+#include "tests/gpu/client/gpu_client.h"
 
 #include <QSignalSpy>
 #include <cmath>
@@ -64,6 +65,9 @@ private:
 
     void startRuntime()
     {
+        // The GPU test's worker is a fake on every OS (it answers the probe with one GPU), so these
+        // tests don't depend on the machine's GPU or its drivers (Windows CI has no software GPU).
+        sb::gpu::GpuClient::setWorkerForTests(QStringLiteral(SB_FAKE_GPUWORKER), {QStringLiteral("ok")});
         m_dir = std::make_unique<QTemporaryDir>();
         AppRuntime::Options o;
         o.smoke = true;
@@ -586,10 +590,10 @@ private slots:
     {
         startRuntime();
         RunController &rc = m_rt->run();
-        // Stubs only (Phase 3 N6: the RAM test is real now; its Detail page
-        // is tst_ram_test's). The stubs' chart and KPIs are Battery's (tst_stubs,
-        // tst_results.qml). The Storage grid moves to tst_storage_detail (task 12).
-        for (const QString &id : {QStringLiteral("ai"), QStringLiteral("ram")})
+        // AI is the stub here; the GPU test's worker is a fake (fast and
+        // deterministic), so it co-runs without a real 2-minute RAM run. The
+        // Storage grid moves to tst_storage_detail (task 12).
+        for (const QString &id : {QStringLiteral("ai"), QStringLiteral("gpu")})
             rc.toggle(id);
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
@@ -631,7 +635,7 @@ private slots:
     {
         startRuntime();
         RunController &rc = m_rt->run();
-        for (const QString &id : {QStringLiteral("ram"), QStringLiteral("ai")})
+        for (const QString &id : {QStringLiteral("gpu"), QStringLiteral("ai")})
             rc.toggle(id);
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
@@ -647,17 +651,17 @@ private slots:
         QCOMPARE(res.detailBlocks(), before);
         QCOMPARE(res.detailTitle(), QStringLiteral("AI inference"));
         // A different test is a change; an explicit select always tells the page.
-        res.selectDetail(QStringLiteral("ram"));
+        res.selectDetail(QStringLiteral("gpu"));
         QCOMPARE(changed.count(), 1);
     }
 
     void followsTheLiveRun()
     {
-        tests::setStubTimeScale(0.2);  // RAM (real) first, AI (stub) second
+        tests::setStubTimeScale(0.03);  // GPU (fake worker) first, AI (stub) second
         startRuntime();
         RunController &rc = m_rt->run();
         rc.toggle(QStringLiteral("ai"));
-        rc.toggle(QStringLiteral("ram"));
+        rc.toggle(QStringLiteral("gpu"));
         QSignalSpy finished(&rc, &RunController::runFinished);
         QVERIFY(rc.start());
         ResultsController &res = m_rt->results();
@@ -672,7 +676,7 @@ private slots:
 
         // AP-5 #9: "View log" during a run keeps each line's own time (it
         // used to stamp every line with "now") and says it's a snapshot.
-        QTest::qWait(2200);
+        QTest::qWait(200);
         auto *shown = qobject_cast<QAbstractItemModel *>(res.logModel());
         auto *liveLog = qobject_cast<QAbstractItemModel *>(rc.log());
         QVERIFY(shown && liveLog);

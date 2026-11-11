@@ -134,9 +134,9 @@ TestCase {
     // "View log") keeps its lines, and its line count, when the next test
     // finishes and Results updates the run underneath it.
     function test_3b_liveLogSurvivesATestFinishing() {
-        Fixtures.setStubScale(0.1)  // RAM (real) first, AI (stub) second
+        Fixtures.setStubScale(0.03)  // gpu (fake) first, ai (stub) second; gpu scales so it must be fast
         RunController.clearSelection()
-        for (const id of ["ai", "ram"]) RunController.toggle(id)
+        for (const id of ["ai", "gpu"]) RunController.toggle(id)
         const finished = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         const updated = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runUpdated" })
         verify(RunController.start())
@@ -187,10 +187,10 @@ TestCase {
     }
 
     function test_4_stoppedRunShowsPartialMarker() {
-        Fixtures.setStubScale(0.1)  // RAM (real) first, AI (stub) second
+        Fixtures.setStubScale(0.03)  // gpu (fake) first, ai (stub) second; gpu scales so it must be fast
         RunController.clearSelection()
         RunController.toggle("ai")
-        RunController.toggle("ram")
+        RunController.toggle("gpu")
         const spy = createTemporaryObject(spyComponent, test, { target: RunController, signalName: "runFinished" })
         verify(RunController.start())
         // Stop once the first test has a score.
@@ -207,8 +207,8 @@ TestCase {
         compare(findChild(screen, "statusBadge").text, "Stopped")
         verify(findChild(screen, "partialMarker").visible)  // N2
         verify(findChild(screen, "overallNote").text.indexOf("Partial") === 0)
-        // RAM runs first (catalog order); AI was either mid-run (Stopped)
-        // or never started (Not run).
+        // GPU runs first (catalog order, its worker is a fake); AI was either
+        // mid-run (Stopped) or never started (Not run).
         verify(["Stopped", "Not run"].indexOf(findChild(rowFor(screen, "ai"), "score").text) >= 0)
         Fixtures.setStubScale(0.02)
     }

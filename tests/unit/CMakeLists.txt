@@ -112,6 +112,8 @@ syntheon_add_unit_test(tst_run_controller SOURCES tst_run_controller.cpp LIBS sy
 add_dependencies(tst_run_controller fake-gpuworker)
 target_compile_definitions(tst_run_controller PRIVATE SB_FAKE_GPUWORKER="$<TARGET_FILE:fake-gpuworker>")
 syntheon_add_unit_test(tst_results SOURCES tst_results.cpp LIBS syntheon_appcore)
+add_dependencies(tst_results fake-gpuworker)
+target_compile_definitions(tst_results PRIVATE SB_FAKE_GPUWORKER="$<TARGET_FILE:fake-gpuworker>")
 syntheon_add_unit_test(tst_hardening SOURCES tst_hardening.cpp LIBS syntheon_appcore)
 syntheon_add_unit_test(tst_single_instance SOURCES tst_single_instance.cpp LIBS syntheon_appcore)
 # The real executable for the two-process test.
