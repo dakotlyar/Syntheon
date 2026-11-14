@@ -18,9 +18,9 @@
 //               of its complete groups); a failed sub-test drops only its own
 //               sub-score (its siblings keep theirs — the point of D8).
 //
-// The anchors are PLACEHOLDERS (§11): recalibrated in task 13 so Tiamat's
-// NVMe lands at 1,000, at which point formulaVersion bumps to 1. Never change
-// an anchor or a weight without bumping formulaVersion.
+// The anchors are FROZEN at Tiamat's NVMe = 1,000 (task 13, 5 re-runs of build
+// 3b95234, 2026-11-13); formulaVersion is 1. Never change an anchor or a
+// weight without bumping formulaVersion.
 //
 // Each group's id is its sub-test id (seq1m_q8t1, seq1m_q1t1, rnd4k_q32t1,
 // rnd4k_q1t1, mixed, latency), matching RAM/GPU's 1 group = 1 sub-test; the

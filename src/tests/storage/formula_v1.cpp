@@ -5,17 +5,16 @@ namespace sb::storage::formula_v1 {
 
 namespace {
 
-// The anchors (§11). PLACEHOLDERS: recalibrated in task 13 so Tiamat's NVMe
-// lands at 1,000 (the constant/anchors are the only things task 13 changes).
-// Frozen only then; never change one without bumping formulaVersion.
-constexpr double kSeqQ8 = 7000.0;     // MB/s, seq1m_q8t1.read
-constexpr double kSeqQ1 = 3900.0;     // MB/s, seq1m_q1t1.read
-constexpr double kRndQ32 = 1810000.0; // IOPS, rnd4k_q32t1.read_iops (placeholder: a real NVMe is ~19k-44k)
-constexpr double kRndQ1 = 20000.0;    // IOPS, rnd4k_q1t1.read_iops
-constexpr double kMixed = 1100.0;     // MB/s, mixed.throughput
-constexpr double kLatP50 = 68.0;      // µs, latency.p50
-constexpr double kLatP99 = 210.0;     // µs, latency.p99
-constexpr double kLatP999 = 1840.0;   // µs, latency.p999
+// The anchors (§11), FROZEN at Tiamat's NVMe = 1,000 (task 13, 5 re-runs of
+// build 3b95234, 2026-11-13). Never change one without bumping formulaVersion.
+constexpr double kSeqQ8 = 3302.156912;     // MB/s, seq1m_q8t1.read
+constexpr double kSeqQ1 = 2628.727170;     // MB/s, seq1m_q1t1.read
+constexpr double kRndQ32 = 216463.391543; // IOPS, rnd4k_q32t1.read_iops
+constexpr double kRndQ1 = 13259.183667;    // IOPS, rnd4k_q1t1.read_iops
+constexpr double kMixed = 307.014095;     // MB/s, mixed.throughput
+constexpr double kLatP50 = 76.571;      // µs, latency.p50
+constexpr double kLatP99 = 123.811;     // µs, latency.p99
+constexpr double kLatP999 = 916.907;   // µs, latency.p999
 
 } // namespace
 

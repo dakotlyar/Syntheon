@@ -95,45 +95,45 @@ private slots:
         const auto &q8 = g.at(0).metrics;
         QCOMPARE(q8.size(), 1);
         QCOMPARE(q8[0].metricKey, QStringLiteral("seq1m_q8t1.read"));
-        QCOMPARE(q8[0].anchor, 7000.0);
+        QCOMPARE(q8[0].anchor, 3302.156912);
         QCOMPARE(q8[0].weight, 1.0);
 
         const auto &q1 = g.at(1).metrics;
         QCOMPARE(q1.size(), 1);
         QCOMPARE(q1[0].metricKey, QStringLiteral("seq1m_q1t1.read"));
-        QCOMPARE(q1[0].anchor, 3900.0);
+        QCOMPARE(q1[0].anchor, 2628.727170);
         QCOMPARE(q1[0].weight, 1.0);
 
         const auto &q32 = g.at(2).metrics;
         QCOMPARE(q32.size(), 1);
         QCOMPARE(q32[0].metricKey, QStringLiteral("rnd4k_q32t1.read_iops"));
-        QCOMPARE(q32[0].anchor, 1810000.0);
+        QCOMPARE(q32[0].anchor, 216463.391543);
         QCOMPARE(q32[0].weight, 1.0);
 
         const auto &rq1 = g.at(3).metrics;
         QCOMPARE(rq1.size(), 1);
         QCOMPARE(rq1[0].metricKey, QStringLiteral("rnd4k_q1t1.read_iops"));
-        QCOMPARE(rq1[0].anchor, 20000.0);
+        QCOMPARE(rq1[0].anchor, 13259.183667);
         QCOMPARE(rq1[0].weight, 1.0);
 
         const auto &mixed = g.at(4).metrics;
         QCOMPARE(mixed.size(), 1);
         QCOMPARE(mixed[0].metricKey, QStringLiteral("mixed.throughput"));
-        QCOMPARE(mixed[0].anchor, 1100.0);
+        QCOMPARE(mixed[0].anchor, 307.014095);
         QCOMPARE(mixed[0].weight, 1.0);
 
         const auto &lat = g.at(5).metrics;
         QCOMPARE(lat.size(), 3);
         QCOMPARE(lat[0].metricKey, QStringLiteral("latency.p50"));
-        QCOMPARE(lat[0].anchor, 68.0);
+        QCOMPARE(lat[0].anchor, 76.571);
         QCOMPARE(lat[0].weight, 0.5);
         QVERIFY(lat[0].lowerIsBetter);
         QCOMPARE(lat[1].metricKey, QStringLiteral("latency.p99"));
-        QCOMPARE(lat[1].anchor, 210.0);
+        QCOMPARE(lat[1].anchor, 123.811);
         QCOMPARE(lat[1].weight, 0.3);
         QVERIFY(lat[1].lowerIsBetter);
         QCOMPARE(lat[2].metricKey, QStringLiteral("latency.p999"));
-        QCOMPARE(lat[2].anchor, 1840.0);
+        QCOMPARE(lat[2].anchor, 916.907);
         QCOMPARE(lat[2].weight, 0.2);
         QVERIFY(lat[2].lowerIsBetter);
     }

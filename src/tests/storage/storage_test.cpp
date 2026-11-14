@@ -836,9 +836,9 @@ StorageTest::StorageTest()
     m_info.summary = QStringLiteral("Sequential and random read/write, latency, mixed");
     m_info.colorToken = QStringLiteral("t-sto");
     // 1: this is the real measurement (replaces the stub). The formula's
-    // anchors are still placeholders, so formulaVersion stays 0 until task 13.
+    // anchors are frozen at Tiamat's NVMe (task 13), so formulaVersion is 1.
     m_info.testVersion = 1;
-    m_info.formulaVersion = 0;
+    m_info.formulaVersion = 1;
     // D15: every run runs all six; none is selectable.
     m_info.subTests = {{QStringLiteral("seq1m_q8t1"), QStringLiteral("Seq 1M Q8T1"), false, true},
                        {QStringLiteral("seq1m_q1t1"), QStringLiteral("Seq 1M Q1T1"), false, true},
