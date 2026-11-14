@@ -263,8 +263,9 @@ std::optional<int> openDirectFile(const QString &path, bool read, bool write, QS
     // OPEN_ALWAYS, not CREATE_ALWAYS: the file is prepared (filled) by an
     // earlier open; a re-open for the measured phases must not truncate it.
     const DWORD create = write ? OPEN_ALWAYS : OPEN_EXISTING;
-    // Cache bypass (P7, §26): unbuffered + write-through overlapped.
-    const DWORD flags = FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH;
+    // Cache bypass (P7, §26): unbuffered overlapped I/O, no write-through, so
+    // writes land in the device's own write cache like fio/CDM.
+    const DWORD flags = FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING;
 
     const std::wstring w = path.toStdWString();
     HANDLE h = CreateFileW(w.c_str(), access, share, nullptr, create, flags, nullptr);

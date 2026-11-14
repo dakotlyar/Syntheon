@@ -61,9 +61,9 @@ public:
 };
 
 // Open the aligned file in the right mode (O_DIRECT on Linux,
-// FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH on Windows); a writable,
-// direct-capable fd. On Linux, sets O_SYNC for writes when `writeThrough` is
-// requested (P7). Throws/returns error on failure.
+// FILE_FLAG_NO_BUFFERING on Windows); a writable, direct-capable fd. No
+// write-through: writes land in the device's own write cache (fio --direct=1).
+// Throws/returns error on failure.
 std::optional<int> openDirectFile(const QString &path, bool read, bool write,
                                   QString *error);
 

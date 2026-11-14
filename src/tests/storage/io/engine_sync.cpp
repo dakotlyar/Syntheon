@@ -172,10 +172,9 @@ std::optional<int> openDirectFile(const QString &path, bool read, bool write, QS
         flags |= O_WRONLY | O_CREAT;
     else
         flags |= O_RDONLY;
-    // Cache bypass (P7, §26): writes go through to the device (O_SYNC); the
-    // signature's `write` carries the §4.1 "writeThrough" intent.
-    if (write)
-        flags |= O_SYNC;
+    // O_DIRECT only, no O_SYNC: writes land in the device's own write cache,
+    // matching fio --direct=1 and CrystalDiskMark (write-through would depress
+    // write/mixed throughput 10-200x).
 
     const int fd = ::open(path.toLocal8Bit().constData(), flags, 0666);
     if (fd < 0) {
