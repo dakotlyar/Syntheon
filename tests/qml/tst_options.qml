@@ -155,6 +155,25 @@ TestCase {
         verify(!findChild(none.tab, "preconditions").visible)
     }
 
+    // AP-5: a precondition label now carries a long guided-setup sentence + URL
+    // (npu_test.cpp); it must wrap instead of overflowing the pane, and keep the
+    // status pill inside the row.
+    function test_longPreconditionLabelWraps() {
+        const url = "https://docs.openvino.ai/latest/get-started.html"
+        const t = makeTab([{ id: "runtime", state: "notmet", detail: "Not installed",
+                             label: "An Intel NPU was found, but its runtime isn't installed — install it: " + url }])
+        waitForRendering(t.tab)
+        const row = findChild(t.tab, "precondition-runtime")
+        verify(row !== null)
+        const label = findChild(row, "preconditionLabel")
+        const pill = findChild(row, "preconditionPill")
+        verify(label.visible)
+        verify(pill.visible)
+        verify(label.lineCount > 1, "label wrapped to " + label.lineCount + " line(s)")
+        const pillRight = pill.mapToItem(row, pill.width, 0).x
+        verify(pillRight <= row.width + 0.5, "pill ends at " + pillRight + " of " + row.width)
+    }
+
     function test_nothingYetShowsAMessage() {
         const tab = createTemporaryObject(tabComponent, test, { optionsModel: null })
         verify(tab.children.length > 0)

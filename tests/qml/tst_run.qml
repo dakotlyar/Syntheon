@@ -81,6 +81,25 @@ TestCase {
         compare(RunController.selectedCount, 0)
     }
 
+    // AP-5: an unavailable row's reason (long, with a setup URL) wraps instead of
+    // eliding so the URL is never cut off; an available row's summary still stays
+    // on one line, elided at the right.
+    function test_unavailableReasonWrapsNotElides() {
+        const screen = createTemporaryObject(screenComponent, test)
+        waitForRendering(screen)
+        const cpu = findChild(row(screen, "cpu"), "rowReason")
+        verify(cpu !== null)
+        compare(cpu.elide, Text.ElideRight)
+        compare(cpu.wrapMode, Text.NoWrap)
+        const npu = row(screen, "npu")
+        if (!npu.available) {
+            const reason = findChild(npu, "rowReason")
+            verify(reason.text.length > 0)
+            compare(reason.elide, Text.ElideNone)
+            compare(reason.wrapMode, Text.Wrap)
+        }
+    }
+
     // The power state is faked (the input only, via Fixtures.setPower), so
     // this is the same on any host; the preconditions come from it as usual.
     function test_batteryPreconditionsBlockStartUntilOverridden_data() {
