@@ -2,7 +2,8 @@
 // The OpenVINO NPU engine (Intel AI Boost), Phase 4c design §4.1. Loads the
 // USER-INSTALLED OpenVINO runtime from the path detect resolved: the C++ core
 // (openvino.dll / libopenvino.so), the C API (openvino_c.dll / libopenvino_c.so)
-// and the Intel NPU plugin (openvino_intel_npu_plugin.{dll,so}). The `ov_*` C
+// and the Intel NPU plugin (openvino_intel_npu_plugin.dll /
+// libopenvino_intel_npu_plugin.so). The `ov_*` C
 // entry points are resolved by name from the C API library (not the C++ core),
 // the model is compiled for device "NPU", and a sync-infer measurement window is
 // run. No vendor header or .lib is compiled in (P-VENDOR); a missing/damaged
@@ -19,6 +20,7 @@
 #include "tests/npu/engine/engine_dlopen.h"
 
 #include <QDir>
+#include <QFileInfo>
 
 #include <chrono>
 #include <cstddef>
@@ -99,13 +101,13 @@ public:
         // core (detect verified that); holding its handle keeps it loaded for the
         // core's device loader. The C API library (openvino_c) exports the ov_*
         // entry points; the C++ core stays loaded as its dependency.
-        auto core = std::make_unique<Library>(libPath(m_runtimePath, coreName()), error);
+        auto core = std::make_unique<Library>(resolvePath(coreName(), false), error);
         if (!core->isOpen())
             return false;
-        auto capi = std::make_unique<Library>(libPath(m_runtimePath, cApiName()), error);
+        auto capi = std::make_unique<Library>(resolvePath(cApiName(), false), error);
         if (!capi->isOpen())
             return false;
-        auto plugin = std::make_unique<Library>(libPath(m_runtimePath, pluginName()), error);
+        auto plugin = std::make_unique<Library>(resolvePath(pluginName(), true), error);
         if (!plugin->isOpen())
             return false;
 
@@ -174,12 +176,56 @@ private:
 #if defined(Q_OS_WIN)
         return QStringLiteral("openvino_intel_npu_plugin.dll");
 #else
-        // OpenVINO's NPU plugin ships without the `lib` prefix (it is dlopen'd by
-        // name, unlike the linked core/C-API libs) — match detect_linux.cpp.
-        return QStringLiteral("openvino_intel_npu_plugin.so");
+        // OpenVINO's Linux NPU plugin is a shared MODULE named with the `lib`
+        // prefix (CMAKE_SHARED_MODULE_PREFIX = "lib"; ov::util::make_plugin_library_name()
+        // prepends it on non-Windows) → libopenvino_intel_npu_plugin.so.
+        return QStringLiteral("libopenvino_intel_npu_plugin.so");
 #endif
     }
     static QString libPath(const QString &dir, const QString &name) { return QDir(dir).filePath(name); }
+
+    // The absolute dlopen path for `name`. Windows loads the exact DLL beside the
+    // runtime path; Linux resolves the actual file detect_linux.cpp matched — the
+    // unversioned name (tarball / -dev namelink) or a `name.*` SONAME (APT/DEB,
+    // RPM, pip), and for the NPU plugin also `openvino-*/name` (OV_CPACK_PLUGINSDIR)
+    // — so the probe and this loader agree on the exact path (M1).
+    QString resolvePath(const QString &name, bool plugin)
+    {
+#if defined(Q_OS_WIN)
+        Q_UNUSED(plugin);
+        return libPath(m_runtimePath, name);
+#else
+        return runtimeFile(m_runtimePath, name, plugin);
+#endif
+    }
+
+#if !defined(Q_OS_WIN)
+    static QString runtimeFile(const QString &dir, const QString &name, bool plugin)
+    {
+        const QString flat = QDir(dir).filePath(name);
+        if (QFileInfo::exists(flat))
+            return flat;
+        const QDir d(dir);
+        // SONAME form name.<ver> (the runtime packages / pip wheel keep only the
+        // versioned file; the unversioned .so is a -dev namelink).
+        const QStringList sonames = d.entryList({name + QStringLiteral(".*")}, QDir::Files,
+                                                QDir::Name | QDir::Reversed);
+        if (!sonames.isEmpty())
+            return QDir(dir).filePath(sonames.first());
+        // The NPU plugin lives under ${LIBDIR}/openvino-<ver>/ on packages, not flat.
+        if (plugin) {
+            const QStringList subs = d.entryList({QStringLiteral("openvino-*")}, QDir::Dirs
+                                                       | QDir::NoDotAndDotDot,
+                                                 QDir::Name | QDir::Reversed);
+            for (const QString &sub : subs) {
+                const QString p = QDir(dir).filePath(sub + QStringLiteral("/") + name);
+                if (QFileInfo::exists(p))
+                    return p;
+            }
+        }
+        return flat;   // not found: the Library ctor reports a clean load error
+    }
+#endif
 
     Library &cApi() { return *m_cApi; }
 

@@ -28,28 +28,6 @@ bool exists(const QString &root, const QString &absPath)
     return QFileInfo::exists(at(root, absPath));
 }
 
-// The three `.so` files the OpenVINO engine dlopens on Linux
-// (engine_openvino.cpp coreName/cApiName/pluginName): the C++ core, the C API
-// (ov_* symbols) and the Intel NPU plugin. All three must sit together in one
-// directory for the engine to initialise, so the probe requires the whole set —
-// fail-closed: any one missing → RuntimeMissing.
-QStringList openVinoLibs()
-{
-    return {
-        QStringLiteral("libopenvino.so"),
-        QStringLiteral("libopenvino_c.so"),
-        QStringLiteral("openvino_intel_npu_plugin.so"),
-    };
-}
-
-bool dirHasOpenVinoLibs(const QString &root, const QString &dir)
-{
-    for (const QString &lib : openVinoLibs())
-        if (!exists(root, dir + QStringLiteral("/") + lib))
-            return false;
-    return true;
-}
-
 // Subdirectories of the absolute `parent` whose name starts with `prefix`,
 // most-specific (newest) first. Returns absolute, un-prefixed paths (callers
 // pass them back through at()/exists()); it enumerates `root`+`parent` on disk,
@@ -70,9 +48,50 @@ QStringList dirsWithPrefix(const QString &root, const QString &parent, const QSt
     return out;
 }
 
-// OpenVINO (Intel) on Linux: find a directory holding all three of the engine's
-// libs, checking the common install layouts in turn. Fail-closed — a directory
-// is only accepted when every lib is actually on disk (§3.2).
+// The `.so` files the OpenVINO engine dlopens on Linux
+// (engine_openvino.cpp coreName/cApiName/pluginName): the C++ core, the C API
+// (ov_* symbols) and the Intel NPU plugin. The core + C API are linked libs that
+// real installs ship either unversioned (libopenvino.so — the /opt/intel tarball
+// or a -dev namelink) or as a SONAME (libopenvino.so.<ver> — APT/DEB, RPM and
+// pip wheels drop the unversioned .so). The NPU plugin is a dlopen'd shared
+// module named libopenvino_intel_npu_plugin.so, placed flat (tarball/pip) or
+// under ${LIBDIR}/openvino-<ver>/ (packages, OV_CPACK_PLUGINSDIR). Fail-closed:
+// any one of the three missing → RuntimeMissing.
+
+// `dir` holds `name` either unversioned or as a `name.*` SONAME.
+bool hasLibOrSoname(const QString &root, const QString &dir, const QString &name)
+{
+    if (exists(root, dir + QStringLiteral("/") + name))
+        return true;
+    const QDir d(at(root, dir));
+    if (!d.exists())
+        return false;
+    return !d.entryList({name + QStringLiteral(".*")}, QDir::Files).isEmpty();
+}
+
+// The NPU plugin, flat in `dir` or under an openvino-<ver>/ subdir.
+bool hasNpuPlugin(const QString &root, const QString &dir)
+{
+    const QString plugin = QStringLiteral("libopenvino_intel_npu_plugin.so");
+    if (exists(root, dir + QStringLiteral("/") + plugin))
+        return true;
+    for (const QString &sub : dirsWithPrefix(root, dir, QStringLiteral("openvino-")))
+        if (exists(root, sub + QStringLiteral("/") + plugin))
+            return true;
+    return false;
+}
+
+bool dirHasOpenVinoLibs(const QString &root, const QString &dir)
+{
+    return hasLibOrSoname(root, dir, QStringLiteral("libopenvino.so"))
+        && hasLibOrSoname(root, dir, QStringLiteral("libopenvino_c.so"))
+        && hasNpuPlugin(root, dir);
+}
+
+// OpenVINO (Intel) on Linux: find a directory holding the engine's core + C
+// API (unversioned or SONAME) and the NPU plugin (flat or openvino-*/), checking
+// the common install layouts in turn. Fail-closed — a directory is only accepted
+// when every lib is actually on disk (§3.2).
 bool findOpenVino(const QString &root, QString *dir)
 {
     const auto accept = [&](const QString &d) {
@@ -115,6 +134,17 @@ bool findOpenVino(const QString &root, QString *dir)
                 return true;
         }
     }
+
+    // 4. A pip --user install (non-root): the wheel keeps the versioned .so +
+    // plugin under ~/.local/lib/python3.*/site-packages/openvino/libs. Only
+    // probed on the real filesystem (`root` set means a synthetic test tree).
+    if (root.isEmpty()) {
+        const QString localLib = QDir::homePath() + QStringLiteral("/.local/lib");
+        for (const QString &py : dirsWithPrefix(root, localLib, QStringLiteral("python"))) {
+            if (accept(py + QStringLiteral("/site-packages/openvino/libs")))
+                return true;
+        }
+    }
     return false;
 }
 
@@ -142,8 +172,11 @@ NpuDetect probeRuntime(const SystemSnapshot &, NpuVendor vendor, const QJsonObje
     }
     case NpuVendor::Amd:
         // The AMD runtime is XRT (the amdxdna kernel driver already bound the
-        // device, N2). Missing → N/A with the AMD link (surfaced in probe()).
-        if (exists(root, QStringLiteral("/opt/xilinx/xrt"))) {
+        // device, N2). Check the file the engine actually dlopens
+        // (<runtimePath>/lib/libxrt_coreutil.so), not just the /opt/xilinx/xrt
+        // dir, so an empty/leftover XRT dir doesn't report "Ready". Missing → N/A
+        // with the AMD link (surfaced in probe()).
+        if (exists(root, QStringLiteral("/opt/xilinx/xrt/lib/libxrt_coreutil.so"))) {
             out.runtimePath = at(root, QStringLiteral("/opt/xilinx/xrt"));
             out.reason = NaReason::None;
         } else {

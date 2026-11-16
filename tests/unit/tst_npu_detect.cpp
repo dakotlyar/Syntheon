@@ -174,12 +174,31 @@ private slots:
 
     void linuxIntelRuntimePresent()
     {
+        // The /opt/intel tarball layout: flat unversioned libopenvino.so +
+        // libopenvino_c.so + the NPU plugin beside them.
         QTemporaryDir root;
         QVERIFY(root.isValid());
         const QString d = root.filePath(QStringLiteral("opt/intel/openvino/runtime/lib/intel64"));
         touch(d + QStringLiteral("/libopenvino.so"));
         touch(d + QStringLiteral("/libopenvino_c.so"));
-        touch(d + QStringLiteral("/openvino_intel_npu_plugin.so"));
+        touch(d + QStringLiteral("/libopenvino_intel_npu_plugin.so"));
+        const NpuDetect r = detect(snapshotWith({intel()}), root.path());
+        QCOMPARE(r.vendor, NpuVendor::Intel);
+        QCOMPARE(r.reason, NaReason::None);
+        QVERIFY(r.runtimePath.startsWith(root.path()));
+    }
+
+    void linuxIntelPackagedRuntimePresent()
+    {
+        // APT/DEB & RPM ship versioned SONAME files (the unversioned .so is the
+        // -dev namelink) and the NPU plugin under openvino-<ver>/, not flat — the
+        // probe and engine must match that layout, not only the tarball (M1).
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        const QString d = root.filePath(QStringLiteral("usr/lib/x86_64-linux-gnu"));
+        touch(d + QStringLiteral("/libopenvino.so.2024.5.0"));
+        touch(d + QStringLiteral("/libopenvino_c.so.2024.5.0"));
+        touch(d + QStringLiteral("/openvino-2024.5.0/libopenvino_intel_npu_plugin.so"));
         const NpuDetect r = detect(snapshotWith({intel()}), root.path());
         QCOMPARE(r.vendor, NpuVendor::Intel);
         QCOMPARE(r.reason, NaReason::None);
@@ -199,7 +218,9 @@ private slots:
     {
         QTemporaryDir root;
         QVERIFY(root.isValid());
-        QVERIFY(QDir().mkpath(root.filePath(QStringLiteral("opt/xilinx/xrt"))));
+        // The probe checks the exact file the engine dlopens (L-XRT), so an empty
+        // /opt/xilinx/xrt dir alone must NOT report Ready.
+        touch(root.filePath(QStringLiteral("opt/xilinx/xrt/lib/libxrt_coreutil.so")));
         const NpuDetect d = detect(snapshotWith({amd()}), root.path());
         QCOMPARE(d.vendor, NpuVendor::Amd);
         QCOMPARE(d.reason, NaReason::None);
