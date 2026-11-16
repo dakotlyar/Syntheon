@@ -175,9 +175,17 @@ bool NpuDownloader::ensureFile(QNetworkAccessManager &nam, const QString &packVe
         bool reused = false;
         if (QFileInfo(target).size() == file.size) {
             const QByteArray digest = sha256HexFile(target, cancelled);
+            // A Stop that lands mid-re-hash must surface as "cancelled" here,
+            // not fall through into a re-fetch that would immediately hit nam.get()
+            // (nit 1: cache-rehash cancel fallthrough).
+            if (cancelled && cancelled()) {
+                if (error)
+                    *error = QStringLiteral("cancelled");
+                return false;
+            }
             if (digest == file.sha256)
                 reused = true;
-            else if (!(cancelled && cancelled()))
+            else
                 QFile::remove(target);
         } else {
             QFile::remove(target);
@@ -271,13 +279,19 @@ bool NpuDownloader::ensureFile(QNetworkAccessManager &nam, const QString &packVe
     if (!(cancelled && cancelled()) && reply->error() == QNetworkReply::NoError)
         drain();
 
-    if (reply->error() != QNetworkReply::NoError) {
+    // A short/partial write, or a stream over its declared size, must surface as
+    // the error text even when the reply had already finished before abort() could
+    // take effect (a file:// reply delivers its whole body with `finished`, so an
+    // oversize/short write that drains post-loop can leave reply->error() NoError
+    // — nil 2: key the error branch off writeError too, don't let a no-op abort
+    // on a finished reply swallow it).
+    if (reply->error() != QNetworkReply::NoError || !writeError.isEmpty()) {
         save.cancelWriting();
         reply->deleteLater();
-        if (cancelled && cancelled())
-            *error = QStringLiteral("cancelled");
-        else if (!writeError.isEmpty())
+        if (!writeError.isEmpty())
             *error = writeError;
+        else if (cancelled && cancelled())
+            *error = QStringLiteral("cancelled");
         else
             *error = QStringLiteral("failed to download %1: %2").arg(file.path, reply->errorString());
         return false;
@@ -290,7 +304,6 @@ bool NpuDownloader::ensureFile(QNetworkAccessManager &nam, const QString &packVe
     // cleanly cancelled rather than committed (P-STOP).
     if (cancelled && cancelled()) {
         save.cancelWriting();
-        reply->deleteLater();
         if (error)
             *error = QStringLiteral("cancelled");
         return false;
@@ -353,6 +366,13 @@ DownloadResult NpuDownloader::download(const QString &vendor, const std::functio
     QString error;
     if (!fetchBytes(nam, urlFor(QStringLiteral("npu-models/manifest.json")), cancelled, &manifestBytes, &error)) {
         result.error = error;
+        return result;
+    }
+    // A Stop that lands the moment the manifest body arrived (after fetchBytes
+    // returns, before parse) must surface as "cancelled", not as a bogus
+    // "manifest isn't valid JSON" (nit 3: fetchBytes pre-commit cancel).
+    if (cancelled && cancelled()) {
+        result.error = QStringLiteral("cancelled");
         return result;
     }
     const std::optional<Manifest> manifest = parse(manifestBytes, &error);
