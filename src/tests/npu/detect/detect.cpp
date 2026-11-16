@@ -50,16 +50,34 @@ bool qualcommSupported()
 #endif
 }
 
-// The vendor a snapshot NPU entry is (by the vendor string, or its driver).
+// Intel runs on Windows only (D1a): the locked Linux coverage is AMD XDNA via
+// Knowhere's amdxdna driver; Intel-on-Linux would be build-only and unvalidated
+// (N4 — Nivedellir, the only Intel validation machine, is Windows).
+bool intelSupported()
+{
+#if defined(Q_OS_WIN)
+    return true;
+#else
+    return false;
+#endif
+}
+
+// The vendor a snapshot NPU entry is, per §3.2: Intel by the vendor string or
+// its `intel_vpu` driver; AMD by the `amdxdna` driver or its "AMD XDNA NPU"
+// name; Qualcomm by its name carrying "Qualcomm" (the WoA ACPI device reports
+// vendor "Qualcomm Technologies, Inc." and no PCI VEN_, so a name match is the
+// reliable signal) or the `qcnspmcdm` service. Anything else → Null.
 NpuVendor vendorOf(const QJsonObject &npu)
 {
     const QString vendor = npu.value(QStringLiteral("vendor")).toString();
     const QString driver = npu.value(QStringLiteral("driver")).toString();
+    const QString name = npu.value(QStringLiteral("name")).toString();
     if (vendor == QLatin1StringView("Intel") || driver == QLatin1StringView("intel_vpu"))
         return NpuVendor::Intel;
-    if (vendor == QLatin1StringView("AMD") || driver == QLatin1StringView("amdxdna"))
+    if (driver == QLatin1StringView("amdxdna") || name.contains(QLatin1StringView("AMD XDNA NPU")))
         return NpuVendor::Amd;
-    if (vendor == QLatin1StringView("Qualcomm"))
+    if (name.contains(QLatin1StringView("Qualcomm"), Qt::CaseInsensitive)
+        || driver == QLatin1StringView("qcnspmcdm"))
         return NpuVendor::Qualcomm;
     return NpuVendor::Null;
 }
@@ -103,12 +121,21 @@ QString reasonString(NaReason r, const QStringList &args)
     QString s = templateFor(r);
     if (s.isEmpty())
         return {};
-    if (s.contains(QStringLiteral("%1")))
-        s.replace(QStringLiteral("%1"), args.value(0));
-    if (s.contains(QStringLiteral("%2")))
-        s.replace(QStringLiteral("%2"), args.value(1));
-    if (s.contains(QStringLiteral("%3")))
-        s.replace(QStringLiteral("%3"), args.value(2));
+    // RuntimeLoadFailed's error lands in the %3 slot, but the common call is
+    // {vendor, error} (2-arg) rather than {vendor, platform, error} (3-arg).
+    const auto value = [&](int slot) {
+        if (r == NaReason::RuntimeLoadFailed && slot == 3)
+            return args.size() >= 3 ? args.value(2) : args.value(1);
+        return args.value(slot - 1);
+    };
+    // Substitute through one-use sentinels so an argument's own "%1"/"%2"/"%3"
+    // text is never rewritten by a later .replace() (and a 2-arg LoadFailed
+    // still yields the error, not an empty tail).
+    const QStringList sent{QStringLiteral("\x01"), QStringLiteral("\x02"), QStringLiteral("\x03")};
+    for (int i = 1; i <= 3; ++i)
+        s.replace(QStringLiteral("%") + QString::number(i), sent.at(i - 1));
+    for (int i = 1; i <= 3; ++i)
+        s.replace(sent.at(i - 1), value(i));
     return s;
 }
 
@@ -141,6 +168,13 @@ NpuDetect detect(const SystemSnapshot &snapshot, const QString &root)
 
     // Qualcomm only runs on Windows-on-ARM (N4): unsupported everywhere else.
     if (vendor == NpuVendor::Qualcomm && !qualcommSupported()) {
+        out.reason = NaReason::UnsupportedVendor;
+        return out;
+    }
+
+    // Intel is Windows-only (D1a: AMD XDNA is the sole Linux path). Gate before
+    // the driver check so an unsupported OS never reports DriverMissing.
+    if (vendor == NpuVendor::Intel && !intelSupported()) {
         out.reason = NaReason::UnsupportedVendor;
         return out;
     }
