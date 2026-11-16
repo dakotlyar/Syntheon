@@ -46,20 +46,25 @@ QString programFiles(const QString &root)
                           : root + QStringLiteral("/Program Files");
 }
 
-// The first subdirectory of `parent` matching the glob-ish prefix (an empty
-// prefix matches any). Newest first: name order reversed so a leftover older
-// SDK dir never shadows a newer one, or "".
-QString firstDirWithPrefix(const QString &parent, const QString &prefix)
+// All subdirectories of `parent` matching the glob-ish prefix (an empty
+// prefix matches any), most-specific first (QDir::Name reversed so a leftover
+// older SDK dir never shadows a newer one). Callers must loop over these and
+// verify the runtime is actually on disk before accepting one: a single
+// reversed name is not enough, since a non-SDK sibling ("Intel Corporation",
+// "uninstall", "logs") can sort above the real SDK dir, while a numeric
+// version dir ("2.45.0") sorts below it.
+QStringList dirsWithPrefix(const QString &parent, const QString &prefix)
 {
+    QStringList out;
     const QDir d(parent);
     if (!d.exists())
-        return {};
+        return out;
     const QStringList entries = d.entryList(QDir::Dirs | QDir::NoDotAndDotDot,
                                             QDir::Name | QDir::Reversed);
     for (const QString &e : entries)
         if (prefix.isEmpty() || e.startsWith(prefix, Qt::CaseInsensitive))
-            return d.filePath(e);
-    return {};
+            out.append(d.filePath(e));
+    return out;
 }
 
 // OpenVINO (Intel): the core + the NPU plugin must sit together (Program Files
@@ -81,17 +86,26 @@ bool findOpenVino(const QString &root, QString *dir)
     }
 
     const QString pf = programFiles(root);
-    const QString base = firstDirWithPrefix(pf, QStringLiteral("Intel"));
-    if (!base.isEmpty()) {
-        const QString runtime = firstDirWithPrefix(base, QStringLiteral("openvino"));
-        if (!runtime.isEmpty()) {
+    // The exact "Intel" dir is probed first so it always beats a longer
+    // "Intel*" sibling ("Intel Corporation" from standard Intel/Killer/IPF
+    // drivers) that sorts above it under reversed name order. Every candidate
+    // is verified to actually hold the runtime before it is accepted.
+    const auto openvinoUnder = [&](const QString &base) {
+        const QStringList runtimes = dirsWithPrefix(base, QStringLiteral("openvino"));
+        for (const QString &runtime : runtimes) {
             const QString d = runtime + QStringLiteral("/runtime/bin/intel64/Release");
             if (hasDlls(d)) {
                 *dir = d;
                 return true;
             }
         }
-    }
+        return false;
+    };
+    if (openvinoUnder(pf + QStringLiteral("/Intel")))
+        return true;
+    for (const QString &base : dirsWithPrefix(pf, QStringLiteral("Intel")))
+        if (openvinoUnder(base))
+            return true;
 
     // A pip-installed openvino (real Windows only): site-packages/openvino/libs.
     // LOCALAPPDATA is already C:\Users\<user>\AppData\Local, so the Python
@@ -131,9 +145,9 @@ bool findRyzenAi(const QString &root, QString *dir)
         }
     }
 
-    const QString ryzen = firstDirWithPrefix(programFiles(root) + QStringLiteral("/RyzenAI"),
-                                             QStringLiteral("ryzen-ai-"));
-    if (!ryzen.isEmpty()) {
+    const QStringList ryzens = dirsWithPrefix(programFiles(root) + QStringLiteral("/RyzenAI"),
+                                              QStringLiteral("ryzen-ai-"));
+    for (const QString &ryzen : ryzens) {
         const QString dep = ryzen + QStringLiteral("/deployment");
         if (hasDlls(dep)) {
             *dir = dep;
@@ -160,7 +174,12 @@ bool qnnRuntimeUnder(const QString &sdk)
         QStringLiteral("bin/QnnSystem.dll"),
         QStringLiteral("QnnHtp.dll"),
     };
-    const QStringList roots{sdk, firstDirWithPrefix(sdk, QString())};
+    // `sdk` itself first, then its subdirectories most-specific first. The
+    // empty prefix matches every dir, so loop and check rather than trust the
+    // first reversed name: "uninstall"/"logs" sort above a numeric version dir
+    // like "2.45.0", which is only reached later in the reversed ordering.
+    QStringList roots = dirsWithPrefix(sdk, QString());
+    roots.prepend(sdk);
     for (const QString &base : roots) {
         if (base.isEmpty())
             continue;
@@ -185,19 +204,23 @@ bool findQnn(const QString &root, QString *dir)
         return true;
     }
 
-    const QString ai = firstDirWithPrefix(programFiles(root) + QStringLiteral("/Qualcomm"),
-                                          QStringLiteral("AI"));
-    if (!ai.isEmpty() && qnnRuntimeUnder(ai)) {
-        *dir = ai;
-        return true;
+    const QStringList ais = dirsWithPrefix(programFiles(root) + QStringLiteral("/Qualcomm"),
+                                           QStringLiteral("AI"));
+    for (const QString &ai : ais) {
+        if (qnnRuntimeUnder(ai)) {
+            *dir = ai;
+            return true;
+        }
     }
 
     const QString qairtBase = root.isEmpty() ? QStringLiteral("C:/Qualcomm/AIStack/QAIRT")
                                              : root + QStringLiteral("/Qualcomm/AIStack/QAIRT");
-    const QString ver = firstDirWithPrefix(qairtBase, QString());
-    if (!ver.isEmpty() && qnnRuntimeUnder(ver)) {
-        *dir = ver;
-        return true;
+    const QStringList vers = dirsWithPrefix(qairtBase, QString());
+    for (const QString &ver : vers) {
+        if (qnnRuntimeUnder(ver)) {
+            *dir = ver;
+            return true;
+        }
     }
     return false;
 }

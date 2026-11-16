@@ -205,6 +205,10 @@ private slots:
     {
         QTemporaryDir root;
         QVERIFY(root.isValid());
+        // A sibling "Intel Corporation" (created by standard Intel/Killer/IPF
+        // drivers) sorts above "Intel" under reversed name order; the probe
+        // must still resolve the exact Intel runtime dir's DLLs (AP-5 CP1).
+        touch(root.filePath(QStringLiteral("Program Files/Intel Corporation/placeholder")));
         const QString d = root.filePath(QStringLiteral("Program Files/Intel/openvino/runtime/bin/intel64/Release"));
         touch(d + QStringLiteral("/openvino.dll"));
         touch(d + QStringLiteral("/openvino_intel_npu_plugin.dll"));
@@ -250,6 +254,11 @@ private slots:
     {
         QTemporaryDir root;
         QVERIFY(root.isValid());
+        // "logs"/"uninstall" siblings sort above the numeric "2.45.0" in
+        // reversed name order; the empty-prefix scan must loop past them to the
+        // version dir that actually holds the DLL.
+        touch(root.filePath(QStringLiteral("Qualcomm/AIStack/QAIRT/logs/placeholder")));
+        touch(root.filePath(QStringLiteral("Qualcomm/AIStack/QAIRT/uninstall/placeholder")));
         const QString d = root.filePath(QStringLiteral("Qualcomm/AIStack/QAIRT/2.45.0"));
         touch(d + QStringLiteral("/lib/aarch64-windows-msvc/QnnHtp.dll"));
         const NpuDetect r = detect(snapshotWith({qualcomm()}), root.path());
