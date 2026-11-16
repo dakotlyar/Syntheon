@@ -8,6 +8,7 @@
 #include "tests/npu/npu_test.h"
 #include "tests/npu/formula_v1.h"
 #include "tests/npu/ids.h"
+#include "tests/npu/workloads/workloads.h"
 
 #include <QCborMap>
 #include <QCryptographicHash>
@@ -306,6 +307,81 @@ private slots:
         // run against an unverified model (P-NET / §15).
         QCOMPARE(r.status, Status::NotAvailable);
         QVERIFY2(r.statusReason.contains(QLatin1StringView("model pack")), qPrintable(r.statusReason));
+    }
+
+    // AP-5 (1): a Stop that lands INSIDE runWindow — the engine breaks early and
+    // returns true with a truncated but valid span (the OpenVINO contract) — must
+    // surface as Cancelled, never an Ok that commits the truncated window as a
+    // score (silent-wrong EC-P10).
+    void midWindowStopIsCancelled()
+    {
+        std::atomic<bool> stopped{false};
+        struct MidWindowEngine : sb::npu::INpuEngine
+        {
+            QString backendName() const override { return QStringLiteral("mid"); }
+            QString runtimeVersion() const override { return {}; }
+            bool init(const sb::npu::LoadedModel &, QString *) override { return true; }
+            bool runWindow(const QString &, const sb::npu::LoadedModel &, sb::npu::Inference &out, QString *,
+                           const std::function<bool()> &) override
+            {
+                ++windows;
+                if (windows == 3) {   // the Stop lands during the final window
+                    stopped->store(true);
+                    out.seconds = 0.2;   // truncated
+                    out.units = 1;
+                    out.valid = 1;
+                    return true;         // clean break, not a failure
+                }
+                out.seconds = 5.0;
+                out.units = 500;
+                out.valid = 500;
+                return true;
+            }
+            int windows = 0;
+            std::atomic<bool> *stopped = nullptr;
+        };
+        MidWindowEngine engine;
+        engine.stopped = &stopped;
+        const sb::npu::LoadedModel model;
+        const sb::npu::workloads::WorkloadResult wr =
+            sb::npu::workloads::runWindows(QStringLiteral("llm"), engine, model, [&] { return stopped.load(); });
+        QCOMPARE(wr.status, sb::npu::workloads::WorkloadStatus::Cancelled);
+        QCOMPARE(engine.windows, 3);
+    }
+
+    // AP-5 (3): the correctness sentinel must run on EVERY window — a driver that
+    // resets after window 0 (windows 1–2 return valid==0, units==0, seconds==0)
+    // is an Error, never an Ok with a median of 0.0 and no total.
+    void zeroValidWindowIsError()
+    {
+        struct GarbageEngine : sb::npu::INpuEngine
+        {
+            QString backendName() const override { return QStringLiteral("garbage"); }
+            QString runtimeVersion() const override { return {}; }
+            bool init(const sb::npu::LoadedModel &, QString *) override { return true; }
+            bool runWindow(const QString &, const sb::npu::LoadedModel &, sb::npu::Inference &out, QString *,
+                           const std::function<bool()> &) override
+            {
+                ++windows;
+                if (windows == 1) {   // window 0 is fine…
+                    out.seconds = 5.0;
+                    out.units = 500;
+                    out.valid = 500;
+                } else {              // …then the driver resets to zero output
+                    out.seconds = 0.0;
+                    out.units = 0;
+                    out.valid = 0;
+                }
+                return true;
+            }
+            int windows = 0;
+        };
+        GarbageEngine engine;
+        const sb::npu::LoadedModel model;
+        const sb::npu::workloads::WorkloadResult wr =
+            sb::npu::workloads::runWindows(QStringLiteral("classify"), engine, model, nullptr);
+        QCOMPARE(wr.status, sb::npu::workloads::WorkloadStatus::Error);
+        QVERIFY(!wr.error.isEmpty());
     }
 };
 

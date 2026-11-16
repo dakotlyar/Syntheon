@@ -2,6 +2,7 @@
 #include "tests/npu/workloads/workloads.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace sb::npu::workloads {
 
@@ -35,16 +36,28 @@ WorkloadResult runWindows(const QString &workloadId, INpuEngine &engine, const L
             out.error = error.isEmpty() ? QStringLiteral("the %1 runtime failed to run a window").arg(workloadId) : error;
             return out;
         }
-        // §2 correctness sentinel, on the first inference (window 0): a vendor
-        // stack that runs but emits garbage (no valid output) is an Error with a
-        // reason, never scored. `valid` is the engine's count of in-range /
+        // A Stop that lands INSIDE runWindow (between inferences) breaks the loop
+        // early and — per the engine contract — returns true with a truncated
+        // span. Poll it again immediately, BEFORE the sentinel: a Stopped final
+        // window must be Cancelled, never an Ok that commits a truncated ~200 ms
+        // window as a composite score, and a Stop at window 0 must never surface
+        // as a bogus Error/Partial instead (P-STOP ≤ 250 ms; EC-P10 silent-wrong).
+        if (cancelled && cancelled()) {
+            out.status = WorkloadStatus::Cancelled;
+            return out;
+        }
+        // §2 correctness sentinel, on EVERY window (i = 0..2): a vendor stack
+        // that runs but emits garbage — no valid output, no units, or a
+        // zero/non-finite elapsed span (the driver reset after window 0, say) —
+        // is an Error with a reason, never scored. Guarantees `median > 0`
+        // whenever Ok is returned. `valid` is the engine's count of in-range /
         // plausible / non-empty outputs; the null engine always passes.
-        if (i == 0 && (inf.valid <= 0 || inf.units <= 0)) {
+        if (inf.valid <= 0 || inf.units <= 0 || !(inf.seconds > 0.0) || !std::isfinite(inf.seconds)) {
             out.status = WorkloadStatus::Error;
             out.error = QStringLiteral("the %1 runtime produced no valid output (correctness sentinel failed)").arg(workloadId);
             return out;
         }
-        const double rate = inf.seconds > 0.0 ? double(inf.units) / inf.seconds : 0.0;
+        const double rate = double(inf.units) / inf.seconds;
         out.windows[i] = rate;
         if (i == 0)
             out.ttftMs = inf.ttftSeconds > 0.0 ? inf.ttftSeconds * 1000.0 : 0.0;

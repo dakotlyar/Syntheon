@@ -3,11 +3,14 @@
 
 // The three NPU workloads, vendor-agnostic (Phase 4c design §2). Each runs the
 // engine's `runWindow` in a 3×window loop, takes the median throughput, and
-// applies the §2 correctness sentinel — the first inference must produce a
-// valid output (argmax in-range / box count plausible / tokens > 0), otherwise
-// a garbage-producing vendor stack is an Error, never scored. The engine owns
-// the deterministic input (a fixed synthetic image / prompt, design §8); the
-// workload only orchestrates the windows and the sentinel.
+// applies the §2 correctness sentinel — EVERY window must produce a valid
+// output (argmax in-range / box count plausible / tokens > 0, a positive
+// finite elapsed span), otherwise a garbage-producing vendor stack is an
+// Error, never scored. The engine owns the deterministic input (a fixed
+// synthetic image / prompt, design §8); the workload only orchestrates the
+// windows and the sentinel. Stop is polled both before AND after each window,
+// so a Stop that lands mid-window (the engine breaks early and returns true
+// with a truncated span) is Cancelled, never scored.
 
 #include "tests/npu/engine/engine.h"
 
@@ -30,10 +33,11 @@ struct WorkloadResult {
 };
 
 // The shared core: three windows of `workloadId` against `model`, the median,
-// and the sentinel. `cancelled` is polled before each window (P-STOP ≤ 250 ms);
-// `report(window)` is called before window `window` (0–2) runs, so the run can
-// advance its progress and stage there (and a Stop that lands on that stage is
-// seen before the window begins).
+// and the sentinel. `cancelled` is polled before AND after each window
+// (P-STOP ≤ 250 ms — the second poll catches a Stop that landed inside
+// `runWindow` and broke it early); `report(window)` is called before window
+// `window` (0–2) runs, so the run can advance its progress and stage there
+// (and a Stop that lands on that stage is seen before the window begins).
 WorkloadResult runWindows(const QString &workloadId, INpuEngine &engine, const LoadedModel &model,
                           const std::function<bool()> &cancelled,
                           const std::function<void(int window)> &report = {});
