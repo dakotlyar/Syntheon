@@ -47,13 +47,15 @@ QString programFiles(const QString &root)
 }
 
 // The first subdirectory of `parent` matching the glob-ish prefix (an empty
-// prefix matches any and returns the first by name), or "".
+// prefix matches any). Newest first: name order reversed so a leftover older
+// SDK dir never shadows a newer one, or "".
 QString firstDirWithPrefix(const QString &parent, const QString &prefix)
 {
     const QDir d(parent);
     if (!d.exists())
         return {};
-    const QStringList entries = d.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    const QStringList entries = d.entryList(QDir::Dirs | QDir::NoDotAndDotDot,
+                                            QDir::Name | QDir::Reversed);
     for (const QString &e : entries)
         if (prefix.isEmpty() || e.startsWith(prefix, Qt::CaseInsensitive))
             return d.filePath(e);
