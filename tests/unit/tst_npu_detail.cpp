@@ -107,26 +107,53 @@ private slots:
         QCOMPARE(cells(*groups, 3), (QStringList{QStringLiteral("NPU score"), QStringLiteral("100%"),
                                                 QStringLiteral("weighted geometric mean"), QStringLiteral("1,000")}));
 
-        // Per-workload table: Classify/Detect/LLM with model + precision (§12).
+        // Per-workload table: Classify/Detect/LLM with model + precision + the
+        // headline result + a Sub-score column (§12/AP-5 5b).
         const TableBlock *per = tableTitled(d, QStringLiteral("Workloads"));
         QVERIFY(per);
         QCOMPARE(per->columns, (QStringList{QStringLiteral("Workload"), QStringLiteral("Model"),
-                                            QStringLiteral("Precision"), QStringLiteral("Result")}));
+                                            QStringLiteral("Precision"), QStringLiteral("Result"),
+                                            QStringLiteral("Sub-score")}));
+        QCOMPARE(per->leftColumns, (QVector<int>{1, 2}));
+        QVERIFY(!per->summary.isEmpty());
         QCOMPARE(cells(*per, 0), (QStringList{QStringLiteral("Classify"), QStringLiteral("resnet50-int8"),
-                                              QStringLiteral("INT8"), QStringLiteral("1,450 img/s")}));
+                                              QStringLiteral("INT8"), QStringLiteral("1,450 img/s"),
+                                              QStringLiteral("1,000")}));
         QCOMPARE(cells(*per, 1).at(0), QStringLiteral("Detect"));
         QCOMPARE(cells(*per, 1).at(1), QStringLiteral("yolov8n-int8"));
+        QCOMPARE(cells(*per, 1).at(4), QStringLiteral("1,000"));
         QCOMPARE(cells(*per, 2).at(0), QStringLiteral("LLM"));
         QCOMPARE(cells(*per, 2).at(1), QStringLiteral("llm-1b-int4"));
         QCOMPARE(cells(*per, 2).at(2), QStringLiteral("INT4"));
 
-        // Device table: vendor → NPU → driver → runtime + engine + model pack.
+        // The Sub-tests table carries a summary (the collapsed header's short
+        // text) so it isn't blank when collapsed.
+        QVERIFY(!groups->summary.isEmpty());
+
+        // Device table: vendor → NPU → driver → runtime + engine + model pack,
+        // the Value column left-aligned with a summary.
         const TableBlock *dev = tableTitled(d, QStringLiteral("Device"));
         QVERIFY(dev);
+        QCOMPARE(dev->leftColumns, (QVector<int>{1}));
+        QVERIFY(!dev->summary.isEmpty());
         QCOMPARE(cells(*dev, 0), (QStringList{QStringLiteral("Vendor"), QStringLiteral("Intel")}));
         QCOMPARE(cells(*dev, 1), (QStringList{QStringLiteral("NPU"), QStringLiteral("Intel AI Boost")}));
         QCOMPARE(cells(*dev, 4).at(0), QStringLiteral("Engine"));
-        QCOMPARE(cells(*dev, 4).at(1), QStringLiteral("openvino-npu"));
+        QCOMPARE(cells(*dev, 5).at(1), QStringLiteral("1"));   // model pack
+
+        // The weight line + engine note are present (Tone::Good engine note is
+        // about the run, not buried in a collapsed table).
+        bool weight = false, engineNote = false;
+        for (const DetailBlock &b : d.blocks) {
+            if (const auto *n = std::get_if<NoteBlock>(&b.content)) {
+                if (n->text.contains(QLatin1StringView("Classify 33.3%")))
+                    weight = true;
+                if (n->text.contains(QLatin1StringView("openvino-npu")) && n->tone == Tone::Good)
+                    engineNote = true;
+            }
+        }
+        QVERIFY(weight);
+        QVERIFY(engineNote);
     }
 
     void notAvailableKeepsNaStateBlock()
