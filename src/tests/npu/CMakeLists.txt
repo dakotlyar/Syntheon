@@ -5,6 +5,7 @@
 # runtimes at runtime (dlopen/LoadLibrary), never at link time (P-VENDOR).
 add_library(syntheon_test_npu STATIC
     npu_test.h npu_test.cpp
+    npu_detail.cpp
     # The stable ids and metric keys (§9; pure).
     ids.h ids.cpp
     # The score (§10; pure).

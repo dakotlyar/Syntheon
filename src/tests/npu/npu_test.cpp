@@ -546,19 +546,4 @@ ScoreBreakdown NpuTest::score(const TestResult &result) const
     return sb::npu::formula_v1::score(result);
 }
 
-DetailLayout NpuTest::detail(const TestResult &result) const
-{
-    // Task 15 replaces this with the full npu_detail.cpp layout. Until then: a
-    // NotAvailable result keeps its own NaStateBlock (detail.h special-cases NPU,
-    // N9); everything else falls back to the generic layout.
-    if (result.status == Status::NotAvailable) {
-        DetailLayout d;
-        d.subtitle = QStringLiteral("Not available on this machine");
-        const QString reason = result.statusReason.isEmpty() ? QStringLiteral("No NPU found") : result.statusReason;
-        d.blocks.append({{}, NaStateBlock{QStringLiteral("No supported NPU found"), reason}});
-        return d;
-    }
-    return genericDetailLayout(result);
-}
-
 } // namespace sb::tests
