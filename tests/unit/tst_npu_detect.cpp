@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The NPU vendor + runtime detection (Phase 4c design §3, §14.1, §15): the
 // snapshot's `npus[]` parsed against fixture snapshots, the primary-vendor
-// selection (Intel → AMD → Qualcomm), the platform gates (Qualcomm is Windows-
-// on-ARM only, N4; Intel is Windows-only, D1a), and the runtime probes run
-// against a synthetic `root` so the present/absent outcomes don't depend on
-// the dev machine's real packages. The per-OS runtime probes are guarded so
-// this test runs on whatever platform the build targets.
+// selection (Intel → AMD → Qualcomm), the platform gate (Qualcomm is Windows-
+// on-ARM only, N4), and the runtime probes run against a synthetic `root` so
+// the present/absent outcomes don't depend on the dev machine's real packages.
+// Intel runs on both Windows and Linux (D1b, build-only/unvalidated on Linux).
+// The per-OS runtime probes are guarded so this test runs on whatever platform
+// the build targets.
 #include "tests/npu/detect/detect.h"
 
 #include <QDir>
@@ -160,13 +161,29 @@ private slots:
         QCOMPARE(d.reason, NaReason::UnsupportedVendor);
     }
 
-    // ---- Linux (D1a): AMD XDNA only; Intel is UnsupportedVendor ----
+    // ---- Linux (D1b): Intel (OpenVINO .so, build-only/unvalidated) + AMD XDNA ----
 #if defined(Q_OS_LINUX)
-    void linuxIntelUnsupported()
+    void linuxIntelRuntimeMissing()
     {
-        const NpuDetect d = detect(snapshotWith({intel()}));
+        QTemporaryDir root;   // no OpenVINO libs anywhere under it
+        QVERIFY(root.isValid());
+        const NpuDetect d = detect(snapshotWith({intel()}), root.path());
         QCOMPARE(d.vendor, NpuVendor::Intel);
-        QCOMPARE(d.reason, NaReason::UnsupportedVendor);
+        QCOMPARE(d.reason, NaReason::RuntimeMissing);
+    }
+
+    void linuxIntelRuntimePresent()
+    {
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        const QString d = root.filePath(QStringLiteral("opt/intel/openvino/runtime/lib/intel64"));
+        touch(d + QStringLiteral("/libopenvino.so"));
+        touch(d + QStringLiteral("/libopenvino_c.so"));
+        touch(d + QStringLiteral("/openvino_intel_npu_plugin.so"));
+        const NpuDetect r = detect(snapshotWith({intel()}), root.path());
+        QCOMPARE(r.vendor, NpuVendor::Intel);
+        QCOMPARE(r.reason, NaReason::None);
+        QVERIFY(r.runtimePath.startsWith(root.path()));
     }
 
     void linuxAmdRuntimeMissing()

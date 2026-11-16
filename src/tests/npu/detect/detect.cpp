@@ -50,12 +50,14 @@ bool qualcommSupported()
 #endif
 }
 
-// Intel runs on Windows only (D1a): the locked Linux coverage is AMD XDNA via
-// Knowhere's amdxdna driver; Intel-on-Linux would be build-only and unvalidated
-// (N4 — Nivedellir, the only Intel validation machine, is Windows).
+// Intel runs on both Windows and Linux (D1b): the same OpenVINO engine compiles
+// for .dll (Windows) and .so (Linux). Intel-on-Linux is BUILD-ONLY and
+// unvalidated — Nivedellir, the only Intel validation machine, is Windows (N4),
+// so the Linux branch compiles and is fixture-tested but has never run a real
+// NPU. Qualcomm stays Windows-on-ARM only; AMD runs on both (D1).
 bool intelSupported()
 {
-#if defined(Q_OS_WIN)
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     return true;
 #else
     return false;
@@ -183,8 +185,9 @@ NpuDetect detect(const SystemSnapshot &snapshot, const QString &root)
         return out;
     }
 
-    // Intel is Windows-only (D1a: AMD XDNA is the sole Linux path). Gate before
-    // the driver check so an unsupported OS never reports DriverMissing.
+    // Intel runs on Windows and Linux (D1b: AMD XDNA is no longer the sole Linux
+    // path, but Intel-on-Linux is build-only/unvalidated). Gate before the driver
+    // check so an unsupported OS never reports DriverMissing.
     if (vendor == NpuVendor::Intel && !intelSupported()) {
         out.reason = NaReason::UnsupportedVendor;
         return out;

@@ -174,7 +174,9 @@ private:
 #if defined(Q_OS_WIN)
         return QStringLiteral("openvino_intel_npu_plugin.dll");
 #else
-        return QStringLiteral("libopenvino_intel_npu_plugin.so");
+        // OpenVINO's NPU plugin ships without the `lib` prefix (it is dlopen'd by
+        // name, unlike the linked core/C-API libs) — match detect_linux.cpp.
+        return QStringLiteral("openvino_intel_npu_plugin.so");
 #endif
     }
     static QString libPath(const QString &dir, const QString &name) { return QDir(dir).filePath(name); }
