@@ -34,9 +34,10 @@ namespace {
 
 using namespace sb::npu::engine_internal;
 
-// The QNN core libraries sit beside the QAIRT runtime path resolve() handed us
-// (detect's findQnn: lib/aarch64-windows-msvc/ or the SDK root). Windows-on-ARM
-// names; the ARM64-only guard means no Linux/so naming is needed (N4).
+// The QNN core libraries sit in the exact DLL directory detect's findQnn
+// resolved (the dir that holds BOTH QnnHtp.dll and QnnSystem.dll, e.g.
+// lib/aarch64-windows-msvc/). Windows-on-ARM names; the ARM64-only guard means
+// no Linux/so naming is needed (N4).
 QString htpName() { return QStringLiteral("QnnHtp.dll"); }
 QString systemName() { return QStringLiteral("QnnSystem.dll"); }
 
@@ -84,7 +85,8 @@ public:
             error);
     }
 
-    bool runWindow(const QString &, const LoadedModel &, Inference &out, QString *error) override
+    bool runWindow(const QString &, const LoadedModel &, Inference &out, QString *error,
+                   const std::function<bool()> &) override
     {
         out.units = 0;
         out.valid = 0;

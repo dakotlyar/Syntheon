@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The AMD NPU engine (Ryzen AI / Vitis AI EP), Phase 4c design §4.1. dlopens the
-// USER-INSTALLED ONNX Runtime (onnxruntime.dll / libonnxruntime.so) plus the
-// Vitis AI EP library from RYZEN_AI_INSTALLATION_PATH / the default RyzenAI
-// deployment dir (the runtime path resolve() handed us — detect reused it), and
-// resolves ONNX Runtime's C entry point OrtGetApiBase with null-checks. No vendor
-// header or .lib is compiled in (P-VENDOR); any load/resolve failure is a clean
-// init() == false + a clear error, never a throw.
+// The AMD NPU engine (Ryzen AI / Vitis AI EP on Windows, XRT on Linux), Phase 4c
+// design §4.1. On Windows it dlopens the USER-INSTALLED ONNX Runtime
+// (onnxruntime.dll) plus the Vitis AI EP library from RYZEN_AI_INSTALLATION_PATH
+// / the default RyzenAI deployment dir; on Linux (D1 Option A, locked) it
+// dlopens the XRT runtime (/opt/xilinx/xrt/lib/libxrt_coreutil.so) detect already
+// probes. Both resolve their C entry point (OrtGetApiBase / the XRT load) with
+// null-checks. No vendor header or .lib is compiled in (P-VENDOR); any
+// load/resolve failure is a clean init() == false + a clear error, never a throw.
 //
 // HONEST SCOPE NOTE (Antilles / AP-5 / §16): the stable, hand-pinnable part of
 // ONNX Runtime's C ABI is OrtGetApiBase() + the 2-member OrtApiBase table
@@ -98,12 +99,20 @@ public:
     bool init(const LoadedModel &model, QString *error) override
     {
 #if !defined(Q_OS_WIN)
-        // Linux AMD XDNA is the XRT path (D1, still undecided), not Ryzen AI /
-        // Vitis AI EP — the "always compiled" engine fails cleanly rather than
-        // inventing the XRT path inside the Windows-centric Vitis AI engine.
-        (void)model;
+        // Linux AMD XDNA is the XRT path (D1 Option A, LOCKED): load the XRT
+        // runtime detect already probes (/opt/xilinx/xrt/lib/libxrt_coreutil.so),
+        // then defer the session ABI symmetrically with the Windows path — the
+        // runtime loads, the session is deferred, and no silent (software/CPU)
+        // score can result. Missing XRT → clean init() == false, same as Windows.
+        auto xrt = std::make_unique<Library>(QDir(m_runtimePath).filePath(QStringLiteral("lib/libxrt_coreutil.so")),
+                                             error);
+        if (!xrt->isOpen())
+            return false;
+        m_xrt = std::move(xrt);
         return failWith(
-            QStringLiteral("AMD Ryzen AI / Vitis AI EP runs only on Windows; AMD XDNA on Linux is the XRT path (D1)"),
+            QStringLiteral("AMD XDNA runtime loaded; the session ABI is deferred to "
+                           "real-hardware validation (§16) — model %1 was not compiled")
+                .arg(model.name),
             error);
 #endif
         // Load the runtime + the Vitis AI EP library, both beside the runtime
@@ -130,7 +139,6 @@ public:
         m_onnx = std::move(onnx);
         m_ep = std::move(ep);
         m_getApiBase = getApiBase;
-        (void)model;
 
         // The session/providers/run orchestration needs the versioned OrtApi table
         // (~500 fields through SessionOptionsAppendExecutionProvider_VitisAI, ORT
@@ -144,7 +152,8 @@ public:
             error);
     }
 
-    bool runWindow(const QString &, const LoadedModel &, Inference &out, QString *error) override
+    bool runWindow(const QString &, const LoadedModel &, Inference &out, QString *error,
+                   const std::function<bool()> &) override
     {
         out.units = 0;
         out.valid = 0;
@@ -165,6 +174,7 @@ private:
     QString m_version;
     std::unique_ptr<Library> m_onnx;
     std::unique_ptr<Library> m_ep;
+    std::unique_ptr<Library> m_xrt;   // Linux XRT runtime (D1 Option A)
     OrtGetApiBaseFn m_getApiBase = nullptr;
 };
 

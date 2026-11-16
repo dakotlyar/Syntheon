@@ -8,11 +8,23 @@
 // header or .lib is ever compiled in.
 #include <QByteArray>
 #include <QString>
+#include <functional>
 #include <memory>
 
 #include <cstdint>
 
 namespace sb::npu {
+
+// QNN runs only on Windows-on-ARM (design N4, mirrored from detect.cpp's
+// qualcommSupported()). Single source of truth: the QNN translation unit and
+// makeEngine() (engine_null.cpp) both key off this macro, so the Qualcomm
+// branch can't drift between the two. Defined here — the shared interface
+// header every engine translation unit and tst_npu_engine.cpp already include —
+// so the gate is visible everywhere it is needed without a second include
+// (AP-5 C3: the macro must not be a private detail of engine_dlopen.h).
+#if defined(Q_OS_WIN) && (defined(Q_PROCESSOR_ARM_64) || defined(_M_ARM64))
+#  define SYNTHEON_NPU_QNN_AVAILABLE 1
+#endif
 
 // One vendor backend. Implementations dlopen/LoadLibrary the USER-INSTALLED
 // vendor runtime (never bundled, never linked — P-VENDOR) and resolve a
@@ -41,9 +53,13 @@ public:
     // Returns false + sets *error on any failure; must never throw.
     virtual bool init(const LoadedModel &model, QString *error) = 0;
     // Run one measurement window (5 s) of the named workload against `model`;
-    // append to *out. Returns false only on a real failure (not cancel).
+    // append to *out. Returns false only on a real failure (not cancel). The
+    // optional `cancelled` predicate is polled between inferences so a Stop can
+    // break the loop early (P-STOP ≤ 250 ms); a clean break still returns true
+    // with `out.seconds` set to the actual elapsed span.
     virtual bool runWindow(const QString &workload, const LoadedModel &model,
-                           Inference &out, QString *error) = 0;
+                           Inference &out, QString *error,
+                           const std::function<bool()> &cancelled = {}) = 0;
 };
 
 // Build the engine for the detected vendor's runtime. Returns null if there is

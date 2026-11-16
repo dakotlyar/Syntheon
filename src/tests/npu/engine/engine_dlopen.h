@@ -9,6 +9,8 @@
 // user's own install (design §4, §13). Header-only (inline) so the three engines
 // share one load/resolve path with no extra translation unit.
 
+#include <QDir>
+#include <QFileInfo>
 #include <QString>
 
 #include <cstdint>
@@ -21,14 +23,6 @@
 #  include <windows.h>
 #else
 #  include <dlfcn.h>
-#endif
-
-// QNN runs only on Windows-on-ARM (design N4, mirrored from detect.cpp's
-// qualcommSupported()). Single source of truth: the QNN translation unit and
-// makeEngine() both key off this macro so the Qualcomm branch can't drift
-// between the two (AP-5 H1/H2 were exactly this class of drift).
-#if defined(Q_OS_WIN) && (defined(Q_PROCESSOR_ARM_64) || defined(_M_ARM64))
-#  define SYNTHEON_NPU_QNN_AVAILABLE 1
 #endif
 
 namespace sb::npu::engine_internal {
@@ -67,7 +61,17 @@ public:
     Library(const QString &absPath, QString *error) : m_path(absPath)
     {
 #if defined(Q_OS_WIN)
-        m_handle = reinterpret_cast<void *>(LoadLibraryW(reinterpret_cast<const wchar_t *>(absPath.utf16())));
+        // Syntheon.exe runs SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS),
+        // so plain LoadLibraryW(absPath) only searches the exe folder + System32,
+        // never dirname(absPath) — vendor sibling DLLs would fail with error 126.
+        // Load with LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR (the loaded DLL's own dir) so
+        // a runtime's DLL dependencies resolve beside it. Win32 rejects '/'-seps
+        // with ERROR_INVALID_PARAMETER, so normalise to a native absolute path.
+        const QString native = QDir::toNativeSeparators(QFileInfo(absPath).absoluteFilePath());
+        m_handle = reinterpret_cast<void *>(LoadLibraryExW(reinterpret_cast<const wchar_t *>(native.utf16()),
+                                                            nullptr,
+                                                            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
+                                                                | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS));
 #else
         m_handle = dlopen(absPath.toUtf8().constData(), RTLD_NOW | RTLD_LOCAL);
 #endif

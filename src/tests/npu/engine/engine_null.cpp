@@ -69,7 +69,8 @@ public:
         return true;   // no runtime to load: the fake always initialises
     }
 
-    bool runWindow(const QString &workload, const LoadedModel &, Inference &out, QString *) override
+    bool runWindow(const QString &workload, const LoadedModel &, Inference &out, QString *,
+                   const std::function<bool()> &) override
     {
         // Sane per-workload rates in a realistic NPU band (img/s / tok/s), with a
         // tiny deterministic (±3 %) jitter so the three windows spread slightly for
