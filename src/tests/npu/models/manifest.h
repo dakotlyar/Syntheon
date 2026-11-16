@@ -35,9 +35,12 @@ struct Manifest {
 };
 
 // Parses + validates the §6.1 manifest JSON. Returns nullopt and sets *error
-// on anything malformed: not an object, an unsupported schema, a model or file
-// missing a required field, a negative size, or a file sha256 that isn't 64
-// characters. sha256 strings are lower-cased on the way in.
+// on anything malformed: not an object, an unsupported schema, a missing/empty
+// pack_version, a model missing/unknown id/vendor/workload/precision, a file
+// with an unsafe path (absolute, drive letter, or ".." traversal), a
+// non-positive/non-integer size, or a sha256 that isn't 64 lower-case hex
+// characters. sha256 strings are lower-cased on the way in (so upper-case hex
+// is accepted and normalised).
 std::optional<Manifest> parse(const QByteArray &json, QString *error);
 
 // The models for one vendor (case-insensitive), in manifest order (N3: the

@@ -42,6 +42,7 @@ std::optional<Workload> workloadFromId(QStringView);
 enum class NpuVendor { Intel, Amd, Qualcomm, Null };
 QString vendorId(NpuVendor);        // "intel" "amd" "qualcomm" "null" (the manifest's vendor tag)
 QString vendorName(NpuVendor);      // "Intel" "AMD" "Qualcomm" "Null"
+std::optional<NpuVendor> vendorFromId(QStringView);  // "null" is not a real pack vendor → nullopt
 
 // The neutral, sub-test-less keys (§9): stored on every result, never scored.
 inline const QString kDeviceVendor = QStringLiteral("device.vendor");

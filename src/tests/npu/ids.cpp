@@ -170,4 +170,14 @@ QString vendorName(NpuVendor v)
     return {};
 }
 
+std::optional<NpuVendor> vendorFromId(QStringView id)
+{
+    // Only the three real pack vendors round-trip; "null" is the internal
+    // "none" sentinel, never a manifest tag.
+    for (NpuVendor v : {NpuVendor::Intel, NpuVendor::Amd, NpuVendor::Qualcomm})
+        if (id == vendorId(v))
+            return v;
+    return std::nullopt;
+}
+
 } // namespace sb::npu
