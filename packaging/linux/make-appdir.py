@@ -44,7 +44,7 @@ from pathlib import Path
 
 APP_ID = "io.github.dakotlyar.Syntheon"
 
-# Qt plugin folders that Syntheon can use. (tls, sqldrivers other than sqlite,
+# Qt plugin folders that Syntheon can use. (sqldrivers other than sqlite,
 # designer, ... are left out on purpose.)
 PLUGIN_DIRS = {
     # xcb (X11, also the XWayland fallback) and wayland (native; Qt 6.12 has ONE
@@ -53,6 +53,10 @@ PLUGIN_DIRS = {
     # 6.x names stay listed so a different Qt still works.
     "platforms": ["libqxcb.so", "libqwayland.so", "libqwayland-egl.so", "libqwayland-generic.so", "libqoffscreen.so",
                   "libqminimal.so"],
+    # The OpenSSL TLS backend: without it every https:// download fails in the
+    # shipped build (the app scrubs QT_PLUGIN_PATH, so the system TLS plugin is
+    # never found). Its libssl/libcrypto needs are bundled by the library walk.
+    "tls": ["libqopensslbackend.so"],
     "xcbglintegrations": None,  # everything
     "wayland-decoration-client": None,
     "wayland-graphics-integration-client": None,

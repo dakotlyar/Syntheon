@@ -9,6 +9,7 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -212,9 +213,56 @@ private slots:
         QVERIFY(writeServer(fixture, manifestFor(content), content));
 
         NpuDownloader downloader(QUrl::fromLocalFile(fixture.path() + QLatin1Char('/')).toString(), cache.path());
-        const DownloadResult r = downloader.download(kVendor, [] { return true; });
+
+        // A stateful cancel that fires *inside* the model file's transfer rather
+        // than at the top-of-download short-circuit: it returns false until
+        // ensureFile has created the target's cache directory (mkpath, just
+        // before the atomic write opens), then true. QSaveFile never materializes
+        // its temp file in the target dir (it's renamed in atomically on commit),
+        // so the observable "we are mid model-file transfer" signal is the dir
+        // itself existing. That drives the in-flight abort → cancelWriting path.
+        const QString targetDir = QFileInfo(cachedPath(cache.path())).absolutePath();
+        bool enteredTransfer = false;
+        const auto cancel = [&]() {
+            if (!enteredTransfer)
+                enteredTransfer = QDir(targetDir).exists();
+            return enteredTransfer;
+        };
+
+        const DownloadResult r = downloader.download(kVendor, cancel);
         QVERIFY(!r.ok);
-        QVERIFY(!QFile::exists(cachedPath(cache.path())));
+        QCOMPARE(r.error, QStringLiteral("cancelled"));
+
+        // cancelWriting() removed the temp file: no model file remains anywhere
+        // under npu-models/<pack_version>/ (the empty mkpath dirs are not files).
+        QDirIterator it(QDir(cache.path()).filePath(QStringLiteral("npu-models/1")),
+                        QDir::Files, QDirIterator::Subdirectories);
+        QVERIFY(!it.hasNext());
+    }
+
+    void baseUrlSchemeValidation()
+    {
+        QTemporaryDir cache;
+        QVERIFY(cache.isValid());
+
+        // Cleartext http:// is rejected up front (P-NET: a MITM could swap
+        // models for the verified SHA256) — no network, no cache, a clear error.
+        NpuDownloader httpDl(QStringLiteral("http://models.example.com/npu"), cache.path());
+        const DownloadResult hr = httpDl.download(kVendor);
+        QVERIFY(!hr.ok);
+        QVERIFY(hr.error.contains(QLatin1String("https://")));
+
+        // Schemeless hosts are rejected too (Qt's cryptic "" is unknown).
+        NpuDownloader noScheme(QStringLiteral("models.example.com/npu"), cache.path());
+        const DownloadResult sr = noScheme.download(kVendor);
+        QVERIFY(!sr.ok);
+        QVERIFY(sr.error.contains(QLatin1String("https://")));
+
+        // Whitespace-only is trimmed and treated as "not configured".
+        NpuDownloader blank(QStringLiteral("   "), cache.path());
+        const DownloadResult br = blank.download(kVendor);
+        QVERIFY(!br.ok);
+        QCOMPARE(br.error, QStringLiteral("no model-pack download source is configured"));
     }
 };
 

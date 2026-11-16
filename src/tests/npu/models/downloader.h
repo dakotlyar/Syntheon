@@ -26,7 +26,6 @@
 #include <QVector>
 
 #include <functional>
-#include <memory>
 #include <optional>
 
 class QNetworkAccessManager;
@@ -73,13 +72,13 @@ public:
 private:
     QUrl urlFor(const QString &relative) const;
     QString cacheFilePath(const QString &packVersion, const QString &relativePath) const;
-    bool fetchBytes(const QUrl &url, const std::function<bool()> &cancelled, QByteArray *out, QString *error);
-    bool ensureFile(const QString &packVersion, const ManifestFile &file,
+    bool fetchBytes(QNetworkAccessManager &nam, const QUrl &url, const std::function<bool()> &cancelled,
+                    QByteArray *out, QString *error);
+    bool ensureFile(QNetworkAccessManager &nam, const QString &packVersion, const ManifestFile &file,
                     const std::function<bool()> &cancelled, QString *error);
 
     QString m_baseUrl;
     QString m_cacheRoot;
-    std::unique_ptr<QNetworkAccessManager> m_nam;
 };
 
 } // namespace sb::npu

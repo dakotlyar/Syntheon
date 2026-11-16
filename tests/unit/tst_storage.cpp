@@ -514,10 +514,12 @@ private slots:
             QCOMPARE(s.layout(), QStringLiteral("rail"));
             QCOMPARE(s.theme(), QStringLiteral("system"));
             QVERIFY(s.dataLocation().isEmpty());
+            QVERIFY(s.npuModelsBaseUrl().isEmpty());
             QVERIFY(!s.firstRunDone());
             s.setLayout(QStringLiteral("tabs"));
             s.setTheme(QStringLiteral("dark"));
             s.setDataLocation(QStringLiteral("/mnt/usb/Syntheon"));
+            s.setNpuModelsBaseUrl(QStringLiteral("https://models.example.com/npu"));
             s.setFirstRunDone(true);
             QVERIFY(s.sync());
         }
@@ -526,12 +528,15 @@ private slots:
         QCOMPARE(s.layout(), QStringLiteral("tabs"));
         QCOMPARE(s.theme(), QStringLiteral("dark"));
         QCOMPARE(s.dataLocation(), QStringLiteral("/mnt/usb/Syntheon"));
+        QCOMPARE(s.npuModelsBaseUrl(), QStringLiteral("https://models.example.com/npu"));
         QVERIFY(s.firstRunDone());
 
         s.setTheme(QStringLiteral("purple"));
         QCOMPARE(s.theme(), QStringLiteral("system"));  // unknown values fall back
         s.setDataLocation({});
         QVERIFY(s.dataLocation().isEmpty());
+        s.setNpuModelsBaseUrl({});
+        QVERIFY(s.npuModelsBaseUrl().isEmpty());
     }
 
     void defaultSettingsFile()
