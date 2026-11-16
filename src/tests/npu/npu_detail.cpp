@@ -223,10 +223,10 @@ DetailLayout NpuTest::detail(const TestResult &r) const
     };
     field(QStringLiteral("Vendor"), vendor);
     field(QStringLiteral("NPU"), device);
-    field(QStringLiteral("Driver"), driver.isEmpty() ? (vendor.isEmpty() ? QString() : QStringLiteral("—")) : driver);
+    field(QStringLiteral("Driver"), driver);
     field(QStringLiteral("Runtime"), runtime);
     field(QStringLiteral("Engine"), engine);
-    field(QStringLiteral("Model pack"), pack.isEmpty() ? QString() : QStringLiteral("%1").arg(pack));
+    field(QStringLiteral("Model pack"), pack);
     d.blocks.append({QStringLiteral("Device"), dev});
 
     // 5. Notes (§12): the engine + the conditions.

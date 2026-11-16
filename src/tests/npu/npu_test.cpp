@@ -139,7 +139,7 @@ const sb::npu::ManifestModel *findModel(const QVector<sb::npu::ManifestModel> &m
 class NpuRun
 {
 public:
-    explicit NpuRun(RunContext &ctx) : m_ctx(ctx) {}
+    explicit NpuRun(RunContext &ctx) : m_ctx(ctx), m_budgetTotal(kRunSteps) {}
 
     TestResult run();
 
@@ -147,7 +147,10 @@ private:
     bool cancelled() const { return m_ctx.cancelled(); }
     std::function<bool()> cancelFn() const { return [this] { return cancelled(); }; }
 
-    // Progress against a fixed step budget, never backwards (P-PROG).
+    // Progress against a fixed step budget, never backwards (P-PROG). The
+    // budget is the measured run only: engine load + warm-up + 3 workloads × 3
+    // windows (the model-pack download is a precondition, off the run clock).
+    static constexpr double kRunSteps = 2.0 + 3.0 * 3.0;
     void report(double at, const QString &stage)
     {
         m_lastFraction = std::clamp(std::max(m_lastFraction, at / m_budgetTotal), 0.0, 0.999);
