@@ -139,9 +139,9 @@ private slots:
         FakeProbeContext ctx;
         const Availability a = m_registry.find(QStringLiteral("npu"))->probe(ctx);
         QCOMPARE(a.state, Availability::State::Unavailable);
-        QVERIFY(a.reason.contains(QLatin1StringView("No supported NPU")));
-        ctx.snapshot.data.insert(QStringLiteral("npus"), QJsonArray{QJsonObject{{QStringLiteral("name"), QStringLiteral("AMD XDNA NPU")}}});
-        QVERIFY(m_registry.find(QStringLiteral("npu"))->probe(ctx).reason.contains(QLatin1StringView("AMD XDNA NPU")));
+        // The N/A reason is the §3.3 taxonomy string (no vendor-specific text;
+        // the real test's vendor/runtime detection is covered by tst_npu_detect).
+        QCOMPARE(a.reason, QStringLiteral("No supported NPU found on this machine"));
         const TestResult na = TestResult::notAvailable(QStringLiteral("x"));
         const DetailLayout d = m_registry.find(QStringLiteral("npu"))->detail(na);
         QVERIFY(std::holds_alternative<NaStateBlock>(d.blocks.first().content));
