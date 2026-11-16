@@ -35,6 +35,12 @@ public:
     QString theme() const;
     void setTheme(const QString &theme);
 
+    // The NPU model-pack base URL (Phase 4c, D2): "https://…" or "file:///…".
+    // Empty = not configured; the pack download is then unavailable, and the
+    // test reports the model pack as missing (design §6.2).
+    QString npuModelsBaseUrl() const;
+    void setNpuModelsBaseUrl(const QString &url);
+
     bool firstRunDone() const;
     void setFirstRunDone(bool done);
 

@@ -10,6 +10,7 @@ namespace {
 const QString kDataLocation = QStringLiteral("storage/dataLocation");
 const QString kLayout = QStringLiteral("ui/layout");
 const QString kTheme = QStringLiteral("ui/theme");
+const QString kNpuModelsBaseUrl = QStringLiteral("npu/modelsBaseUrl");
 const QString kFirstRunDone = QStringLiteral("app/firstRunDone");
 } // namespace
 
@@ -66,6 +67,19 @@ QString SettingsStore::theme() const
 void SettingsStore::setTheme(const QString &theme)
 {
     m_settings->setValue(kTheme, theme);
+}
+
+QString SettingsStore::npuModelsBaseUrl() const
+{
+    return m_settings->value(kNpuModelsBaseUrl).toString();
+}
+
+void SettingsStore::setNpuModelsBaseUrl(const QString &url)
+{
+    if (url.isEmpty())
+        m_settings->remove(kNpuModelsBaseUrl);
+    else
+        m_settings->setValue(kNpuModelsBaseUrl, url);
 }
 
 bool SettingsStore::firstRunDone() const
