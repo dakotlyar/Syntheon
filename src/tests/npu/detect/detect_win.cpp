@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The Windows runtime probe (Phase 4c design §3.2): Intel via OpenVINO
-// (openvino.dll + openvino_intel_npu_plugin.dll), AMD via Ryzen AI Software
-// (RYZEN_AI_INSTALLATION_PATH / C:\Program Files\RyzenAI\… deployment DLLs),
-// Qualcomm via the QAIRT/QNN SDK (a QnnHtp.dll / QnnSystem.dll actually
-// present). This file is Windows-only (P-WIN): it is compiled on Windows and
-// A-W syntax-checked on Linux; it never runs here.
+// (openvino.dll + openvino_c.dll + openvino_intel_npu_plugin.dll), AMD via Ryzen
+// AI Software (RYZEN_AI_INSTALLATION_PATH / C:\Program Files\RyzenAI\…
+// deployment DLLs), Qualcomm via the QAIRT/QNN SDK (a QnnHtp.dll + QnnSystem.dll
+// pair actually present). This file is Windows-only (P-WIN): it is compiled on
+// Windows and A-W syntax-checked on Linux; it never runs here.
 #include "tests/npu/detect/detect.h"
 
 #include <QDir>
@@ -67,12 +67,13 @@ QStringList dirsWithPrefix(const QString &parent, const QString &prefix)
     return out;
 }
 
-// OpenVINO (Intel): the core + the NPU plugin must sit together (Program Files
-// default, INTEL_OPENVINO_DIR, or a pip site-packages).
+// OpenVINO (Intel): the core + the C API + the NPU plugin must sit together
+// (Program Files default, INTEL_OPENVINO_DIR, or a pip site-packages).
 bool findOpenVino(const QString &root, QString *dir)
 {
     const auto hasDlls = [&](const QString &d) {
         return fileExists(d + QStringLiteral("/openvino.dll"))
+               && fileExists(d + QStringLiteral("/openvino_c.dll"))
                && fileExists(d + QStringLiteral("/openvino_intel_npu_plugin.dll"));
     };
 
@@ -157,70 +158,77 @@ bool findRyzenAi(const QString &root, QString *dir)
     return false;
 }
 
-// A QNN runtime is only "present" if a QnnHtp.dll / QnnSystem.dll is actually
-// on disk (design §3.2: "runtime present (registry or default SDK path)"). The
-// DLL may sit under lib/<arch>-windows-msvc/ (ARM64) or a bin/ dir — directly
-// under the SDK root, or one version subdirectory deeper.
-bool qnnRuntimeUnder(const QString &sdk)
+// The exact directory holding BOTH QnnHtp.dll and QnnSystem.dll under `sdk`, or
+// "" when either is missing (design §3.2: a QNN runtime is "present" only when
+// the Htp + System DLL pair is actually on disk). The pair may sit under
+// lib/<arch>-windows-msvc/ (ARM64) or bin/ — directly under the SDK root, or one
+// version subdirectory deeper. Returns the DLL-containing directory itself so the
+// engine can load the pair by exact path (matching the OpenVINO/RyzenAI style).
+QString qnnDllDir(const QString &sdk)
 {
     if (sdk.isEmpty())
-        return false;
-    const QStringList rels = {
-        QStringLiteral("lib/aarch64-windows-msvc/QnnHtp.dll"),
-        QStringLiteral("lib/arm64x-windows-msvc/QnnHtp.dll"),
-        QStringLiteral("lib/aarch64-windows-msvc/QnnSystem.dll"),
-        QStringLiteral("lib/arm64x-windows-msvc/QnnSystem.dll"),
-        QStringLiteral("bin/QnnHtp.dll"),
-        QStringLiteral("bin/QnnSystem.dll"),
-        QStringLiteral("QnnHtp.dll"),
+        return {};
+    const auto hasPair = [&](const QString &d) {
+        return fileExists(d + QStringLiteral("/QnnHtp.dll"))
+               && fileExists(d + QStringLiteral("/QnnSystem.dll"));
     };
-    // `sdk` itself first, then its subdirectories most-specific first. The
-    // empty prefix matches every dir, so loop and check rather than trust the
-    // first reversed name: "uninstall"/"logs" sort above a numeric version dir
-    // like "2.45.0", which is only reached later in the reversed ordering.
+    const QStringList subdirs = {
+        QStringLiteral("lib/aarch64-windows-msvc"),
+        QStringLiteral("lib/arm64x-windows-msvc"),
+        QStringLiteral("bin"),
+    };
+    // `sdk` itself first, then its subdirectories most-specific first (QDir::Name
+    // reversed). The empty prefix matches every dir, so loop and check rather than
+    // trust the first reversed name: "uninstall"/"logs" sort above a numeric
+    // version dir like "2.45.0", which is only reached later in the ordering.
     QStringList roots = dirsWithPrefix(sdk, QString());
     roots.prepend(sdk);
     for (const QString &base : roots) {
         if (base.isEmpty())
             continue;
-        for (const QString &r : rels)
-            if (fileExists(base + QStringLiteral("/") + r))
-                return true;
+        for (const QString &sub : subdirs) {
+            const QString d = base + QStringLiteral("/") + sub;
+            if (hasPair(d))
+                return d;
+        }
+        if (hasPair(base))
+            return base;
     }
-    return false;
+    return {};
 }
 
-// Qualcomm QAIRT/QNN: an env SDK root with a QNN DLL, the Program Files QAIRT
-// SDK, or the default C:\Qualcomm\AIStack\QAIRT\<ver> (N2). An empty
-// QNN_SDK_ROOT must NOT count as present.
+// Qualcomm QAIRT/QNN: an env SDK root with a QNN DLL pair, the Program Files
+// QAIRT SDK, or the default C:\Qualcomm\AIStack\QAIRT\<ver> (N2). An empty
+// QNN_SDK_ROOT must NOT count as present. On success *dir is the exact directory
+// holding the Htp+System pair (H1), not the SDK root.
 bool findQnn(const QString &root, QString *dir)
 {
-    if (const QString qnn = env("QNN_SDK_ROOT", root); !qnn.isEmpty() && qnnRuntimeUnder(qnn)) {
-        *dir = qnn;
+    const auto accept = [&](const QString &sdk) {
+        const QString d = qnnDllDir(sdk);
+        if (d.isEmpty())
+            return false;
+        *dir = d;
         return true;
-    }
-    if (const QString qairt = env("QAIRT_SDK_ROOT", root); !qairt.isEmpty() && qnnRuntimeUnder(qairt)) {
-        *dir = qairt;
+    };
+
+    if (const QString qnn = env("QNN_SDK_ROOT", root); !qnn.isEmpty() && accept(qnn))
         return true;
-    }
+    if (const QString qairt = env("QAIRT_SDK_ROOT", root); !qairt.isEmpty() && accept(qairt))
+        return true;
 
     const QStringList ais = dirsWithPrefix(programFiles(root) + QStringLiteral("/Qualcomm"),
                                            QStringLiteral("AI"));
     for (const QString &ai : ais) {
-        if (qnnRuntimeUnder(ai)) {
-            *dir = ai;
+        if (accept(ai))
             return true;
-        }
     }
 
     const QString qairtBase = root.isEmpty() ? QStringLiteral("C:/Qualcomm/AIStack/QAIRT")
                                              : root + QStringLiteral("/Qualcomm/AIStack/QAIRT");
     const QStringList vers = dirsWithPrefix(qairtBase, QString());
     for (const QString &ver : vers) {
-        if (qnnRuntimeUnder(ver)) {
-            *dir = ver;
+        if (accept(ver))
             return true;
-        }
     }
     return false;
 }
