@@ -339,6 +339,14 @@ DownloadResult NpuDownloader::download(const QString &vendor, const std::functio
         return result;
     }
 
+    // An empty cache root makes QDir("") resolve to the process CWD, so a
+    // caller that set a base URL but no cache root would download the pack next
+    // to the executable (P-HOME leak). Reject it before any I/O.
+    if (m_cacheRoot.trimmed().isEmpty()) {
+        result.error = QStringLiteral("no model-pack cache directory is configured");
+        return result;
+    }
+
     // Only https:// (with a host) or file:// (tests) is accepted: a cleartext
     // http:// base URL would let a MITM substitute models for the verified
     // SHA256 (P-NET), and a schemeless/whitespace-only value is a config

@@ -62,14 +62,25 @@ QString platformText()
 QString naText(const sb::npu::NpuDetect &det)
 {
     using namespace sb::npu;
+    QString s;
     switch (det.reason) {
     case NaReason::NoNpu:
-        return reasonString(NaReason::NoNpu);
+        s = reasonString(NaReason::NoNpu);
+        break;
     case NaReason::UnsupportedVendor:
-        return reasonString(NaReason::UnsupportedVendor, {vendorName(det.vendor), platformText()});
+        s = reasonString(NaReason::UnsupportedVendor, {vendorName(det.vendor), platformText()});
+        break;
     default:
-        return reasonString(det.reason, {vendorName(det.vendor)});
+        s = reasonString(det.reason, {vendorName(det.vendor)});
+        break;
     }
+    // AMD's missing runtime is "detect + report N/A with a link" (locked), not a
+    // guided setup — but the UI doesn't render Availability::hint, so the setup
+    // URL must be part of the *visible* reason (the gpu_test.cpp "(%3)" trick).
+    // Both probe()'s N/A reason and run()'s Detail NaStateBlock take this path.
+    if (det.reason == NaReason::RuntimeMissing && det.vendor == NpuVendor::Amd && !s.isEmpty())
+        s += QStringLiteral(" — install the AMD Ryzen AI software: ") + kAmdRyzenAiUrl;
+    return s;
 }
 
 // The guided-setup URL for the Intel/Qualcomm runtime-precondition hint (D4).
@@ -188,6 +199,7 @@ private:
     std::map<sb::npu::Workload, sb::npu::LoadedModel> m_loaded;
     QString m_packVersion;
     QString m_engineBackend;
+    QString m_runtimeVersion;
     sb::npu::NpuVendor m_vendor = sb::npu::NpuVendor::Null;
 };
 
@@ -212,7 +224,7 @@ void NpuRun::finish(sb::npu::NpuDetect det, TestResult &r)
     str(sb::npu::kDeviceName, QStringLiteral("NPU"),
         det.deviceName.isEmpty() ? sb::npu::vendorName(det.vendor) + QStringLiteral(" NPU") : det.deviceName);
     str(sb::npu::kDeviceDriver, QStringLiteral("Driver"), det.driver);
-    str(sb::npu::kDeviceRuntime, QStringLiteral("Runtime"), det.runtimeVersion);
+    str(sb::npu::kDeviceRuntime, QStringLiteral("Runtime"), m_runtimeVersion);
     str(sb::npu::kEngineName, QStringLiteral("Inference engine"), m_engineBackend);
     const auto modelText = [&](sb::npu::Workload w) {
         const auto it = m_loaded.find(w);
@@ -252,7 +264,10 @@ TestResult NpuRun::run()
     // clock. The base URL and cache root are read LIVE from the context.
     const QString baseUrl = m_ctx.npuModelsBaseUrl();
     const QString cacheRoot = m_ctx.npuCacheRoot();
-    if (baseUrl.isEmpty())
+    // A missing base URL or cache root means the pack can't be downloaded; an
+    // empty cache root would make the downloader's QDir("") write to the process
+    // CWD (P-HOME leak), so refuse both up front.
+    if (baseUrl.isEmpty() || cacheRoot.trimmed().isEmpty())
         return TestResult::notAvailable(sb::npu::reasonString(sb::npu::NaReason::ModelMissing, {vendorName}));
 
     report(0.0, QStringLiteral("Downloading the model pack"));
@@ -276,6 +291,12 @@ TestResult NpuRun::run()
         sb::npu::LoadedModel lm;
         lm.name = mm->id;
         lm.precision = mm->precision;
+        // L2 (deferred to 4c-5): takes only the FIRST manifest file. OpenVINO's
+        // read_model needs the .xml + .bin pair in the canonical order, so a
+        // manifest that lists them out of order (or a single multi-file model)
+        // would hand the engine the wrong file. 4c-5 pins the per-engine model
+        // file order / set here; the OpenVINO engine currently fails closed on
+        // any model.path it didn't compile.
         lm.path = mm->files.isEmpty() ? QString() : downloader.localPath(*dl.manifest, mm->files.first());
         m_loaded[w] = lm;
     }
@@ -306,6 +327,10 @@ TestResult NpuRun::run()
             sb::npu::reasonString(sb::npu::NaReason::RuntimeLoadFailed, {vendorName, engineError}));
     }
     m_engineBackend = engine->backendName();
+    // The runtime version comes from the engine (which dlopened the runtime),
+    // not detect — detect() doesn't dlopen, so det.runtimeVersion is "" and the
+    // Device/runtime row would otherwise always read "—".
+    m_runtimeVersion = engine->runtimeVersion();
 
     // Warm-up window: one discarded window so the first measured window doesn't
     // include the engine's own ramp (design §2.2).
@@ -487,19 +512,28 @@ OptionSchema NpuTest::options(const ProbeContext &ctx, const Availability &) con
 
 QList<Precondition> NpuTest::preconditions(const OptionValues &, const ProbeContext &ctx) const
 {
+    // A no-NPU / unsupported / AMD-missing-runtime machine is Unavailable: the
+    // test reports N/A and can't run, so there's nothing to block pre-start (a
+    // Model-pack precondition would be a red herring on a machine that can't run
+    // the test at all, and would fail a no-NPU snapshot's pre-start check).
+    if (probe(ctx).state == Availability::State::Unavailable)
+        return {};
+
     QList<Precondition> out;
     const sb::npu::NpuDetect det = sb::npu::detect(ctx.system());
     const QString vendor = sb::npu::vendorName(det.vendor);
 
     // Guided setup (Intel/Qualcomm, runtime missing) — blocks the run until the
-    // runtime is installed (D4). AMD keeps its N/A + link in probe().
+    // runtime is installed (D4). AMD keeps its N/A + link in probe(). The
+    // descriptive text + URL live in `label` (the fill-width text); `detail` is
+    // a short status badge so the Pill doesn't overflow (AP-5 5a).
     if (det.reason == sb::npu::NaReason::RuntimeMissing && det.vendor != sb::npu::NpuVendor::Amd) {
         Precondition p;
         p.id = QStringLiteral("runtime");
-        p.label = QStringLiteral("Install the %1 runtime").arg(vendor);
+        p.label = QStringLiteral("An %1 NPU was found, but its runtime isn't installed — install it: %2")
+                      .arg(vendor, guidedSetupUrl(det.vendor));
         p.state = Precondition::State::NotMet;
-        p.detail = QStringLiteral("an %1 NPU was found, but its runtime isn't installed: %2")
-                       .arg(vendor, guidedSetupUrl(det.vendor));
+        p.detail = QStringLiteral("Not installed");
         out.append(p);
     }
 
@@ -507,13 +541,14 @@ QList<Precondition> NpuTest::preconditions(const OptionValues &, const ProbeCont
     // first run (the run re-checks and downloads before the measured work).
     Precondition models;
     models.id = QStringLiteral("models");
-    models.label = QStringLiteral("Model pack");
     if (ctx.npuModelsBaseUrl().isEmpty()) {
         models.state = Precondition::State::NotMet;
-        models.detail = QStringLiteral("no model-pack download source is set (choose one in Settings)");
+        models.label = QStringLiteral("Model pack — no download source is set (choose one in Settings)");
+        models.detail = QStringLiteral("Not set");
     } else {
         models.state = Precondition::State::Met;
-        models.detail = QStringLiteral("downloads and verifies on first run (about a few hundred MB)");
+        models.label = QStringLiteral("Model pack");
+        models.detail = QStringLiteral("Downloads on first run");
     }
     out.append(models);
     return out;
