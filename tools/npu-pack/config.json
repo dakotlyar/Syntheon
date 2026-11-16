@@ -1,0 +1,29 @@
+{
+  "description": "Intel NPU model pack v1 (Phase 4c D5/D9): ResNet-50 INT8 (classify), YOLOv8n INT8 (detect), ~1B-param LLM INT4 (llm). AMD and Qualcomm packs are separate and come later. 'version' is the per-model version directory in the served path; 'files' are bare names found under <source-root>/<vendor>/<workload>/<id>/.",
+  "models": [
+    {
+      "id": "resnet50-int8",
+      "vendor": "intel",
+      "workload": "classify",
+      "precision": "INT8",
+      "version": "1",
+      "files": ["resnet50.xml", "resnet50.bin"]
+    },
+    {
+      "id": "yolov8n-int8",
+      "vendor": "intel",
+      "workload": "detect",
+      "precision": "INT8",
+      "version": "1",
+      "files": ["yolov8n.xml", "yolov8n.bin"]
+    },
+    {
+      "id": "llm-1b-int4",
+      "vendor": "intel",
+      "workload": "llm",
+      "precision": "INT4",
+      "version": "1",
+      "files": ["openvino_model.xml", "openvino_model.bin", "tokenizer.json", "tokenizer_config.json"]
+    }
+  ]
+}
