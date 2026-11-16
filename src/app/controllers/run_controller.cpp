@@ -30,20 +30,27 @@ namespace {
 class AppProbeContext : public ProbeContext
 {
 public:
-    AppProbeContext(SystemSnapshot s, PrivilegedOps &ops, SettingsStore &settings, Storage &storage)
-        : m_system(std::move(s)), m_ops(ops), m_settings(settings), m_storage(storage)
+    AppProbeContext(SystemSnapshot s, PrivilegedOps &ops, QString npuModelsBaseUrl, QString npuCacheRoot)
+        : m_system(std::move(s)),
+          m_ops(ops),
+          m_npuModelsBaseUrl(std::move(npuModelsBaseUrl)),
+          m_npuCacheRoot(std::move(npuCacheRoot))
     {
     }
     const SystemSnapshot &system() const override { return m_system; }
     PrivilegedOps &privileged() const override { return m_ops; }
-    QString npuModelsBaseUrl() const override { return m_settings.npuModelsBaseUrl(); }
-    QString npuCacheRoot() const override { return m_storage.dataDir(); }
+    QString npuModelsBaseUrl() const override { return m_npuModelsBaseUrl; }
+    QString npuCacheRoot() const override { return m_npuCacheRoot; }
 
 private:
     SystemSnapshot m_system;
     PrivilegedOps &m_ops;
-    SettingsStore &m_settings;
-    Storage &m_storage;
+    // Snapshot the Settings/Storage-backed NPU values by value on the UI thread:
+    // QSettings (SettingsStore) and Storage are reentrant-not-threadsafe, and
+    // refreshProbes() builds this context on worker threads — reading them here
+    // would cross threads (AP-5 6a). The SnapshotProbeContext pattern.
+    QString m_npuModelsBaseUrl;
+    QString m_npuCacheRoot;
 };
 
 QString preconditionState(Precondition::State s)
@@ -436,7 +443,8 @@ QString RunController::testColor(const QString &id) const
 
 std::unique_ptr<ProbeContext> RunController::makeProbeContext() const
 {
-    return std::make_unique<AppProbeContext>(m_app.snapshotForRun(), m_app.privileged(), m_settings, m_storage);
+    return std::make_unique<AppProbeContext>(m_app.snapshotForRun(), m_app.privileged(), m_settings.npuModelsBaseUrl(),
+                                             m_storage.dataDir());
 }
 
 OptionSchema RunController::effectiveSchema(const QString &id) const
@@ -456,9 +464,14 @@ void RunController::refreshProbes()
         auto snapshot = m_app.snapshotForRun();
         PrivilegedOps *ops = &m_app.privileged();
         ITest *test = t.get();
-        m_probePool.start([this, id, test, snapshot, ops] {
+        // Snapshot the Settings/Storage-backed NPU values on the UI thread; the
+        // worker reads only the by-value copies in AppProbeContext (QSettings is
+        // reentrant-not-threadsafe, AP-5 6a).
+        const QString npuBaseUrl = m_settings.npuModelsBaseUrl();
+        const QString npuCacheRoot = m_storage.dataDir();
+        m_probePool.start([this, id, test, snapshot, ops, npuBaseUrl, npuCacheRoot] {
             // Discovery runs off the UI thread, never on it (§2.7).
-            AppProbeContext ctx(snapshot, *ops, m_settings, m_storage);
+            AppProbeContext ctx(snapshot, *ops, npuBaseUrl, npuCacheRoot);
             const Availability availability = test->probe(ctx);
             const OptionSchema schema = effectiveOptionSchema(*test, ctx, availability);
             QMetaObject::invokeMethod(this, [this, id, availability, schema] { onProbeResult(id, availability, schema); });
