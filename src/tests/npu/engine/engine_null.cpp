@@ -84,6 +84,14 @@ public:
         out.seconds = kNullSeconds;
         out.units = std::int64_t(std::llround(rate * kNullSeconds));
         out.valid = out.units;   // every synthetic inference passes the sentinel
+        // The llm workload's secondary TTFT (§9, reported, not scored): a
+        // deterministic, sane ~70–90 ms for a ~1.5 B INT4 model, from the same
+        // seed. Classify/detect have no prefill (0 = not measured).
+        out.ttftSeconds = 0.0;
+        if (workload == QLatin1StringView("llm")) {
+            const double u01t = double(m_rng() % 65536u) / 65535.0;
+            out.ttftSeconds = 0.08 * (0.95 + 0.10 * u01t);
+        }
         return true;
     }
 
