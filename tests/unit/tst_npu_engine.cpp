@@ -6,7 +6,9 @@
 // shim whose init() returns false with a clear error, all without any vendor
 // SDK on the build box (P-VENDOR). The real inference loop is §16 validation.
 #include "tests/npu/engine/engine.h"
+#include "tests/npu/engine/engine_dlopen.h"
 
+#include <QDir>
 #include <QTest>
 
 using namespace sb::npu;
@@ -158,6 +160,30 @@ private slots:
         Inference out;
         QVERIFY(engine->runWindow(QStringLiteral("classify"), {}, out, &err));
         QVERIFY(sane(out));
+    }
+
+    // L3: exercise the dlopen/LoadLibrary shim against a REAL system library so
+    // the hardened DLL-search path (LoadLibraryExW + LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR)
+    // and resolve<F>() actually run on windows-x64 CI before any vendor hardware.
+    void realSystemLibraryLoadsAndResolves()
+    {
+#if defined(Q_OS_WIN)
+        // The shim normalises paths to absolute; kernel32.dll needs its full
+        // System32 path (a bare name would become $CWD/kernel32.dll and miss).
+        const QString lib = QDir(qEnvironmentVariable("SystemRoot"))
+                                .filePath(QStringLiteral("System32/kernel32.dll"));
+        using Fn = std::uint32_t(__stdcall *)(void);
+        const char *sym = "GetCurrentProcessId";
+#else
+        const QString lib = QStringLiteral("libm.so.6");
+        using Fn = double (*)(double);
+        const char *sym = "cos";
+#endif
+        QString err;
+        engine_internal::Library library(lib, &err);
+        QVERIFY2(library.isOpen(), qPrintable(err));
+        const Fn fn = engine_internal::resolve<Fn>(library, sym, &err);
+        QVERIFY2(fn != nullptr, qPrintable(err));
     }
 };
 

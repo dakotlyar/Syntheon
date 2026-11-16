@@ -211,6 +211,7 @@ private slots:
         touch(root.filePath(QStringLiteral("Program Files/Intel Corporation/placeholder")));
         const QString d = root.filePath(QStringLiteral("Program Files/Intel/openvino/runtime/bin/intel64/Release"));
         touch(d + QStringLiteral("/openvino.dll"));
+        touch(d + QStringLiteral("/openvino_c.dll"));
         touch(d + QStringLiteral("/openvino_intel_npu_plugin.dll"));
         const NpuDetect r = detect(snapshotWith({intel()}), root.path());
         QCOMPARE(r.vendor, NpuVendor::Intel);
@@ -261,10 +262,14 @@ private slots:
         touch(root.filePath(QStringLiteral("Qualcomm/AIStack/QAIRT/uninstall/placeholder")));
         const QString d = root.filePath(QStringLiteral("Qualcomm/AIStack/QAIRT/2.45.0"));
         touch(d + QStringLiteral("/lib/aarch64-windows-msvc/QnnHtp.dll"));
+        touch(d + QStringLiteral("/lib/aarch64-windows-msvc/QnnSystem.dll"));
         const NpuDetect r = detect(snapshotWith({qualcomm()}), root.path());
         QCOMPARE(r.vendor, NpuVendor::Qualcomm);
         QCOMPARE(r.reason, NaReason::None);
         QVERIFY(r.runtimePath.startsWith(root.path()));
+        // The engine loads both DLLs by exact path from runtimePath, so detect
+        // must hand back the DLL dir, not the SDK root (H1).
+        QVERIFY(r.runtimePath.endsWith(QLatin1StringView("/lib/aarch64-windows-msvc")));
     }
 #endif  // ARM64
 #endif  // Q_OS_WIN
