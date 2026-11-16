@@ -15,3 +15,4 @@ target_link_libraries(syntheon_test_npu PUBLIC syntheon_core syntheon_test_commo
 
 add_subdirectory(detect)
 add_subdirectory(models)
+add_subdirectory(engine)
