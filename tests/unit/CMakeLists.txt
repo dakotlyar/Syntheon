@@ -44,6 +44,7 @@ syntheon_add_unit_test(tst_npu_detect SOURCES tst_npu_detect.cpp LIBS syntheon_t
 syntheon_add_unit_test(tst_npu_manifest SOURCES tst_npu_manifest.cpp LIBS syntheon_test_npu)
 syntheon_add_unit_test(tst_npu_downloader SOURCES tst_npu_downloader.cpp LIBS syntheon_test_npu)
 syntheon_add_unit_test(tst_npu_engine SOURCES tst_npu_engine.cpp LIBS syntheon_test_npu)
+syntheon_add_unit_test(tst_npu_test SOURCES tst_npu_test.cpp LIBS syntheon_test_npu)
 # These keep threads busy on (up to) every CPU; alone, so a parallel ctest -j
 # doesn't starve the timing-sensitive engine tests' coordinator
 # (tst_cpu_engine's cancelAtWindowChangeover). CI runs ctest serially anyway.
