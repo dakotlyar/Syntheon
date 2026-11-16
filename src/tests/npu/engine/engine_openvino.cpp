@@ -117,14 +117,32 @@ public:
         return load(model, error);
     }
 
-    bool runWindow(const QString &, const LoadedModel &, Inference &out, QString *error,
+    bool runWindow(const QString &workload, const LoadedModel &model, Inference &out, QString *error,
                    const std::function<bool()> &cancelled) override
     {
         out.seconds = 0.0;
         out.units = 0;
         out.valid = 0;
+        out.ttftSeconds = 0.0;   // single infer-request loop: no TTFT measurement yet
         if (!m_ready)
             return failWith(QStringLiteral("the OpenVINO engine is not initialised"), error);
+        // Fail closed when not actually runnable (EC-P +2 silent-wrong): init()
+        // compiled exactly one model, and a single ov_infer_request cannot switch
+        // to a different .xml/.bin without a reload (per-model reload lands in
+        // 4c-5 validation). Running m_request for "detect"/"llm" anyway would
+        // score the classify model (ResNet-50) three times as if it were Detect
+        // and LLM — a wrong Ok composite. So refuse the mismatch.
+        if (model.path != m_loadedPath) {
+            return failWith(QStringLiteral("the OpenVINO engine compiled %1, not %2 (per-model reload lands in 4c-5)")
+                                .arg(m_loadedPath.isEmpty() ? QStringLiteral("nothing") : m_loadedPath,
+                                     model.path.isEmpty() ? QStringLiteral("(no model)") : model.path),
+                            error);
+        }
+        // "llm" needs autoregressive token generation + output sanity (token
+        // count > 0), which this single-request loop doesn't do yet — fail
+        // closed rather than score a non-token-generation window as tok/s.
+        if (workload == QLatin1StringView("llm"))
+            return failWith(QStringLiteral("LLM token generation isn't implemented for the OpenVINO engine yet (4c-5)"), error);
 
         // One deterministic synthetic input buffer for the whole run: the same
         // fixed byte pattern on every window so windows are comparable (design §8).
@@ -325,6 +343,7 @@ private:
         if (m_api.createInferRequest(m_compiled, &m_request) != kOk || !m_request)
             return failLoad(QStringLiteral("ov_compiled_model_create_infer_request failed"), error);
 
+        m_loadedPath = model.path;
         m_ready = true;
         return true;
     }
@@ -426,11 +445,13 @@ private:
             m_api.coreFree(m_coreHandle);
             m_coreHandle = nullptr;
         }
+        m_loadedPath.clear();
         m_ready = false;
     }
 
     QString m_runtimePath;
     QString m_version;
+    QString m_loadedPath;   // the model compiled by the last successful load()
     OpenVinoApi m_api;
     std::unique_ptr<Library> m_core;    // the C++ runtime (kept loaded as a dependency)
     std::unique_ptr<Library> m_cApi;    // the C API (ov_* symbols resolved from here)
