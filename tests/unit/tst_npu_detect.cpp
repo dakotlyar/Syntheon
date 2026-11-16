@@ -94,30 +94,49 @@ private slots:
         QCOMPARE(d.reason, NaReason::DriverMissing);
     }
 
-    // Real snapshot strings (Windows SPDRP_MFG/friendly-name and the WoA ACPI
-    // device) must still resolve to the right vendor via name/driver, not the
-    // exact short vendor string (§3.2, AP-5 H2).
+    // Real snapshot strings (Windows SPDRP_MFG/friendly-name + PCI vendor, the
+    // WoA ACPI device, and empty-field entries per §15) must still resolve to
+    // the right vendor via vendor/driver/name, not the exact short vendor
+    // string or a Linux-only driver (§3.2, AP-5 H2/M2).
     void realSnapshotVendorMatching()
     {
-        // WoA Snapdragon X: vendor "Qualcomm Technologies, Inc.", name carries
-        // "Qualcomm", ACPI device (no PCI VEN_).
-        const NpuDetect q = detect(snapshotWith({npuEntry(QStringLiteral("Qualcomm(R) Hexagon(TM) NPU"),
-                                                        QStringLiteral("Qualcomm Technologies, Inc."),
-                                                        QStringLiteral("qcnspmcdm"))}));
-        QCOMPARE(q.vendor, NpuVendor::Qualcomm);
+        // Knowhere Windows Ryzen AI: vendor "AMD" via pciVendorName(0x1022),
+        // IpuMcdmDriver service, factory friendly-name (no "AMD XDNA" text).
+        const NpuDetect knowhere = detect(snapshotWith({npuEntry(
+            QStringLiteral("NPU Compute Accelerator Device"),
+            QStringLiteral("AMD"),
+            QStringLiteral("IpuMcdmDriver"))}));
+        QCOMPARE(knowhere.vendor, NpuVendor::Amd);
 
-        // AMD: manufacturer string may be "Advanced Micro Devices, Inc.", the
-        // name + amdxdna driver are the signal.
-        const NpuDetect a = detect(snapshotWith({npuEntry(QStringLiteral("AMD XDNA NPU"),
-                                                      QStringLiteral("Advanced Micro Devices, Inc."),
-                                                      QStringLiteral("amdxdna"))}));
-        QCOMPARE(a.vendor, NpuVendor::Amd);
+        // Nivedellir Windows: real Intel AI Boost snapshot.
+        const NpuDetect nivedellir = detect(snapshotWith({npuEntry(
+            QStringLiteral("Intel(R) AI Boost"),
+            QStringLiteral("Intel"),
+            QStringLiteral("npu"))}));
+        QCOMPARE(nivedellir.vendor, NpuVendor::Intel);
 
-        // Intel: the intel_vpu driver (vended name may differ).
-        const NpuDetect i = detect(snapshotWith({npuEntry(QStringLiteral("Intel AI Boost"),
-                                                      QStringLiteral("Intel Corporation"),
-                                                      QStringLiteral("intel_vpu"))}));
-        QCOMPARE(i.vendor, NpuVendor::Intel);
+        // Dragonfire WoA Snapdragon X: manufacturer "Qualcomm Technologies,
+        // Inc." with no PCI VEN_, name/driver carry the signal.
+        const NpuDetect dragonfire = detect(snapshotWith({npuEntry(
+            QStringLiteral("Snapdragon(R) X Elite - X1E78100 - Qualcomm(R) Hexagon(TM) NPU"),
+            QStringLiteral("Qualcomm Technologies, Inc."),
+            QStringLiteral("qcnspmcdm"))}));
+        QCOMPARE(dragonfire.vendor, NpuVendor::Qualcomm);
+
+        // Design §15: a Qualcomm entry with only the vendor string (empty name
+        // and driver) must still match, not fall through to Null.
+        const NpuDetect woavendoronly = detect(snapshotWith({npuEntry(
+            QString(), QStringLiteral("Qualcomm"), QString())}));
+        QCOMPARE(woavendoronly.vendor, NpuVendor::Qualcomm);
+
+        // AMD with no bound driver (driverless PCI\VEN_1022) → Amd, and the
+        // empty driver resolves to DriverMissing, not Null.
+        const NpuDetect amdNoDriver = detect(snapshotWith({npuEntry(
+            QStringLiteral("NPU Compute Accelerator Device"),
+            QStringLiteral("AMD"),
+            QString())}));
+        QCOMPARE(amdNoDriver.vendor, NpuVendor::Amd);
+        QCOMPARE(amdNoDriver.reason, NaReason::DriverMissing);
     }
 
     void firstVendorWins()

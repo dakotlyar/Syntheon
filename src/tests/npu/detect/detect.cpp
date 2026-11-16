@@ -62,22 +62,33 @@ bool intelSupported()
 #endif
 }
 
-// The vendor a snapshot NPU entry is, per §3.2: Intel by the vendor string or
-// its `intel_vpu` driver; AMD by the `amdxdna` driver or its "AMD XDNA NPU"
-// name; Qualcomm by its name carrying "Qualcomm" (the WoA ACPI device reports
-// vendor "Qualcomm Technologies, Inc." and no PCI VEN_, so a name match is the
-// reliable signal) or the `qcnspmcdm` service. Anything else → Null.
+// The vendor a snapshot NPU entry is, per §3.2. Each branch matches by
+// vendor string, driver string and/or name, because the real collectors leave
+// different fields set per OS and silicon: a Windows ComputeAccelerator entry
+// carries a pciVendorName() vendor ("AMD", "Intel"), an SPDRP_MFG manufacturer
+// ("Advanced Micro Devices, Inc.", "Qualcomm Technologies, Inc."), an inf
+// service name ("IpuMcdmDriver", "intel_vpu", "qcnspmcdm") and a friendly name,
+// while Linux sysfs only sets the driver ("amdxdna"). A vendor-only match with
+// an empty name/driver is still a real Windows entry (e.g. driverless
+// PCI\VEN_1022), not Null. Anything else → Null.
 NpuVendor vendorOf(const QJsonObject &npu)
 {
     const QString vendor = npu.value(QStringLiteral("vendor")).toString();
     const QString driver = npu.value(QStringLiteral("driver")).toString();
     const QString name = npu.value(QStringLiteral("name")).toString();
-    if (vendor == QLatin1StringView("Intel") || driver == QLatin1StringView("intel_vpu"))
+    if (vendor.startsWith(QLatin1StringView("Intel"), Qt::CaseInsensitive)
+        || driver == QLatin1StringView("intel_vpu")
+        || name.contains(QLatin1StringView("Intel"), Qt::CaseInsensitive))
         return NpuVendor::Intel;
-    if (driver == QLatin1StringView("amdxdna") || name.contains(QLatin1StringView("AMD XDNA NPU")))
+    if (vendor == QLatin1StringView("AMD")
+        || vendor.contains(QLatin1StringView("Advanced Micro Devices"), Qt::CaseInsensitive)
+        || driver == QLatin1StringView("amdxdna")
+        || driver.compare(QLatin1StringView("IpuMcdmDriver"), Qt::CaseInsensitive) == 0
+        || name.contains(QLatin1StringView("AMD XDNA"), Qt::CaseInsensitive))
         return NpuVendor::Amd;
     if (name.contains(QLatin1StringView("Qualcomm"), Qt::CaseInsensitive)
-        || driver == QLatin1StringView("qcnspmcdm"))
+        || driver == QLatin1StringView("qcnspmcdm")
+        || vendor.contains(QLatin1StringView("Qualcomm"), Qt::CaseInsensitive))
         return NpuVendor::Qualcomm;
     return NpuVendor::Null;
 }
