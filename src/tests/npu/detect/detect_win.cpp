@@ -92,13 +92,20 @@ bool findOpenVino(const QString &root, QString *dir)
     }
 
     // A pip-installed openvino (real Windows only): site-packages/openvino/libs.
+    // LOCALAPPDATA is already C:\Users\<user>\AppData\Local, so the Python
+    // runtime sits at <local>/Programs/Python/Python3* — scan newest first.
     if (const QString local = env("LOCALAPPDATA", root); !local.isEmpty()) {
-        for (const QString &sp : {
-                 QStringLiteral("%1/AppData/Local/Programs/Python/Python312/Lib/site-packages/openvino/libs"),
-                 QStringLiteral("%1/AppData/Local/Programs/Python/Python311/Lib/site-packages/openvino/libs")}) {
-            if (hasDlls(sp.arg(local))) {
-                *dir = sp.arg(local);
-                return true;
+        const QDir pybase(local + QStringLiteral("/Programs/Python"));
+        if (pybase.exists()) {
+            const QStringList pys = pybase.entryList(QStringList{QStringLiteral("Python3*")},
+                                                     QDir::Dirs | QDir::NoDotAndDotDot,
+                                                     QDir::Name | QDir::Reversed);
+            for (const QString &p : pys) {
+                const QString libs = pybase.filePath(p) + QStringLiteral("/Lib/site-packages/openvino/libs");
+                if (hasDlls(libs)) {
+                    *dir = libs;
+                    return true;
+                }
             }
         }
     }
