@@ -102,6 +102,11 @@ private slots:
         for (Workload w : kWorkloads)
             QCOMPARE(workloadFromId(QStringView(workloadId(w))), std::optional<Workload>(w));
         QVERIFY(!workloadFromId(u"nope"));
+
+        for (NpuVendor v : {NpuVendor::Intel, NpuVendor::Amd, NpuVendor::Qualcomm})
+            QCOMPARE(vendorFromId(QStringView(vendorId(v))), std::optional<NpuVendor>(v));
+        QVERIFY(!vendorFromId(u"nvidia"));
+        QVERIFY(!vendorFromId(u"null"));   // "null" is the internal sentinel, not a pack tag
     }
 
     void canonicalUnits()
@@ -133,6 +138,10 @@ private slots:
                  QStringLiteral("Qualcomm isn't supported on Linux"));
         QCOMPARE(reasonString(NaReason::RuntimeLoadFailed, {QStringLiteral("AMD"), QString(), QStringLiteral("symbol lookup failed")}),
                  QStringLiteral("the AMD runtime failed to load: symbol lookup failed"));
+        // The 2-arg {vendor, error} call must also carry the error (L1), and an
+        // arg's own "%2"/"%3" text must not be re-substituted.
+        QCOMPARE(reasonString(NaReason::RuntimeLoadFailed, {QStringLiteral("AMD"), QStringLiteral("LoadLibrary error 0x7E (%3)")}),
+                 QStringLiteral("the AMD runtime failed to load: LoadLibrary error 0x7E (%3)"));
     }
 };
 
