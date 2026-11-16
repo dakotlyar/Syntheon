@@ -61,7 +61,7 @@ private slots:
             startRuntime();
         Orchestrator::Config config;
         config.scratchRoot = m_dir->filePath(QStringLiteral("scratch-root"));
-        RunController controller(m_rt->storage(), m_rt->storageController(), m_rt->app(), config);
+        RunController controller(m_rt->settingsStore(), m_rt->storage(), m_rt->storageController(), m_rt->app(), config);
         QCOMPARE(controller.scratchRoot(), config.scratchRoot);
         QVERIFY(!controller.scratchRoot().isEmpty());
     }

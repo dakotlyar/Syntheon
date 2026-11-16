@@ -7,6 +7,7 @@
 #include "app/models/options_model.h"
 #include "app/models/run_queue_model.h"
 #include "core/power_inhibitor.h"
+#include "storage/settings_store.h"
 #include "storage/storage.h"
 #include "tests/builtin_tests.h"
 
@@ -29,13 +30,20 @@ namespace {
 class AppProbeContext : public ProbeContext
 {
 public:
-    AppProbeContext(SystemSnapshot s, PrivilegedOps &ops) : m_system(std::move(s)), m_ops(ops) {}
+    AppProbeContext(SystemSnapshot s, PrivilegedOps &ops, SettingsStore &settings, Storage &storage)
+        : m_system(std::move(s)), m_ops(ops), m_settings(settings), m_storage(storage)
+    {
+    }
     const SystemSnapshot &system() const override { return m_system; }
     PrivilegedOps &privileged() const override { return m_ops; }
+    QString npuModelsBaseUrl() const override { return m_settings.npuModelsBaseUrl(); }
+    QString npuCacheRoot() const override { return m_storage.dataDir(); }
 
 private:
     SystemSnapshot m_system;
     PrivilegedOps &m_ops;
+    SettingsStore &m_settings;
+    Storage &m_storage;
 };
 
 QString preconditionState(Precondition::State s)
@@ -65,12 +73,13 @@ Registry &populated(Registry &r)
 
 } // namespace
 
-RunController::RunController(Storage &storage, StorageController &storageController, AppController &app,
+RunController::RunController(SettingsStore &settings, Storage &storage, StorageController &storageController, AppController &app,
                              Orchestrator::Config config, QObject *parent)
     : QObject(parent),
       m_storage(storage),
       m_storageController(storageController),
       m_app(app),
+      m_settings(settings),
       m_scratchRoot(config.scratchRoot),
       m_selection(populated(m_registry)),
       m_sink([this] { return m_storage.dbPath(); }),
@@ -427,7 +436,7 @@ QString RunController::testColor(const QString &id) const
 
 std::unique_ptr<ProbeContext> RunController::makeProbeContext() const
 {
-    return std::make_unique<AppProbeContext>(m_app.snapshotForRun(), m_app.privileged());
+    return std::make_unique<AppProbeContext>(m_app.snapshotForRun(), m_app.privileged(), m_settings, m_storage);
 }
 
 OptionSchema RunController::effectiveSchema(const QString &id) const
@@ -449,7 +458,7 @@ void RunController::refreshProbes()
         ITest *test = t.get();
         m_probePool.start([this, id, test, snapshot, ops] {
             // Discovery runs off the UI thread, never on it (§2.7).
-            AppProbeContext ctx(snapshot, *ops);
+            AppProbeContext ctx(snapshot, *ops, m_settings, m_storage);
             const Availability availability = test->probe(ctx);
             const OptionSchema schema = effectiveOptionSchema(*test, ctx, availability);
             QMetaObject::invokeMethod(this, [this, id, availability, schema] { onProbeResult(id, availability, schema); });
@@ -743,6 +752,8 @@ bool RunController::start()
     meta.appVersion = QStringLiteral(SYNTHEON_DISPLAY_VERSION);
     meta.appBuild = QStringLiteral(SYNTHEON_BUILD_ID);
     meta.system = m_app.snapshotForRun();
+    meta.npuModelsBaseUrl = m_settings.npuModelsBaseUrl();
+    meta.npuCacheRoot = m_storage.dataDir();
     const auto result = m_orchestrator.start(plan, meta);
     if (!result.ok) {
         m_startErrors = result.errors;

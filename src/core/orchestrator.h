@@ -33,6 +33,11 @@ struct RunMeta {
     QString appVersion;  // "2026.11.0"
     QString appBuild;    // "linux-x64 abc1234"
     SystemSnapshot system;
+    // The NPU model-pack base URL and cache root (Phase 4c D2), read fresh at
+    // start() time (never captured in a test's constructor). Empty = not
+    // configured. Handed to tests via RunContext/ProbeContext.
+    QString npuModelsBaseUrl;
+    QString npuCacheRoot;
 };
 
 // Live progress for the queue row of test `index` (canonical plan position).

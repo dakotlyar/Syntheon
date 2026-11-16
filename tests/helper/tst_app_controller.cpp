@@ -199,7 +199,7 @@ private slots:
             Storage storage(store);
             StorageController sc(storage, store);
             {
-                RunController rc(storage, sc, c);
+                RunController rc(store, storage, sc, c);
                 c.start();
                 QTRY_COMPARE_WITH_TIMEOUT(c.authState(), AppController::AuthState::Ready, 10000);
                 QTRY_VERIFY_WITH_TIMEOUT(c.systemInfoReady(), 20000);

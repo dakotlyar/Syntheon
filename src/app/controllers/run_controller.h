@@ -26,6 +26,7 @@ class LogModel;
 class OptionsModel;
 class PowerInhibitor;
 class RunQueueModel;
+class SettingsStore;
 class Storage;
 class StorageController;
 
@@ -80,7 +81,7 @@ class RunController : public QObject
     Q_PROPERTY(QString heldTestName READ heldTestName NOTIFY interfaceHeldChanged)
 
 public:
-    RunController(Storage &storage, StorageController &storageController, AppController &app,
+    RunController(SettingsStore &settings, Storage &storage, StorageController &storageController, AppController &app,
                   Orchestrator::Config config = {}, QObject *parent = nullptr);
     ~RunController() override;
 
@@ -196,6 +197,7 @@ private:
     Storage &m_storage;
     StorageController &m_storageController;
     AppController &m_app;
+    SettingsStore &m_settings;
     // Before m_orchestrator: it is copied from the config that m_orchestrator's
     // initialiser then moves from.
     QString m_scratchRoot;

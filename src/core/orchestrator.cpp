@@ -38,13 +38,20 @@ UnavailablePrivilegedOps &unavailableOps()
 class SnapshotProbeContext : public ProbeContext
 {
 public:
-    SnapshotProbeContext(const SystemSnapshot &s, PrivilegedOps *ops) : m_system(s), m_ops(ops) {}
+    SnapshotProbeContext(const SystemSnapshot &s, PrivilegedOps *ops, QString npuModelsBaseUrl = {}, QString npuCacheRoot = {})
+        : m_system(s), m_ops(ops), m_npuModelsBaseUrl(std::move(npuModelsBaseUrl)), m_npuCacheRoot(std::move(npuCacheRoot))
+    {
+    }
     const SystemSnapshot &system() const override { return m_system; }
     PrivilegedOps &privileged() const override { return m_ops ? *m_ops : unavailableOps(); }
+    QString npuModelsBaseUrl() const override { return m_npuModelsBaseUrl; }
+    QString npuCacheRoot() const override { return m_npuCacheRoot; }
 
 private:
     const SystemSnapshot &m_system;
     PrivilegedOps *m_ops;
+    QString m_npuModelsBaseUrl;
+    QString m_npuCacheRoot;
 };
 
 } // namespace
@@ -66,6 +73,10 @@ struct Orchestrator::Shared {
     PowerInhibitor &inhibitor;
     QVector<Entry> plan;
     RunRecord header;  // immutable after start
+    // The NPU model-pack base URL + cache root for this run (from RunMeta,
+    // read fresh at start(), handed to tests via WorkerRunContext).
+    QString npuModelsBaseUrl;
+    QString npuCacheRoot;
 
     QMutex mutex;  // guards the members below
     Orchestrator *receiver = nullptr;
@@ -281,6 +292,8 @@ public:
     {
         return m_s.config.privileged ? *m_s.config.privileged : unavailableOps();
     }
+    QString npuModelsBaseUrl() const override { return m_s.npuModelsBaseUrl; }
+    QString npuCacheRoot() const override { return m_s.npuCacheRoot; }
 
     QString scratchRoot() const
     {
@@ -646,7 +659,7 @@ Orchestrator::StartResult Orchestrator::start(const Plan &plan, const RunMeta &m
                 result.errors.append(QStringLiteral("%1 always runs on its own.").arg(e.test->info().name));
         }
     }
-    const SnapshotProbeContext probe(meta.system, m_config.privileged);
+    const SnapshotProbeContext probe(meta.system, m_config.privileged, meta.npuModelsBaseUrl, meta.npuCacheRoot);
     for (const auto &e : entries) {
         for (const ValidationError &v : e.test->validate(e.options).errors)
             result.errors.append(QStringLiteral("%1: %2").arg(e.test->info().name, v.message));
@@ -680,6 +693,8 @@ Orchestrator::StartResult Orchestrator::start(const Plan &plan, const RunMeta &m
     shared->header = header;
     shared->run = header;
     shared->receiver = this;
+    shared->npuModelsBaseUrl = meta.npuModelsBaseUrl;
+    shared->npuCacheRoot = meta.npuCacheRoot;
 
     if (m_worker.joinable())
         m_worker.join();

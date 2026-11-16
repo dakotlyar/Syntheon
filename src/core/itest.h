@@ -22,6 +22,12 @@ public:
     virtual ~ProbeContext() = default;
     virtual const SystemSnapshot &system() const = 0;
     virtual PrivilegedOps &privileged() const = 0;
+    // The NPU model-pack base URL and cache root (Phase 4c, D2), resolved at
+    // call time — never in a test's constructor, because the registry builds
+    // the tests before Settings/FirstRunDialog are ready. Empty = not
+    // configured; the pack download is then unavailable. Mocks leave them empty.
+    virtual QString npuModelsBaseUrl() const { return {}; }
+    virtual QString npuCacheRoot() const { return {}; }
 };
 
 class RunContext;
@@ -88,6 +94,10 @@ public:
     virtual const SystemSnapshot &system() const = 0;
     // Typed root-only operations (§6); fail with PrivError, never hang.
     virtual PrivilegedOps &privileged() = 0;
+    // The NPU model-pack base URL and cache root (Phase 4c D2), resolved at
+    // call time (see ProbeContext). Empty = not configured; mocks leave them.
+    virtual QString npuModelsBaseUrl() const { return {}; }
+    virtual QString npuCacheRoot() const { return {}; }
 };
 
 // Given to ITest::recover() at startup for a run left in 'running' (task 6).

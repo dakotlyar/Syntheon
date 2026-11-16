@@ -61,7 +61,7 @@ AppRuntime::AppRuntime(Options options, QObject *parent) : QObject(parent), m_op
     m_storageController = std::make_unique<StorageController>(*m_storage, *m_store);
     m_app = std::make_unique<AppController>();
     m_app->setElevationDisabled(m_options.smoke || m_options.noElevation);
-    m_run = std::make_unique<RunController>(*m_storage, *m_storageController, *m_app);
+    m_run = std::make_unique<RunController>(*m_store, *m_storage, *m_storageController, *m_app);
     m_results = std::make_unique<ResultsController>(*m_run, *m_storage, *m_storageController);
     m_startup = std::make_unique<StartupController>(*m_run, *m_storageController, *m_settings);
     m_history = std::make_unique<HistoryModel>(*m_run, *m_storage, *m_storageController);
