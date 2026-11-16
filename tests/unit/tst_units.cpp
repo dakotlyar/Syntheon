@@ -69,7 +69,10 @@ private slots:
         QVERIFY(Units::isCanonical(QStringLiteral("GiB")));
         QVERIFY(Units::isCanonical(QStringLiteral("GB")));
         QVERIFY(Units::isCanonical(QStringLiteral("B")));
-        QCOMPARE(Units::canonical().size(), 27);
+        // Phase 4c (§9): the NPU metric units must be canonical too.
+        QVERIFY(Units::isCanonical(QStringLiteral("img/s")));
+        QVERIFY(Units::isCanonical(QStringLiteral("tok/s")));
+        QCOMPARE(Units::canonical().size(), 28);
     }
 };
 
