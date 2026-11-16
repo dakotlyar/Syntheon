@@ -62,7 +62,10 @@ ScreenFrame {
 
                         objectName: "pick-" + testId
                         Layout.fillWidth: true
-                        implicitHeight: 52
+                        // A row is 52 px for one summary line, but an available/false
+                        // row shows a reason that may wrap to two lines (the AMD setup
+                        // URL), so grow to what its content needs.
+                        implicitHeight: Math.max(52, rowContent.implicitHeight)
                         color: selected ? Theme.accentSoft : (hover.hovered && available ? Theme.sunk : "transparent")
                         Accessible.role: Accessible.CheckBox
                         Accessible.name: name
@@ -90,6 +93,7 @@ ScreenFrame {
                         }
 
                         RowLayout {
+                            id: rowContent
                             anchors.fill: parent
                             anchors.leftMargin: 14
                             anchors.rightMargin: 14
@@ -120,10 +124,16 @@ ScreenFrame {
                                     color: row.available ? Theme.ink : Theme.na
                                 }
                                 SbText {
+                                    objectName: "rowReason"
                                     Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
                                     text: row.available ? row.summary : row.unavailableReason
                                     kind: "small"
-                                    elide: Text.ElideRight
+                                    // A summary elides on one line; an unavailable reason
+                                    // (e.g. "… runtime isn't installed — install …: URL")
+                                    // wraps instead, so its setup URL is never elided away.
+                                    wrapMode: row.available ? Text.NoWrap : Text.Wrap
+                                    elide: row.available ? Text.ElideRight : Text.ElideNone
                                     color: row.available ? Theme.muted : Theme.na
                                 }
                             }

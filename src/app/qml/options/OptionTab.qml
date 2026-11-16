@@ -53,8 +53,19 @@ ColumnLayout {
                     anchors.margins: 6
                     anchors.leftMargin: 10
                     anchors.rightMargin: 10
-                    SbText { text: precondition.modelData.label; Layout.fillWidth: true }
+                    SbText {
+                        objectName: "preconditionLabel"
+                        text: precondition.modelData.label
+                        Layout.fillWidth: true
+                        // The label can now carry a long guided-setup sentence + URL; wrap it
+                        // (and let the layout squeeze it) so it never overflows the pane
+                        // (SbText defaults to NoWrap + ElideNone). Text.Wrap also breaks a
+                        // spaceless URL on a narrow width, matching OptionEditor's info value.
+                        wrapMode: Text.Wrap
+                        Layout.preferredWidth: 1
+                    }
                     Pill {
+                        objectName: "preconditionPill"
                         text: precondition.modelData.detail
                         tone: precondition.modelData.state === "met" ? "good" : precondition.modelData.state === "notmet" ? "bad" : "good"
                     }
