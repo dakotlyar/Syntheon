@@ -3,7 +3,8 @@
 The `build.py`/`verify.py` tools take the model files as given; this note is the
 exact procedure for producing them. **All three models are now produced and
 tested on Knowhere** (timings below): ResNet-50 INT8, YOLOv8n INT8, and the
-~1 B LLM INT4. The full three-model pack is live on Mjolnir.
+~1 B LLM INT4 (stateful, symmetric). The full three-model pack is live on
+Mjolnir at `pack_version "2"`.
 
 ## Toolchain (installed 2026-11-16, Knowhere)
 
@@ -17,11 +18,23 @@ python3 -m venv ~/.cache/syntheon/npu-venv
 ~/.cache/syntheon/npu-venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
 ~/.cache/syntheon/npu-venv/bin/pip install openvino nncf ultralytics onnxscript
 ~/.cache/syntheon/npu-venv/bin/pip install transformers          # for the LLM
+~/.cache/syntheon/npu-venv/bin/pip install optimum-intel         # the LLM exporter (optimum-cli)
 ```
 
-`onnxscript` is needed by torch 2.15's default (Dynamo) ONNX exporter. Versions:
-openvino 2026.4.1, nncf 3.4.0, torch 2.15.0+cpu, torchvision 0.29.2+cpu,
-ultralytics 8.4.215, onnxscript 0.7.2, transformers 5.23.0.
+`onnxscript` is needed by torch 2.15's default (Dynamo) ONNX exporter. Versions
+(recorded because the optimum-intel emitted file set is version-sensitive, §4.1):
+
+| package | version |
+|---|---|
+| openvino | 2026.4.1 |
+| nncf | 3.4.0 |
+| optimum-intel | 2.2.0 |
+| optimum | 2.3.0 |
+| openvino-tokenizers | 2026.4.1.0 |
+| transformers | 5.5.4 (optimum-intel pins this below 5.6) |
+| tokenizers | 0.22.2 |
+| torch | 2.15.0+cpu |
+
 `torch.cuda.is_available()` is `False`.
 
 **Gotcha:** importing ultralytics writes `~/.config/Ultralytics/settings.json`
@@ -117,100 +130,68 @@ forward pass on CPU: ResNet-50 → logits `[1,1000]` (argmax in range),
 YOLOv8n → head `[1,84,8400]`, both finite. The NPU-device run is the engine's
 job (tasks 8/11) and happens on Nivedellir, not here.
 
-## LLM, ~1 B (llm, INT4) — tested ✅
+## LLM, ~1 B (llm, INT4, stateful, symmetric) — tested ✅
 
-NNCF 4-bit weight compression of TinyLlama-1.1B, saved as OpenVINO IR. Two
-things the original recipe got wrong, now corrected and run for real:
+The LLM is now a **stateful** OpenVINO IR (KV cache held as internal model
+state — 44 `ReadValue` + 44 `Assign`, 22 layers × K/V), exported with
+optimum-intel and **symmetric** INT4 (the NPU-native layout). This is the D9
+"GenAI/stateful" path. The earlier stateless wrap-to-logits recipe is
+**superseded** — do not reuse it.
 
-- `compress_weights` on a **torch** model wants a tracing dataset, and
-  `ov.convert_model(torch)`'s TorchScript tracer can't capture a transformers
-  5.x causal LM at all (returns a `DynamicCache`, then chokes on `aten::diff`).
-  The working route is: **wrap the model to return only logits** (`use_cache`
-  off), export to **ONNX via the Dynamo exporter**, convert that, and run
-  `compress_weights` on the OV graph (weight-only compression needs no
-  calibration set there).
-
-`~/.cache/syntheon/npu-pack/work/export_llm.py` (run from `work/`):
-
-```python
-#!/usr/bin/env python3
-# TinyLlama-1.1B -> ONNX (Dynamo) -> OpenVINO IR -> NNCF INT4
-import gc, os
-import torch, openvino as ov
-from nncf import compress_weights, CompressWeightsMode
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-WORK = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(WORK, "llm-1b-int4")
-ONNX = os.path.join(WORK, "llm-fp16.onnx")
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-
-class LogitsWrapper(torch.nn.Module):
-    def __init__(self, model):
-        super().__init__(); self.model = model; self.model.config.use_cache = False
-    def forward(self, input_ids):
-        return self.model(input_ids=input_ids, use_cache=False).logits
-
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype=torch.float16).eval()
-
-os.makedirs(OUT, exist_ok=True)
-tokenizer.save_pretrained(OUT); model.config.save_pretrained(OUT)
-model.generation_config.save_pretrained(OUT)
-
-with torch.no_grad():
-    torch.onnx.export(LogitsWrapper(model), torch.ones((1, 32), dtype=torch.long), ONNX,
-                      input_names=["input_ids"], output_names=["logits"],
-                      opset_version=13, dynamo=True)
-del model  # free the torch graph before the ONNX -> OV step
-gc.collect()
-
-ov_model = ov.convert_model(ONNX)
-compressed = compress_weights(ov_model, mode=CompressWeightsMode.INT4_ASYM, group_size=128)
-ov.save_model(compressed, os.path.join(OUT, "openvino_model.xml"), compress_to_fp16=False)
-```
-
-Timings (weights cached after first load): download ~38 s (first time only),
-ONNX export 22 s, ONNX→OV 2.5 s, INT4 compression 5 s — **~32 s** end to end
-excluding the download. Output (~640 MB):
+Export (DD-1 §4.1):
 
 ```
-openvino_model.bin   634,824,570   # the INT4 weights (~1.1 B params, the bulk)
-openvino_model.xml     1,683,438
-tokenizer.json         3,618,870
-tokenizer_config.json        398
-config.json                  725
-generation_config.json       124
-chat_template.jinja          410
+~/.cache/syntheon/npu-venv/bin/optimum-cli export openvino \
+    --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
+    --weight-format int4 --sym --group-size 128 --ratio 1.0 \
+    --trust-remote-code \
+    ~/.cache/syntheon/npu-pack/src/intel/llm/llm-1b-int4/
 ```
 
-Copy all of those into `~/.cache/syntheon/npu-pack/src/intel/llm/llm-1b-int4/`
-(the `files` list in `config.json` matches this exact set). Smoke-tested on CPU:
-`smoke_llm.py` runs "The capital of France is" and the INT4 IR's top token is
-`Paris`, identical to the fp16 torch model (argmax preserved; only the
-low-probability tail reorders, which is normal for INT4).
+~19 s with the weights cached. `--sym` flips the quant to symmetric (the NNCF
+bitwidth table reports `int4_sym, group size 128`, 88% of params). The emitted
+file set is **version-sensitive** (optimum-intel 2.2.0 + transformers 5.5.4) —
+always `ls` the dir and mirror it rather than trusting a list:
 
-Three things to confirm with the engine side (tasks 8/11) before freezing v1:
+```
+openvino_model.xml           1,839,103   # stateful decoder (input_ids, attention_mask, position_ids, beam_idx -> logits)
+openvino_model.bin         631,214,037   # decoder weights (symmetric INT4, the bulk)
+openvino_tokenizer.xml          27,831   # tokenizer model (CPU prefill tokenisation)
+openvino_tokenizer.bin       1,869,017
+openvino_detokenizer.xml       11,752   # detokenizer model
+openvino_detokenizer.bin      466,938
+openvino_config.json              467   # the GenAI pipeline config
+config.json                       725
+generation_config.json            123
+tokenizer.json               3,618,870
+tokenizer_config.json             369
+chat_template.jinja               410
+```
 
-- **NPU-runnability.** Whether a plain NNCF-INT4 transformer IR loads on the
-  OpenVINO *NPU* device (vs CPU) depends on the model structure; the design's
-  D9 points at an "OpenVINO GenAI-NPU" model for Intel. If the NPU plugin needs
-  the GenAI/optimum-intel export instead of raw NNCF, that export is the source
-  of these files — the pack layout is unchanged.
-- **Static sequence length.** The IR was exported with a fixed `[1,32]` input
-  (the recipe's `example_input`), so this plain IR is a one-shot 32-token
-  forward, not an auto-regressive generator. A stateful/KV-cache export is the
-  likely GenAI-path requirement; flag it to the engine.
-- **Exact tokenizer file set.** The workload needs whatever the engine reads to
-  tokenise the fixed prompt; mirror that in `config.json`.
+This diverges from DD §4.2's *predicted* list: there is **no
+`openvino_embed_tokens.*`** (the embed is folded into the decoder/tokenizer) and
+**no `special_tokens_map.json`** (transformers 5.5.4 folds it into the tokenizer
+files); instead there are `openvino_tokenizer.*`, `openvino_detokenizer.*` and
+`openvino_config.json`. `config.json`'s `llm-1b-int4` `files` list is this exact
+12-name set — `build.py` ships only listed names and silently drops the rest.
+
+Two things remain with the engine side (tasks 8/11):
+
+- **NPU-runnability.** This is the GenAI-consumable stateful IR (DD-1 F2);
+  whether the raw-C loop (Option B) or `LLMPipeline` (Option A) drives it on the
+  NPU is settled by the compile-first smoke on Nivedellir (§6), not here.
+- **Fixed prompt.** The scored decode loop pre-ships the fixed prompt's
+  `input_ids` (DD-1 §5.2.5), so the tokenizer/detokenizer models are present for
+  the correctness spot-check, not the timed loop.
 
 ## After producing them
 
 ```
-python3 tools/npu-pack/build.py     # full pack (no --partial — all three models)
+python3 tools/npu-pack/build.py --pack-version 2   # full pack (no --partial)
 python3 tools/npu-pack/verify.py
 ```
 
 `--partial` remains for publishing an intermediate subset while a model is still
 being made; once every declared model's files exist, the plain build publishes
-the whole pack.
+the whole pack. `pack_version` bumps on any model change (N5); the current pack
+is "2".

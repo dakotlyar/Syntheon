@@ -12,7 +12,7 @@ There are two scripts and they have one job each:
   `manifest.json` (plus its `manifest.sha256` pin). Run it whenever a model
   changes. It fails fast if a declared model's files are missing; pass
   `--partial` to skip the absent models and publish only what's fully present
-  (used now for the vision pair while the LLM is still being made).
+  (handy for publishing an intermediate subset mid-build).
 - **`verify.py`** — the host-side "is this pack correct" check. It re-reads the
   manifest, re-hashes every served file against it, and checks the pin. This is
   what you run on Mjolnir before and after publishing, to be sure the tree on
@@ -67,7 +67,7 @@ For the Intel v1 pack the config lists three models, per the design's D5/D9:
 |---|---|---|---|
 | `resnet50-int8` | classify | INT8 | `resnet50.xml`, `resnet50.bin` |
 | `yolov8n-int8` | detect | INT8 | `yolov8n.xml`, `yolov8n.bin` |
-| `llm-1b-int4` | llm | INT4 | `openvino_model.xml`, `openvino_model.bin`, `tokenizer.json`, `tokenizer_config.json`, `config.json`, `generation_config.json`, `chat_template.jinja` |
+| `llm-1b-int4` | llm | INT4 | `openvino_model.xml`/`.bin`, `openvino_tokenizer.xml`/`.bin`, `openvino_detokenizer.xml`/`.bin`, `openvino_config.json`, `config.json`, `generation_config.json`, `tokenizer.json`, `tokenizer_config.json`, `chat_template.jinja` |
 
 AMD and Qualcomm packs are separate configs, added later; the tooling already
 accepts `amd` and `qualcomm` vendors and all three workloads.
@@ -80,18 +80,17 @@ vendor-published INT8 IR to just download for these exact models, so they are
 produced with the OpenVINO + NNCF toolkit — the exact (and now-tested) commands
 are in [`QUANTIZE.md`](QUANTIZE.md).
 
-**Status: the full Intel pack is built and live on Mjolnir.** ResNet-50 INT8
-(25.7 MB), YOLOv8n INT8 (3.3 MB) and the ~1 B LLM INT4 (640 MB) are quantised
-and smoke-tested (vision: load + run; LLM: top token matches the fp16 model).
-Total ~670 MB. The 3-model `manifest.json` and the calibration-pin candidate
-`2eb09826eaf06724219ff38f463938fdc15393d04802ba548c32c8f553eb49ca` are recorded
-in §"The calibration SHA-pin" below.
+**Status: the full Intel pack (pack_version "2") is built and live on Mjolnir.**
+ResNet-50 INT8 (25.7 MB), YOLOv8n INT8 (3.3 MB) and the ~1 B LLM INT4 *stateful*
+(640 MB) are quantised. Vision loads + runs on CPU; the LLM decoder is a
+stateful IR (44 `ReadValue`/`Assign` KV pairs, symmetric INT4). Total ~669 MB.
+The 3-model `manifest.json` and the calibration-pin candidate `49c667e5…` are
+recorded in §"The calibration SHA-pin" below.
 
-One open item (engine side, tasks 8/11): whether the LLM's plain NNCF-INT4 IR
-loads on the OpenVINO *NPU* device vs CPU — the design's D9 points at a
-"GenAI-NPU" export for generation, so the LLM entry may move to a stateful
-GenAI export before v1 is frozen (a re-run with a `pack_version` bump). The
-pack layout is agnostic to which export produces the `.xml`/`.bin`.
+One open item (engine side, tasks 8/11): the compile-first smoke on Nivedellir
+settles whether the raw-C loop (DD-1 Option B) or OpenVINO GenAI (Option A)
+drives the stateful IR on the NPU. That's a separate task and does not change
+the pack.
 
 ## Adding or changing a model
 
@@ -132,10 +131,10 @@ recommendation). `build.py` writes that digest to `npu-models/manifest.sha256`;
 regenerate it any time by re-running `build.py` (or read it back with
 `verify.py`).
 
-The current full-pack (3-model, Intel) pin is:
+The current full-pack (3-model, Intel, pack_version "2") pin is:
 
-    2eb09826eaf06724219ff38f463938fdc15393d04802ba548c32c8f553eb49ca
+    49c667e586648da8e80f161e9173c4494f27452eb607221834a951a50e8bf6dd
 
-This is a *candidate*: it's the digest of the pack as it stands, but the LLM
-entry may move to a GenAI export before v1 is frozen — in which case `build.py`
-re-emits a fresh manifest and this pin changes.
+This is a *candidate*: it's the digest of the pack as it stands. Re-exporting
+any model bumps `pack_version` and re-emits a fresh manifest + pin; the pin is
+frozen into source only at calibration (task 19), which hasn't happened yet.
