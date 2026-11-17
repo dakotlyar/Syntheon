@@ -25,7 +25,14 @@ under ~/.cache/syntheon/npu-pack/src/, the served tree under
 config.json and README.md are in-tree.
 
 Usage:
-  build.py [--config CONFIG] [--source-root DIR] [--output-root DIR] [--pack-version V]
+  build.py [--config CONFIG] [--source-root DIR] [--output-root DIR] [--pack-version V] [--partial]
+
+By default the build fails fast if any declared model's files are missing (so a
+half-sourced tree never publishes). With `--partial`, a model whose files are
+absent is skipped with a warning and the manifest lists only the models that are
+fully present — for serving an intermediate pack (e.g. the vision pair while the
+LLM is still being produced). A model is only ever published whole: if even one
+of its files is missing it is skipped, never half-listed.
 """
 import argparse
 import hashlib
@@ -126,18 +133,31 @@ def atomic_copy(src, dest):
     os.replace(tmp, dest)
 
 
-def build(config_path, source_root, output_root, pack_version):
+def build(config_path, source_root, output_root, pack_version, partial=False):
     if not is_safe_version(pack_version):
         fail(f"pack_version {pack_version!r} must be one safe path component (no '/', '\\', '.', '..')")
     models = load_config(config_path)
 
-    # Fail fast before any copy: name every missing source up front, so a
-    # half-sourced tree can't leave a partially-laid-out served tree behind.
-    missing = [str(source_root / m["vendor"] / m["workload"] / m["id"] / f)
-               for m in models for f in m["files"]
-               if not (source_root / m["vendor"] / m["workload"] / m["id"] / f).is_file()]
-    if missing:
-        fail("missing source file(s):\n  " + "\n  ".join(missing))
+    def src_path(m, fn):
+        return source_root / m["vendor"] / m["workload"] / m["id"] / fn
+
+    # A model is only ever published whole: complete = every file present.
+    complete, incomplete = [], []
+    for m in models:
+        (complete if all(src_path(m, f).is_file() for f in m["files"]) else incomplete).append(m)
+
+    if incomplete:
+        missing = [str(src_path(m, f)) for m in incomplete for f in m["files"]
+                   if not src_path(m, f).is_file()]
+        if not partial:
+            # Fail fast before any copy: a half-sourced tree must not leave a
+            # partially-laid-out served tree behind.
+            fail("missing source file(s):\n  " + "\n  ".join(missing))
+        for m in incomplete:
+            n = sum(1 for f in m["files"] if not src_path(m, f).is_file())
+            print(f"npu-pack: skipping {m['id']} ({m['vendor']}/{m['workload']}): {n} missing file(s)")
+    if not complete:
+        fail("no model has all its files present — nothing to publish")
 
     npu_models = output_root / "npu-models"
     # The state file caches source SHA-256s by size+mtime, so it belongs beside
@@ -145,7 +165,7 @@ def build(config_path, source_root, output_root, pack_version):
     state = load_state(source_root / ".npu-pack-state.json")
 
     manifest_models, total = [], 0
-    for mo in models:
+    for mo in complete:
         files_out = []
         for fn in mo["files"]:
             src = source_root / mo["vendor"] / mo["workload"] / mo["id"] / fn
@@ -191,6 +211,9 @@ def build(config_path, source_root, output_root, pack_version):
 
     print(f"npu-pack: pack_version={pack_version}, {len(manifest_models)} model(s), "
           f"{total} bytes total ({total / 1e9:.3f} GB)")
+    if incomplete:
+        skipped = ", ".join(m["id"] for m in incomplete)
+        print(f"npu-pack: NOTE partial pack — skipped {skipped} (files not present)")
     print(f"npu-pack: manifest  {manifest_path}")
     print(f"npu-pack: sidecar   {sidecar}")
     print(f"npu-pack: manifest.sha256 = {pin}")
@@ -208,8 +231,10 @@ def main():
     ap.add_argument("--source-root", type=Path, default=CACHE_ROOT / "src")
     ap.add_argument("--output-root", type=Path, default=CACHE_ROOT / "served")
     ap.add_argument("--pack-version", default="1")
+    ap.add_argument("--partial", action="store_true",
+                    help="skip models whose files are missing instead of failing (vision-only pack, etc.)")
     args = ap.parse_args()
-    return build(args.config, args.source_root, args.output_root, args.pack_version)
+    return build(args.config, args.source_root, args.output_root, args.pack_version, args.partial)
 
 
 if __name__ == "__main__":

@@ -10,11 +10,16 @@ There are two scripts and they have one job each:
 - **`build.py`** — reads the model files you put in a source tree, hashes each
   one, copies them into the exact layout the downloader expects, and writes the
   `manifest.json` (plus its `manifest.sha256` pin). Run it whenever a model
-  changes.
+  changes. It fails fast if a declared model's files are missing; pass
+  `--partial` to skip the absent models and publish only what's fully present
+  (used now for the vision pair while the LLM is still being made).
 - **`verify.py`** — the host-side "is this pack correct" check. It re-reads the
   manifest, re-hashes every served file against it, and checks the pin. This is
   what you run on Mjolnir before and after publishing, to be sure the tree on
   disk is exactly what the manifest claims.
+
+A model is only ever published whole: if even one of its files is missing,
+`--partial` skips the whole model, never half-lists it.
 
 The model files themselves are big and live *outside* the repo (never commit
 them — `P-PATH`), under `~/.cache/syntheon/npu-pack/`. Only the two scripts,
@@ -72,16 +77,16 @@ accepts `amd` and `qualcomm` vendors and all three workloads.
 The design says the files are "pulled from the vendor's published NPU models"
 or "compiled/quantised ahead of time by us". In practice there is no
 vendor-published INT8 IR to just download for these exact models, so they are
-produced with the OpenVINO + NNCF toolkit — the exact commands are in
-[`QUANTIZE.md`](QUANTIZE.md).
+produced with the OpenVINO + NNCF toolkit — the exact (and now-tested) commands
+are in [`QUANTIZE.md`](QUANTIZE.md).
 
-**Status: none of the three model files have been produced on this box yet.**
-The vision models need a one-time toolchain install plus a quantise pass; the
-LLM (the pack's bulk, ≤ ~1.5 GB) needs the same plus the weight download and a
-longer run. The important part here is that `build.py` and `verify.py` are
-tested end-to-end and will slot the real files in without change. Until they
-land, `build.py` fails with a clear "missing source file" list, which doubles as
-the to-do list.
+**Status: the vision pair is done** — ResNet-50 INT8 (25.7 MB) and YOLOv8n INT8
+(3.3 MB) are quantised, smoke-tested (they load and run), and laid out under
+`~/.cache/syntheon/npu-pack/served/`. **The LLM remains** — it's a multi-GB,
+multi-hour job Dave hasn't approved, so it stays a documented procedure and
+`build.py --partial` publishes a vision-only pack until it lands. When it does,
+the same `build.py` run (without `--partial`) includes it and the manifest picks
+up its entry.
 
 ## Adding or changing a model
 
@@ -90,9 +95,11 @@ the to-do list.
    precision, version, and the list of bare filenames).
 3. `python3 tools/npu-pack/build.py`, then `python3 tools/npu-pack/verify.py`.
 
-The scripts take `--source-root`, `--output-root`, `--config` and
-`--pack-version` if you need to point them somewhere else. Re-running is cheap:
-unchanged files aren't re-hashed or re-copied.
+The scripts take `--source-root`, `--output-root`, `--config`, `--pack-version`
+and `--partial` if you need to point them somewhere else. Re-running is cheap:
+unchanged files aren't re-hashed or re-copied. With some models still being
+produced, `--partial` lets you publish a working subset without editing the
+config.
 
 ## Bumping pack_version
 
