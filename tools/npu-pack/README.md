@@ -67,7 +67,7 @@ For the Intel v1 pack the config lists three models, per the design's D5/D9:
 |---|---|---|---|
 | `resnet50-int8` | classify | INT8 | `resnet50.xml`, `resnet50.bin` |
 | `yolov8n-int8` | detect | INT8 | `yolov8n.xml`, `yolov8n.bin` |
-| `llm-1b-int4` | llm | INT4 | `openvino_model.xml`, `openvino_model.bin`, `tokenizer.json`, `tokenizer_config.json` |
+| `llm-1b-int4` | llm | INT4 | `openvino_model.xml`, `openvino_model.bin`, `tokenizer.json`, `tokenizer_config.json`, `config.json`, `generation_config.json`, `chat_template.jinja` |
 
 AMD and Qualcomm packs are separate configs, added later; the tooling already
 accepts `amd` and `qualcomm` vendors and all three workloads.
@@ -80,13 +80,18 @@ vendor-published INT8 IR to just download for these exact models, so they are
 produced with the OpenVINO + NNCF toolkit — the exact (and now-tested) commands
 are in [`QUANTIZE.md`](QUANTIZE.md).
 
-**Status: the vision pair is done** — ResNet-50 INT8 (25.7 MB) and YOLOv8n INT8
-(3.3 MB) are quantised, smoke-tested (they load and run), and laid out under
-`~/.cache/syntheon/npu-pack/served/`. **The LLM remains** — it's a multi-GB,
-multi-hour job Dave hasn't approved, so it stays a documented procedure and
-`build.py --partial` publishes a vision-only pack until it lands. When it does,
-the same `build.py` run (without `--partial`) includes it and the manifest picks
-up its entry.
+**Status: the full Intel pack is built and live on Mjolnir.** ResNet-50 INT8
+(25.7 MB), YOLOv8n INT8 (3.3 MB) and the ~1 B LLM INT4 (640 MB) are quantised
+and smoke-tested (vision: load + run; LLM: top token matches the fp16 model).
+Total ~670 MB. The 3-model `manifest.json` and the calibration-pin candidate
+`2eb09826eaf06724219ff38f463938fdc15393d04802ba548c32c8f553eb49ca` are recorded
+in §"The calibration SHA-pin" below.
+
+One open item (engine side, tasks 8/11): whether the LLM's plain NNCF-INT4 IR
+loads on the OpenVINO *NPU* device vs CPU — the design's D9 points at a
+"GenAI-NPU" export for generation, so the LLM entry may move to a stateful
+GenAI export before v1 is frozen (a re-run with a `pack_version` bump). The
+pack layout is agnostic to which export produces the `.xml`/`.bin`.
 
 ## Adding or changing a model
 
@@ -112,13 +117,12 @@ calibrated against a specific pack. So:
 
 ## How Mjolnir serves it
 
-Mjolnir is the download host (a TrueNAS SCALE appliance). The plan is a
-`odin/syntheon-npu` dataset served read-only over HTTPS by a small Caddy Docker
-app on port 8443 with `tls internal` (self-signed), so the base URL is
-`https://192.168.100.160:8443/`. Hera copies the contents of `served/` into that
-dataset, and the Settings value `npuModelsBaseUrl` points at it. Run
-`verify.py --output-root <served>` on Mjolnir after the copy to confirm the tree
-arrived intact.
+Mjolnir is the download host (a TrueNAS SCALE appliance). The `odin/syntheon-npu`
+dataset is served read-only over HTTPS by a raw k3s nginx on hostNetwork port
+`8443` with a self-signed CA, so the base URL is `https://192.168.100.160:8443/`.
+Hera copies the contents of `served/` into that dataset, and the Settings value
+`npuModelsBaseUrl` points at it. Run `verify.py --output-root <served>` on
+Mjolnir after the copy to confirm the tree arrived intact.
 
 ## The calibration SHA-pin
 
@@ -126,5 +130,12 @@ At calibration the manifest is frozen, and its SHA-256 is compiled into the app
 so a tampered index can't redirect a verified download (§6.1, AP-5's
 recommendation). `build.py` writes that digest to `npu-models/manifest.sha256`;
 regenerate it any time by re-running `build.py` (or read it back with
-`verify.py`). When the v1 pack is frozen, that digest is the one that gets
-pinned in source.
+`verify.py`).
+
+The current full-pack (3-model, Intel) pin is:
+
+    2eb09826eaf06724219ff38f463938fdc15393d04802ba548c32c8f553eb49ca
+
+This is a *candidate*: it's the digest of the pack as it stands, but the LLM
+entry may move to a GenAI export before v1 is frozen — in which case `build.py`
+re-emits a fresh manifest and this pin changes.

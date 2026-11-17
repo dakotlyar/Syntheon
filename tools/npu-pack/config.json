@@ -23,7 +23,7 @@
       "workload": "llm",
       "precision": "INT4",
       "version": "1",
-      "files": ["openvino_model.xml", "openvino_model.bin", "tokenizer.json", "tokenizer_config.json"]
+      "files": ["openvino_model.xml", "openvino_model.bin", "tokenizer.json", "tokenizer_config.json", "config.json", "generation_config.json", "chat_template.jinja"]
     }
   ]
 }
