@@ -73,7 +73,7 @@ def main():
 
     sidecar = root / "npu-models" / "manifest.sha256"
     if sidecar.is_file():
-        want = sidecar.read_text().strip().lower()
+        want = sidecar.read_text(encoding="utf-8").strip().lower()
         if not is_hex64(want):
             print(f"  SIDECAR  manifest.sha256 isn't a 64-char hex digest", file=sys.stderr)
             bad += 1

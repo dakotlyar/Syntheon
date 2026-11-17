@@ -196,16 +196,19 @@ def build(config_path, source_root, output_root, pack_version, partial=False):
         fail("internal error: built an invalid manifest — " + "; ".join(errors))
 
     npu_models.mkdir(parents=True, exist_ok=True)
-    text = serialise_manifest(manifest)
+    # Serialise to UTF-8 bytes and write/compare exact bytes, so the on-disk
+    # manifest equals the digest regardless of the platform's text-mode newline
+    # translation (Windows would otherwise write CRLF while sha256() hashed LF).
+    manifest_bytes = serialise_manifest(manifest).encode("utf-8")
     manifest_path = npu_models / "manifest.json"
-    if not manifest_path.is_file() or manifest_path.read_text() != text:
-        manifest_path.write_text(text)
+    if not manifest_path.is_file() or manifest_path.read_bytes() != manifest_bytes:
+        manifest_path.write_bytes(manifest_bytes)
 
-    pin = hashlib.sha256(text.encode()).hexdigest()
+    pin = hashlib.sha256(manifest_bytes).hexdigest()
     sidecar = npu_models / "manifest.sha256"
-    sidecar_text = pin + "\n"
-    if not sidecar.is_file() or sidecar.read_text() != sidecar_text:
-        sidecar.write_text(sidecar_text)
+    sidecar_bytes = (pin + "\n").encode("utf-8")
+    if not sidecar.is_file() or sidecar.read_bytes() != sidecar_bytes:
+        sidecar.write_bytes(sidecar_bytes)
 
     save_state(source_root / ".npu-pack-state.json", state)
 
