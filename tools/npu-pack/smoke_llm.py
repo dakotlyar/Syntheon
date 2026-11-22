@@ -38,8 +38,10 @@ Exit codes (a parseable one-line `RESULT: OK|FAILED <reason>` is always printed)
   7  the decode failed mid-run (KV state rejected, infer exception, timeout)
 
 Dependencies: the pip `openvino` package (2026.4.1, matches the pack toolchain)
-plus the Python standard library. No PyTorch, no optimum, no vendor headers; the
-tokenizer + detokenizer are the pack's own OpenVINO IRs run on CPU.
+plus the pip `openvino-tokenizers` extension (2026.4.1.0 — the pack's
+tokenizer/detokenizer IRs are custom ops) and the Python standard library. No
+PyTorch, no optimum, no vendor headers; the tokenizer + detokenizer are the
+pack's own OpenVINO IRs run on CPU.
 """
 
 import argparse
@@ -93,6 +95,27 @@ def load_openvino():
     return ov, np
 
 
+def register_tokenizers_extension(core):
+    """Ensures the openvino-tokenizers custom ops (RegexNormalization &
+    friends, opset 'extension') are registered with the Core, WITHOUT which the
+    pack's tokenizer/detokenizer IRs cannot be read (they fail at read_model
+    with 'Cannot create RegexNormalization layer ... from unsupported opset').
+
+    `openvino_tokenizers` is an extra pip package over `openvino` itself; the
+    pack toolchain pins 2026.4.1.0 (QUANTIZE.md). Importing the module
+    registers the ops with every `ov.Core()` (2026.x behaviour), so no
+    add_extension call is needed — a missing package is a loud, actionable
+    failure, not a silent fallback. Only the tokenizer and detokenizer need it
+    (the decoder is plain ops).
+    """
+    try:
+        import openvino_tokenizers  # noqa: F401  (import registers the opset)
+    except ImportError as e:
+        fail(f"the 'openvino_tokenizers' extension is not installed ({e}); the pack's "
+             f"tokenizer/detokenizer IRs need it. Install with: "
+             f"python -m pip install openvino-tokenizers==2026.4.1.0", EXIT_NO_OPENVINO)
+
+
 def read_eos_id(model_dir):
     """The decoder's EOS token id, read from the pack's generation_config.json —
     the smoke settles SMOKE 5's EOS half from the real config, not a guess."""
@@ -112,12 +135,30 @@ def read_eos_id(model_dir):
 
 
 def as_numpy(tensor):
-    """The numpy view of an ov.Tensor (string tensors are object arrays)."""
+    """The numpy view of an ov.Tensor (string tensors are object arrays). A
+    value that is ALREADY a numpy array is returned as-is (the tokenizer's
+    OVDict values are numpy arrays; numpy's own `.data` is a memoryview and
+    must not be read)."""
+    import numpy as np
+    if isinstance(tensor, np.ndarray):
+        return tensor
     try:
         return tensor.data
     except Exception:
-        import numpy as np
         return np.asarray(tensor)
+
+
+def output_name(key):
+    """A stable string name for an output key. OVDict keys are ov ConstOutput
+    objects (get_any_name()) — stringifying them gives '<ConstOutput: names[...]...>'
+    which breaks substring matching, so pull the real name first."""
+    getter = getattr(key, "get_any_name", None)
+    if callable(getter):
+        try:
+            return str(getter())
+        except Exception:
+            pass
+    return str(key)
 
 
 def read_string(tensor):
@@ -135,9 +176,12 @@ def read_string(tensor):
 def normalize_result(out):
     """CompiledModel calls return a dict of {name: OvTensor} (or a bare tensor
     for a single-output model, depending on the OV version) — normalise to a
-    dict keyed by output name, with "" for unnamed outputs."""
-    if isinstance(out, dict):
-        return {str(k): v for k, v in out.items()}
+    dict keyed by output name, with "" for unnamed outputs. The keys may be ov
+    ConstOutput objects (the tokenizer's OVDict — a Mapping, NOT a plain dict),
+    handled by output_name()."""
+    from collections.abc import Mapping
+    if isinstance(out, Mapping):
+        return {output_name(k): v for k, v in out.items()}
     # A bare tensor (or list) — give it a synthetic name.
     import numpy as np
     if isinstance(out, (list, tuple)) and len(out) == 1:
@@ -154,17 +198,21 @@ def tokenize(ov, np, core, model_dir, prompt):
     tok = core.compile_model(str(tok_xml), "CPU")
 
     # The openvino_tokenizers IR takes a single string input. Try the documented
-    # forms in order (a string tensor, a list, a single string); the first that
-    # works wins. The result is normalised to {name: OvTensor} afterwards.
+    # forms in order (a plain string list — the 2026.x form — then a string
+    # tensor, then a bare string); the first that works wins. Each candidate is
+    # CONSTRUCTED inside the try (an ov.Tensor from a bad dtype throws at
+    # construction, before any call, and must be caught per-attempt). The result
+    # is normalised to {name: OvTensor} afterwards.
     out = None
     last_err = None
-    for feed in (
-        ov.Tensor(np.array([prompt], dtype=object)),
-        [prompt],
-        prompt,
-    ):
+    candidates = [
+        lambda: [prompt],
+        lambda: ov.Tensor(np.array([prompt], dtype=str)),
+        lambda: prompt,
+    ]
+    for make in candidates:
         try:
-            out = tok(feed)
+            out = tok(make())
             break
         except Exception as e:  # noqa: BLE001 - report the last attempt
             last_err = e
@@ -469,6 +517,11 @@ def main(argv=None):
         fail("--timeout-seconds must be positive", EXIT_USAGE)
 
     ov, np = load_openvino()
+    # The tokenizer/detokenizer IRs are openvino-tokenizers custom ops. Import
+    # BEFORE creating the Core: the package patches ov.Core so subsequent cores
+    # carry the extension (a Core created first would miss it — SMOKE 5's
+    # prompt half). Passing core is fine; the import is what matters.
+    register_tokenizers_extension(None)
     core = ov.Core()
     deadline = time.monotonic() + args.timeout_seconds
     try:
