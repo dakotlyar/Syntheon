@@ -35,6 +35,12 @@ struct LoadedModel {
     QString name;      // "resnet50-int8", "yolov8n-int8", "llm-1b-int4"
     QString precision; // "INT8" / "INT4" / "FP16" (text, for display + model.<w> metrics)
     QString path;      // the verified model file(s) on disk
+    // The per-model cache DIRECTORY (<cacheRoot>/npu-models/<pack>/<model>/1/),
+    // holding every file of the model (Phase 4c §5.1). A stateful LLM is
+    // multi-file (openvino_model.xml/.bin + tokenizer), so `path` alone can't
+    // name the whole model; the LLM decoder is found by name inside `dir`.
+    // Empty when the engine has no directory (classify/detect use `path`).
+    QString dir;
 };
 
 // One inference's outcome, for the correctness sentinel (§2).

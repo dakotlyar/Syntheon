@@ -13,6 +13,7 @@
 #include "tests/npu/models/downloader.h"
 #include "tests/npu/workloads/workloads.h"
 
+#include <QFileInfo>
 #include <QJsonObject>
 
 #include <algorithm>
@@ -291,13 +292,15 @@ TestResult NpuRun::run()
         sb::npu::LoadedModel lm;
         lm.name = mm->id;
         lm.precision = mm->precision;
-        // L2 (deferred to 4c-5): takes only the FIRST manifest file. OpenVINO's
-        // read_model needs the .xml + .bin pair in the canonical order, so a
-        // manifest that lists them out of order (or a single multi-file model)
-        // would hand the engine the wrong file. 4c-5 pins the per-engine model
-        // file order / set here; the OpenVINO engine currently fails closed on
-        // any model.path it didn't compile.
+        // `path` is the primary .xml/.bin for classify/detect, taken from the
+        // FIRST manifest file. The fragile files.first() ORDERING is retired
+        // for the OpenVINO engine (4c-5): a stateful LLM is multi-file
+        // (openvino_model.xml/.bin + tokenizer/detokenizer), so the engine finds
+        // its decoder by name inside `dir` — the model's cache directory — not
+        // via path/first(). `dir` is set for every workload; classify/detect
+        // still use `path` directly.
         lm.path = mm->files.isEmpty() ? QString() : downloader.localPath(*dl.manifest, mm->files.first());
+        lm.dir = mm->files.isEmpty() ? QString() : QFileInfo(downloader.localPath(*dl.manifest, mm->files.first())).absolutePath();
         m_loaded[w] = lm;
     }
 

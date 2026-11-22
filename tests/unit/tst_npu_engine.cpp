@@ -17,7 +17,14 @@ namespace {
 
 LoadedModel modelFor(const QString &name)
 {
-    return {name, QStringLiteral("INT8"), QStringLiteral("/fakes/models/") + name};
+    // Mirrors the §5.1 population in npu_test.cpp: `path` is the model file,
+    // `dir` its cache directory (the parent of the first manifest file's path).
+    LoadedModel m;
+    m.name = name;
+    m.precision = QStringLiteral("INT8");
+    m.path = QStringLiteral("/fakes/models/") + name;
+    m.dir = QFileInfo(m.path).absolutePath();
+    return m;
 }
 
 bool sane(const Inference &inference)
@@ -148,6 +155,22 @@ private slots:
         QVERIFY(!engine->init(modelFor(QStringLiteral("llm-1b-int4")), &err));
         QVERIFY(!err.isEmpty());
 #endif
+    }
+
+    void loadedModelCarriesDir()
+    {
+        // §5.1: LoadedModel gains `dir` (the per-model cache directory) alongside
+        // `path`, populated by npu_test.cpp as the parent of the manifest file.
+        const LoadedModel m = modelFor(QStringLiteral("llm-1b-int4"));
+        QCOMPARE(m.dir, QStringLiteral("/fakes/models"));
+        QCOMPARE(m.path, QStringLiteral("/fakes/models/llm-1b-int4"));
+        // The null engine accepts the 4-member model and still runs "llm".
+        auto engine = nullEngine();
+        QString err;
+        QVERIFY(engine->init(m, &err));
+        Inference out;
+        QVERIFY(engine->runWindow(QStringLiteral("llm"), m, out, &err));
+        QVERIFY(sane(out));
     }
 
     void nullEngineIgnoresModelPathExistence()
