@@ -206,7 +206,11 @@ private slots:
         // §5.1: LoadedModel gains `dir` (the per-model cache directory) alongside
         // `path`, populated by npu_test.cpp as the parent of the manifest file.
         const LoadedModel m = modelFor(QStringLiteral("llm-1b-int4"));
-        QCOMPARE(m.dir, QStringLiteral("/fakes/models"));
+        // `dir` is the cache directory of the model file — the absolute parent
+        // of `path`. Compare against the computed value (not a hardcoded POSIX
+        // string): QFileInfo::absolutePath() prepends the drive letter on
+        // Windows, so "/fakes/models" only holds there for a literal path.
+        QCOMPARE(m.dir, QFileInfo(m.path).absolutePath());
         QCOMPARE(m.path, QStringLiteral("/fakes/models/llm-1b-int4"));
         // The null engine accepts the 4-member model and still runs "llm".
         auto engine = nullEngine();
