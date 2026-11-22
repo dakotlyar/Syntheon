@@ -332,7 +332,9 @@ TestResult NpuRun::run()
     m_engineBackend = engine->backendName();
     // The runtime version comes from the engine (which dlopened the runtime),
     // not detect — detect() doesn't dlopen, so det.runtimeVersion is "" and the
-    // Device/runtime row would otherwise always read "—".
+    // Device/runtime row would otherwise always read "—". This first read covers
+    // the vision-only case; a re-read after the workload loop (below) appends
+    // the lazily-loaded GenAI runtime version when the LLM ran.
     m_runtimeVersion = engine->runtimeVersion();
 
     // Warm-up window: one discarded window so the first measured window doesn't
@@ -389,6 +391,10 @@ TestResult NpuRun::run()
     }
 
     TestResult r = std::move(m_result);
+    // Re-read the runtime version now that every workload has run: the OpenVINO
+    // engine's LLM workload lazily loads the GenAI second runtime (DD-1 §5.4),
+    // and the Runtime row should show it once present ("openvino x.y · GenAI z").
+    m_runtimeVersion = engine->runtimeVersion();
     finish(det, r);
     for (sb::npu::Workload w : sb::npu::kWorkloads) {
         const QString id = sb::npu::workloadId(w);

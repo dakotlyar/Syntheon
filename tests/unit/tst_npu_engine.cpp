@@ -7,8 +7,11 @@
 // SDK on the build box (P-VENDOR). The real inference loop is §16 validation.
 #include "tests/npu/engine/engine.h"
 #include "tests/npu/engine/engine_dlopen.h"
+#include "tests/npu/engine/genai_runtime.h"
 
 #include <QDir>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QTest>
 
 using namespace sb::npu;
@@ -30,6 +33,27 @@ LoadedModel modelFor(const QString &name)
 bool sane(const Inference &inference)
 {
     return inference.seconds > 0.0 && inference.units > 0 && inference.valid == inference.units;
+}
+
+// The per-platform GenAI module names the engine probes (engine_openvino.cpp
+// genAiModuleName/genAiTokenizersName); the tests mirror them so the fixture
+// layouts are realistic.
+QString genAiName()
+{
+#if defined(Q_OS_WIN)
+    return QStringLiteral("openvino_genai.dll");
+#else
+    return QStringLiteral("libopenvino_genai.so");
+#endif
+}
+
+// Writes an empty file so the probe's existence check passes (the file content
+// is irrelevant — the probe never reads it).
+void touchFile(const QString &path)
+{
+    QFile f(path);
+    QVERIFY2(f.open(QIODevice::WriteOnly), qPrintable(QStringLiteral("cannot create %1").arg(path)));
+    f.close();
 }
 
 } // namespace
@@ -207,6 +231,78 @@ private slots:
         QVERIFY2(library.isOpen(), qPrintable(err));
         const Fn fn = engine_internal::resolve<Fn>(library, sym, &err);
         QVERIFY2(fn != nullptr, qPrintable(err));
+    }
+
+    // The GenAI second-runtime probe (DD-1 §5.4): genAiRuntimeFile resolves the
+    // unversioned file first, then a `name.*` SONAME (pip wheels keep only the
+    // versioned .so). Mirrors the engine's runtimeFile() loop-verify.
+    void genAiRuntimeFilePreferUnversioned()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString flat = QDir(dir.path()).filePath(genAiName());
+        touchFile(flat);
+        QCOMPARE(genAiRuntimeFile(dir.path(), genAiName()), flat);
+        // A SONAME-only dir still resolves (the versioned file the wheel ships).
+        QTemporaryDir sonameDir;
+        QVERIFY(sonameDir.isValid());
+#if defined(Q_OS_WIN)
+        // Windows DLLs are unversioned; the SONAME case is a Linux/pip concern.
+        QCOMPARE(genAiRuntimeFile(sonameDir.path(), genAiName()), QString());
+#else
+        touchFile(QDir(sonameDir.path()).filePath(genAiName() + QStringLiteral(".2641")));
+        QCOMPARE(genAiRuntimeFile(sonameDir.path(), genAiName()),
+                 QDir(sonameDir.path()).filePath(genAiName() + QStringLiteral(".2641")));
+#endif
+        // An empty/missing dir resolves to "" — never a bogus path.
+        QCOMPARE(genAiRuntimeFile(QDir::tempPath() + QStringLiteral("/definitely-not-a-dir"),
+                                  genAiName()),
+                 QString());
+    }
+
+    // findGenAiModule: the pip layout — runtimePath is
+    // <py>/site-packages/openvino/libs, the genai package is a sibling
+    // <py>/site-packages/openvino_genai/lib/. The walk-up finds it.
+    void findGenAiModulePipSiblingLayout()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString openvinoLibs = dir.path() + QStringLiteral("/site-packages/openvino/libs");
+        const QString pkgLib = dir.path() + QStringLiteral("/site-packages/openvino_genai/lib");
+        QVERIFY(QDir().mkpath(openvinoLibs));
+        QVERIFY(QDir().mkpath(pkgLib));
+        const QString expected = QDir(pkgLib).filePath(genAiName());
+        touchFile(expected);
+        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_genai"), genAiName()), expected);
+        // The flat layout (toolkit installs: genai sits beside openvino.dll) wins
+        // even when a pip sibling also exists.
+        const QString flat = QDir(openvinoLibs).filePath(genAiName());
+        touchFile(flat);
+        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_genai"), genAiName()), flat);
+        // A missing package resolves to "" — the engine then fails cleanly with
+        // the "LLM runtime missing" error instead of guessing a path. (Probe with
+        // the tokenizers NAME: the flat check is name-based, so probing with the
+        // genai name would find the flat genai file we just created above.)
+        const QString tokenizersName =
+#if defined(Q_OS_WIN)
+            QStringLiteral("openvino_tokenizers.dll");
+#else
+            QStringLiteral("libopenvino_tokenizers.so");
+#endif
+        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_tokenizers"), tokenizersName), QString());
+    }
+
+    // The null engine's llm path is untouched by the GenAI flip (the LLM window
+    // contract — units/seconds/ttft/valid — is the same for every engine).
+    void nullEngineLlmWindowContract()
+    {
+        auto engine = nullEngine();
+        QString err;
+        QVERIFY(engine->init(modelFor(QStringLiteral("llm-1b-int4")), &err));
+        Inference out;
+        QVERIFY(engine->runWindow(QStringLiteral("llm"), modelFor(QStringLiteral("llm-1b-int4")), out, &err));
+        QVERIFY(sane(out));
+        QVERIFY(out.ttftSeconds > 0.0);   // the LLM window reports a first-token time
     }
 };
 

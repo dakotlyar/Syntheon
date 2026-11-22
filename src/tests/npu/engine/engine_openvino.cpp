@@ -9,6 +9,17 @@
 // run. No vendor header or .lib is compiled in (P-VENDOR); a missing/damaged
 // runtime is a clean init() == false + a clear error, never a throw or a crash.
 //
+// The LLM workload (4c-5) runs through OpenVINO GenAI as a SECOND runtime
+// (DD-1 §5.4 Option A): the compile-first smoke proved the raw-C KV loop cannot
+// compile the stateful IR on the NPU, while LLMPipeline(dir, "NPU") does. The
+// engine dlopens the user's openvino_genai + a small shim module (genai_shim.*,
+// the P-VENDOR amendment — GenAI headers are a build input, the runtime stays
+// user-installed, never bundled) and drives generation through the shim's C
+// boundary. The GenAI load is lazy: only the llm workload touches it, so a box
+// without GenAI still runs classify/detect and fails the LLM cleanly with an
+// "LLM runtime missing" error. The vision (classify/detect) raw-C path is
+// byte-for-byte unchanged from 4c-3.
+//
 // The C API below is the OpenVINO 2.x C ABI (openvino/c/ov_core.h, ov_tensor.h,
 // ov_infer_request.h, ov_compiled_model.h, ov_common.h), pinned to the 2023.x+
 // release lines and verified against those headers at fix-round 4c-3 — the
@@ -18,9 +29,16 @@
 
 #include "tests/npu/engine/engine.h"
 #include "tests/npu/engine/engine_dlopen.h"
+#include "tests/npu/engine/genai_runtime.h"
+#include "tests/npu/engine/genai_shim.h"
 
+#include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <chrono>
 #include <cstddef>
@@ -52,28 +70,32 @@ struct ov_version {
     const char *description;
 };
 
-// ov_element_type_e (ov_element_type.h): the element type of a tensor, read at
-// run time so the code never hardcodes a numeric enum value.
-typedef int ov_element_type_e;
-
-// ov_shape_t (ov_shape.h): rank + up to OV_MAX_DIMS (8) dims. Freed with
-// ov_shape_free once allocated via ov_shape_create.
-struct ov_shape_t {
-    std::int64_t rank;
-    std::int64_t dims[8];
+// ov_available_devices_t (ov_core.h, 2026.x C ABI): the device list returned
+// by ov_core_get_available_devices; freed with ov_available_devices_free.
+struct ov_available_devices_t {
+    char **devices;
+    std::size_t size;
 };
 
 constexpr int kOk = 0;   // ov_status_e::OK
 constexpr double kWindowSeconds = 5.0;
 
-// The LLM decode-loop bounds (Phase 4c §5.3): a hard cap on new tokens per
-// window so a never-ending / runaway generation can't spin past the 5 s window
-// (a 5 s window at a realistic ~55 tok/s ≈ 275 tokens, so 256 is the ceiling),
-// and the §5.3 correctness floor — a window is `valid` only if generation
-// reached ≥ 8 new tokens before EOS; a model that emits EOS on step 1 is an
-// Error, never a scored rate.
+// The LLM generation bounds (Phase 4c §5.3): a hard cap on new tokens per
+// window so a never-ending generation can't spin past the 5 s window (a 5 s
+// window at a realistic ~55 tok/s ≈ 275 tokens, so 256 is the ceiling), and
+// the §5.3 correctness floor — a window is `valid` only if generation reached
+// ≥ 8 new tokens before EOS; a model that emits EOS on step 1 is an Error,
+// never a scored rate.
 constexpr std::int64_t kLlmMaxNewTokens = 256;
 constexpr std::int64_t kLlmMinNewTokens = 8;
+
+// The fixed prompt the scored LLM loop generates from — the DD's "Paris"
+// check, and the exact call the Nivedellir smoke proved on the pack's IR
+// (LLMPipeline(dir, "NPU"), then generate("The capital of France is",
+// max_new_tokens=N)). A fixed prompt keeps windows deterministic (§8); GenAI
+// tokenizes it internally (CPU) and applies the model dir's chat template, as
+// the smoke did.
+constexpr const char *kLlmPrompt = "The capital of France is";
 
 // The resolved C entry points. All are null-checked at resolve time.
 struct OpenVinoApi {
@@ -98,19 +120,11 @@ struct OpenVinoApi {
     void (*inferRequestFree)(ov_infer_request *request) = nullptr;
     int (*getVersion)(ov_version *version) = nullptr;      // optional: absent → "" version
     void (*versionFree)(ov_version *version) = nullptr;    // optional
-    // The LLM path (4c-5): read the compiled model's properties (fail-closed
-    // EXECUTION_DEVICES guard), shape/reshape tensors, and swap per-step input
-    // tensors for the autoregressive loop. All OpenVINO 2.x C ABI; each
-    // null-checked at resolve time.
-    int (*compiledModelGetProperty)(const ov_compiled_model *model, const char *property_key,
-                                    char **property_value) = nullptr;
-    void (*free)(void *mem) = nullptr;                          // ov_free: frees get_property's return
-    int (*tensorGetShape)(const ov_tensor *tensor, ov_shape_t *shape) = nullptr;
-    int (*shapeCreate)(std::int64_t rank, const std::int64_t *dims, ov_shape_t *shape) = nullptr;
-    void (*shapeFree)(ov_shape_t *shape) = nullptr;
-    int (*tensorGetElementType)(const ov_tensor *tensor, ov_element_type_e *type) = nullptr;
-    int (*tensorCreate)(ov_element_type_e type, const ov_shape_t shape, void *host_ptr, ov_tensor **tensor) = nullptr;
-    int (*setInputTensor)(ov_infer_request *request, std::size_t idx, const ov_tensor *tensor) = nullptr;
+    // The fail-closed CPU-fallback guard (EC-P9): the LLM path verifies the
+    // OpenVINO core still reports an NPU device (GenAI's LLMPipeline does not
+    // expose EXECUTION_DEVICES). Both 2026.x C ABI, null-checked at resolve time.
+    int (*coreGetAvailableDevices)(const ov_core *core, ov_available_devices_t *devices) = nullptr;
+    void (*availableDevicesFree)(ov_available_devices_t *devices) = nullptr;
 };
 
 } // namespace
@@ -124,7 +138,16 @@ public:
     ~OpenVinoEngine() override { unload(); }   // release ov handles before the Library dtors dlclose
 
     QString backendName() const override { return QStringLiteral("openvino-npu"); }
-    QString runtimeVersion() const override { return m_version; }
+    // The resolved runtime version: the OpenVINO (core) description — and, once
+    // the LLM workload has lazily loaded it, the GenAI runtime's own version
+    // appended, so the Detail page's Runtime row shows both (§4.1/§9).
+    QString runtimeVersion() const override
+    {
+        if (m_genAiVersion.isEmpty())
+            return m_version;
+        return m_version.isEmpty() ? m_genAiVersion
+                                   : m_version + QStringLiteral(" · GenAI ") + m_genAiVersion;
+    }
 
     bool init(const LoadedModel &model, QString *error) override
     {
@@ -340,31 +363,13 @@ private:
         m_api.inferRequestFree = resolve<decltype(m_api.inferRequestFree)>(capi, "ov_infer_request_free", error);
         if (!m_api.inferRequestFree)
             return false;
-        m_api.compiledModelGetProperty =
-            resolve<decltype(m_api.compiledModelGetProperty)>(capi, "ov_compiled_model_get_property", error);
-        if (!m_api.compiledModelGetProperty)
+        m_api.coreGetAvailableDevices =
+            resolve<decltype(m_api.coreGetAvailableDevices)>(capi, "ov_core_get_available_devices", error);
+        if (!m_api.coreGetAvailableDevices)
             return false;
-        m_api.free = resolve<decltype(m_api.free)>(capi, "ov_free", error);
-        if (!m_api.free)
-            return false;
-        m_api.tensorGetShape = resolve<decltype(m_api.tensorGetShape)>(capi, "ov_tensor_get_shape", error);
-        if (!m_api.tensorGetShape)
-            return false;
-        m_api.shapeCreate = resolve<decltype(m_api.shapeCreate)>(capi, "ov_shape_create", error);
-        if (!m_api.shapeCreate)
-            return false;
-        m_api.shapeFree = resolve<decltype(m_api.shapeFree)>(capi, "ov_shape_free", error);
-        if (!m_api.shapeFree)
-            return false;
-        m_api.tensorGetElementType = resolve<decltype(m_api.tensorGetElementType)>(capi, "ov_tensor_get_element_type", error);
-        if (!m_api.tensorGetElementType)
-            return false;
-        m_api.tensorCreate = resolve<decltype(m_api.tensorCreate)>(capi, "ov_tensor_create", error);
-        if (!m_api.tensorCreate)
-            return false;
-        m_api.setInputTensor =
-            resolve<decltype(m_api.setInputTensor)>(capi, "ov_infer_request_set_input_tensor_by_index", error);
-        if (!m_api.setInputTensor)
+        m_api.availableDevicesFree =
+            resolve<decltype(m_api.availableDevicesFree)>(capi, "ov_available_devices_free", error);
+        if (!m_api.availableDevicesFree)
             return false;
 
         // Version is optional: resolve into a sink so an absence isn't an error.
@@ -423,26 +428,26 @@ private:
             return failLoad(QStringLiteral("ov_core_read_model failed for %1").arg(xml), error);
 
         if (llm) {
-            // The LLM decoder is compiled requesting the NPUW device property so
-            // generation can land on the NPU's stateful device (GenAI sets this
-            // internally; Option B replicates it). One property pair + a variadic
-            // (key, value) tuple.
-            // SMOKE: the exact NPUW device-property KEY string and VALUE string
-            // for ov_core_compile_model ("NPUW_DEVICES" / "NPU,CPU" are guesses);
-            // read the OpenVINO NPU plugin docs on Nivedellir, do not trust them.
-            const char *kDeviceKey = "NPUW_DEVICES";
-            const char *kDeviceValue = "NPU,CPU";
-            if (m_api.compileModel(m_coreHandle, m_model, "NPU", 1, &m_compiled, kDeviceKey, kDeviceValue) != kOk
-                || !m_compiled)
-                return failLoad(QStringLiteral("ov_core_compile_model failed for the LLM decoder on device 'NPU'"), error);
+            // The LLM workload runs through OpenVINO GenAI (DD-1 §5.4 Option A —
+            // the smoke proved the raw-C KV loop cannot compile the stateful IR
+            // on the NPU; GenAI staticizes the KV state internally). "Compiling"
+            // the LLM here means lazily loading the GenAI second runtime + our
+            // shim, creating LLMPipeline(model.dir, "NPU"), and running the
+            // fail-closed CPU-fallback guard. The vision path above (classify/
+            // detect) is byte-for-byte unchanged.
+            if (!loadGenAi(error))
+                return failLoad(QStringLiteral("the LLM runtime is unavailable: %1").arg(*error), error);
+            if (!createLlmPipeline(model, error))
+                return failLoad(QStringLiteral("failed to build the LLM pipeline: %1").arg(*error), error);
+            // The GenAI pipeline owns its requests — there is no vision
+            // infer_request to build for the llm workload (m_compiled is null).
         } else {
             // 0 property args + no variadic pairs → compiles the model with defaults.
             if (m_api.compileModel(m_coreHandle, m_model, "NPU", 0, &m_compiled) != kOk || !m_compiled)
                 return failLoad(QStringLiteral("ov_core_compile_model failed on device 'NPU'"), error);
+            if (m_api.createInferRequest(m_compiled, &m_request) != kOk || !m_request)
+                return failLoad(QStringLiteral("ov_compiled_model_create_infer_request failed"), error);
         }
-
-        if (m_api.createInferRequest(m_compiled, &m_request) != kOk || !m_request)
-            return failLoad(QStringLiteral("ov_compiled_model_create_infer_request failed"), error);
 
         m_loadedPath = xml;
         m_loadedIsLlm = llm;
@@ -512,224 +517,297 @@ private:
         return status == kOk && bytes > 0;
     }
 
-    // ---- LLM autoregressive decode (Phase 4c §5.2 Option B) ----
+    // ---- LLM via OpenVINO GenAI (DD-1 §5.4 Option A) ----
 
-    // The OpenVINO 2.x element-type enum values (ov_element_type.h), read back
-    // from each tensor at run time so the code never assumes a fixed type.
-    static constexpr ov_element_type_e kElementUndefined = 0;
-    static constexpr ov_element_type_e kElementI32 = 10;
-    static constexpr ov_element_type_e kElementI64 = 11;
-    static constexpr ov_element_type_e kElementF32 = 5;
-    static constexpr std::size_t kMaxLlmInputs = 8;
-
-    // A fixed pre-shipped prompt's input_ids for the scored loop (§5.2): the
-    // real tokenization stays CPU/offline for the correctness spot-check only.
-    // SMOKE: replace with the real pre-shipped prompt's input_ids from the pack;
-    // the EOS id below is unknown and must be confirmed on Nivedellir (a wrong
-    // EOS only means generation runs to the 5 s / 256-token bound instead of
-    // stopping early — still a valid score).
-    static constexpr std::int64_t kLlmEosId = 2;
-    static constexpr std::int64_t kLlmPrompt[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
-    static constexpr std::int64_t kLlmPromptLen = std::int64_t(sizeof(kLlmPrompt) / sizeof(kLlmPrompt[0]));
-    // A single generated token's attention mask (all ones) and the fixed beam_idx
-    // = 0 fed at every decode step (KV persists as internal model state; the
-    // beam_idx input is pinned to 0 — SMOKE, confirm on Nivedellir).
-    static constexpr std::int64_t kLlmMaskOnes[] = {1};
-    static constexpr std::int64_t kLlmBeamZero[] = {0};
-
-    // One 5 s window of autoregressive generation. Runs the stateful decoder:
-    // prefill once on the fixed prompt (populating the KV cache held as internal
-    // model state), then greedy/argmax one token at a time until EOS, the 256-token
-    // cap, or the 5 s window ends. `units` = generated tokens, `ttftSeconds` =
-    // first-token wall time, `valid` = 1 only when generation reached the §5.3
-    // floor (≥ 8 tokens) — so a model that emits EOS on step 1 is an Error via
-    // the workload layer's existing correctness sentinel, never a scored rate.
-    bool runLlmWindow(Inference &out, QString *error, const std::function<bool()> &cancelled)
+    // The second runtime the Intel engine loads lazily for the LLM workload
+    // (P-VENDOR as amended): openvino_genai from the USER's install (probed
+    // beside the OpenVINO runtime dir), plus OUR shim module that wraps
+    // ov::genai::LLMPipeline behind the stable C boundary in genai_shim.h. The
+    // shim is built only when a GenAI SDK dir is configured; a missing runtime
+    // OR shim is a clean "LLM runtime missing" error on the llm path only —
+    // classify/detect never touch these, so a box without GenAI still runs the
+    // vision workloads (never a launch failure).
+    static QString genAiModuleName()
     {
-        // Fail-closed CPU-fallback guard (EC-P9, must handle): the decoder was
-        // compiled requesting the NPUW device, which may fall back to CPU — never
-        // silently score a CPU run. Read the compiled model's EXECUTION_DEVICES
-        // and require NPU.
-        // SMOKE: EXECUTION_DEVICES is returned by ov_compiled_model_get_property
-        // as a comma-joined device string; confirm the exact value on Nivedellir.
-        char *devices = nullptr;
-        if (m_api.compiledModelGetProperty(m_compiled, "EXECUTION_DEVICES", &devices) != kOk || !devices)
-            return failWith(QStringLiteral("failed to read EXECUTION_DEVICES from the LLM decoder"), error);
-        const QString deviceList = QString::fromUtf8(devices);
-        m_api.free(devices);
-        if (!deviceList.contains(QLatin1StringView("NPU"), Qt::CaseInsensitive))
-            return failWith(QStringLiteral("the LLM decoder compiled on '%1', not the NPU — refusing to score a CPU-fallback run")
-                                .arg(deviceList),
-                            error);
+#if defined(Q_OS_WIN)
+        return QStringLiteral("openvino_genai.dll");
+#else
+        return QStringLiteral("libopenvino_genai.so");
+#endif
+    }
+    static QString genAiTokenizersName()
+    {
+#if defined(Q_OS_WIN)
+        return QStringLiteral("openvino_tokenizers.dll");
+#else
+        return QStringLiteral("libopenvino_tokenizers.so");
+#endif
+    }
+    // The shim is OUR module (GPL-3.0 code built with the GenAI headers when
+    // SYNTHEON_OPENVINO_GENAI_SDK_DIR is configured); it rides next to the app
+    // module like any other Syntheon library.
+    static QString shimModulePath()
+    {
+        const QString name =
+#if defined(Q_OS_WIN)
+            QStringLiteral("syn_openvino_genai_shim.dll");
+#else
+            QStringLiteral("libsyn_openvino_genai_shim.so");
+#endif
+        return QDir(QCoreApplication::applicationDirPath()).filePath(name);
+    }
 
-        // Identify the stateful decoder's inputs by shape and read their element
-        // types. Standard OpenVINO stateful-decoder ordering (SMOKE): input_ids
-        // is the first rank-2 input, attention_mask the second rank-2 input, and
-        // beam_idx the single rank-1 input.
-        int inputIdsIdx = -1, maskIdx = -1, beamIdx = -1;
-        ov_element_type_e idsType = kElementUndefined, maskType = kElementUndefined, beamType = kElementUndefined;
-        int rank2Seen = 0;
-        for (std::size_t idx = 0; idx < kMaxLlmInputs; ++idx) {
-            ov_tensor *t = nullptr;
-            if (m_api.getInputTensor(m_request, idx, &t) != kOk || !t)
-                break;   // index past the last input → done
-            ov_shape_t shape{};
-            const bool haveShape = m_api.tensorGetShape(t, &shape) == kOk;
-            ov_element_type_e type = kElementUndefined;
-            m_api.tensorGetElementType(t, &type);
-            if (haveShape && shape.rank == 1 && beamIdx < 0) {
-                beamIdx = int(idx);
-                beamType = type;
-            } else if (haveShape && shape.rank == 2 && rank2Seen == 0) {
-                inputIdsIdx = int(idx);
-                idsType = type;
-                ++rank2Seen;
-            } else if (haveShape && shape.rank == 2 && rank2Seen == 1) {
-                maskIdx = int(idx);
-                maskType = type;
-                ++rank2Seen;
-            }
-            m_api.tensorFree(t);
-        }
-        if (inputIdsIdx < 0 || maskIdx < 0 || beamIdx < 0) {
+    // The engine ↔ shim C ABI, resolved by name from the loaded shim module
+    // (genai_shim.h). Each symbol is null-checked at resolve time like
+    // resolveApi(), so a damaged shim is a clean error naming the symbol.
+    struct GenAiApi {
+        genai_shim::SynGenAiCreateFn create = nullptr;
+        genai_shim::SynGenAiGenerateFn generate = nullptr;
+        genai_shim::SynGenAiDeleteFn destroy = nullptr;
+    };
+
+    // Lazy load of the GenAI runtime + shim, once per engine (m_genAi set on
+    // success). Load order is load-bearing: openvino_genai FIRST (Linux:
+    // RTLD_GLOBAL so the shim's undefined ov::genai::* symbols resolve against
+    // it; Windows: already-loaded openvino.dll/ov dependencies bind by name),
+    // then the shim, whose own dependency on openvino_genai binds to the
+    // already-loaded module. On any failure nothing is half-installed.
+    // SMOKE: the openvino_tokenizers extension is found via the probe and
+    // handed to the shim (it sets OPENVINO_TOKENIZERS_PATH_GENAI so GenAI's
+    // Tokenizer loads it from the pip sibling dir); confirm on Nivedellir that
+    // the pipeline builds with the pip-installed wheel layout.
+    bool loadGenAi(QString *error)
+    {
+        if (m_genAi)
+            return true;   // already loaded (a previous llm compile succeeded)
+        const QString genaiPath = findGenAiModule(m_runtimePath, QStringLiteral("openvino_genai"), genAiModuleName());
+        if (genaiPath.isEmpty()) {
+            // SMOKE: "not found" = neither flat beside the OpenVINO runtime dir
+            // nor a <site-packages>/openvino_genai/lib/ sibling (pip layout).
             return failWith(
-                QStringLiteral("the LLM decoder has an unexpected input layout (need input_ids, attention_mask, beam_idx)"),
+                QStringLiteral(
+                    "LLM runtime missing: OpenVINO GenAI (openvino_genai) was not found beside the OpenVINO runtime "
+                    "— install the OpenVINO GenAI runtime 2026.4 (pip: openvino-genai==2026.4.1.0) for the LLM workload"),
                 error);
         }
+        const QString tokenizersPath =
+            findGenAiModule(m_runtimePath, QStringLiteral("openvino_tokenizers"), genAiTokenizersName());
 
-        const auto windowStart = std::chrono::steady_clock::now();
+        QString loadError;
+        auto genai = std::make_unique<Library>(genaiPath, &loadError, /*globalScope*/ true);
+        if (!genai->isOpen())
+            return failWith(QStringLiteral("LLM runtime missing: failed to load %1: %2").arg(genaiPath, loadError), error);
 
-        // Prefill once on the full prompt (§5.2 step 3): a single stateful decoder
-        // does prefill from the full prompt on the first infer, KV persisting as
-        // internal model state across the subsequent decode infers.
-        // SMOKE: the single stateful-decoder prefill assumption (vs a separate
-        // embed model) — confirm from the emitted IR on Nivedellir.
-        // The prefill attention mask is all-ones across the full prompt (no
-        // padding in greedy decoding).
-        std::vector<std::int64_t> promptMask(std::size_t(kLlmPromptLen), 1);
-        if (!setInput(inputIdsIdx, idsType, kLlmPrompt, kLlmPromptLen, true, error)
-            || !setInput(maskIdx, maskType, promptMask.data(), kLlmPromptLen, true, error)
-            || !setInput(beamIdx, beamType, kLlmBeamZero, 1, false, error))
-            return false;
-        if (m_api.infer(m_request) != kOk)
-            return failWith(QStringLiteral("the LLM decoder failed during prefill"), error);
-        const auto firstTokenAt = std::chrono::steady_clock::now();
-        std::int64_t firstToken = 0;
-        if (!argmaxLogits(kLlmPromptLen - 1, &firstToken, error))
-            return false;
-        const double ttft = std::chrono::duration<double>(firstTokenAt - windowStart).count();
+        const QString shimPath = shimModulePath();
+        auto shim = std::make_unique<Library>(shimPath, &loadError);
+        if (!shim->isOpen())
+            return failWith(QStringLiteral("LLM runtime missing: the GenAI shim %1 could not be loaded — this build "
+                                           "has no OpenVINO GenAI support (rebuild with SYNTHEON_OPENVINO_GENAI_SDK_DIR): %2")
+                                .arg(shimPath, loadError),
+                            error);
 
-        // Decode loop (§5.2 step 4): feed the last token, greedy/argmax the next.
-        // KV is internal model state (persists across ov_infer_request_infer with
-        // beam_idx = 0 at every step — SMOKE, confirm on Nivedellir).
-        std::int64_t tokens = 1;   // the prefill's first generated token
-        std::int64_t prev = firstToken;
-        const auto until = windowStart + std::chrono::milliseconds(int(kWindowSeconds * 1000.0));
-        while (prev != kLlmEosId && tokens < kLlmMaxNewTokens && std::chrono::steady_clock::now() < until) {
-            if (cancelled && cancelled())
-                break;
-            if (!setInput(inputIdsIdx, idsType, &prev, 1, true, error)
-                || !setInput(maskIdx, maskType, kLlmMaskOnes, 1, true, error)
-                || !setInput(beamIdx, beamType, kLlmBeamZero, 1, false, error))
-                return false;
-            if (m_api.infer(m_request) != kOk)
-                return failWith(QStringLiteral("the LLM decoder failed during token generation"), error);
-            std::int64_t next = 0;
-            if (!argmaxLogits(0, &next, error))
-                return false;
-            prev = next;
-            ++tokens;
-        }
+        GenAiApi api;
+        api.create = resolve<genai_shim::SynGenAiCreateFn>(*shim, "syn_genai_pipeline_create", &loadError);
+        if (!api.create)
+            return failWith(QStringLiteral("LLM runtime missing: the GenAI shim is damaged — failed to resolve "
+                                           "syn_genai_pipeline_create in %1: %2")
+                                .arg(shimPath, loadError),
+                            error);
+        api.generate = resolve<genai_shim::SynGenAiGenerateFn>(*shim, "syn_genai_generate", &loadError);
+        if (!api.generate)
+            return failWith(QStringLiteral("LLM runtime missing: the GenAI shim is damaged — failed to resolve "
+                                           "syn_genai_generate in %1: %2")
+                                .arg(shimPath, loadError),
+                            error);
+        api.destroy = resolve<genai_shim::SynGenAiDeleteFn>(*shim, "syn_genai_pipeline_delete", &loadError);
+        if (!api.destroy)
+            return failWith(QStringLiteral("LLM runtime missing: the GenAI shim is damaged — failed to resolve "
+                                           "syn_genai_pipeline_delete in %1: %2")
+                                .arg(shimPath, loadError),
+                            error);
 
-        const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - windowStart).count();
-        out.units = tokens;
-        out.seconds = elapsed;
-        out.ttftSeconds = ttft;
-        // §5.3 correctness floor: valid only if generation reached ≥ 8 new tokens
-        // before EOS. The workload layer turns `valid <= 0` into an Error, so an
-        // EOS-on-step-1 model is never scored.
-        out.valid = (tokens >= kLlmMinNewTokens) ? 1 : 0;
+        m_genAi = std::move(genai);
+        m_shim = std::move(shim);
+        m_genAiApi = api;
+        m_tokenizersPath = tokenizersPath;
+        m_genAiVersion = genAiVersion(genaiPath);
         return true;
     }
 
-    // Builds and attaches one integer input tensor to the request: `values`
-    // (count `count`) typed `type`, shaped [1, count] (rank2) or [count] (rank1).
-    // The host buffer is copied by ov_tensor_create, so it need not outlive the call.
-    bool setInput(int idx, ov_element_type_e type, const std::int64_t *values, std::int64_t count, bool rank2, QString *error)
+    // Creates the GenAI pipeline for the LLM model dir (the llm workload's
+    // "compile"): LLMPipeline(model.dir, "NPU") — GenAI reads the model dir's
+    // generation_config.json + chat template, tokenizes internally (CPU) and
+    // staticizes the KV state for the NPU compiler (the smoke-proven path).
+    // Runs the fail-closed CPU-fallback guard after creation.
+    bool createLlmPipeline(const LoadedModel &model, QString *error)
     {
-        const std::int64_t dims2[2] = {1, count};
-        const std::int64_t dims1[1] = {count};
-        ov_shape_t shape{};
-        const std::int64_t *dims = rank2 ? dims2 : dims1;
-        if (m_api.shapeCreate(rank2 ? 2 : 1, dims, &shape) != kOk)
-            return failWith(QStringLiteral("failed to build an input tensor shape"), error);
+        if (model.dir.isEmpty())
+            return failWith(QStringLiteral("the LLM model has no cache directory"), error);
+        char errbuf[genai_shim::kSynGenAiErrorLen] = {};
+        genai_shim::SynGenAiContext *ctx = m_genAiApi.create(model.dir.toUtf8().constData(), "NPU",
+                                                             m_tokenizersPath.toUtf8().constData(), llmEosId(model),
+                                                             errbuf, sizeof(errbuf));
+        if (!ctx)
+            return failWith(QString::fromUtf8(errbuf), error);
+        if (m_llm)
+            m_genAiApi.destroy(m_llm);
+        m_llm = ctx;
+        return ensureNpuDevice(error);
+    }
 
-        std::vector<std::uint8_t> buffer;
-        if (type == kElementI64) {
-            buffer.resize(std::size_t(sizeof(std::int64_t) * count));
-            std::memcpy(buffer.data(), values, sizeof(std::int64_t) * std::size_t(count));
-        } else if (type == kElementI32) {
-            buffer.resize(std::size_t(sizeof(std::int32_t) * count));
-            std::int32_t *dst = reinterpret_cast<std::int32_t *>(buffer.data());
-            for (std::int64_t i = 0; i < count; ++i)
-                dst[i] = std::int32_t(values[i]);
-        } else {
-            m_api.shapeFree(&shape);
-            // SMOKE: the decoder's integer inputs assumed I32/I64.
-            return failWith(QStringLiteral("the LLM decoder uses an unsupported integer input element type"), error);
+    // The fail-closed CPU-fallback guard (EC-P9, must handle): an LLM run that
+    // did not actually use the NPU must be Error, never scored. GenAI's
+    // LLMPipeline does not expose EXECUTION_DEVICES (verified against the
+    // 2026.4.1 headers: the compiled model is internal, and the stateful NPU
+    // path compiles on device "NPU" internally — SMOKE: confirm on Nivedellir;
+    // if a future GenAI exposes a device property, prefer it). So the guard
+    // checks exactly what CAN be verified: the pipeline was just created with
+    // device "NPU" (createLlmPipeline) AND the OpenVINO core reports an NPU
+    // device available AND GenAI loaded (this runs only after loadGenAi
+    // succeeded). The failure message names every fact checked.
+    bool ensureNpuDevice(QString *error)
+    {
+        ov_available_devices_t devices{};
+        if (m_api.coreGetAvailableDevices(m_coreHandle, &devices) != kOk) {
+            return failWith(QStringLiteral("the LLM CPU-fallback guard failed: ov_core_get_available_devices "
+                                           "returned an error — the device check was not possible, refusing to score"),
+                            error);
         }
-
-        ov_tensor *tensor = nullptr;
-        const int status = m_api.tensorCreate(type, shape, buffer.data(), &tensor);
-        m_api.shapeFree(&shape);
-        if (status != kOk || !tensor)
-            return failWith(QStringLiteral("failed to build an input tensor"), error);
-        const int setStatus = m_api.setInputTensor(m_request, std::size_t(idx), tensor);
-        m_api.tensorFree(tensor);   // the request now owns its own copy
-        if (setStatus != kOk)
-            return failWith(QStringLiteral("failed to attach an input tensor to the decoder"), error);
+        QString deviceList;
+        bool npu = false;
+        for (std::size_t i = 0; i < devices.size && devices.devices; ++i) {
+            if (!devices.devices[i])
+                continue;
+            if (!deviceList.isEmpty())
+                deviceList += QLatin1StringView(", ");
+            deviceList += QString::fromUtf8(devices.devices[i]);
+            if (QString::fromUtf8(devices.devices[i]).startsWith(QLatin1StringView("NPU"), Qt::CaseInsensitive))
+                npu = true;
+        }
+        if (m_api.availableDevicesFree)
+            m_api.availableDevicesFree(&devices);
+        if (!npu) {
+            return failWith(
+                QStringLiteral("the LLM pipeline was requested on device 'NPU' and OpenVINO GenAI loaded, but the "
+                               "OpenVINO core reports no NPU device (available: %1) — refusing to score a "
+                               "CPU-fallback run")
+                    .arg(deviceList),
+                error);
+        }
         return true;
     }
 
-    // Greedy/argmax the token at `row` of the logits output (row = prompt_len-1
-    // for prefill, 0 for single-token decode). Logits are assumed FP32 (SMOKE).
-    bool argmaxLogits(std::int64_t row, std::int64_t *token, QString *error)
+    // The EOS token id from the model dir's generation_config.json (the
+    // smoke's read_eos_id); 2 (the TinyLlama EOS id) when the file is
+    // absent/unparsable. Used only for the streamer's informational eosSeen
+    // flag — the §5.3 sentinel never depends on it (a wrong EOS only means
+    // generation runs to the 256-token bound, still a valid score).
+    static std::int64_t llmEosId(const LoadedModel &model)
     {
-        ov_tensor *logits = nullptr;
-        if (m_api.getOutputTensor(m_request, 0, &logits) != kOk || !logits)
-            return failWith(QStringLiteral("failed to read the decoder's logits"), error);
-        ov_element_type_e type = kElementUndefined;
-        if (m_api.tensorGetElementType(logits, &type) != kOk || type != kElementF32) {
-            m_api.tensorFree(logits);
-            return failWith(QStringLiteral("the decoder's logits are not FP32"), error);
-        }
-        ov_shape_t shape{};
-        if (m_api.tensorGetShape(logits, &shape) != kOk || shape.rank < 3) {
-            m_api.tensorFree(logits);
-            return failWith(QStringLiteral("the decoder's logits have an unexpected shape"), error);
-        }
-        void *data = nullptr;
-        if (m_api.tensorData(logits, &data) != kOk || !data) {
-            m_api.tensorFree(logits);
-            return failWith(QStringLiteral("the logits tensor has no data buffer"), error);
-        }
-        const float *f = static_cast<const float *>(data);
-        const std::int64_t vocab = shape.dims[2];
-        if (vocab <= 0 || row >= shape.dims[1]) {
-            m_api.tensorFree(logits);
-            return failWith(QStringLiteral("the decoder's logits shape is out of range"), error);
-        }
-        const float *rowData = f + row * vocab;
-        std::int64_t best = 0;
-        float bestVal = -std::numeric_limits<float>::infinity();
-        for (std::int64_t i = 0; i < vocab; ++i) {
-            if (rowData[i] > bestVal) {
-                bestVal = rowData[i];
-                best = i;
+        QFile f(QDir(model.dir).filePath(QStringLiteral("generation_config.json")));
+        if (f.open(QIODevice::ReadOnly)) {
+            const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+            const QJsonValue eos = doc.object().value(QStringLiteral("eos_token_id"));
+            if (eos.isDouble())
+                return std::int64_t(eos.toDouble());
+            if (eos.isArray()) {
+                const QJsonArray arr = eos.toArray();
+                if (!arr.isEmpty() && arr.first().isDouble())
+                    return std::int64_t(arr.first().toDouble());
             }
         }
-        m_api.tensorFree(logits);
-        *token = best;
+        return 2;
+    }
+
+    // The GenAI runtime's own version string: the DLL's VERSIONINFO resource on
+    // Windows (e.g. "2026.4.1"), the .so filename build suffix on Linux (pip
+    // wheels ship libopenvino_genai.so.<build>, e.g. .2641 → "2026.4.1"), else
+    // "". SMOKE: confirm the string reads sanely on Nivedellir.
+    static QString genAiVersion(const QString &modulePath)
+    {
+#if defined(Q_OS_WIN)
+        const QString native = QDir::toNativeSeparators(QFileInfo(modulePath).absoluteFilePath());
+        const std::wstring wide = native.toStdWString();
+        DWORD handle = 0;
+        DWORD size = GetFileVersionInfoSizeW(wide.c_str(), &handle);
+        if (size == 0)
+            return {};
+        // The extra parens defeat the most-vexing-parse (a bare `block(size)`
+        // would declare a function on Windows).
+        std::vector<std::uint8_t> block((std::size_t(size)));
+        if (!GetFileVersionInfoW(wide.c_str(), handle, size, block.data()))
+            return {};
+        void *value = nullptr;
+        UINT valueLen = 0;
+        if (!VerQueryValueW(block.data(), L"\\", &value, &valueLen))
+            return {};
+        const auto *fixed = static_cast<const VS_FIXEDFILEINFO *>(value);
+        if (!fixed || fixed->dwSignature != 0xFEED04BD)
+            return {};
+        return QStringLiteral("%1.%2.%3")
+            .arg(fixed->dwFileVersionMS >> 16)
+            .arg(fixed->dwFileVersionMS & 0xFFFF)
+            .arg(fixed->dwFileVersionLS >> 16);
+#else
+        // libopenvino_genai.so.2641 → "2026.4.1" (26.4.1 without the century).
+        const QString fileName = QFileInfo(modulePath).fileName();
+        const QString suffix = fileName.section(QLatin1Char('.'), -1);
+        bool ok = false;
+        const int build = suffix.toInt(&ok);
+        if (!ok || build <= 0 || build < 1000 || build > 9999)
+            return {};
+        return QStringLiteral("%1.%2.%3").arg(build / 100 + 2000).arg((build / 10) % 10).arg(build % 10);
+#endif
+    }
+
+    // The C thunk the shim's streamer calls per token to poll Stop (P-STOP ≤
+    // 250 ms: a token on the NPU lands every ~30 ms, far inside the budget).
+    // m_pendingCancelled is set for the duration of one generate() call —
+    // single-threaded, no locking needed.
+    static int cancelThunk(void *user)
+    {
+        auto *engine = static_cast<OpenVinoEngine *>(user);
+        return engine->m_pendingCancelled && engine->m_pendingCancelled() ? 1 : 0;
+    }
+
+    // One 5 s window of generation: a single synchronous generate() call
+    // bounded by the shim's streamer — it counts the generated tokens, records
+    // the first-token wall time, and returns STOP/CANCEL when the 5 s window
+    // elapses or Stop fires (GenAI stops at EOS or the 256-token bound itself).
+    // `units` = generated tokens, `ttftSeconds` = wall time to the first
+    // generated token, `valid` = 1 only when generation reached the §5.3 floor
+    // (≥ 8 tokens) — a model that emits EOS on step 1 yields tokens < 8 and is
+    // an Error via the workload layer's correctness sentinel, never a scored
+    // rate. The median-of-3 window structure in workloads.cpp is unchanged.
+    bool runLlmWindow(Inference &out, QString *error, const std::function<bool()> &cancelled)
+    {
+        const auto windowStart = std::chrono::steady_clock::now();
+        const auto windowStartNs =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(windowStart.time_since_epoch()).count();
+        genai_shim::SynGenAiControl control;
+        control.deadlineNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 (windowStart + std::chrono::milliseconds(int(kWindowSeconds * 1000.0)))
+                                     .time_since_epoch())
+                                 .count();
+        m_pendingCancelled = cancelled;
+        control.pollCancelled = &OpenVinoEngine::cancelThunk;
+        control.cancelledUser = this;
+
+        char errbuf[genai_shim::kSynGenAiErrorLen] = {};
+        const int status =
+            m_genAiApi.generate(m_llm, kLlmPrompt, kLlmMaxNewTokens, &control, errbuf, sizeof(errbuf));
+        m_pendingCancelled = {};
+        if (status != 0)
+            return failWith(QString::fromUtf8(errbuf), error);
+
+        const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - windowStart).count();
+        out.units = control.tokens;
+        out.seconds = elapsed;
+        out.ttftSeconds = control.firstTokenNs > 0 ? double(control.firstTokenNs - windowStartNs) / 1e9 : 0.0;
+        // §5.3 correctness floor: valid only if generation reached ≥ 8 new
+        // tokens. The workload layer turns `valid <= 0` into an Error, so an
+        // EOS-on-step-1 model is never scored.
+        out.valid = (out.units >= kLlmMinNewTokens) ? 1 : 0;
         return true;
     }
 
@@ -772,6 +850,13 @@ private:
     void unload()
     {
         freeModel();
+        // The GenAI pipeline object lives in the shim module: destroy it BEFORE
+        // the shim (and genai) libraries are released, or its destructor would
+        // run inside a dlclose'd module.
+        if (m_genAiApi.destroy && m_llm) {
+            m_genAiApi.destroy(m_llm);
+            m_llm = nullptr;
+        }
         if (m_api.coreFree && m_coreHandle) {
             m_api.coreFree(m_coreHandle);
             m_coreHandle = nullptr;
@@ -779,6 +864,12 @@ private:
         m_loadedPath.clear();
         m_loadedIsLlm = false;
         m_ready = false;
+        m_shim.reset();
+        m_genAi.reset();
+        m_genAiApi = GenAiApi{};
+        m_genAiVersion.clear();
+        m_tokenizersPath.clear();
+        m_pendingCancelled = {};
     }
 
     QString m_runtimePath;
@@ -789,6 +880,14 @@ private:
     std::unique_ptr<Library> m_core;    // the C++ runtime (kept loaded as a dependency)
     std::unique_ptr<Library> m_cApi;    // the C API (ov_* symbols resolved from here)
     std::unique_ptr<Library> m_plugin;  // the Intel NPU plugin (kept loaded for the core)
+    // The GenAI "second runtime" (DD-1 §5.4, loaded lazily for the LLM workload):
+    std::unique_ptr<Library> m_genAi;   // the user's openvino_genai runtime
+    std::unique_ptr<Library> m_shim;    // our syn_openvino_genai_shim module
+    GenAiApi m_genAiApi;
+    genai_shim::SynGenAiContext *m_llm = nullptr;   // the live LLMPipeline (per llm compile)
+    QString m_genAiVersion;             // the GenAI runtime's version ("" until the llm path loads it)
+    QString m_tokenizersPath;           // the user's openvino_tokenizers lib ("" when not found)
+    std::function<bool()> m_pendingCancelled;   // set for the duration of one generate() call
 
     ov_core *m_coreHandle = nullptr;
     ov_model *m_model = nullptr;

@@ -57,10 +57,15 @@ class Library
 {
 public:
     // Loads `absPath`. On failure isOpen() is false and *error (if set) names the
-    // library and the reason. Never throws.
-    Library(const QString &absPath, QString *error) : m_path(absPath)
+    // library and the reason. Never throws. `globalScope` (Linux only) loads with
+    // RTLD_GLOBAL so a SUBSEQUENTLY loaded module can bind to this one — the GenAI
+    // shim's undefined ov::genai::* symbols resolve against the user's
+    // openvino_genai module only when it is in the global scope
+    // (engine_openvino.cpp loadGenAi). Ignored on Windows.
+    Library(const QString &absPath, QString *error, bool globalScope = false) : m_path(absPath)
     {
 #if defined(Q_OS_WIN)
+        Q_UNUSED(globalScope);
         // Syntheon.exe runs SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS),
         // so plain LoadLibraryW(absPath) only searches the exe folder + System32,
         // never dirname(absPath) — vendor sibling DLLs would fail with error 126.
@@ -73,7 +78,8 @@ public:
                                                             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
                                                                 | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS));
 #else
-        m_handle = dlopen(absPath.toUtf8().constData(), RTLD_NOW | RTLD_LOCAL);
+        const int flags = RTLD_NOW | (globalScope ? RTLD_GLOBAL : RTLD_LOCAL);
+        m_handle = dlopen(absPath.toUtf8().constData(), flags);
 #endif
         if (!m_handle && error) {
             const QString reason = lastLoadError();
