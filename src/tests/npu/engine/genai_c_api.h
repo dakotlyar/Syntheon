@@ -49,7 +49,7 @@ struct GenAiStreamer {
     void *args;
 };
 
-// ov_status_e == int, OK == 0. All 13 members are resolved by name from
+// ov_status_e == int, OK == 0. All 12 members are resolved by name from
 // openvino_genai_c; each is null-checked at resolve time.
 struct GenAiCApi {
     // C variadic: the trailing ... is part of the type and must not be dropped
@@ -70,10 +70,9 @@ struct GenAiCApi {
     int (*perfNumGenerationTokens)(const ov_genai_perf_metrics *metrics, std::size_t *tokens) = nullptr;
     int (*perfGenerateDuration)(const ov_genai_perf_metrics *metrics, float *mean, float *std) = nullptr;
     int (*perfTtft)(const ov_genai_perf_metrics *metrics, float *mean, float *std) = nullptr;
-    int (*perfAddInPlace)(ov_genai_perf_metrics *left, const ov_genai_perf_metrics *right) = nullptr;
 };
 
-// Resolves all 13 by name from the loaded C DLL, short-circuiting on the FIRST
+// Resolves all 12 by name from the loaded C DLL, short-circuiting on the FIRST
 // missing symbol so *error always names the first failure (mirrors resolveApi
 // in engine_openvino.cpp). Returns false (and sets *error) on any miss.
 inline bool resolveGenAiCApi(const Library &capi, GenAiCApi *api, QString *error)
@@ -118,9 +117,6 @@ inline bool resolveGenAiCApi(const Library &capi, GenAiCApi *api, QString *error
         return false;
     api->perfTtft = resolve<decltype(api->perfTtft)>(capi, "ov_genai_perf_metrics_get_ttft", error);
     if (!api->perfTtft)
-        return false;
-    api->perfAddInPlace = resolve<decltype(api->perfAddInPlace)>(capi, "ov_genai_perf_metrics_add_in_place", error);
-    if (!api->perfAddInPlace)
         return false;
     return true;
 }

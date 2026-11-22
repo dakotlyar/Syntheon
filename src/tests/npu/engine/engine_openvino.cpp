@@ -187,6 +187,20 @@ public:
         // NPU device handles/threads from the previous run are still live.
         unload();
 
+#if defined(Q_OS_WIN)
+        // AP-5 finding 3: on the standard SDK-archive install openvino.dll (and
+        // openvino_genai.dll) import tbb12.dll, which lives under
+        // runtime/3rdparty/tbb/ — NOT flat beside openvino.dll. This process
+        // runs SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS), so
+        // %PATH% (setupvars) is ignored and Library's
+        // LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR only searches the load dir → error
+        // 126 on a clean SDK install. Load tbb12.dll by absolute path into
+        // m_tbb first (it OUTLIVES m_core/m_genAi: declared first, destroyed
+        // last), so the cores' import tables bind the already-loaded module.
+        if (!loadTbbIfNeeded(error))
+            return false;
+#endif
+
         // The plugin (openvino_intel_npu_plugin.{dll,so}) must sit beside the
         // core (detect verified that); holding its handle keeps it loaded for the
         // core's device loader. The C API library (openvino_c) exports the ov_*
@@ -333,6 +347,45 @@ private:
 #endif
 
     Library &cApi() { return *m_cApi; }
+
+#if defined(Q_OS_WIN)
+    // AP-5 finding 3: makes the standard Windows SDK-archive install loadable.
+    // The flat (pip-style) layout needs nothing — tbb12.dll sits beside
+    // openvino.dll and the OS loader's LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR finds
+    // it (SMOKE: Nivedellir's pip-style runtime folder uses this; confirm the
+    // flat layout still loads after this change). On the SDK-archive layout
+    // m_runtimePath = <...>/runtime/bin/intel64/Release and tbb12.dll is three
+    // levels up under 3rdparty — probe the two known archive locations by
+    // absolute path and load the first hit into m_tbb. A present-but-unloadable
+    // tbb12.dll fails init() cleanly with the OS error; an absent one falls
+    // through to the core load, which reports the same error 126 as before
+    // (no new failure semantics).
+    bool loadTbbIfNeeded(QString *error)
+    {
+        if (m_tbb && m_tbb->isOpen())
+            return true;
+        if (QFileInfo::exists(libPath(m_runtimePath, QStringLiteral("tbb12.dll"))))
+            return true;   // flat layout: nothing to do
+        // SMOKE: exact probe paths against the real 2026.4.1 archive (verified
+        // present: runtime/3rdparty/tbb/bin/tbb12.dll; the redist path is the
+        // older archive layout — probed too, harmless when absent).
+        const QString candidates[] = {
+            QDir(m_runtimePath).filePath(QStringLiteral("../../../3rdparty/tbb/bin/tbb12.dll")),
+            QDir(m_runtimePath).filePath(QStringLiteral("../../../3rdparty/tbb/redist/intel64/vc14/tbb12.dll")),
+        };
+        for (const QString &candidate : candidates) {
+            if (!QFileInfo::exists(candidate))
+                continue;
+            QString loadError;
+            auto tbb = std::make_unique<Library>(candidate, &loadError);
+            if (!tbb->isOpen())
+                return failWith(QStringLiteral("failed to load %1: %2").arg(candidate, loadError), error);
+            m_tbb = std::move(tbb);
+            return true;
+        }
+        return true;   // not found: the core load reports the OS error cleanly
+    }
+#endif
 
     // Resolves every entry point from the C API library, short-circuiting on the
     // FIRST missing symbol so *error always names the first failure (L2).
@@ -605,15 +658,18 @@ private:
     }
 
     // Creates the GenAI pipeline for the LLM model dir (the llm workload's
-    // "compile"): ov_genai_llm_pipeline_create(model.dir, "NPU", 2, ...) with
+    // "compile"): ov_genai_llm_pipeline_create(model.dir, "NPU", 4, ...) with
     // the two NPUW property pairs — GenAI reads the model dir's
     // generation_config.json + chat template, tokenizes internally (CPU) and
     // staticizes the KV state for the NPU compiler (the smoke-proven path).
-    // property_args_size = 2 = TWO key/value pairs (not four args):
-    // NPUW_DEVICES="NPU" + NPUW_FALLBACK_EXEC="false" (the EC-P9 guard's first
-    // layer — GenAI THROWS on a VCL/compile/exec failure instead of silently
-    // falling back to CPU). The generation config is created once per
-    // pipeline: max_new_tokens only; GenAI resolves the rest from the dir's
+    // property_args_size counts INDIVIDUAL const char* args (2 per property =
+    // key+value), NOT pairs: 4 for the two NPUW pairs below. The DLL rejects
+    // an odd count with INVALID_C_PARAM and divides by 2; with 2 it would read
+    // only pair 0 (NPUW_DEVICES="NPU") and silently DROP
+    // NPUW_FALLBACK_EXEC="false" — the EC-P9 guard's first layer (GenAI THROWS
+    // on a VCL/compile/exec failure instead of silently falling back to CPU;
+    // AP-5 finding 1). The generation config is created once per pipeline:
+    // max_new_tokens only; GenAI resolves the rest from the dir's
     // generation_config.json. Runs the fail-closed CPU-fallback guard after
     // creation.
     bool createLlmPipeline(const LoadedModel &model, QString *error)
@@ -621,7 +677,7 @@ private:
         if (model.dir.isEmpty())
             return failWith(QStringLiteral("the LLM model has no cache directory"), error);
         ov_genai_llm_pipeline *pipe = nullptr;
-        const int st = m_genAiApi.pipelineCreate(model.dir.toUtf8().constData(), "NPU", 2, &pipe, "NPUW_DEVICES",
+        const int st = m_genAiApi.pipelineCreate(model.dir.toUtf8().constData(), "NPU", 4, &pipe, "NPUW_DEVICES",
                                                  "NPU", "NPUW_FALLBACK_EXEC", "false");
         if (st != kOk || !pipe)
             return failWith(QStringLiteral("failed to create the LLM pipeline on device 'NPU' (status %1)").arg(st),
@@ -706,16 +762,24 @@ private:
     // GenAI's non-chat generate is stateless). The streamer thunk bounds a
     // call at the deadline or a cancel; GenAI stops each call at EOS or the
     // 256-token bound. llm.tps basis = GenAI's OWN throughput: Σ
-    // num_generation_tokens ÷ Σ generate_duration accumulated across calls
-    // with perf_metrics_add_in_place — byte-comparable to benchmark_genai_c's
+    // num_generation_tokens ÷ Σ generate_duration, accumulated per call in
+    // C++ (AP-5 finding 2: perf_metrics_add_in_place sums the token count but
+    // MEANS the per-call generate durations — PerfMetrics::operator+ appends
+    // durations to a vector and get_generate_duration divides by K, so folding
+    // it inflates llm.tps by K× across K calls). Each call's metrics are read
+    // and freed immediately; a non-OK read FAILS CLOSED (never folds a zero
+    // into the window totals). Byte-comparable to benchmark_genai_c's
     // "Throughput" (the §16.2 cross-check), NOT the streamer's token math (the
-    // C streamer hands back decoded strings only; timing/token accounting from
-    // it would be guesswork — spec §4d/§8). `ttftSeconds` = the first call's
-    // ttft mean (prefill incl.), reported separately. `valid` = 1 only when
-    // the window generated ≥ 8 tokens in total, no naturally-EOS'd call
-    // produced fewer than the §5.3 floor (EOS-on-step-1 fails closed), and
-    // there was real generate time — the workload layer turns valid <= 0 into
-    // an Error, never a scored rate. The median-of-3 window structure in
+    // C streamer hands back decoded strings only — spec §4d/§8). `ttftSeconds`
+    // = the first call's ttft mean (prefill incl.), reported separately.
+    // `valid` = 1 only when the window generated ≥ 8 tokens in total, no
+    // naturally-EOS'd call produced fewer than the §5.3 floor (EOS-on-step-1
+    // fails closed), and there was real generate time — the workload layer
+    // turns valid <= 0 into an Error, never a scored rate. A cancel that races
+    // a failing call is a Stop, not an engine failure (AP-5 finding 4): the
+    // loop breaks and returns true with a truncated span, and the workload
+    // layer's post-window Stop poll reports WorkloadStatus::Cancelled
+    // (workloads.cpp:45), never an Error. The median-of-3 window structure in
     // workloads.cpp is unchanged.
     bool runLlmWindow(Inference &out, QString *error, const std::function<bool()> &cancelled)
     {
@@ -727,8 +791,8 @@ private:
         ctl.cancelledUser = this;
         m_pendingCancelled = cancelled;
 
-        ov_genai_perf_metrics *cum = nullptr;   // window accumulator (via add_in_place)
-        std::size_t totalTokens = 0;
+        std::size_t totalTokens = 0;   // Σ per-call num_generation_tokens (C++ accumulation)
+        double totalGenMs = 0.0;       // Σ per-call generate_duration (each call's own mean = its duration)
         bool floorBroken = false;
         float firstTtftMs = 0.0f;
         bool haveTtft = false;
@@ -741,6 +805,12 @@ private:
             ov_genai_decoded_results *results = nullptr;
             if (m_genAiApi.pipelineGenerate(m_llm, kLlmPrompt, m_llmConfig, &streamer, &results) != kOk) {
                 m_pendingCancelled = {};
+                // A cancel that raced the failing call (the streamer returned
+                // Cancel, or the caller's predicate fired) is a clean break —
+                // truncated span, true — so the workload layer reports
+                // Cancelled, never an Error (AP-5 finding 4a).
+                if (ctl.stopped == 2 || (cancelled && cancelled()))
+                    break;
                 return failWith(QStringLiteral("LLM generation failed"), error);
             }
             ov_genai_perf_metrics *m = nullptr;
@@ -748,42 +818,40 @@ private:
                 if (results)
                     m_genAiApi.resultsFree(results);
                 m_pendingCancelled = {};
+                if (ctl.stopped == 2 || (cancelled && cancelled()))
+                    break;
                 return failWith(QStringLiteral("failed to read LLM perf metrics"), error);
             }
+            // Per-call accounting, fail closed: a non-OK read is a window
+            // failure, never a folded zero (AP-5 finding 4b).
             std::size_t callTokens = 0;
-            m_genAiApi.perfNumGenerationTokens(m, &callTokens);
+            const int tokenStatus = m_genAiApi.perfNumGenerationTokens(m, &callTokens);
+            float callGenMs = 0.0f, sd = 0.0f;
+            const int durationStatus = m_genAiApi.perfGenerateDuration(m, &callGenMs, &sd);
+            if (tokenStatus != kOk || durationStatus != kOk) {
+                m_genAiApi.perfMetricsFree(m);
+                m_genAiApi.resultsFree(results);
+                m_pendingCancelled = {};
+                return failWith(QStringLiteral("failed to read the LLM perf metrics"), error);
+            }
             if (ctl.stopped == 0 && callTokens < std::size_t(kLlmMinNewTokens))
                 floorBroken = true;   // §5.3 EOS-on-step-1
             if (!haveTtft) {
-                float mean = 0, sd = 0;
-                if (m_genAiApi.perfTtft(m, &mean, &sd) == kOk) {
+                float mean = 0, sdTtft = 0;
+                if (m_genAiApi.perfTtft(m, &mean, &sdTtft) == kOk) {
                     firstTtftMs = mean;
                     haveTtft = true;
                 }
             }
-            if (!cum)
-                cum = m;
-            else {
-                m_genAiApi.perfAddInPlace(cum, m);
-                m_genAiApi.perfMetricsFree(m);
-            }
+            totalTokens += callTokens;
+            totalGenMs += double(callGenMs);
+            m_genAiApi.perfMetricsFree(m);   // the per-call metrics are freed on every path (AP-5 finding 4c)
             m_genAiApi.resultsFree(results);
         }
         m_pendingCancelled = {};
 
-        if (cum) {
-            std::size_t tokens = 0;
-            float genMs = 0, sd = 0;
-            m_genAiApi.perfNumGenerationTokens(cum, &tokens);
-            m_genAiApi.perfGenerateDuration(cum, &genMs, &sd);
-            m_genAiApi.perfMetricsFree(cum);
-            totalTokens = tokens;
-            out.seconds = double(genMs) / 1000.0;               // Σ generate_duration (GenAI throughput basis)
-            out.units = std::int64_t(totalTokens);
-        } else {
-            out.seconds = 0.0;
-            out.units = 0;
-        }
+        out.units = std::int64_t(totalTokens);
+        out.seconds = totalGenMs / 1000.0;   // Σ generate_duration (GenAI throughput basis)
         out.ttftSeconds = haveTtft ? double(firstTtftMs) / 1000.0 : 0.0;   // first call's ttft mean (prefill incl.)
         out.valid = (out.units > 0 && totalTokens >= std::size_t(kLlmMinNewTokens) && !floorBroken
                      && out.seconds > 0.0)
@@ -864,6 +932,10 @@ private:
     QString m_loadedPath;    // the model file compiled by the last successful compileModel()
     bool m_loadedIsLlm = false;   // whether the loaded model is the stateful LLM decoder
     OpenVinoApi m_api;
+    // Declared FIRST so it is destroyed LAST (C++ destroys members in reverse
+    // declaration order): tbb12.dll must stay loaded while m_core/m_genAi are
+    // still live, and must outlive them in unload/destruction (AP-5 finding 3).
+    std::unique_ptr<Library> m_tbb;     // tbb12.dll (SDK-archive layout, Windows only)
     std::unique_ptr<Library> m_core;    // the C++ runtime (kept loaded as a dependency)
     std::unique_ptr<Library> m_cApi;    // the C API (ov_* symbols resolved from here)
     std::unique_ptr<Library> m_plugin;  // the Intel NPU plugin (kept loaded for the core)
