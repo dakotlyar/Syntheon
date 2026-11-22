@@ -34,9 +34,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Executables go to <build>/bin so the QML module folder "Syntheon" next to the
 # app's sources can't collide with the "Syntheon" executable.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-# Shared libraries too (the GenAI shim is the only one): the engine probes the
-# app module dir for it, so a LIBRARY that defaulted to its source dir would be
-# unfindable at run time (AP-5 5b).
+# Shared libraries too (no shared lib remains since the GenAI C-API rewrite
+# dropped the shim module; the variable is kept — harmless, avoids churn — so
+# a future shared library still lands in <build>/bin rather than its source
+# dir).
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 include(CompilerFlags)

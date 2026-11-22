@@ -36,10 +36,6 @@ foreach ($f in $files) {
         $lower = $name.ToLowerInvariant()
         if ($inTree.ContainsKey($lower)) { continue }
         if ($lower -like 'api-ms-win-*' -or $lower -like 'ext-ms-win-*') { continue }   # API sets
-        # The GenAI shim's openvino* imports are the user's P-VENDOR runtime
-        # (DD-1 §5.4): LoadLibrary'd at run time, never bundled — the inverse of
-        # the GPU worker's dlopen'd-driver rule in elf-check.py, same mechanism.
-        if ($rel -like '*syn_openvino_genai_shim.dll' -and $lower -like 'openvino*.dll') { continue }
         if (Test-Path (Join-Path $system $name)) { continue }                            # a Windows system DLL
         $problems += "${rel}: needs $name, which is neither in the tree nor a system DLL"
     }

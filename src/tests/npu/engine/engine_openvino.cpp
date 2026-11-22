@@ -10,15 +10,16 @@
 // runtime is a clean init() == false + a clear error, never a throw or a crash.
 //
 // The LLM workload (4c-5) runs through OpenVINO GenAI as a SECOND runtime
-// (DD-1 §5.4 Option A): the compile-first smoke proved the raw-C KV loop cannot
-// compile the stateful IR on the NPU, while LLMPipeline(dir, "NPU") does. The
-// engine dlopens the user's openvino_genai + a small shim module (genai_shim.*,
-// the P-VENDOR amendment — GenAI headers are a build input, the runtime stays
-// user-installed, never bundled) and drives generation through the shim's C
-// boundary. The GenAI load is lazy: only the llm workload touches it, so a box
-// without GenAI still runs classify/detect and fails the LLM cleanly with an
-// "LLM runtime missing" error. The vision (classify/detect) raw-C path is
-// byte-for-byte unchanged from 4c-3.
+// (DD-1 §5.4 Option A, C-API rewrite 2026-11-22): the compile-first smoke
+// proved the raw-C KV loop cannot compile the stateful IR on the NPU, while
+// LLMPipeline(dir, "NPU") does. The engine dlopens the user's openvino_genai_c
+// (the C wrapper over the C++ openvino_genai runtime) and resolves the ov_genai_*
+// entry points by name via genai_c_api.h — no C++ shim module, no GenAI headers
+// or import-lib as a build input (P-VENDOR restored; the runtime stays
+// user-installed, never bundled). The GenAI load is lazy: only the llm workload
+// touches it, so a box without GenAI still runs classify/detect and fails the
+// LLM cleanly with an "LLM runtime missing" error. The vision (classify/detect)
+// raw-C path is byte-for-byte unchanged from 4c-3.
 //
 // The C API below is the OpenVINO 2.x C ABI (openvino/c/ov_core.h, ov_tensor.h,
 // ov_infer_request.h, ov_compiled_model.h, ov_common.h), pinned to the 2023.x+
@@ -30,15 +31,10 @@
 #include "tests/npu/engine/engine.h"
 #include "tests/npu/engine/engine_dlopen.h"
 #include "tests/npu/engine/genai_runtime.h"
-#include "tests/npu/engine/genai_shim.h"
+#include "tests/npu/engine/genai_c_api.h"
 
-#include <QCoreApplication>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
 
 #include <chrono>
 #include <cstddef>
@@ -126,6 +122,39 @@ struct OpenVinoApi {
     void (*availableDevicesFree)(ov_available_devices_t *devices) = nullptr;
 };
 
+// Engine-side LLM window control (spec §4d): the streamer thunk is used ONLY to
+// bound a generate() call at the 5 s deadline and to poll the caller's cancel
+// predicate — token counts and times come from the C perf metrics, never from
+// the streamer's decoded-string callbacks (the llm.tps basis is GenAI's own
+// throughput, §16.2-comparable).
+struct LlmControl {
+    std::int64_t deadlineNs = 0;
+    int (*pollCancelled)(void *user) = nullptr;
+    void *cancelledUser = nullptr;
+    int stopped = 0;   // 0 none (natural EOS/bound), 1 window deadline, 2 cancel
+};
+
+// The C streamer callback (ov_genai_streaming_status_e): called per generated
+// token; returns Stop at the window deadline (truncating the call) and Cancel
+// when the caller's predicate fires (P-STOP ≤ 250 ms — a token on the NPU
+// lands every ~30 ms, far inside the budget). 0 = Running keeps generating.
+static GenAiStreamStatus llmStreamerThunk(const char *str, void *args)
+{
+    Q_UNUSED(str);
+    auto *ctl = static_cast<LlmControl *>(args);
+    if (ctl->pollCancelled && ctl->pollCancelled(ctl->cancelledUser)) {
+        ctl->stopped = 2;
+        return GenAiStreamStatus::Cancel;
+    }
+    if (std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count()
+        >= ctl->deadlineNs) {
+        ctl->stopped = 1;
+        return GenAiStreamStatus::Stop;
+    }
+    return GenAiStreamStatus::Running;
+}
+
 } // namespace
 
 namespace {
@@ -138,14 +167,17 @@ public:
 
     QString backendName() const override { return QStringLiteral("openvino-npu"); }
     // The resolved runtime version: the OpenVINO (core) description — and, once
-    // the LLM workload has lazily loaded it, the GenAI runtime's own version
-    // appended, so the Detail page's Runtime row shows both (§4.1/§9).
+    // the LLM workload has lazily loaded it, the GenAI marker appended, so the
+    // Detail page's Runtime row shows both ("OpenVINO <desc> · GenAI"). The
+    // marker is the literal string "GenAI": the C ABI has no version getter
+    // (ov::genai::get_version() is C++-only), so no number is appended — the
+    // core version on the same line carries the 2026.4.1 line (spec §8).
     QString runtimeVersion() const override
     {
         if (m_genAiVersion.isEmpty())
             return m_version;
         return m_version.isEmpty() ? m_genAiVersion
-                                   : m_version + QStringLiteral(" · GenAI ") + m_genAiVersion;
+                                   : m_version + QStringLiteral(" · ") + m_genAiVersion;
     }
 
     bool init(const LoadedModel &model, QString *error) override
@@ -419,7 +451,7 @@ private:
             // The LLM workload runs through OpenVINO GenAI (DD-1 §5.4 Option A —
             // the smoke proved the raw-C KV loop cannot compile the stateful IR
             // on the NPU; GenAI staticizes the KV state internally). "Compiling"
-            // the LLM means lazily loading the GenAI second runtime + our shim
+            // the LLM means lazily loading the GenAI C runtime (openvino_genai_c)
             // and creating LLMPipeline(model.dir, "NPU") — the decoder is NEVER
             // read/compiled via the C API here: LLMPipeline re-loads it from
             // model.dir, and a 631 MB read_model for nothing (AP-5 7b) would
@@ -519,172 +551,113 @@ private:
         return status == kOk && bytes > 0;
     }
 
-    // ---- LLM via OpenVINO GenAI (DD-1 §5.4 Option A) ----
+    // ---- LLM via OpenVINO GenAI (DD-1 §5.4 Option A, C API) ----
 
     // The second runtime the Intel engine loads lazily for the LLM workload
-    // (P-VENDOR as amended): openvino_genai from the USER's install (probed
-    // beside the OpenVINO runtime dir), plus OUR shim module that wraps
-    // ov::genai::LLMPipeline behind the stable C boundary in genai_shim.h. The
-    // shim is built only when a GenAI SDK dir is configured; a missing runtime
-    // OR shim is a clean "LLM runtime missing" error on the llm path only —
-    // classify/detect never touch these, so a box without GenAI still runs the
-    // vision workloads (never a launch failure).
-    static QString genAiModuleName()
+    // (P-VENDOR, C-API rewrite): openvino_genai_c from the USER's install,
+    // probed beside the OpenVINO runtime dir (flat beside openvino.dll — the
+    // SDK runtime layout — or a pip sibling). The C DLL is a thin C wrapper
+    // over the C++ openvino_genai runtime; the ov_genai_* entry points are
+    // resolved by name via GenAiCApi (genai_c_api.h), mirroring resolveApi().
+    // A missing runtime OR a missing symbol is a clean "LLM runtime missing"
+    // error on the llm path only — classify/detect never touch these, so a box
+    // without GenAI still runs the vision workloads (never a launch failure).
+    static QString genAiCModuleName()
     {
 #if defined(Q_OS_WIN)
-        return QStringLiteral("openvino_genai.dll");
+        return QStringLiteral("openvino_genai_c.dll");
 #else
-        return QStringLiteral("libopenvino_genai.so");
+        return QStringLiteral("libopenvino_genai_c.so");
 #endif
-    }
-    static QString genAiTokenizersName()
-    {
-#if defined(Q_OS_WIN)
-        return QStringLiteral("openvino_tokenizers.dll");
-#else
-        return QStringLiteral("libopenvino_tokenizers.so");
-#endif
-    }
-    // The shim is OUR module (GPL-3.0 code built with the GenAI headers when
-    // SYNTHEON_OPENVINO_GENAI_SDK_DIR is configured); it rides next to the app
-    // module like any other Syntheon library.
-    static QString shimModulePath()
-    {
-        const QString name =
-#if defined(Q_OS_WIN)
-            QStringLiteral("syn_openvino_genai_shim.dll");
-#else
-            QStringLiteral("libsyn_openvino_genai_shim.so");
-#endif
-        return QDir(QCoreApplication::applicationDirPath()).filePath(name);
     }
 
-    // The engine ↔ shim C ABI, resolved by name from the loaded shim module
-    // (genai_shim.h). Each symbol is null-checked at resolve time like
-    // resolveApi(), so a damaged shim is a clean error naming the symbol.
-    struct GenAiApi {
-        genai_shim::SynGenAiCreateFn create = nullptr;
-        genai_shim::SynGenAiGenerateFn generate = nullptr;
-        genai_shim::SynGenAiVersionFn version = nullptr;
-        genai_shim::SynGenAiDeleteFn destroy = nullptr;
-    };
-
-    // Lazy load of the GenAI runtime + shim, once per engine (m_genAi set on
-    // success). Load order is load-bearing: openvino_genai FIRST (Linux:
-    // RTLD_GLOBAL so the shim's undefined ov::genai::* symbols resolve against
-    // it; Windows: already-loaded openvino.dll/ov dependencies bind by name),
-    // then the shim, whose own dependency on openvino_genai binds to the
-    // already-loaded module. On any failure nothing is half-installed.
-    // SMOKE: the openvino_tokenizers extension is found via the probe and
-    // handed to the shim (it sets OPENVINO_TOKENIZERS_PATH_GENAI so GenAI's
-    // Tokenizer loads it from the pip sibling dir); confirm on Nivedellir that
-    // the pipeline builds with the pip-installed wheel layout.
+    // Lazy load of the GenAI C runtime, once per engine (m_genAi set on
+    // success). RTLD_GLOBAL so the C DLL's C++-core dependencies
+    // (openvino_genai.dll / libopenvino_genai.so + openvino.dll) bind; the
+    // C++ core is NOT loaded separately (the OS loader pulls it in
+    // transitively). On any failure nothing is half-installed.
+    // SMOKE: the C DLL is present flat beside openvino.dll on Nivedellir (the
+    // SDK archive layout; the pip wheel ships only the C++ DLL) — already
+    // copied to C:\Users\davek\syntheon-smoke\runtime\.
     bool loadGenAi(QString *error)
     {
         if (m_genAi)
             return true;   // already loaded (a previous llm compile succeeded)
-        const QString genaiPath = findGenAiModule(m_runtimePath, QStringLiteral("openvino_genai"), genAiModuleName());
-        if (genaiPath.isEmpty()) {
-            // SMOKE: "not found" = neither flat beside the OpenVINO runtime dir
-            // nor a <site-packages>/openvino_genai/lib/ sibling (pip layout).
-            return failWith(
-                QStringLiteral(
-                    "LLM runtime missing: OpenVINO GenAI (openvino_genai) was not found beside the OpenVINO runtime "
-                    "— install the OpenVINO GenAI runtime 2026.4 (pip: openvino-genai==2026.4.1.0) for the LLM workload"),
-                error);
-        }
-        const QString tokenizersPath =
-            findGenAiModule(m_runtimePath, QStringLiteral("openvino_tokenizers"), genAiTokenizersName());
+        const QString capiPath = findGenAiModule(m_runtimePath, QStringLiteral("openvino_genai"), genAiCModuleName());
+        if (capiPath.isEmpty())
+            return failWith(QStringLiteral("LLM runtime missing: OpenVINO GenAI C API (openvino_genai_c) was not "
+                                           "found beside the OpenVINO runtime — install the OpenVINO GenAI SDK "
+                                           "runtime 2026.4.1 (the C API DLL) for the LLM workload"),
+                            error);
 
         QString loadError;
-        auto genai = std::make_unique<Library>(genaiPath, &loadError, /*globalScope*/ true);
-        if (!genai->isOpen())
-            return failWith(QStringLiteral("LLM runtime missing: failed to load %1: %2").arg(genaiPath, loadError), error);
-
-        const QString shimPath = shimModulePath();
-        auto shim = std::make_unique<Library>(shimPath, &loadError);
-        if (!shim->isOpen())
-            // No env-var name in the message: the packaging P-HOOK gate
-            // (no-dev-hooks.sh/.ps1) rejects any packaged binary containing a
-            // "SYNTHEON_"/"SYNBENCH_" token (AP-5 round 2, finding 2).
-            return failWith(QStringLiteral("LLM runtime missing: the GenAI shim %1 could not be loaded — this build "
-                                           "has no OpenVINO GenAI support (rebuild with the GenAI SDK configured): %2")
-                                .arg(shimPath, loadError),
-                            error);
-
-        GenAiApi api;
-        api.create = resolve<genai_shim::SynGenAiCreateFn>(*shim, "syn_genai_pipeline_create", &loadError);
-        if (!api.create)
-            return failWith(QStringLiteral("LLM runtime missing: the GenAI shim is damaged — failed to resolve "
-                                           "syn_genai_pipeline_create in %1: %2")
-                                .arg(shimPath, loadError),
-                            error);
-        api.generate = resolve<genai_shim::SynGenAiGenerateFn>(*shim, "syn_genai_generate", &loadError);
-        if (!api.generate)
-            return failWith(QStringLiteral("LLM runtime missing: the GenAI shim is damaged — failed to resolve "
-                                           "syn_genai_generate in %1: %2")
-                                .arg(shimPath, loadError),
-                            error);
-        api.version = resolve<genai_shim::SynGenAiVersionFn>(*shim, "syn_genai_runtime_version", &loadError);
-        if (!api.version)
-            return failWith(QStringLiteral("LLM runtime missing: the GenAI shim is damaged — failed to resolve "
-                                           "syn_genai_runtime_version in %1: %2")
-                                .arg(shimPath, loadError),
-                            error);
-        api.destroy = resolve<genai_shim::SynGenAiDeleteFn>(*shim, "syn_genai_pipeline_delete", &loadError);
-        if (!api.destroy)
-            return failWith(QStringLiteral("LLM runtime missing: the GenAI shim is damaged — failed to resolve "
-                                           "syn_genai_pipeline_delete in %1: %2")
-                                .arg(shimPath, loadError),
-                            error);
-
-        m_genAi = std::move(genai);
-        m_shim = std::move(shim);
-        m_genAiApi = api;
-        m_tokenizersPath = tokenizersPath;
-        // The GenAI runtime's own version, straight from ov::genai::get_version()
-        // (the shim reads it from the loaded module) — no Win32 version-resource
-        // probing, no .so-filename parsing, no extra system lib.
-        char versionBuf[64] = {};
-        if (api.version(versionBuf, sizeof(versionBuf)) == 0)
-            m_genAiVersion = QString::fromUtf8(versionBuf);
+        auto genaic = std::make_unique<Library>(capiPath, &loadError, /*globalScope*/ true);
+        if (!genaic->isOpen())
+            return failWith(QStringLiteral("LLM runtime missing: failed to load %1: %2").arg(capiPath, loadError), error);
+        if (!resolveGenAiCApi(*genaic, &m_genAiApi, error))
+            return false;   // names the first missing symbol
+        m_genAi = std::move(genaic);
+        // No C version getter exists (ov::genai::get_version() is C++-only) —
+        // the marker stands for the GenAI line; the core version carries the
+        // 2026.4.1 version number on the same row (spec §8).
+        m_genAiVersion = QStringLiteral("GenAI");
         return true;
     }
 
     // Creates the GenAI pipeline for the LLM model dir (the llm workload's
-    // "compile"): LLMPipeline(model.dir, "NPU") — GenAI reads the model dir's
+    // "compile"): ov_genai_llm_pipeline_create(model.dir, "NPU", 2, ...) with
+    // the two NPUW property pairs — GenAI reads the model dir's
     // generation_config.json + chat template, tokenizes internally (CPU) and
     // staticizes the KV state for the NPU compiler (the smoke-proven path).
-    // Runs the fail-closed CPU-fallback guard after creation.
+    // property_args_size = 2 = TWO key/value pairs (not four args):
+    // NPUW_DEVICES="NPU" + NPUW_FALLBACK_EXEC="false" (the EC-P9 guard's first
+    // layer — GenAI THROWS on a VCL/compile/exec failure instead of silently
+    // falling back to CPU). The generation config is created once per
+    // pipeline: max_new_tokens only; GenAI resolves the rest from the dir's
+    // generation_config.json. Runs the fail-closed CPU-fallback guard after
+    // creation.
     bool createLlmPipeline(const LoadedModel &model, QString *error)
     {
         if (model.dir.isEmpty())
             return failWith(QStringLiteral("the LLM model has no cache directory"), error);
-        char errbuf[genai_shim::kSynGenAiErrorLen] = {};
-        genai_shim::SynGenAiContext *ctx = m_genAiApi.create(model.dir.toUtf8().constData(), "NPU",
-                                                             m_tokenizersPath.toUtf8().constData(), llmEosId(model),
-                                                             errbuf, sizeof(errbuf));
-        if (!ctx)
-            return failWith(QString::fromUtf8(errbuf), error);
-        if (m_llm)
-            m_genAiApi.destroy(m_llm);
-        m_llm = ctx;
-        return ensureNpuDevice(error);
+        ov_genai_llm_pipeline *pipe = nullptr;
+        const int st = m_genAiApi.pipelineCreate(model.dir.toUtf8().constData(), "NPU", 2, &pipe, "NPUW_DEVICES",
+                                                 "NPU", "NPUW_FALLBACK_EXEC", "false");
+        if (st != kOk || !pipe)
+            return failWith(QStringLiteral("failed to create the LLM pipeline on device 'NPU' (status %1)").arg(st),
+                            error);
+        if (m_llm) {
+            m_genAiApi.pipelineFree(m_llm);
+            m_llm = nullptr;
+        }
+        m_llm = pipe;
+
+        ov_genai_generation_config *cfg = nullptr;
+        if (m_genAiApi.configCreate(&cfg) != kOk || !cfg)
+            return failWith(QStringLiteral("failed to create the LLM generation config"), error);
+        if (m_genAiApi.configSetMaxNewTokens(cfg, std::size_t(kLlmMaxNewTokens)) != kOk) {
+            m_genAiApi.configFree(cfg);
+            return failWith(QStringLiteral("failed to set the LLM max_new_tokens"), error);
+        }
+        if (m_llmConfig)
+            m_genAiApi.configFree(m_llmConfig);
+        m_llmConfig = cfg;
+        return ensureNpuDevice(error);   // unchanged EC-P9 guard
     }
 
     // The fail-closed CPU-fallback guard (EC-P9, must handle): an LLM run that
     // did not actually use the NPU must be Error, never scored. Two layers:
-    // (1) the shim creates the pipeline with NPUW_DEVICES="NPU" and
-    // NPUW_FALLBACK_EXEC=false (genai_shim.cpp), so GenAI THROWS on a VCL/
-    // compile/exec failure instead of silently falling back to CPU (verified by
-    // AP-5 against the 2026.4.1 source); (2) this guard — GenAI's LLMPipeline
-    // does not expose EXECUTION_DEVICES (verified against the 2026.4.1 headers:
-    // the compiled model is internal — SMOKE: confirm on Nivedellir; if a future
-    // GenAI exposes a device property, prefer it). It checks exactly what CAN be
-    // verified: the pipeline was just created with device "NPU" (createLlmPipeline)
-    // AND the OpenVINO core reports an NPU device available AND GenAI loaded
-    // (this runs only after loadGenAi succeeded). The failure message names
-    // every fact checked.
+    // (1) the pipeline create passes NPUW_DEVICES="NPU" +
+    // NPUW_FALLBACK_EXEC=false as the variadic property pairs (createLlmPipeline),
+    // so GenAI THROWS on a VCL/compile/exec failure instead of silently
+    // falling back to CPU; (2) this guard — GenAI's LLMPipeline does not
+    // expose EXECUTION_DEVICES (verified against the 2026.4.1 headers: the
+    // compiled model is internal — SMOKE: confirm on Nivedellir; if a future
+    // GenAI exposes a device property, prefer it). It checks exactly what CAN
+    // be verified: the pipeline was just created with device "NPU"
+    // (createLlmPipeline) AND the OpenVINO core reports an NPU device
+    // available AND GenAI loaded (this runs only after loadGenAi succeeded).
+    // The failure message names every fact checked.
     bool ensureNpuDevice(QString *error)
     {
         ov_available_devices_t devices{};
@@ -717,30 +690,9 @@ private:
         return true;
     }
 
-    // The EOS token id from the model dir's generation_config.json (the
-    // smoke's read_eos_id); 2 (the TinyLlama EOS id) when the file is
-    // absent/unparsable. Used only for the streamer's informational eosSeen
-    // flag — the §5.3 sentinel never depends on it (a wrong EOS only means
-    // generation runs to the 256-token bound, still a valid score).
-    static std::int64_t llmEosId(const LoadedModel &model)
-    {
-        QFile f(QDir(model.dir).filePath(QStringLiteral("generation_config.json")));
-        if (f.open(QIODevice::ReadOnly)) {
-            const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
-            const QJsonValue eos = doc.object().value(QStringLiteral("eos_token_id"));
-            if (eos.isDouble())
-                return std::int64_t(eos.toDouble());
-            if (eos.isArray()) {
-                const QJsonArray arr = eos.toArray();
-                if (!arr.isEmpty() && arr.first().isDouble())
-                    return std::int64_t(arr.first().toDouble());
-            }
-        }
-        return 2;
-    }
-
-    // The C thunk the shim's streamer calls per token to poll Stop (P-STOP ≤
-    // 250 ms: a token on the NPU lands every ~30 ms, far inside the budget).
+    // The C thunk that polls the caller's cancel predicate (P-STOP ≤ 250 ms —
+    // a token on the NPU lands every ~30 ms, far inside the budget). Called
+    // through LlmControl::pollCancelled by the streamer thunk.
     // m_pendingCancelled is set for the duration of one generate() call —
     // single-threaded, no locking needed.
     static int cancelThunk(void *user)
@@ -751,61 +703,90 @@ private:
 
     // One 5 s window of generation: a loop of synchronous generate() calls
     // until the window deadline (each call re-generates the fixed prompt;
-    // GenAI's non-chat generate is stateless). The shim's streamer bounds a
-    // call at the deadline or Stop, and GenAI stops each call at EOS or the
-    // 256-token bound. The shim accumulates the whole window: `units` = the
-    // decoded tokens (per call: callTokens−1 — each call's FIRST token is the
-    // prefill's, so it is excluded per CALL, not once per window), `seconds` =
-    // the DECODE span (the sum of each call's last−first token times — prefill,
-    // CPU tokenization and detokenization excluded), so the workload layer's
-    // units/seconds is the true decode throughput (llm.tps, §16.2 cross-check
-    // against GenAI's own telescoping-TPOT figure). `ttftSeconds` = wall time
-    // to the FIRST generated token (prefill included), reported separately.
-    // `valid` = 1 only when the window decoded ≥ 1 token, generated ≥ 8 tokens
-    // in total AND no single naturally-EOS'd call produced fewer than the §5.3
-    // floor (EOS-on-step-1 fails closed) AND there was real decode span — the
-    // workload layer turns valid <= 0 into an Error, never a scored rate. The
-    // median-of-3 window structure in workloads.cpp is unchanged.
+    // GenAI's non-chat generate is stateless). The streamer thunk bounds a
+    // call at the deadline or a cancel; GenAI stops each call at EOS or the
+    // 256-token bound. llm.tps basis = GenAI's OWN throughput: Σ
+    // num_generation_tokens ÷ Σ generate_duration accumulated across calls
+    // with perf_metrics_add_in_place — byte-comparable to benchmark_genai_c's
+    // "Throughput" (the §16.2 cross-check), NOT the streamer's token math (the
+    // C streamer hands back decoded strings only; timing/token accounting from
+    // it would be guesswork — spec §4d/§8). `ttftSeconds` = the first call's
+    // ttft mean (prefill incl.), reported separately. `valid` = 1 only when
+    // the window generated ≥ 8 tokens in total, no naturally-EOS'd call
+    // produced fewer than the §5.3 floor (EOS-on-step-1 fails closed), and
+    // there was real generate time — the workload layer turns valid <= 0 into
+    // an Error, never a scored rate. The median-of-3 window structure in
+    // workloads.cpp is unchanged.
     bool runLlmWindow(Inference &out, QString *error, const std::function<bool()> &cancelled)
     {
-        const auto windowStart = std::chrono::steady_clock::now();
-        const auto windowStartNs =
-            std::chrono::duration_cast<std::chrono::nanoseconds>(windowStart.time_since_epoch()).count();
-        const auto deadline = windowStart + std::chrono::milliseconds(int(kWindowSeconds * 1000.0));
-        genai_shim::SynGenAiControl control;
-        control.deadlineNs =
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(int(kWindowSeconds * 1000.0));
+        LlmControl ctl;
+        ctl.deadlineNs =
             std::chrono::duration_cast<std::chrono::nanoseconds>(deadline.time_since_epoch()).count();
-        control.minNewTokens = kLlmMinNewTokens;
+        ctl.pollCancelled = &OpenVinoEngine::cancelThunk;
+        ctl.cancelledUser = this;
         m_pendingCancelled = cancelled;
-        control.pollCancelled = &OpenVinoEngine::cancelThunk;
-        control.cancelledUser = this;
 
-        char errbuf[genai_shim::kSynGenAiErrorLen] = {};
-        while (std::chrono::steady_clock::now() < deadline && !control.floorBroken) {
+        ov_genai_perf_metrics *cum = nullptr;   // window accumulator (via add_in_place)
+        std::size_t totalTokens = 0;
+        bool floorBroken = false;
+        float firstTtftMs = 0.0f;
+        bool haveTtft = false;
+
+        while (std::chrono::steady_clock::now() < deadline && !floorBroken) {
             if (cancelled && cancelled())
                 break;
-            const int status =
-                m_genAiApi.generate(m_llm, kLlmPrompt, kLlmMaxNewTokens, &control, errbuf, sizeof(errbuf));
-            if (status != 0) {
+            ctl.stopped = 0;
+            GenAiStreamer streamer{ &llmStreamerThunk, &ctl };
+            ov_genai_decoded_results *results = nullptr;
+            if (m_genAiApi.pipelineGenerate(m_llm, kLlmPrompt, m_llmConfig, &streamer, &results) != kOk) {
                 m_pendingCancelled = {};
-                return failWith(QString::fromUtf8(errbuf), error);
+                return failWith(QStringLiteral("LLM generation failed"), error);
             }
+            ov_genai_perf_metrics *m = nullptr;
+            if (!results || m_genAiApi.resultsGetPerfMetrics(results, &m) != kOk) {
+                if (results)
+                    m_genAiApi.resultsFree(results);
+                m_pendingCancelled = {};
+                return failWith(QStringLiteral("failed to read LLM perf metrics"), error);
+            }
+            std::size_t callTokens = 0;
+            m_genAiApi.perfNumGenerationTokens(m, &callTokens);
+            if (ctl.stopped == 0 && callTokens < std::size_t(kLlmMinNewTokens))
+                floorBroken = true;   // §5.3 EOS-on-step-1
+            if (!haveTtft) {
+                float mean = 0, sd = 0;
+                if (m_genAiApi.perfTtft(m, &mean, &sd) == kOk) {
+                    firstTtftMs = mean;
+                    haveTtft = true;
+                }
+            }
+            if (!cum)
+                cum = m;
+            else {
+                m_genAiApi.perfAddInPlace(cum, m);
+                m_genAiApi.perfMetricsFree(m);
+            }
+            m_genAiApi.resultsFree(results);
         }
         m_pendingCancelled = {};
 
-        const std::int64_t decodeTokens = control.decodeTokens;   // Σ per-call (callTokens−1): prefill's token excluded PER CALL
-        const double decodeSeconds = double(control.decodeNs) / 1e9;
-        out.units = decodeTokens > 0 ? decodeTokens : 0;
-        // `seconds` is the DECODE span, not the 5 s window wall clock — the
-        // workload layer computes units/seconds, and llm.tps must be the decode
-        // throughput (see the comment above). ttft is separate.
-        out.seconds = decodeSeconds;
-        out.ttftSeconds = control.firstTokenNs > 0 ? double(control.firstTokenNs - windowStartNs) / 1e9 : 0.0;
-        // §5.3 correctness floor: valid only if the window generated ≥ 8
-        // tokens, no naturally-EOS'd call fell below the floor (EOS-on-step-1),
-        // and there was a real decode span AND decoded tokens to divide by.
-        out.valid = (out.units > 0 && control.tokens >= kLlmMinNewTokens && !control.floorBroken
-                     && decodeSeconds > 0.0)
+        if (cum) {
+            std::size_t tokens = 0;
+            float genMs = 0, sd = 0;
+            m_genAiApi.perfNumGenerationTokens(cum, &tokens);
+            m_genAiApi.perfGenerateDuration(cum, &genMs, &sd);
+            m_genAiApi.perfMetricsFree(cum);
+            totalTokens = tokens;
+            out.seconds = double(genMs) / 1000.0;               // Σ generate_duration (GenAI throughput basis)
+            out.units = std::int64_t(totalTokens);
+        } else {
+            out.seconds = 0.0;
+            out.units = 0;
+        }
+        out.ttftSeconds = haveTtft ? double(firstTtftMs) / 1000.0 : 0.0;   // first call's ttft mean (prefill incl.)
+        out.valid = (out.units > 0 && totalTokens >= std::size_t(kLlmMinNewTokens) && !floorBroken
+                     && out.seconds > 0.0)
             ? 1
             : 0;
         return true;
@@ -826,11 +807,12 @@ private:
     }
 
     // Releases the per-model handles in dependency order — the vision
-    // infer_request/compiled/model AND the GenAI pipeline (a llm→vision
-    // workload switch must not leak the NPU pipeline + KV cache; the destroy
-    // runs through the shim, which is loaded whenever m_llm is non-null). The
-    // core + libraries survive, so this is the per-workload reload path
-    // (compileModel calls it before recompiling).
+    // infer_request/compiled/model AND the GenAI pipeline + its generation
+    // config (a llm→vision workload switch must not leak the NPU pipeline +
+    // KV cache; the frees run through the resolved C API, which is loaded
+    // whenever m_llm/m_llmConfig are non-null). The core + libraries survive,
+    // so this is the per-workload reload path (compileModel calls it before
+    // recompiling).
     void freeModel()
     {
         if (m_api.inferRequestFree && m_request) {
@@ -845,8 +827,12 @@ private:
             m_api.modelFree(m_model);
             m_model = nullptr;
         }
-        if (m_genAiApi.destroy && m_llm) {
-            m_genAiApi.destroy(m_llm);
+        if (m_genAiApi.configFree && m_llmConfig) {
+            m_genAiApi.configFree(m_llmConfig);
+            m_llmConfig = nullptr;
+        }
+        if (m_genAiApi.pipelineFree && m_llm) {
+            m_genAiApi.pipelineFree(m_llm);
             m_llm = nullptr;
         }
     }
@@ -856,8 +842,8 @@ private:
     // never dlclose'd with live device handles.
     void unload()
     {
-        // freeModel() destroys the GenAI pipeline too — BEFORE the shim (and
-        // genai) libraries are released, so its destructor never runs inside a
+        // freeModel() destroys the GenAI pipeline + config too — BEFORE the
+        // genai library is released, so their destructors never run inside a
         // dlclose'd module.
         freeModel();
         if (m_api.coreFree && m_coreHandle) {
@@ -867,11 +853,9 @@ private:
         m_loadedPath.clear();
         m_loadedIsLlm = false;
         m_ready = false;
-        m_shim.reset();
         m_genAi.reset();
-        m_genAiApi = GenAiApi{};
+        m_genAiApi = GenAiCApi{};
         m_genAiVersion.clear();
-        m_tokenizersPath.clear();
         m_pendingCancelled = {};
     }
 
@@ -884,12 +868,11 @@ private:
     std::unique_ptr<Library> m_cApi;    // the C API (ov_* symbols resolved from here)
     std::unique_ptr<Library> m_plugin;  // the Intel NPU plugin (kept loaded for the core)
     // The GenAI "second runtime" (DD-1 §5.4, loaded lazily for the LLM workload):
-    std::unique_ptr<Library> m_genAi;   // the user's openvino_genai runtime
-    std::unique_ptr<Library> m_shim;    // our syn_openvino_genai_shim module
-    GenAiApi m_genAiApi;
-    genai_shim::SynGenAiContext *m_llm = nullptr;   // the live LLMPipeline (per llm compile)
-    QString m_genAiVersion;             // the GenAI runtime's version ("" until the llm path loads it)
-    QString m_tokenizersPath;           // the user's openvino_tokenizers lib ("" when not found)
+    std::unique_ptr<Library> m_genAi;   // the user's openvino_genai_c runtime (C ABI)
+    GenAiCApi m_genAiApi;               // the resolved ov_genai_* entry points
+    ov_genai_llm_pipeline *m_llm = nullptr;             // the live LLMPipeline (per llm compile)
+    ov_genai_generation_config *m_llmConfig = nullptr;  // its max_new_tokens config
+    QString m_genAiVersion;             // "GenAI" marker ("" until the llm path loads it)
     std::function<bool()> m_pendingCancelled;   // set for the duration of one generate() call
 
     ov_core *m_coreHandle = nullptr;

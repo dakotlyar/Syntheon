@@ -59,8 +59,8 @@ public:
     // Loads `absPath`. On failure isOpen() is false and *error (if set) names the
     // library and the reason. Never throws. `globalScope` (Linux only) loads with
     // RTLD_GLOBAL so a SUBSEQUENTLY loaded module can bind to this one — the GenAI
-    // shim's undefined ov::genai::* symbols resolve against the user's
-    // openvino_genai module only when it is in the global scope
+    // C API DLL's own dependencies (the C++ openvino_genai + openvino cores it
+    // wraps) bind when they are in the global scope
     // (engine_openvino.cpp loadGenAi). Ignored on Windows.
     Library(const QString &absPath, QString *error, bool globalScope = false) : m_path(absPath)
     {

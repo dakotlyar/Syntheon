@@ -36,15 +36,14 @@ bool sane(const Inference &inference)
     return inference.seconds > 0.0 && inference.units > 0 && inference.valid == inference.units;
 }
 
-// The per-platform GenAI module names the engine probes (engine_openvino.cpp
-// genAiModuleName/genAiTokenizersName); the tests mirror them so the fixture
-// layouts are realistic.
+// The per-platform GenAI C-API module name the engine probes (engine_openvino.cpp
+// genAiCModuleName); the tests mirror it so the fixture layouts are realistic.
 QString genAiName()
 {
 #if defined(Q_OS_WIN)
-    return QStringLiteral("openvino_genai.dll");
+    return QStringLiteral("openvino_genai_c.dll");
 #else
-    return QStringLiteral("libopenvino_genai.so");
+    return QStringLiteral("libopenvino_genai_c.so");
 #endif
 }
 
@@ -55,17 +54,6 @@ void touchFile(const QString &path)
     QFile f(path);
     QVERIFY2(f.open(QIODevice::WriteOnly), qPrintable(QStringLiteral("cannot create %1").arg(path)));
     f.close();
-}
-
-// The per-platform openvino_tokenizers module name (engine_openvino.cpp
-// genAiTokenizersName); the fixtures mirror the real pip wheel layout.
-QString tokenizersName()
-{
-#if defined(Q_OS_WIN)
-    return QStringLiteral("openvino_tokenizers.dll");
-#else
-    return QStringLiteral("libopenvino_tokenizers.so");
-#endif
 }
 
 // A fake engine whose llm window reports EOS-on-step-1 (one token, then EOS —
@@ -292,22 +280,20 @@ private slots:
                  QString());
     }
 
-    // findGenAiModule: the REAL pip layouts (2026.4.1.0 wheel, AP-5 2/10) —
-    // runtimePath is <py>/site-packages/openvino/libs; the genai module sits
-    // FLAT in its package dir (<py>/site-packages/openvino_genai/, no lib/),
-    // while the tokenizers module sits under <py>/site-packages/
-    // openvino_tokenizers/lib/. Both must resolve; a missing package must be
-    // "" so the engine fails cleanly with "LLM runtime missing".
+    // findGenAiModule: the REAL layouts (2026.4.1 SDK, C-API rewrite) —
+    // runtimePath is the dir beside openvino.dll; the engine probes the C-DLL
+    // name (openvino_genai_c) flat there (the SDK runtime archive layout), or
+    // a <site-packages>/openvino_genai/ sibling (flat or lib/). The
+    // openvino_tokenizers sub-probes are GONE: the engine no longer probes
+    // tokenizers (GenAI resolves them internally from its own install).
     void findGenAiModulePipSiblingLayout()
     {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const QString openvinoLibs = dir.path() + QStringLiteral("/site-packages/openvino/libs");
         const QString genaiPkg = dir.path() + QStringLiteral("/site-packages/openvino_genai");
-        const QString tokPkg = dir.path() + QStringLiteral("/site-packages/openvino_tokenizers");
         QVERIFY(QDir().mkpath(openvinoLibs));
         QVERIFY(QDir().mkpath(genaiPkg));
-        QVERIFY(QDir().mkpath(tokPkg + QStringLiteral("/lib")));
 
         // openvino_genai keeps its module FLAT in the package dir.
         const QString genaiFlat = QDir(genaiPkg).filePath(genAiName());
@@ -318,22 +304,18 @@ private slots:
         const QString genaiLib = QDir(genaiPkg + QStringLiteral("/lib")).filePath(genAiName());
         touchFile(genaiLib);
         QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_genai"), genAiName()), genaiLib);
-        // openvino_tokenizers keeps its module under lib/.
-        const QString tokLib = QDir(tokPkg + QStringLiteral("/lib")).filePath(tokenizersName());
-        touchFile(tokLib);
-        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_tokenizers"), tokenizersName()), tokLib);
 
-        // The flat layout (toolkit installs: genai sits beside openvino.dll)
+        // A package that is not installed resolves to "" — never a guessed path.
+        // Probed with the C-DLL name BEFORE the flat-wins file below is created:
+        // the flat runtime-dir check is name-based, so that file would shadow
+        // the missing-package probe (the engine no longer probes tokenizers).
+        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_quantizer"), genAiName()), QString());
+
+        // The flat layout (SDK archive: genai_c sits beside openvino.dll)
         // wins even when a pip sibling also exists.
         const QString flat = QDir(openvinoLibs).filePath(genAiName());
         touchFile(flat);
         QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_genai"), genAiName()), flat);
-
-        // A package that is not installed resolves to "" — never a guessed path.
-        // (Probe with the tokenizers name: the flat runtime-dir check is
-        // name-based, so probing with the genai name would find the flat genai
-        // file created for the "flat wins" assertion above.)
-        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_quantizer"), tokenizersName()), QString());
     }
 
     // The null engine's llm path is untouched by the GenAI flip (the LLM window
