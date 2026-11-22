@@ -8,6 +8,7 @@
 #include "tests/npu/engine/engine.h"
 #include "tests/npu/engine/engine_dlopen.h"
 #include "tests/npu/engine/genai_runtime.h"
+#include "tests/npu/workloads/workloads.h"
 
 #include <QDir>
 #include <QFile>
@@ -55,6 +56,37 @@ void touchFile(const QString &path)
     QVERIFY2(f.open(QIODevice::WriteOnly), qPrintable(QStringLiteral("cannot create %1").arg(path)));
     f.close();
 }
+
+// The per-platform openvino_tokenizers module name (engine_openvino.cpp
+// genAiTokenizersName); the fixtures mirror the real pip wheel layout.
+QString tokenizersName()
+{
+#if defined(Q_OS_WIN)
+    return QStringLiteral("openvino_tokenizers.dll");
+#else
+    return QStringLiteral("libopenvino_tokenizers.so");
+#endif
+}
+
+// A fake engine whose llm window reports EOS-on-step-1 (one token, then EOS —
+// the §5.3 floor is not met): runWindows must turn it into an Error, never a
+// scored rate.
+class EosOnStepOneEngine final : public INpuEngine
+{
+public:
+    QString backendName() const override { return QStringLiteral("fake-eos1"); }
+    QString runtimeVersion() const override { return {}; }
+    bool init(const LoadedModel &, QString *) override { return true; }
+    bool runWindow(const QString &, const LoadedModel &, Inference &out, QString *,
+                   const std::function<bool()> &) override
+    {
+        out.seconds = 1.0;
+        out.units = 1;      // one token generated...
+        out.valid = 0;      // ...then EOS on step 1 → below the §5.3 floor
+        out.ttftSeconds = 0.2;
+        return true;
+    }
+};
 
 } // namespace
 
@@ -260,36 +292,48 @@ private slots:
                  QString());
     }
 
-    // findGenAiModule: the pip layout — runtimePath is
-    // <py>/site-packages/openvino/libs, the genai package is a sibling
-    // <py>/site-packages/openvino_genai/lib/. The walk-up finds it.
+    // findGenAiModule: the REAL pip layouts (2026.4.1.0 wheel, AP-5 2/10) —
+    // runtimePath is <py>/site-packages/openvino/libs; the genai module sits
+    // FLAT in its package dir (<py>/site-packages/openvino_genai/, no lib/),
+    // while the tokenizers module sits under <py>/site-packages/
+    // openvino_tokenizers/lib/. Both must resolve; a missing package must be
+    // "" so the engine fails cleanly with "LLM runtime missing".
     void findGenAiModulePipSiblingLayout()
     {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const QString openvinoLibs = dir.path() + QStringLiteral("/site-packages/openvino/libs");
-        const QString pkgLib = dir.path() + QStringLiteral("/site-packages/openvino_genai/lib");
+        const QString genaiPkg = dir.path() + QStringLiteral("/site-packages/openvino_genai");
+        const QString tokPkg = dir.path() + QStringLiteral("/site-packages/openvino_tokenizers");
         QVERIFY(QDir().mkpath(openvinoLibs));
-        QVERIFY(QDir().mkpath(pkgLib));
-        const QString expected = QDir(pkgLib).filePath(genAiName());
-        touchFile(expected);
-        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_genai"), genAiName()), expected);
-        // The flat layout (toolkit installs: genai sits beside openvino.dll) wins
-        // even when a pip sibling also exists.
+        QVERIFY(QDir().mkpath(genaiPkg));
+        QVERIFY(QDir().mkpath(tokPkg + QStringLiteral("/lib")));
+
+        // openvino_genai keeps its module FLAT in the package dir.
+        const QString genaiFlat = QDir(genaiPkg).filePath(genAiName());
+        touchFile(genaiFlat);
+        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_genai"), genAiName()), genaiFlat);
+        // ...but a lib/ subdir variant is probed too (a toolkit-style package).
+        QVERIFY(QDir().mkpath(genaiPkg + QStringLiteral("/lib")));
+        const QString genaiLib = QDir(genaiPkg + QStringLiteral("/lib")).filePath(genAiName());
+        touchFile(genaiLib);
+        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_genai"), genAiName()), genaiLib);
+        // openvino_tokenizers keeps its module under lib/.
+        const QString tokLib = QDir(tokPkg + QStringLiteral("/lib")).filePath(tokenizersName());
+        touchFile(tokLib);
+        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_tokenizers"), tokenizersName()), tokLib);
+
+        // The flat layout (toolkit installs: genai sits beside openvino.dll)
+        // wins even when a pip sibling also exists.
         const QString flat = QDir(openvinoLibs).filePath(genAiName());
         touchFile(flat);
         QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_genai"), genAiName()), flat);
-        // A missing package resolves to "" — the engine then fails cleanly with
-        // the "LLM runtime missing" error instead of guessing a path. (Probe with
-        // the tokenizers NAME: the flat check is name-based, so probing with the
-        // genai name would find the flat genai file we just created above.)
-        const QString tokenizersName =
-#if defined(Q_OS_WIN)
-            QStringLiteral("openvino_tokenizers.dll");
-#else
-            QStringLiteral("libopenvino_tokenizers.so");
-#endif
-        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_tokenizers"), tokenizersName), QString());
+
+        // A package that is not installed resolves to "" — never a guessed path.
+        // (Probe with the tokenizers name: the flat runtime-dir check is
+        // name-based, so probing with the genai name would find the flat genai
+        // file created for the "flat wins" assertion above.)
+        QCOMPARE(findGenAiModule(openvinoLibs, QStringLiteral("openvino_quantizer"), tokenizersName()), QString());
     }
 
     // The null engine's llm path is untouched by the GenAI flip (the LLM window
@@ -303,6 +347,18 @@ private slots:
         QVERIFY(engine->runWindow(QStringLiteral("llm"), modelFor(QStringLiteral("llm-1b-int4")), out, &err));
         QVERIFY(sane(out));
         QVERIFY(out.ttftSeconds > 0.0);   // the LLM window reports a first-token time
+    }
+
+    // §5.3 correctness sentinel through the workload layer (AP-5 10): a window
+    // whose engine reports EOS-on-step-1 (units=1, valid=0) must be an Error —
+    // a "tokens > 0 but garbage rate" is never scored.
+    void llmEosOnStepOneIsError()
+    {
+        EosOnStepOneEngine engine;
+        const sb::npu::workloads::WorkloadResult wr =
+            sb::npu::workloads::runWindows(QStringLiteral("llm"), engine, modelFor(QStringLiteral("llm-1b-int4")), {});
+        QCOMPARE(wr.status, sb::npu::workloads::WorkloadStatus::Error);
+        QVERIFY(!wr.error.isEmpty());
     }
 };
 

@@ -18,29 +18,52 @@
 #include <cstddef>
 #include <cstdint>
 
+// The export annotation for the shim's extern "C" entry points. The shim
+// module defines SYN_GENAI_SHIM_BUILD (genai_shim.cpp) so MSVC builds export
+// the symbols (dllexport) — without it a Windows shim DLL would export
+// nothing and the engine's GetProcAddress would always fail. GCC/Clang get
+// explicit default visibility so a -fvisibility=hidden build still exports.
+#if defined(_WIN32) && defined(SYN_GENAI_SHIM_BUILD)
+#  define SYN_GENAI_EXPORT __declspec(dllexport)
+#elif defined(_WIN32)
+#  define SYN_GENAI_EXPORT
+#elif defined(__GNUC__) || defined(__clang__)
+#  define SYN_GENAI_EXPORT __attribute__((visibility("default")))
+#else
+#  define SYN_GENAI_EXPORT
+#endif
+
 namespace sb::npu::genai_shim {
 
-// Why the streamer stopped a window (SynGenAiControl::stopReason). The window
+// Why the streamer stopped a window (SynGenAiControl::stopReason). A window
 // also ends "naturally" when GenAI reaches EOS or max_new_tokens — that keeps
-// stopReason at 0 (StopRunning).
+// stopReason at 0 (StopRunning), which is how the shim tells a natural
+// completion from a streamer-stop (needed for the §5.3 floor).
 enum StopReason : int {
-    StopRunning = 0,    // EOS or the max_new_tokens bound ended the window
+    StopRunning = 0,    // EOS or the max_new_tokens bound ended the generation
     StopWindow = 1,     // the 5 s window deadline elapsed (streamer returned STOP)
     StopCancelled = 2,  // the caller's cancel predicate fired (streamer returned CANCEL)
 };
 
-// The per-window control block: engine-owned, written by the shim during one
-// synchronous generate() call. Single-threaded (one window at a time), so no
-// locking is needed. All times are steady_clock nanoseconds since epoch.
+// The per-window control block: engine-owned, read/written by the shim during
+// the window's synchronous generate() calls (single-threaded, no locking).
+// The engine loops generate() until the window deadline; the shim ACCUMULATES
+// across those calls, so `tokens`/`firstTokenNs`/`decodeNs` span the whole
+// window, not one call. All times are steady_clock nanoseconds since epoch.
 struct SynGenAiControl {
     std::int64_t deadlineNs = 0;                // steady_clock::now() + the 5 s window (engine side)
     int (*pollCancelled)(void *user) = nullptr; // per-token Stop poll; may be null
     void *cancelledUser = nullptr;              // passed to pollCancelled
-    // Outputs, written by the shim's streamer:
-    std::int64_t tokens = 0;                    // generated tokens seen by the streamer
-    std::int64_t firstTokenNs = 0;              // steady_clock ns of the first generated token (0 = none)
+    // Policy input (engine side):
+    std::int64_t minNewTokens = 0;              // the §5.3 floor: a naturally-EOS'd call below this is garbage
+    // Outputs (written by the shim across the window):
+    std::int64_t tokens = 0;                    // total generated tokens
+    std::int64_t firstTokenNs = 0;              // first generated token of the window (ttft anchor; 0 = none)
+    std::int64_t decodeNs = 0;                  // accumulated (last−first) token span per call: the DECODE time,
+                                                // excluding every call's prefill/tokenization/detokenization
     int eosSeen = 0;                            // 1 when the EOS token id was generated
-    int stopReason = StopRunning;               // one of StopReason
+    int floorBroken = 0;                        // 1 when a naturally-ended call produced < minNewTokens
+    int stopReason = StopRunning;               // why the LAST streamer stop happened
 };
 
 // Opaque handle to one LLMPipeline (the shim owns it; created per model dir).
@@ -57,6 +80,18 @@ using SynGenAiCreateFn = SynGenAiContext *(*)(const char *model_dir_utf8, const 
                                               char *errbuf, std::size_t errbuf_len);
 using SynGenAiGenerateFn = int (*)(SynGenAiContext *ctx, const char *prompt_utf8, std::int64_t max_new_tokens,
                                    SynGenAiControl *control, char *errbuf, std::size_t errbuf_len);
+using SynGenAiVersionFn = int (*)(char *buf, std::size_t buf_len);   // 0 = filled, non-zero = unknown
 using SynGenAiDeleteFn = void (*)(SynGenAiContext *ctx);
+
+// The shim's exports (declared here so one header documents the whole ABI;
+// genai_shim.cpp defines them, inheriting SYN_GENAI_EXPORT).
+SYN_GENAI_EXPORT SynGenAiContext *syn_genai_pipeline_create(const char *model_dir_utf8, const char *device,
+                                                            const char *tokenizers_path_utf8,
+                                                            std::int64_t eos_token_id, char *errbuf,
+                                                            std::size_t errbuf_len);
+SYN_GENAI_EXPORT int syn_genai_generate(SynGenAiContext *ctx, const char *prompt_utf8, std::int64_t max_new_tokens,
+                                        SynGenAiControl *control, char *errbuf, std::size_t errbuf_len);
+SYN_GENAI_EXPORT int syn_genai_runtime_version(char *buf, std::size_t buf_len);
+SYN_GENAI_EXPORT void syn_genai_pipeline_delete(SynGenAiContext *ctx);
 
 } // namespace sb::npu::genai_shim

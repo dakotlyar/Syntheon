@@ -19,11 +19,13 @@ QString genAiRuntimeFile(const QString &dir, const QString &name);
 
 // The absolute GenAI module for `name` beside the OpenVINO runtime dir: flat
 // in `runtimePath` (toolkit installs ship openvino_genai in the same bin dir
-// as openvino.dll), else under `<ancestor>/<packageSubdir>/lib/` walking up
-// the tree from runtimePath (pip installs: runtimePath is
-// <py>/site-packages/openvino/libs, the genai/tokenizers packages are
-// siblings). "" when not found. Callers pass packageSubdir "openvino_genai"
-// or "openvino_tokenizers" and the per-platform module name.
+// as openvino.dll), else under `<ancestor>/<packageSubdir>/` or
+// `<ancestor>/<packageSubdir>/lib/` walking up the tree from runtimePath (pip
+// installs: runtimePath is <py>/site-packages/openvino/libs, the genai and
+// tokenizers packages are siblings — openvino_genai keeps its module flat in
+// the package dir, openvino_tokenizers under lib/). "" when not found.
+// Callers pass packageSubdir "openvino_genai" or "openvino_tokenizers" and the
+// per-platform module name.
 QString findGenAiModule(const QString &runtimePath, const QString &packageSubdir, const QString &name);
 
 } // namespace sb::npu

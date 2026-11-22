@@ -25,31 +25,54 @@ endif()
 #
 #   cmake -DSYNTHEON_OPENVINO_GENAI_SDK_DIR=<dir> ...
 #
-# where <dir> holds include/openvino/genai/*.hpp (plus the openvino core headers
-# under the same include/ — the pip openvino_genai wheel keeps them in the
-# sibling openvino package, which this block adds when needed) and, on Windows,
-# lib/openvino_genai.lib (the pip wheel ships both). The runtime itself is never
-# bundled: it stays the user's install, LoadLibrary'd at run time, so a missing
-# GenAI runtime is a clean "LLM runtime missing" error on the llm workload —
-# never a launch failure. Without the SDK dir the engine still builds and only
-# the LLM workload is unavailable.
+# Two SDK layouts are accepted (probed by the file layout): the pip wheel
+# package dir (<dir>/include + <dir>/lib) and the OpenVINO runtime root
+# (<dir>/runtime/include + <dir>/runtime/lib/intel64/Release). On Windows the
+# import libs are openvino_genai.lib (the shim's own symbols) AND openvino.lib
+# (LLMPipeline's ctor instantiates ov::Any, whose destructor lives in
+# openvino.dll — linking only the genai lib would LNK2019). The runtime itself
+# is never bundled: it stays the user's install, LoadLibrary'd at run time, so a
+# missing GenAI runtime is a clean "LLM runtime missing" error on the llm
+# workload — never a launch failure. Without the SDK dir the engine still builds
+# and only the LLM workload is unavailable.
 set(SYNTHEON_OPENVINO_GENAI_SDK_DIR "" CACHE PATH
-    "Dir with the OpenVINO GenAI headers (include/openvino/genai) + import lib (lib/openvino_genai.lib on Windows)")
+    "Dir with the OpenVINO GenAI headers (include/openvino/genai) + import libs (lib/openvino_genai.lib + lib/openvino.lib on Windows)")
 if(SYNTHEON_OPENVINO_GENAI_SDK_DIR)
+    # Locate the headers/import-libs under the SDK dir (both layouts above).
+    set(_genai_sdk "${SYNTHEON_OPENVINO_GENAI_SDK_DIR}")
+    if(NOT EXISTS "${_genai_sdk}/include/openvino/genai/llm_pipeline.hpp"
+       AND EXISTS "${_genai_sdk}/runtime/include/openvino/genai/llm_pipeline.hpp")
+        set(_genai_sdk "${_genai_sdk}/runtime")
+    endif()
+    set(_genai_inc "${_genai_sdk}/include")
+    if(EXISTS "${_genai_sdk}/lib/intel64/Release")
+        set(_genai_lib "${_genai_sdk}/lib/intel64/Release")
+    else()
+        set(_genai_lib "${_genai_sdk}/lib")
+    endif()
+
     add_library(syn_openvino_genai_shim SHARED genai_shim.cpp)
-    target_include_directories(syn_openvino_genai_shim PRIVATE
-        "${SYNTHEON_OPENVINO_GENAI_SDK_DIR}/include")
-    if(NOT EXISTS "${SYNTHEON_OPENVINO_GENAI_SDK_DIR}/include/openvino/openvino.hpp")
+    target_include_directories(syn_openvino_genai_shim PRIVATE "${_genai_inc}")
+    if(NOT EXISTS "${_genai_inc}/openvino/openvino.hpp")
         # pip layout: the core headers live in the sibling openvino package's include/.
         target_include_directories(syn_openvino_genai_shim PRIVATE
-            "${SYNTHEON_OPENVINO_GENAI_SDK_DIR}/../openvino/include")
+            "${_genai_sdk}/../openvino/include")
     endif()
     if(WIN32)
         target_link_libraries(syn_openvino_genai_shim PRIVATE
-            "${SYNTHEON_OPENVINO_GENAI_SDK_DIR}/lib/openvino_genai.lib")
-        # SMOKE: confirm the pip openvino-genai wheel ships openvino_genai.lib
-        # beside the DLL (it should — the Windows wheels carry the import lib);
-        # if not, generate it with `lib /def:openvino_genai.def` / dumpbin.
+            "${_genai_lib}/openvino_genai.lib"
+            "${_genai_lib}/openvino.lib")
+        # SMOKE: confirm the pip openvino-genai wheel ships openvino_genai.lib +
+        # openvino.lib beside the DLLs (the Windows wheels carry the import
+        # libs); if not, generate them with `lib /def:...` / dumpbin.
+        # The pip/toolkit GenAI DLLs are Release (/MD); a Debug (/MDd) shim
+        # would pass std::string/std::filesystem::path across an STL-ABI
+        # boundary (and _wputenv_s would write to the wrong CRT). Force the
+        # Release-style runtime + iterator ABI on the shim so it is usable in
+        # every build config (AP-5 4c).
+        set_target_properties(syn_openvino_genai_shim PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+        target_compile_definitions(syn_openvino_genai_shim PRIVATE _ITERATOR_DEBUG_LEVEL=0)
     else()
         # Linux: the shim links with UNDEFINED ov::genai::* symbols — they are
         # resolved at dlopen time from the user's openvino_genai module, which
@@ -58,4 +81,11 @@ if(SYNTHEON_OPENVINO_GENAI_SDK_DIR)
     endif()
     set_target_properties(syn_openvino_genai_shim PROPERTIES
         OUTPUT_NAME syn_openvino_genai_shim)   # the name the engine probes next to the app module
+    # The engine probes QCoreApplication::applicationDirPath(), so the shim must
+    # ride NEXT TO the app module: Windows beside Syntheon.exe, Linux beside the
+    # binary (the same bindir — not the libdir, or the probe would miss it).
+    include(GNUInstallDirs)
+    install(TARGETS syn_openvino_genai_shim
+        RUNTIME DESTINATION .
+        LIBRARY DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()

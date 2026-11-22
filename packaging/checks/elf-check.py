@@ -88,6 +88,10 @@ def main():
             # dispatch libraries Qt itself links (libGLX, libOpenGL) are fine.
             if p.name == "syntheon-gpu" and re.match(r"lib(vulkan|GL|EGL)\.so", soname):
                 problems.append(f"{rel}: links {soname}; the worker must load it at run time")
+            # The GenAI shim's OpenVINO deps are the user's P-VENDOR runtime (DD-1 §5.4):
+            # dlopen'd at run time, never bundled (mirror of the pe-check.ps1 exemption).
+            if p.name == "libsyn_openvino_genai_shim.so" and soname.startswith("libopenvino"):
+                continue
             if soname in bundled or any(soname.startswith(x) for x in allow):
                 continue
             problems.append(f"{rel}: needs {soname}, which is neither bundled nor a system library")
