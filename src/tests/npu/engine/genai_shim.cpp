@@ -150,9 +150,10 @@ struct PipelineHolder {
 
 extern "C" {
 
-SynGenAiContext *syn_genai_pipeline_create(const char *model_dir_utf8, const char *device,
-                                           const char *tokenizers_path_utf8, std::int64_t eos_token_id,
-                                           char *errbuf, std::size_t errbuf_len)
+SYN_GENAI_EXPORT SynGenAiContext *syn_genai_pipeline_create(const char *model_dir_utf8, const char *device,
+                                                            const char *tokenizers_path_utf8,
+                                                            std::int64_t eos_token_id, char *errbuf,
+                                                            std::size_t errbuf_len)
 {
     if (!model_dir_utf8 || !device) {
         setError(errbuf, errbuf_len, "syn_genai_pipeline_create: null argument");
@@ -194,8 +195,9 @@ SynGenAiContext *syn_genai_pipeline_create(const char *model_dir_utf8, const cha
     return nullptr;
 }
 
-int syn_genai_generate(SynGenAiContext *ctx, const char *prompt_utf8, std::int64_t max_new_tokens,
-                       SynGenAiControl *control, char *errbuf, std::size_t errbuf_len)
+SYN_GENAI_EXPORT int syn_genai_generate(SynGenAiContext *ctx, const char *prompt_utf8,
+                                        std::int64_t max_new_tokens, SynGenAiControl *control, char *errbuf,
+                                        std::size_t errbuf_len)
 {
     if (!ctx || !prompt_utf8 || !control) {
         setError(errbuf, errbuf_len, "syn_genai_generate: null argument");
@@ -225,8 +227,12 @@ int syn_genai_generate(SynGenAiContext *ctx, const char *prompt_utf8, std::int64
         // stream (the streamer) and the wall clock — the "Paris" text check is
         // the smoke/validation cross-check, not the engine's.
         holder->pipeline->generate(std::string(prompt_utf8), config, streamer);
-        // Accumulate this call into the window control.
+        // Accumulate this call into the window control. decodeTokens mirrors
+        // decodeNs: each call's FIRST token is the prefill's output (it got no
+        // decode time), so only callTokens−1 tokens belong to the decode span —
+        // subtracting one per CALL, not per window (AP-5 round 2, finding 3).
         control->tokens += callTokens;
+        control->decodeTokens += (callTokens > 1 ? callTokens - 1 : 0);
         if (callFirstNs > 0) {
             if (control->firstTokenNs == 0)
                 control->firstTokenNs = callFirstNs;
@@ -253,7 +259,7 @@ int syn_genai_generate(SynGenAiContext *ctx, const char *prompt_utf8, std::int64
     }
 }
 
-int syn_genai_runtime_version(char *buf, std::size_t buf_len)
+SYN_GENAI_EXPORT int syn_genai_runtime_version(char *buf, std::size_t buf_len)
 {
     try {
         const ov::Version version = ov::genai::get_version();
@@ -270,7 +276,7 @@ int syn_genai_runtime_version(char *buf, std::size_t buf_len)
     return -1;
 }
 
-void syn_genai_pipeline_delete(SynGenAiContext *ctx)
+SYN_GENAI_EXPORT void syn_genai_pipeline_delete(SynGenAiContext *ctx)
 {
     delete reinterpret_cast<PipelineHolder *>(ctx);
 }

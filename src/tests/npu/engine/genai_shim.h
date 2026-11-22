@@ -57,7 +57,10 @@ struct SynGenAiControl {
     // Policy input (engine side):
     std::int64_t minNewTokens = 0;              // the §5.3 floor: a naturally-EOS'd call below this is garbage
     // Outputs (written by the shim across the window):
-    std::int64_t tokens = 0;                    // total generated tokens
+    std::int64_t tokens = 0;                    // total generated tokens (all calls)
+    std::int64_t decodeTokens = 0;              // accumulated (callTokens−1) per call: the tokens the decode
+                                                // spans covered — each call's FIRST token is the prefill's, so
+                                                // subtracting one per CALL (not per window) keeps llm.tps honest
     std::int64_t firstTokenNs = 0;              // first generated token of the window (ttft anchor; 0 = none)
     std::int64_t decodeNs = 0;                  // accumulated (last−first) token span per call: the DECODE time,
                                                 // excluding every call's prefill/tokenization/detokenization
@@ -83,15 +86,21 @@ using SynGenAiGenerateFn = int (*)(SynGenAiContext *ctx, const char *prompt_utf8
 using SynGenAiVersionFn = int (*)(char *buf, std::size_t buf_len);   // 0 = filled, non-zero = unknown
 using SynGenAiDeleteFn = void (*)(SynGenAiContext *ctx);
 
-// The shim's exports (declared here so one header documents the whole ABI;
-// genai_shim.cpp defines them, inheriting SYN_GENAI_EXPORT).
-SYN_GENAI_EXPORT SynGenAiContext *syn_genai_pipeline_create(const char *model_dir_utf8, const char *device,
-                                                            const char *tokenizers_path_utf8,
-                                                            std::int64_t eos_token_id, char *errbuf,
-                                                            std::size_t errbuf_len);
-SYN_GENAI_EXPORT int syn_genai_generate(SynGenAiContext *ctx, const char *prompt_utf8, std::int64_t max_new_tokens,
-                                        SynGenAiControl *control, char *errbuf, std::size_t errbuf_len);
-SYN_GENAI_EXPORT int syn_genai_runtime_version(char *buf, std::size_t buf_len);
-SYN_GENAI_EXPORT void syn_genai_pipeline_delete(SynGenAiContext *ctx);
-
 } // namespace sb::npu::genai_shim
+
+// The shim's exported entry points. Declared OUTSIDE the namespace in an
+// extern "C" block: genai_shim.cpp defines these exact entities (extern "C",
+// global scope), so the ABI types are qualified with the namespace. A previous
+// revision declared them INSIDE the namespace without extern "C" — C++-mangled
+// sb::npu::genai_shim::syn_genai_* declarations that were never defined, so a
+// Windows shim DLL exported nothing (AP-5 round 2, finding 1).
+extern "C" {
+SYN_GENAI_EXPORT sb::npu::genai_shim::SynGenAiContext *syn_genai_pipeline_create(
+    const char *model_dir_utf8, const char *device, const char *tokenizers_path_utf8, std::int64_t eos_token_id,
+    char *errbuf, std::size_t errbuf_len);
+SYN_GENAI_EXPORT int syn_genai_generate(sb::npu::genai_shim::SynGenAiContext *ctx, const char *prompt_utf8,
+                                        std::int64_t max_new_tokens, sb::npu::genai_shim::SynGenAiControl *control,
+                                        char *errbuf, std::size_t errbuf_len);
+SYN_GENAI_EXPORT int syn_genai_runtime_version(char *buf, std::size_t buf_len);
+SYN_GENAI_EXPORT void syn_genai_pipeline_delete(sb::npu::genai_shim::SynGenAiContext *ctx);
+} // extern "C"

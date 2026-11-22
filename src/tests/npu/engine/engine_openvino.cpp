@@ -604,8 +604,11 @@ private:
         const QString shimPath = shimModulePath();
         auto shim = std::make_unique<Library>(shimPath, &loadError);
         if (!shim->isOpen())
+            // No env-var name in the message: the packaging P-HOOK gate
+            // (no-dev-hooks.sh/.ps1) rejects any packaged binary containing a
+            // "SYNTHEON_"/"SYNBENCH_" token (AP-5 round 2, finding 2).
             return failWith(QStringLiteral("LLM runtime missing: the GenAI shim %1 could not be loaded — this build "
-                                           "has no OpenVINO GenAI support (rebuild with SYNTHEON_OPENVINO_GENAI_SDK_DIR): %2")
+                                           "has no OpenVINO GenAI support (rebuild with the GenAI SDK configured): %2")
                                 .arg(shimPath, loadError),
                             error);
 
@@ -751,17 +754,18 @@ private:
     // GenAI's non-chat generate is stateless). The shim's streamer bounds a
     // call at the deadline or Stop, and GenAI stops each call at EOS or the
     // 256-token bound. The shim accumulates the whole window: `units` = the
-    // generated tokens minus the first (the prefill's), `seconds` = the
-    // DECODE span (the sum of each call's last−first token times — prefill,
+    // decoded tokens (per call: callTokens−1 — each call's FIRST token is the
+    // prefill's, so it is excluded per CALL, not once per window), `seconds` =
+    // the DECODE span (the sum of each call's last−first token times — prefill,
     // CPU tokenization and detokenization excluded), so the workload layer's
     // units/seconds is the true decode throughput (llm.tps, §16.2 cross-check
     // against GenAI's own telescoping-TPOT figure). `ttftSeconds` = wall time
     // to the FIRST generated token (prefill included), reported separately.
-    // `valid` = 1 only when the window generated ≥ 8 tokens AND no single
-    // naturally-EOS'd call produced fewer than the §5.3 floor (EOS-on-step-1
-    // fails closed) AND there was real decode span — the workload layer turns
-    // valid <= 0 into an Error, never a scored rate. The median-of-3 window
-    // structure in workloads.cpp is unchanged.
+    // `valid` = 1 only when the window decoded ≥ 1 token, generated ≥ 8 tokens
+    // in total AND no single naturally-EOS'd call produced fewer than the §5.3
+    // floor (EOS-on-step-1 fails closed) AND there was real decode span — the
+    // workload layer turns valid <= 0 into an Error, never a scored rate. The
+    // median-of-3 window structure in workloads.cpp is unchanged.
     bool runLlmWindow(Inference &out, QString *error, const std::function<bool()> &cancelled)
     {
         const auto windowStart = std::chrono::steady_clock::now();
@@ -789,7 +793,7 @@ private:
         }
         m_pendingCancelled = {};
 
-        const std::int64_t decodeTokens = control.tokens - 1;   // the first token belongs to the prefill
+        const std::int64_t decodeTokens = control.decodeTokens;   // Σ per-call (callTokens−1): prefill's token excluded PER CALL
         const double decodeSeconds = double(control.decodeNs) / 1e9;
         out.units = decodeTokens > 0 ? decodeTokens : 0;
         // `seconds` is the DECODE span, not the 5 s window wall clock — the
@@ -799,8 +803,11 @@ private:
         out.ttftSeconds = control.firstTokenNs > 0 ? double(control.firstTokenNs - windowStartNs) / 1e9 : 0.0;
         // §5.3 correctness floor: valid only if the window generated ≥ 8
         // tokens, no naturally-EOS'd call fell below the floor (EOS-on-step-1),
-        // and there was a real decode span to divide by.
-        out.valid = (control.tokens >= kLlmMinNewTokens && !control.floorBroken && decodeSeconds > 0.0) ? 1 : 0;
+        // and there was a real decode span AND decoded tokens to divide by.
+        out.valid = (out.units > 0 && control.tokens >= kLlmMinNewTokens && !control.floorBroken
+                     && decodeSeconds > 0.0)
+            ? 1
+            : 0;
         return true;
     }
 
