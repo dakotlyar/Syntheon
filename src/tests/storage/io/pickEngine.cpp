@@ -7,18 +7,32 @@
 
 namespace sb::storage {
 
+std::unique_ptr<IStorageIoEngine> firstUsableEngine(std::vector<std::unique_ptr<IStorageIoEngine>> candidates)
+{
+    for (auto &c : candidates)
+        if (c && c->usable())
+            return std::move(c);
+    return makeSyncEngine();
+}
+
 std::unique_ptr<IStorageIoEngine> pickEngine(IoDepth depth, std::size_t queueDepth)
 {
     if (depth == IoDepth::One)
         return makeSyncEngine();
 #if defined(_WIN32)
     return makeWinEngine(queueDepth);
-#elif defined(SYNTHEON_HAVE_LIBURING)
-    return makeUringEngine(queueDepth);
-#elif defined(SYNTHEON_HAVE_LIBAIO)
-    return makeAioEngine(queueDepth);
 #else
-    return makeSyncEngine();
+    // Compile-time availability is not enough: io_uring can be refused at run
+    // time (seccomp, kernel.io_uring_disabled), libaio likewise. Probe each in
+    // preference order and fall back, ending at sync.
+    std::vector<std::unique_ptr<IStorageIoEngine>> candidates;
+#if defined(SYNTHEON_HAVE_LIBURING)
+    candidates.push_back(makeUringEngine(queueDepth));
+#endif
+#if defined(SYNTHEON_HAVE_LIBAIO)
+    candidates.push_back(makeAioEngine(queueDepth));
+#endif
+    return firstUsableEngine(std::move(candidates));
 #endif
 }
 

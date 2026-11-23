@@ -158,6 +158,19 @@ void exerciseEngine(IStorageIoEngine &engine, const QString &path)
     }
 }
 
+// An engine whose backend failed to initialise (io_uring blocked by seccomp).
+class DeadEngine final : public IStorageIoEngine
+{
+public:
+    QString backendName() const override { return QStringLiteral("dead"); }
+    bool runBatch(const IoView *, std::size_t, IoOp, int, IoStats &, const CancelFn &, QString *) override
+    {
+        return false;
+    }
+    std::size_t maxInFlight() const override { return 1; }
+    bool usable() const override { return false; }
+};
+
 } // namespace
 
 class TestStorageEngine : public QObject
@@ -235,6 +248,16 @@ private slots:
 #else
         QCOMPARE(queued->backendName(), QStringLiteral("sync"));
 #endif
+    }
+
+    void unusableEngineFallsBack()
+    {
+        std::vector<std::unique_ptr<IStorageIoEngine>> c;
+        c.push_back(std::make_unique<DeadEngine>());
+        c.push_back(std::make_unique<DeadEngine>());
+        QCOMPARE(firstUsableEngine(std::move(c))->backendName(), QStringLiteral("sync"));
+        // And whatever pickEngine returns must be usable.
+        QVERIFY(pickEngine(IoDepth::Queued)->usable());
     }
 
     void directAlignmentRule()

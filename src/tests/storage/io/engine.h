@@ -58,6 +58,10 @@ public:
                           QString *error) = 0;
     // A batch may cap its in-flight count (never exceed `maxInFlight` total).
     virtual std::size_t maxInFlight() const = 0;
+    // False when the backend couldn't initialise at run time (io_uring blocked
+    // by seccomp / kernel.io_uring_disabled, libaio io_setup refused). pickEngine
+    // falls back to the next engine rather than failing every queued batch.
+    virtual bool usable() const { return true; }
 };
 
 // Open the aligned file in the right mode (O_DIRECT on Linux,
@@ -94,6 +98,10 @@ enum class IoDepth { One, Queued };
 // on Linux x64 when liburing was compiled, else libaio on Linux, else sync.
 // `queueDepth` sizes the async engine's in-flight cap (8 for Q8, 32 for Q32).
 std::unique_ptr<IStorageIoEngine> pickEngine(IoDepth depth, std::size_t queueDepth = 32);
+
+// The first engine in `candidates` that reports usable(), else the sync
+// engine. Factored out of pickEngine so a unit test can inject a failing one.
+std::unique_ptr<IStorageIoEngine> firstUsableEngine(std::vector<std::unique_ptr<IStorageIoEngine>> candidates);
 
 // The concrete engine constructors (one per engine TU). Only the sync engine
 // is always built (depth 1); the async engines take their queue depth, so

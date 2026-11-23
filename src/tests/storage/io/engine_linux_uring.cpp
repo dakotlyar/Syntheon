@@ -37,6 +37,8 @@ public:
 
     std::size_t maxInFlight() const override { return m_depth; }
 
+    bool usable() const override { return m_ready; }
+
     bool runBatch(const IoView *views, std::size_t count, IoOp op,
                   int fd, IoStats &out, const CancelFn &cancel,
                   QString *error) override
