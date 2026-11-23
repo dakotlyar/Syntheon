@@ -36,6 +36,12 @@ QString reasonKey(NaReason);
 // RuntimeLoadFailed takes %1 (vendor) + %3 (error).
 QString reasonString(NaReason, const QStringList &args = {});
 
+// AMD and Qualcomm have detection but no working inference engine yet (their
+// engines fail "deferred to §16"). Until they do, the test is N/A for them
+// before any model download. Not a taxonomy reason: a plain user string.
+bool engineNotYetSupported(NpuVendor vendor);
+QString engineNotYetSupportedText(NpuVendor vendor);
+
 struct NpuDetect {
     NpuVendor vendor = NpuVendor::Null;   // the primary vendor (§3.2, Intel → AMD → Qualcomm)
     QString deviceName;                   // from the snapshot ("AMD XDNA NPU")

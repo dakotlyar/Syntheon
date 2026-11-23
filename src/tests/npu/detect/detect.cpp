@@ -152,6 +152,17 @@ QString reasonString(NaReason r, const QStringList &args)
     return s;
 }
 
+bool engineNotYetSupported(NpuVendor vendor)
+{
+    return vendor == NpuVendor::Amd || vendor == NpuVendor::Qualcomm;
+}
+
+QString engineNotYetSupportedText(NpuVendor vendor)
+{
+    return QStringLiteral("%1 NPUs aren't supported yet: the inference engine for this NPU vendor isn't built")
+        .arg(vendorName(vendor));
+}
+
 NpuDetect detect(const SystemSnapshot &snapshot)
 {
     return detect(snapshot, QString());

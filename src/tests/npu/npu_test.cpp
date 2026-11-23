@@ -248,6 +248,11 @@ void NpuRun::finish(sb::npu::NpuDetect det, TestResult &r)
 TestResult NpuRun::run()
 {
     const sb::npu::NpuDetect det = resolveDetect();
+    // AMD/Qualcomm have no working engine yet: refuse before the model-pack
+    // download rather than fail in init() afterwards (same rule as probe()).
+    if (sb::npu::engineNotYetSupported(det.vendor)
+        && (det.reason == sb::npu::NaReason::None || det.reason == sb::npu::NaReason::RuntimeMissing))
+        return TestResult::notAvailable(sb::npu::engineNotYetSupportedText(det.vendor));
     if (det.reason != sb::npu::NaReason::None)
         return TestResult::notAvailable(naText(det));
 
@@ -458,6 +463,9 @@ NpuTest::NpuTest()
 Availability NpuTest::probe(const ProbeContext &ctx) const
 {
     const sb::npu::NpuDetect det = sb::npu::detect(ctx.system());
+    if (sb::npu::engineNotYetSupported(det.vendor)
+        && (det.reason == sb::npu::NaReason::None || det.reason == sb::npu::NaReason::RuntimeMissing))
+        return Availability::unavailable(sb::npu::engineNotYetSupportedText(det.vendor));
     switch (det.reason) {
     case sb::npu::NaReason::None: {
         Availability a = Availability::available();

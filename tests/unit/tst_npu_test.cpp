@@ -7,6 +7,7 @@
 // → NotAvailable; cancel mid-run → Cancelled; a tampered manifest → fail closed.
 #include "tests/npu/npu_test.h"
 #include "tests/npu/formula_v1.h"
+#include "tests/npu/detect/detect.h"
 #include "tests/npu/ids.h"
 #include "tests/npu/workloads/workloads.h"
 
@@ -297,6 +298,31 @@ private slots:
         const TestResult r = t.run(ctx, {});
         QCOMPARE(r.status, Status::NotAvailable);
         QCOMPARE(r.statusReason, QStringLiteral("No supported NPU found on this machine"));
+    }
+
+    void stubbedVendorIsNotAvailableBeforeDownload()
+    {
+        // AMD detected (driver bound) but no engine yet: N/A with the distinct
+        // reason, and nothing is downloaded (no base URL is even configured, so
+        // reaching the download step would give the "model pack" reason instead).
+        QJsonObject npu;
+        npu.insert(QStringLiteral("name"), QStringLiteral("AMD XDNA NPU"));
+        npu.insert(QStringLiteral("vendor"), QStringLiteral("AMD"));
+        npu.insert(QStringLiteral("driver"), QStringLiteral("amdxdna"));
+        SystemSnapshot snap;
+        snap.data.insert(QStringLiteral("npus"), QJsonArray{npu});
+
+        NpuTest t;
+        FakeRunContext ctx;
+        ctx.setSystem(snap);
+        QTemporaryDir cache;
+        ctx.setNpuCacheRoot(cache.path());
+        const TestResult r = t.run(ctx, {});
+        QCOMPARE(r.status, Status::NotAvailable);
+        QVERIFY2(r.statusReason.contains(QLatin1StringView("aren't supported yet")), qPrintable(r.statusReason));
+        QVERIFY(QDir(cache.path()).isEmpty());
+        QVERIFY(sb::npu::engineNotYetSupported(sb::npu::NpuVendor::Qualcomm));
+        QVERIFY(!sb::npu::engineNotYetSupported(sb::npu::NpuVendor::Intel));
     }
 
     void cancelMidRun()
