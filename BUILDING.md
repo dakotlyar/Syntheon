@@ -214,6 +214,6 @@ generated histories (`cpu_repeatability_tool`).
 
 ## Version
 
-`VERSION` holds `YYYY.MM.N`. Dev builds show `-dev+<sha>`; packaging presets
-set `SYNTHEON_RELEASE_BUILD=ON`, which drops it. The Windows file version is
-`YYYY.MM.N.0` and the MSI version `YY.MM.N`.
+`VERSION` holds `X.Y.Z` (semver, currently `0.4.3`). Dev builds show
+`-dev+<sha>`; packaging presets set `SYNTHEON_RELEASE_BUILD=ON`, which drops
+it. The Windows file version is `X.Y.Z.0` and the MSI version `X.Y.Z`.

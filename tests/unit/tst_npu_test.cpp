@@ -252,12 +252,40 @@ private slots:
         QVERIFY(r.metric(QStringLiteral("engine.name")));
         QVERIFY(r.metric(QStringLiteral("model.classify")));
         QVERIFY(r.metric(QStringLiteral("models.pack_version")));
-        // score() gives a total (the anchors are placeholders, so it is large
-        // but finite — only presence is asserted).
+        // score() gives a total against the task-19 calibrated anchors
+        // (Nivedellir, formulaVersion 1) — the fixture's near-1.0 throughputs
+        // land well below 1,000, so only presence is asserted.
         const ScoreBreakdown b = t.score(r);
         QVERIFY(b.total.has_value());
         QVERIFY(b.subScores.size() == 3);
         QVERIFY(!ctx.wentBackwards());
+    }
+
+    // Production path (§15): a real RunContext leaves npuManifestPin() empty,
+    // so NpuTest falls back to the compile-in calibratedManifestSha256() —
+    // the frozen pack_version "2" pin. The fixture manifest hashes to something
+    // else, so the downloader must refuse it as NotAvailable, never run against
+    // an uncalibrated pack.
+    void emptyPinUsesCalibratedFallback()
+    {
+        qputenv("SYNTHEON_NPU_FAKE_VENDOR", "null");
+        const auto restore = qScopeGuard([] { qunsetenv("SYNTHEON_NPU_FAKE_VENDOR"); });
+
+        QTemporaryDir server;
+        QTemporaryDir cache;
+        QVERIFY(server.isValid());
+        QVERIFY(cache.isValid());
+        QVERIFY(writeServer(server, false, nullptr));
+
+        NpuTest t;
+        FakeRunContext ctx;
+        ctx.setNpuModelsBaseUrl(QUrl::fromLocalFile(server.path() + QLatin1Char('/')).toString());
+        ctx.setNpuCacheRoot(cache.path());
+        // Deliberately no setNpuManifestPin(): the calibrated default applies.
+        const TestResult r = t.run(ctx, {});
+
+        QCOMPARE(r.status, Status::NotAvailable);
+        QVERIFY2(r.statusReason.contains(QLatin1StringView("model pack")), qPrintable(r.statusReason));
     }
 
     void noNpuIsNotAvailable()

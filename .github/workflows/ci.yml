@@ -958,9 +958,9 @@ jobs:
         shell: pwsh
         run: |
           $v = (Get-Content VERSION -Raw).Trim()
-          $p = $v.Split('.')
+          $msi = $v
           "SYNTHEON_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "SYNTHEON_MSI_VERSION=$($p[0].Substring(2)).$($p[1]).$($p[2])" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SYNTHEON_MSI_VERSION=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # Trust: Inno Setup is normally preinstalled on the runner image; otherwise it
       # comes from Chocolatey, whose package carries the installer's checksum and

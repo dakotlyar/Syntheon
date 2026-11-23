@@ -76,6 +76,14 @@ private slots:
         QCOMPARE(g.at(0).metrics[0].weight, 1.0);
         QCOMPARE(g.at(1).metrics[0].metricKey, QStringLiteral("detect.imgs"));
         QCOMPARE(g.at(2).metrics[0].metricKey, QStringLiteral("llm.tps"));
+        // The task-19 calibration anchors, frozen in formula_v1.cpp (the exact
+        // digits, so a revert to a placeholder like 1.0 fails the test — the
+        // same discipline as tst_storage_formula.cpp).
+        QCOMPARE(g.at(0).metrics[0].anchor, 824.150456);
+        QCOMPARE(g.at(1).metrics[0].anchor, 445.047930);
+        QCOMPARE(g.at(2).metrics[0].anchor, 50.229020);
+        QCOMPARE(g.at(1).metrics[0].weight, 1.0);
+        QCOMPARE(g.at(2).metrics[0].weight, 1.0);
     }
 
     void elasticities()

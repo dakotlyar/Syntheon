@@ -145,10 +145,16 @@ private slots:
         {
             const QString wrongPin = QString(goodPin.size(), QLatin1Char('0'));
             QVERIFY(wrongPin != goodPin);
-            NpuDownloader downloader(baseUrl, cache.path(), wrongPin);
+            // A fresh cache: the wrong-pin refusal must not be masked by the
+            // goodPin download above having already populated it, and nothing
+            // may be left behind (P-NET fail-closed).
+            QTemporaryDir wrongCache;
+            QVERIFY(wrongCache.isValid());
+            NpuDownloader downloader(baseUrl, wrongCache.path(), wrongPin);
             const DownloadResult r = downloader.download(kVendor);
             QVERIFY(!r.ok);
             QVERIFY(r.error.contains(QLatin1StringView("calibrated pack")));
+            QVERIFY(!QFile::exists(cachedPath(wrongCache.path())));
         }
     }
 

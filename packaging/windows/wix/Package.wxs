@@ -5,7 +5,9 @@
                  -o Syntheon-<ver>-windows-<arch>.msi packaging\windows\wix\Package.wxs
      Version is the MSI ProductVersion, the app version itself (X.Y.Z, semver:
      three numeric fields, so it maps straight onto MSI's form). Each architecture has its own stable UpgradeCode,
-     so an upgrade replaces only its own. -->
+     so an upgrade replaces only its own.
+     Note: the pre-semver 2026.11.x MSIs used CalVer product versions (26.11.1), which sort ABOVE 0.4.3;
+     MajorUpgrade won't step over them — uninstall a 2026.11.x install once before installing 0.4.3. -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Syntheon" Manufacturer="Syntheon" Version="$(Version)" UpgradeCode="$(UpgradeCode)"
            Scope="perMachine" Language="1033" InstallerVersion="500">

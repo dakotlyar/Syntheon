@@ -1,4 +1,4 @@
-# Nivedellir compile-first smoke — runbook (DD-1 §6)
+# Compile-first smoke — runbook (DD-1 §6)
 
 This settles **Option B** (raw-C stateful decode in `engine_openvino.cpp`) vs
 **Option A** (OpenVINO GenAI `LLMPipeline`) for the ~1 B stateful LLM on the
@@ -7,9 +7,8 @@ compiles it on the NPU the same way the engine does, confirms it really landed
 on the NPU, then runs one autoregressive decode and reports what it observed —
 including every value the C++ engine had to guess (`// SMOKE:` comments).
 
-Nivedellir is a **Windows** box on the `.10` subnet, IP `192.168.10.39` (the
-coordinator's temp-access script targets it). You run the steps below from an
-**elevated PowerShell on Nivedellir**; the coordinator needs the
+The NPU machine is a **Windows** box on the LAN. You run the steps below from
+an **elevated PowerShell on that machine**; the coordinator needs the
 `smoke-out.txt` file afterwards.
 
 ## 0. Outcome table (what you're looking for)
@@ -29,7 +28,7 @@ match") and paste the whole file to the coordinator either way.
 
 ---
 
-## 1. Power on Nivedellir
+## 1. Power on the NPU machine
 
 - Power it on, log in, keep it on **AC power** and stop it from sleeping
   (Settings → System → Power → "Never" sleep; nothing else heavy should run —
@@ -38,25 +37,25 @@ match") and paste the whole file to the coordinator either way.
 
 ## 2. Grant temp SSH access
 
-The coordinator has prepared an updated `nivedellir-temp-access.ps1` (target
-`192.168.10.39`). Run that on the Linux side **once**; it installs the temp
-key Dave uses to copy files in. Reference it — don't rewrite it.
+The coordinator has prepared a temp-access script for this machine. Run that on
+the Linux side **once**; it installs the temp key used to copy files in.
+Reference it — don't rewrite it.
 
-## 3. Copy the smoke script onto Nivedellir
+## 3. Copy the smoke script onto the machine
 
-From the Linux side (Knowhere or Tiamat), push the script over the temp SSH
-grant (use the user/port `nivedellir-temp-access.ps1` reports):
+From the Linux side, push the script over the temp SSH grant (use the user/port
+the temp-access script reports):
 
 ```bash
-scp -P <port> ~/Nextcloud/Documents/Projects/Syntheon/tools/npu-pack/smoke_llm.py <user>@192.168.10.39:smoke_llm.py
+scp -P <port> ~/Nextcloud/Documents/Projects/Syntheon/tools/npu-pack/smoke_llm.py <user>@<npu-machine>:smoke_llm.py
 ```
 
-If the script is already somewhere on Nivedellir from an earlier copy, reuse
+If the script is already on the machine from an earlier copy, reuse
 that and skip this step.
 
 ## 4. The one PowerShell block (OpenVINO + pack + run)
 
-Paste this whole block into an **elevated PowerShell on Nivedellir**. It
+Paste this whole block into an **elevated PowerShell on the NPU machine**. It
 (1) checks for the Python `openvino` package and installs the pinned version if
 absent, (2) downloads the LLM pack into `%USERPROFILE%\syntheon-smoke\` — or
 reuses a copy the app already cached under `%LOCALAPPDATA%` — and (3) runs the
@@ -76,7 +75,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- 2) The LLM model pack ----------------------------------------------------
-$base   = "https://192.168.100.160:8443/npu-models/2/intel/llm/llm-1b-int4/1"
+$base   = "https://<pack-server>/npu-models/2/intel/llm/llm-1b-int4/1"
 $dest   = Join-Path $env:USERPROFILE "syntheon-smoke\llm-1b-int4"
 $files  = @("openvino_model.xml","openvino_model.bin","openvino_tokenizer.xml","openvino_tokenizer.bin",
             "openvino_detokenizer.xml","openvino_detokenizer.bin","openvino_config.json","config.json",
@@ -90,9 +89,10 @@ $appCache = Get-ChildItem -Path $env:LOCALAPPDATA -Directory -ErrorAction Silent
 if ($appCache) { $dest = $appCache.FullName; Write-Host "reusing the app's pack cache at $dest" }
 else {
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
-  # Mjolnir serves over HTTPS with a SELF-SIGNED CA; the one-off callback below
-  # skips cert validation for this download only (the CA-trust alternative is to
-  # import mjolnir-ca.crt into the machine's trusted store — either is fine).
+  # The pack server serves over HTTPS with a SELF-SIGNED CA; the one-off callback
+  # below skips cert validation for this download only (the CA-trust alternative
+  # is to import the server's CA cert into the machine's trusted store — either
+  # is fine).
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   [Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
   foreach ($f in $files) {
@@ -119,7 +119,7 @@ The manifest pin for this pack (`pack_version 2`, `manifest.sha256` =
 - Read the last `RESULT:` line and the `smoke_llm:` notes above it (decoder
   input names/shapes, EXECUTION_DEVICES, EOS id, ttft, token count, decoded
   text, Paris match).
-- Send **`smoke-out.txt`** to the coordinator (Antilles). One file, that's it.
+- Send **`smoke-out.txt`** to the coordinator. One file, that's it.
 - If the smoke hit the timeout on a cold compile (stateful INT4 compile on the
   NPU can take a minute), re-run with
   `python smoke_llm.py --model-dir $dest --timeout-seconds 600`.

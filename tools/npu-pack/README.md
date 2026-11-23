@@ -15,8 +15,8 @@ There are two scripts and they have one job each:
   (handy for publishing an intermediate subset mid-build).
 - **`verify.py`** — the host-side "is this pack correct" check. It re-reads the
   manifest, re-hashes every served file against it, and checks the pin. This is
-  what you run on Mjolnir before and after publishing, to be sure the tree on
-  disk is exactly what the manifest claims.
+  what you run on the pack server before and after publishing, to be sure the
+  tree on disk is exactly what the manifest claims.
 
 A model is only ever published whole: if even one of its files is missing,
 `--partial` skips the whole model, never half-lists it.
@@ -37,7 +37,7 @@ the tree.
     intel/classify/resnet50-int8/resnet50.bin
     intel/detect/yolov8n-int8/yolov8n.xml
     ...
-  served/                       the published tree — Hera copies this to Mjolnir
+  served/                       the published tree — copy this to the pack server
     npu-models/
       manifest.json
       manifest.sha256
@@ -49,8 +49,8 @@ the tree.
 The `1/` inside each model path is the model's own version (the `version` field
 in `config.json`); the top-level `1/` is the `pack_version`. The app fetches
 `<base_url>/npu-models/manifest.json` and then
-`<base_url>/npu-models/<pack_version>/<path>`, so Hera's static directory just
-points at the `served/` folder.
+`<base_url>/npu-models/<pack_version>/<path>`, so the server's static directory
+just points at the `served/` folder.
 
 `manifest.json` matches the §6.1 schema exactly — `schema`, `pack_version`, and
 one entry per model with `id`/`vendor`/`workload`/`precision`/`files`, each file
@@ -80,17 +80,18 @@ vendor-published INT8 IR to just download for these exact models, so they are
 produced with the OpenVINO + NNCF toolkit — the exact (and now-tested) commands
 are in [`QUANTIZE.md`](QUANTIZE.md).
 
-**Status: the full Intel pack (pack_version "2") is built and live on Mjolnir.**
-ResNet-50 INT8 (25.7 MB), YOLOv8n INT8 (3.3 MB) and the ~1 B LLM INT4 *stateful*
-(640 MB) are quantised. Vision loads + runs on CPU; the LLM decoder is a
-stateful IR (44 `ReadValue`/`Assign` KV pairs, symmetric INT4). Total ~669 MB.
-The 3-model `manifest.json` and the calibration-pin candidate `49c667e5…` are
-recorded in §"The calibration SHA-pin" below.
+**Status: the full Intel pack (pack_version "2") is built and live on the pack
+server.** ResNet-50 INT8 (25.7 MB), YOLOv8n INT8 (3.3 MB) and the ~1 B LLM INT4
+*stateful* (640 MB) are quantised. Vision loads + runs on the NPU; the LLM
+decoder is a stateful IR (44 `ReadValue`/`Assign` KV pairs, symmetric INT4).
+Total ~669 MB. The 3-model `manifest.json` and the calibration pin `49c667e5…`
+are recorded in §"The calibration SHA-pin" below.
 
-One open item (engine side, tasks 8/11): the compile-first smoke on Nivedellir
-settles whether the raw-C loop (DD-1 Option B) or OpenVINO GenAI (Option A)
-drives the stateful IR on the NPU. That's a separate task and does not change
-the pack.
+The engine loads the stateful LLM through the OpenVINO GenAI C API
+(GenAiCApi in `src/tests/npu/engine/genai_c_api.h`), pinned to the NPU
+(`NPUW_DEVICES=NPU`, `NPUW_FALLBACK_EXEC=false`) — the compile-first smoke
+rejected the raw-C decode loop for this IR, so GenAI is the shipped path. That
+decision doesn't change the pack.
 
 ## Adding or changing a model
 
@@ -114,27 +115,28 @@ calibrated against a specific pack. So:
 - `pack_version` is a single safe path component (no `/`, no `..`); the parser
   enforces the same rule.
 
-## How Mjolnir serves it
+## How the pack is served
 
-Mjolnir is the download host (a TrueNAS SCALE appliance). The `odin/syntheon-npu`
+The pack is the download host (a NAS appliance). The `odin/syntheon-npu`
 dataset is served read-only over HTTPS by a raw k3s nginx on hostNetwork port
-`8443` with a self-signed CA, so the base URL is `https://192.168.100.160:8443/`.
-Hera copies the contents of `served/` into that dataset, and the Settings value
-`npuModelsBaseUrl` points at it. Run `verify.py --output-root <served>` on
-Mjolnir after the copy to confirm the tree arrived intact.
+`8443` with a self-signed CA, so the base URL is that host's HTTPS address.
+Copy the contents of `served/` into that dataset, and the Settings value
+`npuModelsBaseUrl` points at it. Run `verify.py --output-root <served>` on the
+host after the copy to confirm the tree arrived intact.
 
 ## The calibration SHA-pin
 
 At calibration the manifest is frozen, and its SHA-256 is compiled into the app
-so a tampered index can't redirect a verified download (§6.1, AP-5's
-recommendation). `build.py` writes that digest to `npu-models/manifest.sha256`;
-regenerate it any time by re-running `build.py` (or read it back with
-`verify.py`).
+so a tampered index can't redirect a verified download (§6.1). `build.py`
+writes that digest to `npu-models/manifest.sha256`; regenerate it any time by
+re-running `build.py` (or read it back with `verify.py`).
 
 The current full-pack (3-model, Intel, pack_version "2") pin is:
 
     49c667e586648da8e80f161e9173c4494f27452eb607221834a951a50e8bf6dd
 
-This is a *candidate*: it's the digest of the pack as it stands. Re-exporting
-any model bumps `pack_version` and re-emits a fresh manifest + pin; the pin is
-frozen into source only at calibration (task 19), which hasn't happened yet.
+This is the **frozen, calibrated** pin (task 19, formulaVersion 1): the app's
+`calibratedManifestSha256()` in `src/tests/npu/models/manifest.cpp` returns it,
+and the downloader fails closed on anything else. Re-exporting any model bumps
+`pack_version` and re-emits a fresh manifest + pin, which requires a fresh
+calibration before the new pin can be frozen.

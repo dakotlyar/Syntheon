@@ -37,14 +37,13 @@ private slots:
             // Phase 1 stubs are version 0 (§2.9); the real CPU and RAM tests
             // are 1 since their calibrations (Phase 2 task 18, Phase 3 task 14), the GPU since Phase 4a task 36,
             // and Storage (measurement + frozen formula) since Phase 4b task 13. NPU is a real measurement since
-            // Phase 4c task 12 (testVersion 1); its formulaVersion stays 0 until the 4c calibration (§16.3), when
-            // both move to 1.
+            // Phase 4c task 12 (testVersion 1) and its formula froze at the 4c calibration (§16.3, task 19):
+            // every real test carries testVersion 1 && formulaVersion 1.
             const bool real = i.id == QLatin1StringView("cpu") || i.id == QLatin1StringView("ram")
                     || i.id == QLatin1StringView("gpu") || i.id == QLatin1StringView("storage")
                     || i.id == QLatin1StringView("npu");
-            const bool formulaFrozen = i.id != QLatin1StringView("npu");  // NPU formula freezes at calibration
             QCOMPARE(i.testVersion, real ? 1 : 0);
-            QCOMPARE(i.formulaVersion, (real && formulaFrozen) ? 1 : 0);
+            QCOMPARE(i.formulaVersion, real ? 1 : 0);
             const bool battery = i.id == QLatin1StringView("battery");
             QCOMPARE(i.exclusivity == Exclusivity::RunsAlone, battery);
             QCOMPARE(i.recovery == RecoveryMode::FromCheckpoints, battery);

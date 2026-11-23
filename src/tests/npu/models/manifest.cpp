@@ -8,7 +8,6 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QRegularExpression>
-#include <QCryptographicHash>
 
 #include <cmath>
 

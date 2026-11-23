@@ -2,11 +2,11 @@
 
 The `build.py`/`verify.py` tools take the model files as given; this note is the
 exact procedure for producing them. **All three models are now produced and
-tested on Knowhere** (timings below): ResNet-50 INT8, YOLOv8n INT8, and the
-~1 B LLM INT4 (stateful, symmetric). The full three-model pack is live on
-Mjolnir at `pack_version "2"`.
+tested on the Linux build machine** (timings below): ResNet-50 INT8, YOLOv8n
+INT8, and the ~1 B LLM INT4 (stateful, symmetric). The full three-model pack is
+live at `pack_version "2"`.
 
-## Toolchain (installed 2026-11-16, Knowhere)
+## Toolchain (installed 2026-11-16, Linux build machine)
 
 A venv under the build-cache area, CPU-only torch to avoid a ~2–3 GB CUDA
 bundle nobody here uses:
@@ -128,7 +128,7 @@ at opset 13 — harmless. Copy `resnet50.xml` + `resnet50.bin` into
 `~/.cache/syntheon/npu-pack/work/smoke_test.py` loads each IR and runs one
 forward pass on CPU: ResNet-50 → logits `[1,1000]` (argmax in range),
 YOLOv8n → head `[1,84,8400]`, both finite. The NPU-device run is the engine's
-job (tasks 8/11) and happens on Nivedellir, not here.
+job (tasks 8/11) and happens on the NPU machine, not here.
 
 ## LLM, ~1 B (llm, INT4, stateful, symmetric) — tested ✅
 
@@ -175,11 +175,13 @@ files); instead there are `openvino_tokenizer.*`, `openvino_detokenizer.*` and
 `openvino_config.json`. `config.json`'s `llm-1b-int4` `files` list is this exact
 12-name set — `build.py` ships only listed names and silently drops the rest.
 
-Two things remain with the engine side (tasks 8/11):
+Two things are settled with the engine side (tasks 8/11):
 
-- **NPU-runnability.** This is the GenAI-consumable stateful IR (DD-1 F2);
-  whether the raw-C loop (Option B) or `LLMPipeline` (Option A) drives it on the
-  NPU is settled by the compile-first smoke on Nivedellir (§6), not here.
+- **NPU-runnability.** This is the GenAI-consumable stateful IR (DD-1 F2).
+  The compile-first smoke on the NPU machine rejected the raw-C decode loop
+  (the IR's dynamic KV state doesn't compile on the NPU), so the shipped path
+  is OpenVINO GenAI's C API (`LLMPipeline` with `NPUW_DEVICES=NPU` and
+  `NPUW_FALLBACK_EXEC=false`), which compiles and runs the same IR.
 - **Fixed prompt.** The scored decode loop pre-ships the fixed prompt's
   `input_ids` (DD-1 §5.2.5), so the tokenizer/detokenizer models are present for
   the correctness spot-check, not the timed loop.

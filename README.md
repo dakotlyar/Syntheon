@@ -8,14 +8,15 @@ Every run is saved on your computer, and runs can be compared side by side.
 
 This is **v2**, a native C++/Qt rewrite of the Python SynBench. Phase 1 is the
 application shell: the screens, run orchestration, the history database,
-system information, the privileged-access model and packaging. Phase 2 makes
-the **CPU test real**: seven groups on all threads (integer, floating point +
-primes, SIMD, compression, encryption, sorting, physics) plus a single-thread
-mark, about 4½ minutes, with clock and temperature telemetry. It is
-calibrated so that the reference machine (Knowhere, a Ryzen AI Max+ 392)
-scores 1,000. The other six tests are still **stubs
-that produce plausible, seeded numbers**; the real ones arrive in later
-phases (see `ideas/` in the staff repository for the plan).
+system information, the privileged-access model and packaging. The **CPU
+test** is real: seven groups on all threads (integer, floating point + primes,
+SIMD, compression, encryption, sorting, physics) plus a single-thread mark,
+about 4½ minutes, with clock and temperature telemetry. It is calibrated so
+that the reference machine (a Ryzen AI Max+ 392) scores 1,000. The **RAM,
+GPU, storage and NPU tests** are real too, each added in its own phase with
+its own measured calibration anchor — the NPU test runs the machine's AI
+accelerator against a pinned model pack. Two tests remain as stubs that
+produce plausible, seeded numbers: AI inference and battery life.
 The last Python release is `v0.2.3`, kept in this repository's history.
 
 ## Running it
