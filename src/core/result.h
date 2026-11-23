@@ -111,7 +111,7 @@ struct RunRecord {
     RunKind kind = RunKind::Standard;
     RunStatus status = RunStatus::Running;
     QDateTime startedAt, finishedAt;
-    QString appVersion, appBuild;  // "2026.11.0", "linux-x64 abc1234"
+    QString appVersion, appBuild;  // "0.4.3", "linux-x64 abc1234"
     SystemSnapshot system;
     QVector<TestResult> tests;
     std::optional<double> overall;  // sum of scores where countsTowardOverall && score present

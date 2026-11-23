@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later
      Syntheon MSI (WiX v5, D9/D12). Built per architecture:
-       wix build -arch x64|arm64 -d Version=26.11.0 -d SourceDir=<stage> -d Arch=x64|arm64 -d IconPath=<repo>\assets\syntheon.ico -d UpgradeCode={...}
+       wix build -arch x64|arm64 -d Version=0.4.3 -d SourceDir=<stage> -d Arch=x64|arm64 -d IconPath=<repo>\assets\syntheon.ico -d UpgradeCode={...}
                  -o Syntheon-<ver>-windows-<arch>.msi packaging\windows\wix\Package.wxs
-     Version is the MSI form of the app version (26.11.N: MSI's first field is
-     limited to 255, so the year is YY). Each architecture has its own stable UpgradeCode,
+     Version is the MSI ProductVersion, the app version itself (X.Y.Z, semver:
+     three numeric fields, so it maps straight onto MSI's form). Each architecture has its own stable UpgradeCode,
      so an upgrade replaces only its own. -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Syntheon" Manufacturer="Syntheon" Version="$(Version)" UpgradeCode="$(UpgradeCode)"

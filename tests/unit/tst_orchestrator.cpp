@@ -219,7 +219,7 @@ TestResult untilCancelled(RunContext &ctx, const OptionValues &)
 RunMeta meta()
 {
     RunMeta m;
-    m.appVersion = QStringLiteral("2026.11.0");
+    m.appVersion = QStringLiteral("0.4.3");
     m.appBuild = QStringLiteral("linux-x64 test");
     m.system.machineLabel = QStringLiteral("Test machine");
     return m;
@@ -338,7 +338,7 @@ private slots:
         QCOMPARE(run.overall, std::optional<double>(600));
         QVERIFY(run.finishedAt.isValid());
         QVERIFY(run.tests[0].startedAt.isValid());
-        QCOMPARE(run.appVersion, QStringLiteral("2026.11.0"));
+        QCOMPARE(run.appVersion, QStringLiteral("0.4.3"));
         QCOMPARE(run.system.machineLabel, QStringLiteral("Test machine"));
         QCOMPARE(o.currentRun(), run);
 

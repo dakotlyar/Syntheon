@@ -1,6 +1,6 @@
 name: Release
 
-# A tag v<VERSION> (for example v2026.11.0) builds and tests everything with
+# A tag v<VERSION> (for example v0.4.3) builds and tests everything with
 # the CI workflow, then opens a DRAFT GitHub release with the five release
 # files. A person looks at the draft and publishes it. N1: the Linux ARM64
 # AppImage is built and statically checked but stays a CI artifact: it has

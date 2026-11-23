@@ -1681,7 +1681,7 @@ private slots:
                 rec.status = RunStatus::Completed;
                 rec.startedAt = r.startedAt;
                 rec.finishedAt = r.startedAt.addSecs(310);
-                rec.appVersion = QStringLiteral("2026.11.0");
+                rec.appVersion = QStringLiteral("0.4.3");
                 rec.appBuild = QStringLiteral("linux-x64 fixture");
                 rec.system.machineLabel = QStringLiteral("Fixture machine");
                 rec.tests = {r};

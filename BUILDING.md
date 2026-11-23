@@ -98,8 +98,8 @@ cmake --build --preset windows-x64-package
 cmake --install build/windows-x64-package --prefix stage
 ./packaging/windows/deploy.ps1 -Stage stage -HostQt $env:QT_ROOT_DIR
 ./packaging/checks/pe-check.ps1 -Tree stage -Arch x64
-iscc packaging\windows\syntheon.iss /DAppVersion=2026.11.0 /DArch=x64 /DSourceDir=$PWD\stage /DOutputDir=$PWD\out
-wix build -arch x64 -d Version=26.11.0 -d SourceDir=$PWD\stage -d IconPath=$PWD\assets\syntheon.ico -d "UpgradeCode={5E2C6D1B-8B1A-4C3E-9F55-0A6B2D7E4C11}" -o out\Syntheon-windows-x64.msi packaging\windows\wix\Package.wxs
+iscc packaging\windows\syntheon.iss /DAppVersion=0.4.3 /DArch=x64 /DSourceDir=$PWD\stage /DOutputDir=$PWD\out
+wix build -arch x64 -d Version=0.4.3 -d SourceDir=$PWD\stage -d IconPath=$PWD\assets\syntheon.ico -d "UpgradeCode={5E2C6D1B-8B1A-4C3E-9F55-0A6B2D7E4C11}" -o out\Syntheon-windows-x64.msi packaging\windows\wix\Package.wxs
 ```
 
 The C and C++ runtime ships next to the exe (`SYNTHEON_CRT_DIRS`), so neither
@@ -107,8 +107,8 @@ installer needs a redistributable. The exe embeds a manifest asking for
 administrator rights. The Inno installer reuses the Python SynBench's AppId, so
 it upgrades that install, which moves it to `Program Files\Syntheon`
 (`[InstallDelete]` removes `Program Files\SynBench` with the Python leftovers in
-it). The MSI version is `YY.MM.N` (`26.11.0`); everything else shows
-`2026.11.0`. `packaging/windows/test-install.ps1` is the silent
+it). The MSI version is `X.Y.Z` (`0.4.3`); everything else shows
+`0.4.3`. `packaging/windows/test-install.ps1` is the silent
 install / launch / uninstall / upgrade test CI runs.
 
 ## Cross builds (ARM64)

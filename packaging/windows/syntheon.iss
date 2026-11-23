@@ -2,9 +2,9 @@
 ;
 ; Inno Setup script for Syntheon v2 (one per architecture, D9).
 ;
-;   iscc packaging\windows\syntheon.iss /DAppVersion=2026.11.0 /DArch=x64 /DSourceDir=C:\stage /DOutputDir=C:\out
+;   iscc packaging\windows\syntheon.iss /DAppVersion=0.4.3 /DArch=x64 /DSourceDir=C:\stage /DOutputDir=C:\out
 ;
-;   AppVersion  display version (2026.11.N)
+;   AppVersion  display version (X.Y.Z, semver)
 ;   Arch        x64 or arm64
 ;   SourceDir   the `cmake --install` tree
 ;   OutputDir   where Syntheon-<ver>-windows-<arch>-setup.exe goes

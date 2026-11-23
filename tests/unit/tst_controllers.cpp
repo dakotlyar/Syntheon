@@ -150,7 +150,7 @@ private slots:
             r.kind = kind;
             r.status = RunStatus::Running;
             r.startedAt = QDateTime::currentDateTimeUtc().addSecs(-7200);
-            r.appVersion = QStringLiteral("2026.11.0");
+            r.appVersion = QStringLiteral("0.4.3");
             TestResult t = TestResult::withStatus(Status::NotRun, QStringLiteral("Queued"));
             t.testId = testId;
             r.tests = {t};

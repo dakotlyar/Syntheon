@@ -30,7 +30,7 @@ struct PlanItem {
 using Plan = QVector<PlanItem>;
 
 struct RunMeta {
-    QString appVersion;  // "2026.11.0"
+    QString appVersion;  // "0.4.3"
     QString appBuild;    // "linux-x64 abc1234"
     SystemSnapshot system;
     // The NPU model-pack base URL and cache root (Phase 4c D2), read fresh at

@@ -140,7 +140,7 @@ endif()
 
 # ---------------------------------------------------------------- Windows: manifest, version, icon
 if(WIN32)
-    # The exe's resources: icon and version info (file version 2026.11.N.0)
+    # The exe's resources: icon and version info (file version X.Y.Z.0)
     # from the .rc, plus the manifest asking for administrator rights (P12/D1).
     set(SYNTHEON_SOURCE_DIR "${PROJECT_SOURCE_DIR}")
     configure_file(windows/syntheon.rc.in "${CMAKE_CURRENT_BINARY_DIR}/syntheon.rc" @ONLY)

@@ -62,7 +62,7 @@ private:
         helper::Config c;
         c.entryPointPath = m_entry.toStdString();
         c.tablePath = m_table.toStdString();
-        c.buildId = "2026.11.0-dev+abc linux-x64 abc";
+        c.buildId = "0.4.3-dev+abc linux-x64 abc";
         c.euid = 1000;
         return helper::Core(c);
     }
@@ -92,7 +92,7 @@ private slots:
         const auto h = decodeHello(f.payload);
         QVERIFY(h);
         QCOMPARE(h->euid, 1000u);
-        QCOMPARE(h->buildId, std::string("2026.11.0-dev+abc linux-x64 abc"));
+        QCOMPARE(h->buildId, std::string("0.4.3-dev+abc linux-x64 abc"));
     }
 
     void pingAndShutdown()

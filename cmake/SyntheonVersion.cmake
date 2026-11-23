@@ -1,27 +1,26 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Version handling (P22). The VERSION file (YYYY.MM.N) is the single source of truth.
+# Version handling (P22). The VERSION file (X.Y.Z, semantic) is the single source of truth.
 #
 # syntheon_read_version(<file>) sets, in the caller's scope:
-#   SYNTHEON_VERSION          2026.11.0
+#   SYNTHEON_VERSION          0.4.3
 #   SYNTHEON_VERSION_MAJOR/MINOR/PATCH
-#   SYNTHEON_FILE_VERSION     2026.11.0.0   (Windows file version)
-#   SYNTHEON_MSI_VERSION      26.11.0       (MSI ProductVersion, D12)
+#   SYNTHEON_FILE_VERSION     0.4.3.0   (Windows file version)
+#   SYNTHEON_MSI_VERSION      0.4.3     (MSI ProductVersion; semver is already three numeric fields)
 function(syntheon_read_version file)
     file(STRINGS "${file}" _v LIMIT_COUNT 1)
     string(STRIP "${_v}" _v)
-    if(NOT _v MATCHES "^([0-9][0-9][0-9][0-9])\\.([0-9]+)\\.([0-9]+)$")
-        message(FATAL_ERROR "VERSION must be YYYY.MM.N, got '${_v}'")
+    if(NOT _v MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
+        message(FATAL_ERROR "VERSION must be X.Y.Z (semantic, no leading zeros), got '${_v}'")
     endif()
     set(_major ${CMAKE_MATCH_1})
     set(_minor ${CMAKE_MATCH_2})
     set(_patch ${CMAKE_MATCH_3})
-    math(EXPR _yy "${_major} % 100")
     set(SYNTHEON_VERSION "${_v}" PARENT_SCOPE)
     set(SYNTHEON_VERSION_MAJOR ${_major} PARENT_SCOPE)
     set(SYNTHEON_VERSION_MINOR ${_minor} PARENT_SCOPE)
     set(SYNTHEON_VERSION_PATCH ${_patch} PARENT_SCOPE)
     set(SYNTHEON_FILE_VERSION "${_v}.0" PARENT_SCOPE)
-    set(SYNTHEON_MSI_VERSION "${_yy}.${_minor}.${_patch}" PARENT_SCOPE)
+    set(SYNTHEON_MSI_VERSION "${_v}" PARENT_SCOPE)
 endfunction()
 
 # syntheon_generate_version_header() writes <build>/generated/syntheon_version.h

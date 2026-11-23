@@ -751,8 +751,7 @@ jobs:
         shell: pwsh
         run: |
           $v = (Get-Content VERSION -Raw).Trim()
-          $p = $v.Split('.')
-          $msi = "$($p[0].Substring(2)).$($p[1]).$($p[2])"
+          $msi = $v
           "SYNTHEON_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
           "SYNTHEON_MSI_VERSION=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append
 

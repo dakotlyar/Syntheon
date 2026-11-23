@@ -93,7 +93,7 @@ struct Fixture {
         r.kind = kind;
         r.status = RunStatus::Running;
         r.startedAt = QDateTime::currentDateTimeUtc().addSecs(-3600);
-        r.appVersion = QStringLiteral("2026.11.0");
+        r.appVersion = QStringLiteral("0.4.3");
         r.appBuild = QStringLiteral("linux-x64 test");
         r.system.machineLabel = QStringLiteral("Knowhere");
         r.tests = tests;

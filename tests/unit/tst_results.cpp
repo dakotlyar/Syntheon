@@ -89,7 +89,7 @@ private:
         r.status = status;
         r.startedAt = when.toUTC();
         r.finishedAt = when.addSecs(60).toUTC();
-        r.appVersion = QStringLiteral("2026.11.0");
+        r.appVersion = QStringLiteral("0.4.3");
         r.system.machineLabel = QStringLiteral("Knowhere · ASUS TUF Gaming A14");
         r.tests = tests;
         r.overall = computeOverall(tests, [](const QString &id) { return id != QLatin1StringView("battery"); });

@@ -4,7 +4,7 @@
 # (design 8, CI windows-x64), plus an upgrade over the REAL Python v0.2.3
 # Inno install (D10). Needs an elevated shell.
 #
-#   pwsh packaging/windows/test-install.ps1 -Inno <setup.exe> -Msi <file.msi> -OldInstaller <SynBench-Setup.exe> -Version 2026.11.0
+#   pwsh packaging/windows/test-install.ps1 -Inno <setup.exe> -Msi <file.msi> -OldInstaller <SynBench-Setup.exe> -Version 0.4.3
 param(
     [Parameter(Mandatory = $true)][string]$Inno,
     [Parameter(Mandatory = $true)][string]$Msi,

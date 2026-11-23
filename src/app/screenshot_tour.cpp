@@ -4,6 +4,7 @@
 #include "app/app_runtime.h"
 #include "storage/run_repository.h"
 #include "app/controllers/run_controller.h"
+#include "syntheon_version.h"
 
 #include <QCoreApplication>
 #include <QPointF>
@@ -139,7 +140,7 @@ void ScreenshotTour::seedRuns(int n)
         r.status = i == 1 ? RunStatus::Stopped : RunStatus::Completed;
         r.startedAt = QDateTime::currentDateTimeUtc().addDays(-(n - i) * 3);
         r.finishedAt = r.startedAt.addSecs(900);
-        r.appVersion = QStringLiteral("2026.11.0");
+        r.appVersion = QStringLiteral(SYNTHEON_DISPLAY_VERSION);
         r.system.machineLabel = QStringLiteral("Knowhere · ASUS TUF Gaming A14");
         for (const QString &id : {QStringLiteral("cpu"), QStringLiteral("ram"), QStringLiteral("storage")}) {
             if (i == 1 && id != QLatin1StringView("cpu"))
@@ -207,7 +208,7 @@ void ScreenshotTour::seedBatteryRun()
     r.status = RunStatus::Completed;
     r.startedAt = QDateTime::currentDateTimeUtc().addSecs(-3600);
     r.finishedAt = r.startedAt.addSecs(402 * 60);
-    r.appVersion = QStringLiteral("2026.11.0");
+    r.appVersion = QStringLiteral(SYNTHEON_DISPLAY_VERSION);
     r.system.machineLabel = QStringLiteral("Knowhere · ASUS TUF Gaming A14");
     TestResult t;
     t.testId = QStringLiteral("battery");

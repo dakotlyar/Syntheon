@@ -27,7 +27,7 @@ RunRecord sampleRun()
     r.status = RunStatus::Completed;
     r.startedAt = QDateTime(QDate(2026, 10, 15), QTime(14, 2, 3, 456), QTimeZone::UTC);
     r.finishedAt = r.startedAt.addSecs(180);
-    r.appVersion = QStringLiteral("2026.11.0");
+    r.appVersion = QStringLiteral("0.4.3");
     r.appBuild = QStringLiteral("linux-x64 abc1234");
     r.system.machineLabel = QStringLiteral("Tiamat");
     r.system.data.insert(QStringLiteral("cpu"), QJsonObject{{QStringLiteral("name"), QStringLiteral("Ryzen")}});

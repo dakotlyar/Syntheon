@@ -11,7 +11,7 @@ CREATE TABLE runs (
   status        TEXT NOT NULL CHECK (status IN ('running','completed','stopped','interrupted','recovered')),
   started_at    TEXT NOT NULL,            -- UTC ISO-8601 with ms
   finished_at   TEXT,
-  app_version   TEXT NOT NULL,            -- 2026.11.0
+  app_version   TEXT NOT NULL,            -- 0.4.3
   app_build     TEXT NOT NULL,            -- os-arch + git sha
   machine_label TEXT NOT NULL,            -- History "Machine" column
   overall_score REAL,

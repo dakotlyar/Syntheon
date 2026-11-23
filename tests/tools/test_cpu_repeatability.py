@@ -81,7 +81,7 @@ def make_db(path, runs, wal=False):
         con.execute("INSERT INTO runs (id, uuid, kind, status, started_at, finished_at, app_version, app_build, "
                     "machine_label, overall_score, system_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (i, f"00000000-0000-0000-0000-{i:012d}", "standard", r.get("run_status", "completed"),
-                     f"2026-10-18T1{i}:00:00.000Z", f"2026-10-18T1{i}:04:30.000Z", "2026.11.0", "linux-x64 test",
+                     f"2026-10-18T1{i}:00:00.000Z", f"2026-10-18T1{i}:04:30.000Z", "0.4.3", "linux-x64 test",
                      r.get("machine", "Test machine"), r.get("score"), "{}"))
         con.execute("INSERT INTO test_results (id, run_id, position, test_id, test_version, formula_version, status, "
                     "score, options_json) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -120,7 +120,7 @@ def make_ram_db(path, runs):
         con.execute("INSERT INTO runs (id, uuid, kind, status, started_at, finished_at, app_version, app_build, "
                     "machine_label, overall_score, system_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (i, f"00000000-0000-0000-0000-{i:012d}", "standard", "completed", f"2026-10-20T1{i}:00:00.000Z",
-                     f"2026-10-20T1{i}:02:30.000Z", "2026.11.0", "linux-x64 test", "Test machine", r["score"], "{}"))
+                     f"2026-10-20T1{i}:02:30.000Z", "0.4.3", "linux-x64 test", "Test machine", r["score"], "{}"))
         con.execute("INSERT INTO test_results (id, run_id, position, test_id, test_version, formula_version, status, "
                     "score, options_json) VALUES (?,?,?,?,?,?,?,?,?)", (i, i, 0, "ram", 0, 0, "ok", r["score"], "{}"))
         for g, sc in zip(RAM_GROUPS, r["subs"]):
