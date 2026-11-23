@@ -98,6 +98,10 @@ public:
     // call time (see ProbeContext). Empty = not configured; mocks leave them.
     virtual QString npuModelsBaseUrl() const { return {}; }
     virtual QString npuCacheRoot() const { return {}; }
+    // The compiled-in calibration manifest pin (§6.1 "The calibration SHA-pin"),
+    // 64 lower-case hex. Empty = use the calibrated default; a RunContext may
+    // override it (tests pin their own fixture manifest). Mirrors base URL flow.
+    virtual QString npuManifestPin() const { return {}; }
 };
 
 // Given to ITest::recover() at startup for a run left in 'running' (task 6).

@@ -120,6 +120,38 @@ private slots:
         QCOMPARE(QString::fromLatin1(sha256Hex(content)), r.manifest->models[0].files[0].sha256);
     }
 
+    void manifestPinEnforced()
+    {
+        // §6.1: the downloader's compile-in calibration pin makes a tampered or
+        // stoppered index fail closed before any file is fetched. A fixture
+        // manifest with the *wrong* pin is refused even though its files are
+        // correct; with the *right* pin it succeeds (the end-to-end path).
+        QTemporaryDir fixture;
+        QTemporaryDir cache;
+        QVERIFY(fixture.isValid());
+        QVERIFY(cache.isValid());
+        const QByteArray content = fixtureContent(6);
+        const QByteArray manifest = manifestFor(content);
+        QVERIFY(writeServer(fixture, manifest, content));
+        const QString baseUrl = QUrl::fromLocalFile(fixture.path() + QLatin1Char('/')).toString();
+
+        const QString goodPin = QString::fromLatin1(sha256Hex(manifest));
+        {
+            NpuDownloader downloader(baseUrl, cache.path(), goodPin);
+            const DownloadResult r = downloader.download(kVendor);
+            QVERIFY2(r.ok, qPrintable(r.error));
+            QVERIFY(r.manifest.has_value());
+        }
+        {
+            const QString wrongPin = QString(goodPin.size(), QLatin1Char('0'));
+            QVERIFY(wrongPin != goodPin);
+            NpuDownloader downloader(baseUrl, cache.path(), wrongPin);
+            const DownloadResult r = downloader.download(kVendor);
+            QVERIFY(!r.ok);
+            QVERIFY(r.error.contains(QLatin1StringView("calibrated pack")));
+        }
+    }
+
     void tamperedFileFailsClosed()
     {
         QTemporaryDir fixture;

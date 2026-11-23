@@ -13,10 +13,14 @@
 //                of its complete groups); a failed sub-test drops only its own
 //                sub-score.
 //
-// The anchors are placeholders (1.0) until the task-19 calibration sets them to
-// Nivedellir's measured medians (Nivedellir = 1,000); formulaVersion bumps to 1
-// at that point (§16.3), exactly as Storage's placeholder → frozen discipline
-// (4b commit 6ffcc01 kept testVersion 1 / formulaVersion 0 until task 13).
+// The anchors are calibrated to Nivedellir (Intel Core Ultra 7 268V / Intel
+// AI Boost), pack_version "2" at formulaVersion 1, dated 2026-11-22 from the
+// stable run cluster (runs 8–11; run 7's classify warm-up outlier is excluded)
+// so Nivedellir's own medians normalise to 1,000 (§16.3). The three values are
+// recorded in formula_v1.cpp; keep the exact digits there. formulaVersion
+// bumps whenever a real anchor changes, exactly as Storage's placeholder →
+// frozen discipline (4b commit 6ffcc01 kept testVersion 1 / formulaVersion 0
+// until task 13).
 
 #include "core/result.h"
 #include "core/scoring.h"

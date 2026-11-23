@@ -43,9 +43,10 @@ QByteArray sha256HexFile(const QString &path, const std::function<bool()> &cance
 
 } // namespace
 
-NpuDownloader::NpuDownloader(QString baseUrl, QString cacheRoot)
+NpuDownloader::NpuDownloader(QString baseUrl, QString cacheRoot, QString expectedManifestSha256)
     : m_baseUrl(std::move(baseUrl)),
-      m_cacheRoot(std::move(cacheRoot))
+      m_cacheRoot(std::move(cacheRoot)),
+      m_expectedManifestSha256(std::move(expectedManifestSha256))
 {
     m_baseUrl = m_baseUrl.trimmed();
 }
@@ -381,6 +382,16 @@ DownloadResult NpuDownloader::download(const QString &vendor, const std::functio
     // "manifest isn't valid JSON" (nit 3: fetchBytes pre-commit cancel).
     if (cancelled && cancelled()) {
         result.error = QStringLiteral("cancelled");
+        return result;
+    }
+    // §6.1 calibration pin: when NpuRun supplies the frozen pin, the downloaded
+    // index must hash to it. A tampered or stoppered manifest fails closed here
+    // (P-NET) before any file is fetched — a verified file against a modified
+    // index is no proof. Empty expected pin = no top-level check (test use).
+    if (!m_expectedManifestSha256.isEmpty()
+        && QString::fromLatin1(QCryptographicHash::hash(manifestBytes, QCryptographicHash::Sha256).toHex())
+               != m_expectedManifestSha256) {
+        result.error = QStringLiteral("the model-pack manifest doesn't match the calibrated pack (tampered index)");
         return result;
     }
     const std::optional<Manifest> manifest = parse(manifestBytes, &error);

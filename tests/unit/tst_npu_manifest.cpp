@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTest>
+#include <QCryptographicHash>
 
 #include <functional>
 
@@ -215,6 +216,18 @@ private slots:
         QVERIFY(isBad(rootWithFile([](QJsonObject &f) {
             f.insert(QStringLiteral("path"), QStringLiteral("c:\\abs\\resnet50.bin"));
         }), nullptr));
+    }
+
+    void nonCalibratedManifestRejected()
+    {
+        // The frozen calibration pin (§6.1) covers the *real* pack; any test
+        // fixture docs (or a tampered index) is not it.
+        const QString pin = calibratedManifestSha256();
+        QCOMPARE(pin.size(), 64);
+        // A fixture manifest never hashes to the frozen pin.
+        QVERIFY(QString::fromLatin1(
+                    QCryptographicHash::hash(json(goodRoot()), QCryptographicHash::Sha256).toHex())
+                != pin);
     }
 
     void vendorFilter()

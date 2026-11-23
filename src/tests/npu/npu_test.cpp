@@ -272,7 +272,13 @@ TestResult NpuRun::run()
         return TestResult::notAvailable(sb::npu::reasonString(sb::npu::NaReason::ModelMissing, {vendorName}));
 
     report(0.0, QStringLiteral("Downloading the model pack"));
-    sb::npu::NpuDownloader downloader(baseUrl, cacheRoot);
+    // The calibration manifest pin (§6.1): production always pins the calibrated
+    // pack; a context that supplies its own (tests) overrides it so the check
+    // still runs — never silently off.
+    const QString manifestPin = m_ctx.npuManifestPin().isEmpty()
+        ? sb::npu::calibratedManifestSha256()
+        : m_ctx.npuManifestPin();
+    sb::npu::NpuDownloader downloader(baseUrl, cacheRoot, manifestPin);
     const sb::npu::DownloadResult dl = downloader.download(manifestVendor, cancelFn());
     if (!dl.ok) {
         if (cancelled())
@@ -438,11 +444,11 @@ NpuTest::NpuTest()
     m_info.name = QStringLiteral("NPU");
     m_info.summary = QStringLiteral("Dedicated NPU inference: classification, detection, small LLM");
     m_info.colorToken = QStringLiteral("t-npu");
-    // testVersion 1: this is the real measurement (replaces the stub). The
-    // formula's anchors are placeholders until calibration (task 19), so
-    // formulaVersion stays 0 (§16.3).
+    // testVersion 1: this is the real measurement (replaces the stub).
+    // formulaVersion 1: the task-19 calibration froze the anchors to Nivedellir
+    // (Intel Core Ultra 7 268V / Intel AI Boost), pack_version "2" (§16.3).
     m_info.testVersion = 1;
-    m_info.formulaVersion = 0;
+    m_info.formulaVersion = 1;
     // D15: every run runs all three workloads; none is selectable.
     m_info.subTests = {{QStringLiteral("classify"), QStringLiteral("Classify"), false, true},
                        {QStringLiteral("detect"), QStringLiteral("Detect"), false, true},

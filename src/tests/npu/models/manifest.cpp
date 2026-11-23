@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QRegularExpression>
+#include <QCryptographicHash>
 
 #include <cmath>
 
@@ -17,6 +18,14 @@ namespace {
 constexpr int kSchema = 1;
 constexpr int kSha256Len = 64;
 constexpr double kMaxFileSize = 1.0e15;   // 1 PB: safely below 2^53 and qint64 max
+
+// The calibration pin (§6.1 "The calibration SHA-pin"): the SHA-256 of the
+// frozen pack_version "2" manifest (Nivedellir-calibrated, 2026-11-22). This
+// is baked into the app at calibration so a tampered index can't redirect a
+// verified download; the pack tooling records the same digest in
+// npu-models/manifest.sha256.
+const auto kCalibratedManifestSha256 = QStringLiteral(
+    "49c667e586648da8e80f161e9173c4494f27452eb607221834a951a50e8bf6dd");
 
 bool isLowerHex(const QString &s)
 {
@@ -127,6 +136,11 @@ std::optional<Manifest> parse(const QByteArray &json, QString *error)
     if (m.models.isEmpty())
         return fail(QStringLiteral("the manifest lists no models"));
     return m;
+}
+
+QString calibratedManifestSha256()
+{
+    return kCalibratedManifestSha256;
 }
 
 QVector<ManifestModel> forVendor(const Manifest &manifest, const QString &vendor)

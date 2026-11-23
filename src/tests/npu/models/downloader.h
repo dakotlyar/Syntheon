@@ -48,7 +48,11 @@ class NpuDownloader
 public:
     // baseUrl: the pack root — "https://…" or "file:///…" (tests); "" = not configured.
     // cacheRoot: the app data location (Storage::dataDir()).
-    explicit NpuDownloader(QString baseUrl, QString cacheRoot);
+    // expectedManifestSha256: the compiled-in calibration pin (§6.1 "The
+    // calibration SHA-pin"), 64 lower-case hex. Empty = no top-level manifest
+    // pin check (do NOT use in production — the app pins the calibrated pack).
+    // When set, a manifest whose bytes don't hash to it → download fails closed.
+    explicit NpuDownloader(QString baseUrl, QString cacheRoot, QString expectedManifestSha256 = {});
     ~NpuDownloader();
     NpuDownloader(const NpuDownloader &) = delete;
     NpuDownloader &operator=(const NpuDownloader &) = delete;
@@ -79,6 +83,7 @@ private:
 
     QString m_baseUrl;
     QString m_cacheRoot;
+    QString m_expectedManifestSha256;
 };
 
 } // namespace sb::npu

@@ -76,10 +76,12 @@ public:
     PrivilegedOps &privileged() override { return m_priv; }
     QString npuModelsBaseUrl() const override { return m_baseUrl; }
     QString npuCacheRoot() const override { return m_cacheRoot; }
+    QString npuManifestPin() const override { return m_manifestPin; }
 
     void setSystem(const SystemSnapshot &s) { m_system = s; }
     void setNpuModelsBaseUrl(const QString &url) { m_baseUrl = url; }
     void setNpuCacheRoot(const QString &root) { m_cacheRoot = root; }
+    void setNpuManifestPin(const QString &pin) { m_manifestPin = pin; }
     void cancelOn(const QString &stage) { m_cancelOn = stage; }
     Clock::time_point cancelAt() const { return m_cancelAt.load(); }
     bool wentBackwards() const { return m_backwards; }
@@ -95,6 +97,7 @@ private:
     QString m_cancelOn;
     QString m_baseUrl;
     QString m_cacheRoot;
+    QString m_manifestPin;
     bool m_backwards = false;
     SystemSnapshot m_system;
     UnavailablePrivilegedOps m_priv;
@@ -131,8 +134,10 @@ const ModelFix kModels[] = {
 // Writes a fake "server" under `fixture`: `npu-models/manifest.json` plus one
 // file per model, all vendor "intel". With `tamper` the served file bytes don't
 // match the declared SHA256, so the downloader must fail closed (P-NET).
+// `*manifestPin` (optional) receives the SHA-256 of the written manifest bytes,
+// so NpuTest's RunContext can pin it (the fixture pack, not the calibrated one).
 // Returns false on any write failure.
-bool writeServer(QTemporaryDir &fixture, bool tamper = false)
+bool writeServer(QTemporaryDir &fixture, bool tamper = false, QString *manifestPin = nullptr)
 {
     const QString root = QDir(fixture.path()).filePath(QStringLiteral("npu-models"));
     QJsonArray models;
@@ -155,8 +160,11 @@ bool writeServer(QTemporaryDir &fixture, bool tamper = false)
     QFile mf(root + QStringLiteral("/manifest.json"));
     if (!QDir().mkpath(root) || !mf.open(QIODevice::WriteOnly))
         return false;
-    mf.write(QJsonDocument(manifest).toJson(QJsonDocument::Compact));
+    const QByteArray manifestBytes = QJsonDocument(manifest).toJson(QJsonDocument::Compact);
+    mf.write(manifestBytes);
     mf.close();
+    if (manifestPin)
+        *manifestPin = QString::fromLatin1(sha256Hex(manifestBytes));
 
     for (const ModelFix &m : kModels) {
         const QByteArray served = tamper ? bytes(m.seed + 100) : bytes(m.seed);
@@ -192,7 +200,7 @@ private slots:
         QCOMPARE(t.info().name, QStringLiteral("NPU"));
         QCOMPARE(t.info().colorToken, QStringLiteral("t-npu"));
         QCOMPARE(t.info().testVersion, 1);
-        QCOMPARE(t.info().formulaVersion, 0);   // placeholder anchors until task 19
+        QCOMPARE(t.info().formulaVersion, 1);   // task-19 calibrated anchors (Nivedellir)
         QStringList subs;
         for (const SubTestInfo &s : t.info().subTests) {
             subs << s.id;
@@ -218,12 +226,14 @@ private slots:
         QTemporaryDir cache;
         QVERIFY(server.isValid());
         QVERIFY(cache.isValid());
-        QVERIFY(writeServer(server));
+        QString manifestPin;
+        QVERIFY(writeServer(server, false, &manifestPin));
 
         NpuTest t;
         FakeRunContext ctx;
         ctx.setNpuModelsBaseUrl(QUrl::fromLocalFile(server.path() + QLatin1Char('/')).toString());
         ctx.setNpuCacheRoot(cache.path());
+        ctx.setNpuManifestPin(manifestPin);
         const TestResult r = t.run(ctx, {});
 
         QVERIFY2(r.status == Status::Ok, qPrintable(r.statusReason));
@@ -270,12 +280,14 @@ private slots:
         QTemporaryDir cache;
         QVERIFY(server.isValid());
         QVERIFY(cache.isValid());
-        QVERIFY(writeServer(server));
+        QString manifestPin;
+        QVERIFY(writeServer(server, false, &manifestPin));
 
         NpuTest t;
         FakeRunContext ctx;
         ctx.setNpuModelsBaseUrl(QUrl::fromLocalFile(server.path() + QLatin1Char('/')).toString());
         ctx.setNpuCacheRoot(cache.path());
+        ctx.setNpuManifestPin(manifestPin);
         ctx.cancelOn(QStringLiteral("Detect · window 2 of 3"));
 
         const TestResult r = t.run(ctx, {});
@@ -295,12 +307,14 @@ private slots:
         QTemporaryDir cache;
         QVERIFY(server.isValid());
         QVERIFY(cache.isValid());
-        QVERIFY(writeServer(server, /*tamper=*/true));
+        QString manifestPin;
+        QVERIFY(writeServer(server, /*tamper=*/true, &manifestPin));
 
         NpuTest t;
         FakeRunContext ctx;
         ctx.setNpuModelsBaseUrl(QUrl::fromLocalFile(server.path() + QLatin1Char('/')).toString());
         ctx.setNpuCacheRoot(cache.path());
+        ctx.setNpuManifestPin(manifestPin);
         const TestResult r = t.run(ctx, {});
 
         // The SHA256 mismatch aborts the download → model_missing N/A, never a

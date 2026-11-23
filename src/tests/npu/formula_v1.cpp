@@ -5,11 +5,13 @@ namespace sb::npu::formula_v1 {
 
 namespace {
 
-// Placeholder anchors (1.0) — calibrated in task 19 to Nivedellir = 1,000
+// Nivedellir (Intel Core Ultra 7 268V / Intel AI Boost) stable-cluster medians
+// (runs 8–11, cal. 2026-11-22; run 7's classify warm-up outlier excluded),
+// pack_version "2". Each metric / its anchor → 1.0 → Nivedellir scores 1,000
 // (§16.3). Never change a real anchor without bumping formulaVersion.
-constexpr double kClassifyAnchor = 1.0;  // img/s
-constexpr double kDetectAnchor = 1.0;    // img/s
-constexpr double kLlmAnchor = 1.0;       // tok/s
+constexpr double kClassifyAnchor = 824.150456;  // img/s
+constexpr double kDetectAnchor = 445.047930;    // img/s
+constexpr double kLlmAnchor = 50.229020;        // tok/s
 
 } // namespace
 

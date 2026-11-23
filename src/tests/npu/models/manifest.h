@@ -43,6 +43,13 @@ struct Manifest {
 // is accepted and normalised).
 std::optional<Manifest> parse(const QByteArray &json, QString *error);
 
+// The frozen calibration pin (64 lower-case hex): the SHA-256 of the
+// pack_version "2" manifest (Nivedellir-calibrated, 2026-11-22). The pack
+// tooling records the same digest in npu-models/manifest.sha256. NpuTest
+// enforces this pin by default; a RunContext may override it (tests supply
+// their own fixture pin) so the app always pins the calibrated pack (§6.1).
+QString calibratedManifestSha256();
+
 // The models for one vendor (case-insensitive), in manifest order (N3: the
 // downloader only fetches the detected vendor's files).
 QVector<ManifestModel> forVendor(const Manifest &manifest, const QString &vendor);
