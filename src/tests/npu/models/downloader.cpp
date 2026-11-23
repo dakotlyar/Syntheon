@@ -84,6 +84,9 @@ QString NpuDownloader::localPath(const Manifest &manifest, const ManifestFile &f
 bool NpuDownloader::fetchBytes(QNetworkAccessManager &nam, const QUrl &url,
                                const std::function<bool()> &cancelled, QByteArray *out, QString *error)
 {
+    QString discardedError;
+    if (!error)
+        error = &discardedError;   // callers may not want the text
     // A manifest is ~arrays of metadata; cap it so a mis-served endpoint can't
     // stream a huge body into RAM (flag #2 recommendation).
     constexpr qint64 kManifestCap = 1024 * 1024;  // ~1 MiB
@@ -164,6 +167,9 @@ bool NpuDownloader::fetchBytes(QNetworkAccessManager &nam, const QUrl &url,
 bool NpuDownloader::ensureFile(QNetworkAccessManager &nam, const QString &packVersion, const ManifestFile &file,
                                const std::function<bool()> &cancelled, QString *error)
 {
+    QString discardedError;
+    if (!error)
+        error = &discardedError;   // callers may not want the text
     const QString target = cacheFilePath(packVersion, file.path);
 
     // Cached + verified: reuse the downloaded file, so re-runs don't re-fetch
