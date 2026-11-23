@@ -16,6 +16,8 @@ namespace {
 const char *const kNetworkFileSystems[] = {
     "nfs",     "nfs4",      "smbfs",      "cifs", "9p",      "sshfs", "fuse.sshfs",
     "fuse",    "davfs2",    "rclone",     "s3fs", "afpfs",   "gvfs",  "fuse.rclone",
+    "ceph",    "fuse.ceph", "glusterfs",  "fuse.glusterfs", "lustre", "ncpfs", "afs",
+    "fuse.s3fs", "fuse.davfs", "fuse.gvfsd-fuse", "smb3", "beegfs", "moosefs", "fuse.mfs",
 };
 
 // bytes -> a GiB string (1024-based) with one decimal, the trailing ".0"

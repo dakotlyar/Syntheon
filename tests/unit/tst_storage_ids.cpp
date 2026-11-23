@@ -110,6 +110,8 @@ private slots:
         QVERIFY(isNetworkMount(QStringLiteral("/mnt/share"), QStringLiteral("cifs")));
         QVERIFY(isNetworkMount(QStringLiteral("/mnt/fuse"), QStringLiteral("fuse.sshfs")));
         QVERIFY(isNetworkMount(QStringLiteral("/mnt/s3"), QStringLiteral("S3FS")));  // case-insensitive
+        for (const char *fs : {"ceph", "glusterfs", "fuse.glusterfs", "lustre"})
+            QVERIFY2(isNetworkMount(QStringLiteral("/mnt/x"), QString::fromLatin1(fs)), fs);
         QVERIFY(!isNetworkMount(QStringLiteral("/"), QStringLiteral("ext4")));
         QVERIFY(!isNetworkMount(QStringLiteral("/"), QStringLiteral("btrfs")));
         // Windows drive roots are local; UNC shares are network, whatever fs.

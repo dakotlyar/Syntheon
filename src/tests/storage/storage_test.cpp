@@ -429,6 +429,13 @@ QString StorageRun::guard()
     // Not in the snapshot (or no snapshot storage field): fall back to the live
     // volume.
     const QStorageInfo info(m_drive);
+    if (info.isValid() && info.isReady()) {
+        Drive live2;
+        live2.mount = m_drive;
+        live2.fileSystem = QString::fromLatin1(info.fileSystemType());
+        if (isBlockedDrive(live2))
+            return QStringLiteral("the drive is a network mount (blocked)");
+    }
     if (info.isValid() && info.isReady() && !sb::storage::hasEnoughFreeSpace(info.bytesAvailable(), m_fileSize))
         return freeSpaceError(info.bytesAvailable(), m_fileSize);
     return {};
@@ -729,8 +736,9 @@ void StorageRun::cleanup()
     }
     // Remove the target folder and file (normal completion, cancel, error and
     // crash), never following a link (P6).
-    if (!m_targetDir.isEmpty())
-        sb::fs::removeTreeNoFollow(m_targetDir);
+    if (!m_targetDir.isEmpty() && !sb::fs::removeTreeNoFollow(m_targetDir))
+        m_ctx.log(LogLevel::Warning, QStringLiteral("Couldn't fully delete the test folder %1; the run's cleanup will retry")
+                                          .arg(m_targetDir));
     m_targetDir.clear();
 }
 
