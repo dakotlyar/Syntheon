@@ -37,6 +37,7 @@
 #include <QFileInfo>
 
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -57,6 +58,15 @@ struct ov_model;
 struct ov_compiled_model;
 struct ov_infer_request;
 struct ov_tensor;
+
+// ov_shape_t (ov_shape.h) and the ov_element_type_e values the output check
+// needs (ov_common.h: DYNAMIC=0, BOOLEAN, BF16, F16, F32=4 — checked against the
+// 2026.x C headers).
+struct ov_shape_t {
+    std::int64_t rank;
+    std::int64_t *dims;
+};
+constexpr int kOvElementF32 = 4;
 
 // ov_version_t (ov_core.h): both string members are owned by the runtime; free
 // the whole struct with ov_version_free.
@@ -111,6 +121,9 @@ struct OpenVinoApi {
     int (*getOutputTensor)(const ov_infer_request *request, std::size_t idx, ov_tensor **tensor) = nullptr;
     int (*tensorData)(const ov_tensor *tensor, void **data) = nullptr;             // writes *data
     int (*tensorByteSize)(const ov_tensor *tensor, std::size_t *byte_size) = nullptr;
+    int (*tensorElementType)(const ov_tensor *tensor, int *type) = nullptr;
+    int (*tensorShape)(const ov_tensor *tensor, ov_shape_t *shape) = nullptr;
+    int (*shapeFree)(ov_shape_t *shape) = nullptr;
     void (*tensorFree)(ov_tensor *tensor) = nullptr;                               // frees a by_index wrapper
     void (*inferRequestFree)(ov_infer_request *request) = nullptr;
     int (*getVersion)(ov_version *version) = nullptr;      // optional: absent → "" version
@@ -270,6 +283,12 @@ public:
         // just before or just after the 5 s edge, and stamping 5.0 would inflate
         // the rate by up to ~10 % for slower (detect/llm) workloads.
         out.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        // The real output check, once per window and AFTER the clock stopped:
+        // the output tensor still holds the last inference's result. A bad
+        // output (wrong shape/class count, NaN/Inf) zeroes `valid`, which the
+        // workload layer turns into an Error rather than a scored rate.
+        if (out.units > 0 && !visionOutputPlausible(workload))
+            out.valid = 0;
         return true;
     }
 
@@ -441,6 +460,15 @@ private:
         m_api.tensorByteSize = resolve<decltype(m_api.tensorByteSize)>(capi, "ov_tensor_get_byte_size", error);
         if (!m_api.tensorByteSize)
             return false;
+        m_api.tensorElementType = resolve<decltype(m_api.tensorElementType)>(capi, "ov_tensor_get_element_type", error);
+        if (!m_api.tensorElementType)
+            return false;
+        m_api.tensorShape = resolve<decltype(m_api.tensorShape)>(capi, "ov_tensor_get_shape", error);
+        if (!m_api.tensorShape)
+            return false;
+        m_api.shapeFree = resolve<decltype(m_api.shapeFree)>(capi, "ov_shape_free", error);
+        if (!m_api.shapeFree)
+            return false;
         m_api.tensorFree = resolve<decltype(m_api.tensorFree)>(capi, "ov_tensor_free", error);
         if (!m_api.tensorFree)
             return false;
@@ -588,11 +616,10 @@ private:
         return true;
     }
 
-    // The §2 correctness sentinel, reduced to an output-presence check here: the
-    // precise argmax-range / box-count / token-count checks live in the workload
-    // layer (task 11), which owns model shape knowledge. The engine counts an
-    // inference valid when its output tensor is non-empty. The by_index getter
-    // heap-allocates a fresh wrapper each call → free it every time (C1 leak).
+    // Per-inference sentinel (inside the timed loop, so deliberately trivial):
+    // the output tensor is non-empty. The by_index getter heap-allocates a fresh
+    // wrapper each call → free it every time (C1 leak). The real content check
+    // is visionOutputPlausible(), run once per window after the clock stops.
     bool outputSanity()
     {
         ov_tensor *output = nullptr;
@@ -602,6 +629,50 @@ private:
         const int status = m_api.tensorByteSize(output, &bytes);
         m_api.tensorFree(output);
         return status == kOk && bytes > 0;
+    }
+
+    // Content check of the last vision inference's output (EC-P +2: a plausible
+    // wrong score). The synthetic input is a byte pattern, so no particular
+    // class/box is asserted — only that the output has the model's shape and
+    // every value is finite. classify (ResNet-50): f32 [1,1000]. detect
+    // (YOLOv8n): f32 [1,84,8400] — rank 3, >= 5 channels (4 box + >= 1 class),
+    // >= 1 anchor. Other element types can't be scanned here and fail closed.
+    bool visionOutputPlausible(const QString &workload)
+    {
+        constexpr std::int64_t kClassifyClasses = 1000;
+        ov_tensor *output = nullptr;
+        if (m_api.getOutputTensor(m_request, 0, &output) != kOk || !output)
+            return false;
+        bool ok = false;
+        int type = -1;
+        ov_shape_t shape{0, nullptr};
+        void *data = nullptr;
+        std::size_t bytes = 0;
+        if (m_api.tensorElementType(output, &type) == kOk && m_api.tensorShape(output, &shape) == kOk
+            && m_api.tensorData(output, &data) == kOk && data && m_api.tensorByteSize(output, &bytes) == kOk
+            && type == kOvElementF32 && shape.dims && shape.rank > 0) {
+            std::int64_t count = 1;
+            for (std::int64_t d = 0; d < shape.rank; ++d)
+                count *= shape.dims[d];
+            const bool classify = (workload == QLatin1StringView("classify"));
+            const bool shapeOk = classify ? (count == kClassifyClasses)
+                                          : (shape.rank == 3 && shape.dims[0] == 1 && shape.dims[1] >= 5
+                                             && shape.dims[2] >= 1);
+            if (shapeOk && count > 0 && bytes == std::size_t(count) * sizeof(float)) {
+                ok = true;
+                const float *f = static_cast<const float *>(data);
+                for (std::int64_t i = 0; i < count; ++i) {
+                    if (!std::isfinite(f[i])) {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if (shape.dims)
+            m_api.shapeFree(&shape);
+        m_api.tensorFree(output);
+        return ok;
     }
 
     // ---- LLM via OpenVINO GenAI (DD-1 §5.4 Option A, C API) ----

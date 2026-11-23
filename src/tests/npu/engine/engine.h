@@ -47,7 +47,7 @@ struct LoadedModel {
 struct Inference {
     double seconds = 0.0;   // wall-clock for this batch (excl. first-load compile)
     std::int64_t units = 0; // images processed, or tokens generated
-    std::int64_t valid = 0; // sanity check: argmax in range / boxes plausible / tokens > 0
+    std::int64_t valid = 0; // sanity check: output shape + all-finite (vision, once per window) / tokens > 0 (LLM)
     // llm only: the time from the prompt to the first generated token, in
     // seconds (0 = not measured). The workload reports it as the `llm.ttft`
     // metric (§9, reported, not scored); the real-vendor engines fill it during
