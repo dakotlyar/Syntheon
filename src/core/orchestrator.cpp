@@ -333,8 +333,14 @@ public:
         // removes the folder itself (no-follow); here we just drop the stale
         // scratch_paths row so it isn't reported as a leftover on next startup.
         if (!m_targetScratch.isEmpty()) {
-            fs::removeTreeNoFollow(m_targetScratch);   // idempotent safety net
-            m_s.sinkCall([&](QString &e) { return m_s.sink.removeScratchPath(m_s.header.uuid, m_targetScratch, &e); });
+            // Idempotent safety net. Only drop the registration once the folder
+            // is really gone; otherwise keep the row so crash recovery retries.
+            if (fs::removeTreeNoFollow(m_targetScratch))
+                m_s.sinkCall([&](QString &e) { return m_s.sink.removeScratchPath(m_s.header.uuid, m_targetScratch, &e); });
+            else
+                m_s.log(LogLevel::Warning, m_testId,
+                        QStringLiteral("Couldn't delete the test's folder %1; it will be retried on next startup")
+                            .arg(m_targetScratch));
             m_targetScratch.clear();
         }
     }
